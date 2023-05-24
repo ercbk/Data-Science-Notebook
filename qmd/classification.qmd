@@ -1,0 +1,506 @@
+# Classification
+
+TOC
+
+* Misc
+* Diagnostics
+* Class Imbalance
+* Calibration
+* Feature Importance
+	Discriminant Analysis
+	
+
+
+
+Misc
+
+* Also see [Regression, Logistic](Regression, Logistic)
+* Guide for suitable baseline models: [link](https://ludwigstumpp.com/ml-baselines)
+* If you have mislabelled target classes, try AdaSampling to correct the labels ([article](https://towardsdatascience.com/building-classifiers-with-biased-classes-adasampling-comes-to-the-rescue-8212814264e3))
+* Sample size requirements
+	* Logistic Regression: Looks like somewhere between n = 246 to 384. (Harrell, [link](https://stats.stackexchange.com/questions/584386/how-to-interpret-a-logistic-regression-result-with-continuous-variables))
+		* Also see RMS
+	* RF: 200 events per candidate feature (Harrell, [link](https://hbiostat.org/rmsc/lrm.html))
+* Undersampling non-events(0s) is the popular way to balance the target variable in data sets but other ma be worth exploring while building the model.
+* Spline don't bin continuous, baseline, adjustment variables, where "baseline" means the patients measurements before treatment. Lack of fit will then come only from omitted interaction effects.  (Harrell)
+	* e.g.: if older males are much more likely to receive treatment B than treatment A than what would be expected from the effects of age and sex alone, adjustment for the additive propensity would not adequately balance for age and sex.
+* The best information to present to the patient is the estimated individualized risk of the bad outcome separately under all treatment alternatives. That is because patients tend to think in terms of absolute risk, and differences in risks don’t tell the whole story ([Harrell](https://www.fharrell.com/post/rdist/))
+	* A risk difference (RD, also called absolute risk reduction) often means different things to patients depending on whether the base risk is very small, in the middle, or very large.
+* Recommended metrics to be reported for medical studies ([Harrell](https://www.fharrell.com/post/rdist/)). This is perhaps generalizable to any RCT with a binary outcome.
+	* The distribution of Risk Difference (RD)
+	* covariate-adjusted OR
+	* adjusted marginal RD (mean personalized predicted risk as if all patients were on treatment A minus mean predicted risk as if all patients were on treatment B) (emmeans?)
+	* median RD
+
+
+
+Diagnostics
+
+* Also see [Regression, Logistic](Regression, Logistic) >> Diagnostics
+* _“During the initial phase of model building, a good strategy for data sets with two classes is to focus on the AUC statistics from these curves instead of metrics based on hard class predictions. Once a reasonable model is found, the ROC or precision-recall curves can be carefully examined to find a reasonable cutoff for the data and then qualitative prediction metrics can be used.” – 3.2.2 Classification Metrics" Kuhn and Kjell_
+* "Stable" AUC requirements for 0/1 outcome:
+	* paper: [Modern modelling techniques are data hungry: a simulation study for predicting dichotomous endpoints | BMC Medical Research Methodology | Full Text](https://bmcmedresmethodol.biomedcentral.com/articles/10.1186/1471-2288-14-137)
+	* Logistic Regression: 20 to 50 events per predictor variable
+	* Random Forest and SVM: greater than 200 to 500 events per predictor variable
+
+
+
+Class Imbalance
+
+* Issues
+	* Using Accuracy as a metric
+		* If the positivity rate is just 1%, then a naive classifier labeling everything as negative has 99% accuracy by definition
+	* If you've used subsampling, then the training data is not the same as the data used in production
+	* Low event rate
+		* If you only have 10 to 100 positive samples, the model may easily memorize these samples, leading to an overfit model that generalized poorly
+		* May result in large CIs for your effect estimate (see Gelman [post](https://statmodeling.stat.columbia.edu/2023/04/04/association-between-low-density-lipoprotein-cholesterol-and-all-cause-mortality/))
+* Check Imbalance
+
+```
+data %>%
+  count(class) %>%
+  mutate(prop = n / sum(n)) %>%
+  pretty_print()
+```
+
+* Misc
+	* Also see
+		* up/down-sampling in [Model Building, tidymodels](Model Building, tidymodels)
+		* Importance weights in [Survey, Analysis](Survey, Analysis) \>> Modeling >> Tidymodels
+		* [Paper](https://twitter.com/MaartenvSmeden/status/1495668297630633985): Subsampling without calibration will likely be more harmful than without subsampling
+	* It is perfectly ok to train a model on 1M negatives and 10K positives (i.e. plenty of events), as long as you avoid using accuracy as a metric
+		* 1K to 10K events might be enough for the ML algorithm to learn from
+		* For a RF model: 200 events per candidate feature (Harrell,  [link](https://hbiostat.org/rmsc/lrm.html))
+	* Unless recalibration is applied, applying subsampling to correct class imbalance will lead to overpredicting the minority class (discrimination) and worse calibration when using logistic regression or ridge regression ([paper](https://academic.oup.com/jamia/article/29/9/1525/6605096?login=false))
+		* Paper used random undersampling (RUS), random oversampling (ROS), and SMOTE (Synthetic Minority Oversampling Technique)
+		* Event Fractions: 1%, 10%, 30%
+		* N: 2500, 5000; p: 3, 6, 12, 24
+		* "We anticipate that risk miscalibration will remain present regardless of type of model or imbalance correction technique, unless the models are recalibrated. However, class imbalance correction followed by recalibration is only worth the effort if imbalance correction leads to better discrimination of the resulting models."
+			* They used what looked to be Platt Scaling for recalibration
+		* Also see [Model Building, tidymodels](Model Building, tidymodels) >> Tune >> CV and Tune Model with Multiple Recipes for an example of how downsampling (w/o calibration) + glmnet affects class prediction and GOF metrics
+	* SOTA
+		* TabDDPM: Modeling Tabular Data with Diffusion Models ([Raschka Thread](https://twitter.com/rasbt/status/1579110843081691136))
+	* Imbalanced Classification via Layered Learning (ICLL)
+		* For code, see [article](https://towardsdatascience.com/how-to-tackle-class-imbalance-without-resampling-47bbeb2180aa)
+		* A hierarchical model composed of two levels:
+			* Level 1: a model is built to split easy instances from borderline ones.
+				* The goal is to predict if an input instance belongs to a cluster with at least one observation from the minority class.
+			* Level 2: we discard the easy cases. Then, we build a model to solve the original classification task with the remaining data.
+				* The first level affects the second one by removing easy instances from the training set.
+		* In both levels, the imbalanced problem is reduced, which makes the modeling task simpler.
+* **Subsampling** can refer to up/oversampling or down/undersampling.
+* Use cases for downsampling the majority class
+	* when the training data doesn’t fit into memory (and your ML training pipeline requires it to be in memory), or
+	* when model training takes unreasonably long (days to weeks), causing too long iteration cycles, and preventing you from iterating quickly.
+* Using a domain knowledge filter for downsampling
+	* a simple heuristic rule that cuts down most of the majority class, while keeping nearly all of the minority class.
+		* e.g. if a rule can retain 99% of positives but only 1% of the negatives, this would make a great domain filter
+	* Examples
+		* credit card fraud prediction: filter for new credit cards, i.e. those without a purchase history.
+		* spam detection: filter for Emails from addresses that haven’t been seen before.
+		* e-commerce product classification: filter for products that contain a certain keyword, or combination of keywords.
+		* ads conversion prediction: filter for a certain demographic segment of the user population.
+* It is extremely important that subsampling occurs _inside of resampling_. Otherwise, the resampling process can produce poor estimates of model performance.
+	* data leakage: if you first upsample the data and then split the data into training (aka analysis set) and validation (aka assessment set) folds, your model can simply memorize the positives from the training data and achieve artificially strong performance on the validation data, causing you to think that the model is much better than it actually is.
+	* The subsampling process should only be applied to the analysis (aka training) set. The assessment (aka validation) set should reflect the event rates seen “in the wild.”
+		* Does [{recipe}]{style='color: #990000'} handle this correctly?
+* Process
+	* Subsample the data only in the analysis set
+	* Perform CV algorithm selection and tuning using a suitable metric for class imbalance
+	* Use same metric to get score on the test set
+* Tuning parameter (last resort)
+	* XGBoost and LightGBM have a parameter called `scale_pos_weight`, which up-weighs positive samples when computing the gradient at each boosting iteration
+	* Unlikely to have a major effect and probably won't generalize well.
+
+
+
+Calibration
+
+* **Calibrated** \- When the predicted probabilities from a model match the observed distribution of probabilities for each class.
+	* Calibration Plots visualize this comparison of distributions
+	* Calibration mesasure are important for validating a predictive model
+	Logistic Regression models are usually well-calibrated, but most ML and DL model predicted probabilities aren't directly produced by the algorithms and aren't usually calibrated
+	* RF models can also benefit from calibration although given enough data, they are already pretty well calibrated
+	* SVM, Naive Bayes, boosted tree algorithms, and DL models benefit most from calibration
+	* An unintended consequence of applying calibration models can be the worsening of calibration for models that are already well calibrated
+* If a model isn't calibrated, then the magnitude of the predicted probability cannot be interpreted as the likelihood of an event
+	* e.g. If 0.66 and 0.67 are two predicted probabilities from an uncalibrated xgboost model, the 0.67 prediction cannot be interpreted as more likely to be an event than the 0.66 prediction.
+	* Miscalibrated predictions don't allow you to have more confidence in a label with a higher probability than a label with a lower probability.
+	* See (below) the introduction in the paper, "A tutorial on calibration measurements ..." for examples of scenarios where calibration of risk scoring model is essential. If you can't trust the predicted probabilities (i.e. risk) then decision-making is impossible.
+		* also this [paper](https://bmcmedicine.biomedcentral.com/articles/10.1186/s12916-019-1466-7) which also explains some sources of miscalibration (e.g. dataset from region with low incidence, measurement error, etc.)
+* Even if a model isn't caibrated and depending on the metric, it can still be more accurate than a calibrated model.
+	* Poor calibration may make an algorithm less clinically useful than a competitor algorithm that has a lower AUC but is well calibrated ([paper](https://bmcmedicine.biomedcentral.com/articles/10.1186/s12916-019-1466-7))
+	* Calibration doesn't affect the AUROC (does not rely on predicted probabilities) but does affect the Brier Score (does rely on predicted probabilities) ([paper](https://www.ncbi.nlm.nih.gov/pmc/articles/PMC7075534/))([Harrell](https://discourse.datamethods.org/t/rms-describing-resampling-validating-and-simplifying-the-model/4790/75?u=erc_bk))
+	* Since thresholds are based on probabilities, I don't see how a valid, optimized threshold can be established for an uncalibrated model
+	* Wonder how this affects model-agnostic metrics, feature importance, shap, etc.
+* Basic Workflow
+	* Misc
+		* Ideally you'd want each model (i.e. tuning parameter combination) being scored in a CV or a nested CV to have its own calibration model, but it's not practical. But also, it's unlikely an algorithm with a slightly different parameter value combination with have a substantially different predicted probability distribution, and it's the algorithm itself that's the salient factor. Therefore, for now, I'd go with 1 calibration model per algorithm.
+	* Process
+		* Split data into Training, Calibration, and Test
+		* For each algorithm, train the algorithm on the _Training_ set, and create the calibration model using it and the _Calibration_ set.
+			* Each algorithm with have it's own calibration model
+			* See below, Example: AdaBoost in Py using CV calibrator
+				* I like sklearn's ideas for training a calibration model
+		* Use the _Training_ set for CV or Nested CV
+		* For each split during CV or Nested CV (outer loop)
+			* Train the algorithm on the training fold, predict on the validation fold, calibrate predictions with calibration model, score the calibrated predictions for that fold
+				* The calibration model could be used in the tuning process in the inner loop of Nested CV as well
+			* Scores should include calibration metrics (see [Diagnostics, Classification](Diagnostics, Classification) >> Calibration >> Basic Workflow)
+		* The rest is normal CV/Nested CV procedure
+			* i.e. average scores across the splits then select the algorithm with the best score. Predict and score algorithm on the _Test_ set
+			* See [Calibration curves for nested cv](https://discourse.datamethods.org/t/proper-way-to-get-an-averaged-calibration-curve-from-nested-resampling/6207) for details and code on averaging calibration curves
+* Misc
+	* Also see [Diagnostics, Classification](Diagnostics, Classification) >> Calibration
+	* Notes from:
+		* [How and When to Use a Calibrated Classification Model with scikit-learn](https://machinelearningmastery.com/calibrated-classification-model-in-scikit-learn/)
+		* [Can I Trust My Model’s Probabilities? A Deep Dive into Probability Calibration](https://towardsdatascience.com/can-i-trust-my-models-probabilities-a-deep-dive-into-probability-calibration-fc3886cfc677)
+			* Python, multiclass example
+		* A tutorial on calibration measurements and calibration models for clinical prediction models ([paper](https://www.ncbi.nlm.nih.gov/pmc/articles/PMC7075534/))
+	* Calibration curves for nested cv ([post](https://discourse.datamethods.org/t/proper-way-to-get-an-averaged-calibration-curve-from-nested-resampling/6207))
+	* For calibrated models, sample size affects the how well they're calibrated![](./_resources/Classification.resources/image.png)
+		* Even for a logistic model, N > 1000 is desired for good calibration
+		* For a rf, closer to N = 10,000 is probably needed.
+	* Distributions of predicted probabilities![](./_resources/Classification.resources/image.1.png)
+		* Random Forest pushes the probabilities towards 0.0 and 1.0, while the probabilities from the logistic regression are less skewed.
+		* Decision Trees are even more skewed than RF
+		* Says how rare a prediction is.
+			* In a rf, really low or high probability predictions aren't rare. So, if the model gives you a 0.93, you shouldn't interpet it the way you normally would such a high probability (i.e. high certainty), because a rf inherently pushes its probabilities towards 0 and 1.
+* Methods![](./_resources/Classification.resources/image.2.png)
+	* Misc
+		* TLDR; Both Platt Scaling and Isotonic Regression methods are the essentially the same except:
+			* Platt Scaling uses a logistic regression model as the calibration model
+			* Isotonic Regression uses an isotonic regression model on ordered data as the calibration model
+	* **Platt Scaling**
+		* Misc
+			* Suitable for smaller data and for calibration curves with the S-shape.
+			* May fail when model is already well calibrated (e.g. logistic regression models)
+			* Performs best under the assumption that the predicted probabilities are close to the midpoint and away from the extremes
+				* So, might be bad for tree models but okay for SVM, Naive Bayes, etc.
+		* Process
+			* Split data into Training, Calibration, and Test Sets
+			* Train your model on the Training Set
+			* Get the predicted probabilities from your model on the Test Set
+			* Fit a logistic regression using your model's predicted probabilities for the Calibration Set as the predictor and the outcome variable in the Calibration Set as the outcome
+			* Calibrated probabilities are the predicted probabilities of the LR model using your model's predicted probabilites on the Test set as new data.
+		* [Example]{.ribbon-highlight}: SVM in R
+
+```
+svm_platt_recal = svm_platt_recal_func(model_fit, calib_dat, test_preds, test_dat)
+
+svm_platt_recal_func = function(model_fit, calib_dat, test_preds, test_dat){
+
+  # Predict on Calibration Set 
+  cal_preds_obj <- predict(model_fit, 
+                          calib_dat[, -which(names(calib_dat) == 'outcome_var')], 
+                          probability = TRUE) 
+  # e1071 has a funky predict output; just getting probabilities 
+  cal_preds <- as.data.frame(attr(cal_preds_obj, 'probabilities')[, 2])
+  # Create calibration model
+  cal_obs_preds_df = data.frame(y = calib_dat$outcome_var, yhat = cal_preds[, 1])
+  calib_model <- glm(y ~ yhat, data = cal_obs_preds_df, family = binomial) 
+
+  # Recalibrate classifiers predicted probabilities on the test set   
+  colnames(test_preds) <- c("yhat")
+  recal_preds = predict(calib.model, test_preds, type='response')   
+
+  return(recal_preds)
+
+}
+```
+
+* See Istotonic Regression for "model\_fit", "calib\_dat", "test\_preds", and "test\_dat"
+
+* [Example]{.ribbon-highlight}: AdaBoost in py
+
+```
+X_, X_test, y_, y_test = train_test_split(X, y, test_size=0.3, random_state=42)
+X_train, X_calib, y_train, y_calib = train_test_split(X_, y_, test_size=0.4, random_state=42)
+
+# uncalibrated model
+clf = AdaBoostClassifier(n_estimators=50)
+y_proba = clf.fit(X_train, y_train).predict_proba(X_test)
+
+# calibrated model
+calibrator = LogisticRegression()
+calibrator.fit(clf.predict_proba(X_calib), y_calib)
+y_proba_calib = calibrator.predict_proba(y_proba)
+```
+
+* **Isotonic Regression**
+	* More complex, requires a lot more data (otherwise it may overfit), but can support reliability diagrams with different shapes (is nonparametric).
+		* Tried on palmer penguins (n = 332) and almost all the probabilites were pushed to the edges
+		* Tried on mlbench::PimaIndiansDiabetes (n = 768). Probabilites were mostly clumped into 3 modes.
+		* Paper used a simulated (n = 5000) dataset. Probabilities moved a little more towards the center but the movement was much less dramatic that the other two datasets.
+		* I didn't calculate brier scores but I'd guess you'd need over a 1000 or so observations for this method to have a significantly positive effect.
+	* Lacks continuousness, because the fitted regression function is a piecewise function.
+		* So, a slight change in the uncalibrated predictions can result in dramatic difference in the calibrated predictions (i.e. a change in step)
+	* Process
+		* Splits: train (50%), Calibration (25%), Test (25%)
+		* Train classifier model on _train_ data
+		* Get predictions from the classifier on the _test_ data
+		* Create calibration model dataset from the _calibration_ data
+			* Get predictions from the classifier on the _calibration_ data
+			* Create df with observed outcome of _calibration_ data and predictions on _calibration_ data
+			* Order df rows according the predictions column
+				* Lowest to largest probabilities in the paper but I'm not sure it matters
+		* FIt calibration model
+			* Fit isotonic regression model on calibration model dataset
+			* Create a step function using the isotonic regression fitted values and the predictions on the _calibration_ data
+		* Calibrate the classifier's predictions on the test set with the step function
+	* [Example]{.ribbon-highlight}: SVM in R
+
+```
+library(dplyr)
+library(e1071)
+data(PimaIndiansDiabetes, package = "mlbench")
+
+# isoreg doesn't handle NAs
+# e1071::svm doesn't identify the event correctly in non-0/1 factor variables
+dat_clean <- 
+  PimaIndiansDiabetes %>% 
+  mutate(diabetes = ifelse(as.numeric(diabetes) == 2, 1, 0)) %>% 
+  rename(outcome_var = diabetes) %>% 
+  tidyr::drop_na()
+
+# Data splits Training, Calibration, Test (50% - 25% - 25%)
+smp_size <- floor(0.50 * nrow(dat_clean))
+val_smp_size = floor(0.25 * nrow(dat_clean))
+train_idx <- sample(seq_len(nrow(dat_clean)), size = smp_size)
+train_dat <- dat_clean[train_idx, ]
+test_val_dat <- dat_clean[-train_idx, ]
+val_idx <- sample(seq_len(nrow(test_val_dat)), size = val_smp_size)
+calib_dat <- test_val_dat[val_idx, ]
+test_dat <- test_val_dat[-val_idx, ]
+rm(list=setdiff(ls(), c("train_dat", "calib_dat", "test_dat")))
+
+# Fit classifier; predict on Test Set
+# e1071::svm needs a factor outcome, probability=T to output probabilities
+model_fit <- svm(factor(outcome_var) ~ .,
+            data = train_dat, 
+            kernel = "linear", cost = 10, scale = FALSE, probability = TRUE)
+test_preds_obj <- predict(model_fit,
+                test_dat[, -which(names(test_dat) == 'outcome_var')],
+                probability = TRUE)
+# e1071 has a funky predict output; just getting probabilities
+test_preds <- as.data.frame(attr(test_preds_obj, 'probabilities')[, 2])
+
+# Predict on Calibration Set
+cal_preds_obj <- predict(model_fit,
+                        calib_dat[, -which(names(calib_dat) == 'outcome_var')],
+                        probability = TRUE)
+# e1071 has a funky predict output; just getting probabilities
+cal_preds <- as.data.frame(attr(cal_preds_obj, 'probabilities')[, 2])
+
+# Create Calibration Model dataset
+cal_obs_preds_mtx = cbind(y = calib_dat$outcome_var, yhat = cal_preds[, 1])
+# order training data by predicted probabilities
+iso_train_mtx <- cal_obs_preds_mtx[order(cal_obs_preds_mtx[, 2]), ]
+
+# Fit Calibration Model
+# (predicted probabilities, observed outcome)
+calib_model <- isoreg(iso_train_mtx[, 2], iso_train_mtx[, 1]) 
+# yf are the fitted values of the outcome variable
+stepf_data <- cbind(calib_model$x, calib_model$yf) 
+step_func <- stepfun(stepf_data[, 1], c(0, stepf_data[, 2])) 
+# recalibrate classifiers predicted probabilities on the test set
+recal_preds <- step_func(test_preds[, 1])
+
+head(recal_preds, n = 20)
+hist(recal_preds)
+hist(test_preds[, 1])
+```
+
+* `isoreg` doesn't handle NAs
+* For a binary classification model that outputs probabilities, `e1071::svm` needs:
+	* factored 0/1 outcome variable
+	* probability = TRUE
+
+* [Example]{.ribbon-highlight}: AdaBoost in Py using CV calibrator
+
+```
+from sklearn import datasets
+from sklearn import metrics
+from sklearn.model_selection import train_test_split
+from sklearn.ensemble import AdaBoostClassifier
+from sklearn.calibration import CalibratedClassifierCV
+from sklearn.model_selection import cross_val_predict
+from sklearn_evaluation import plot
+X, y = datasets.make_classification(10000, 10, n_informative=8,
+                                    class_sep=0.5, random_state=42)
+X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.3, random_state=42)
+clf = AdaBoostClassifier(n_estimators=100)
+clf_calib = CalibratedClassifierCV(base_estimator=clf,
+                                  cv=3,
+                                  ensemble=False,
+                                  method='isotonic')
+clf_calib.fit(X_train, y_train)
+y_proba = clf_calib.predict_proba(X_test)
+y_proba_base = clf.fit(X_train, y_train).predict_proba(X_test)
+fig, ax = plt.subplots()
+plot.calibration_curve(y_test,
+                      [y_proba_base[:, 1], y_proba[:, 1]],
+                      clf_names=["Uncalibrated", "Calibrated"],
+                      n_bins=20)
+fig.set_figheight(4)
+fig.set_figwidth(6)
+fig.set_dpi(150)
+```
+
+* `CalibratedClassifierCV` has both platt scaling ("sigmoid")(default) and isotonic ("isotonic") calibration methods ([Docs](https://scikit-learn.org/stable/modules/calibration.html#usage))
+* Calibration model is built using the test fold (aka validation fold)![](./_resources/Classification.resources/image.3.png)
+* `ensemble=True`
+	* For each cv split, the base estimator is fit on the training fold, and the calibration model is built using the "test" fold (aka validation fold)
+		* The test (aka validation) fold is the calibration data described in the isotonic and platt scaling process sections above
+	* For prediction, predicted probabilities are averaged across these individual calibrated classifiers.
+* `ensemble=False`
+	* LOO CV is performed using `cross_val_predict`, and those predictions are used to train the calibration model.
+	* The base estimator is trained using all the data (i.e. training and test (aka validation)).
+	* For prediction, there is only one classifier and calibration model combo.
+	* The benefit is that it's faster, and since there's only one combo, it's smaller in size as compared to ensemble = True which is k combos. (not as accurate or as well-calibrated though)
+
+* Other forms
+	* For logistic regression models, adjustment using the Calibration Intercept (and Calibration Slope)
+		* Seems similar to Platt Scaling, but has strong overfitting vibes so caveat emptor
+		* For calculating the values, see [Diagnostics, Classification](Diagnostics, Classification) >> Calibration >> Evaluation of Calibration Levels >> Weak >> Intercept, Slope
+		* [paper](https://bmcmedicine.biomedcentral.com/articles/10.1186/s12916-019-1466-7#MOESM1), see supplemental material
+		* Procedure
+			* The calibration intercept is added to the fitted model's intercept
+			* The calibration slope is multiplied times all (nonexponentiated) coefficients of the fitted model (including interactions)
+			* Predictions are then calculated using the new formula
+	* Example
+		* from https://www.economist.com/graphic-detail/2021/03/11/how-we-built-our-covid-19-risk-estimator
+		* Target: Risk of Death (probabilities)
+		* Predictors: Age, Gender, Comorbidities
+		* Model: XGBoost
+		* "Every time our model makes a prediction, we compare the result to what the model would have returned for an individual of the same age and sex and only one of the listed comorbidities, or none at all. If the predicted risk is lower than the risk for a comorbidity taken on its own—such as, say, the estimated risk for heart disease alone being greater than the risk for heart disease and hypertension, or the risk for metabolic disorders being lower than the risk of someone with no listed comorbidities—our tool delivers the higher number instead. We also smoothed our estimates and confidence intervals, using five-year moving averages by age and gender."
+
+
+
+Feature Importance
+
+* Misc
+	* See notebook and bookmarks for proper algorithms (e.g. permutation importance) to specify for variable importance plots
+	* Permutation Importance
+		* Permutation importance is generally considered as a relatively efficient technique that works well in practice
+		* Importance of correlated features may be overestimated
+			* If you have highly correlated features, use `partykit::varimp(conditional = TRUE)`
+		* Process
+			* Take a model that was fit to the training dataset
+			* Estimate the predictive performance of the model on an independent dataset (e.g., validation dataset) and record it as the baseline performance
+			* For each feature i:
+				* randomly permute feature column i in the original dataset
+				* record the predictive performance of the model on the dataset with the permuted column
+				* compute the feature importance as the difference between the baseline performance (step 2) and the performance on the permuted dataset
+	* Variable Importance plots can be useful for model explaining to clients. Ex. Real estate: variables that are most influential in determining housing price are aspects of a house that could be emphasized by Realtors to their clients.
+	* Make sure to use “LossFunctionChange” importance type in Catboost.
+		* Looks at how much the loss function changes when a feature is excluded from the model.
+		* Default method capable of giving importance to random noise
+		* Requires evaluation on a testing set
+* xgboost
+
+```
+xg_wf_best <- xg_workflow_obj %>%
+finalize_workflow(select_best(xg_tune_obj))
+xg_fit_best <- xg_wf_best %>%
+fit(train)
+importances <- xgboost::xgb.importance(model = extract_fit_engine(xg_fit_best))
+importances %>%
+mutate(Feature = fct_reorder(Feature, Gain)) %>%
+ggplot(aes(Gain, Feature)) +
+geom_point() +
+labs(title = "Importance of each term in xgboost",
+  subtitle = "Even after turning direction numeric, still not *that* important")
+```
+
+* Using vip package
+
+```
+library(vip)
+
+# xg_wf = xgboost workflow object
+fit(xg_wf, whole_training_set) %>% 
+pull_workflow_fit() %>% 
+vip(num_features = 20)
+```
+
+* glmnet![](./_resources/Classification.resources/Screenshot (336).png)
+
+```
+lin_trained <- lin_wf %>%
+    finalize_workflow(select_best(lin_tune)) %>%
+    fit(train) # or split_obj, test_dat, etc.
+
+lin_trained$fit$fit %>%
+    broom::tidy %>%
+    top_n(50, abs(estimate)) %>%
+    filter(term != "(Intercept)") %>%
+    mutate(ter = fct_reorder(term, estimate)) %>%
+    ggplot(aes(estimate, term, fill = estimate > 0)) +
+    geom_col() +
+    theme(legend.position = "none")
+```
+
+
+Discriminant Analysis
+
+* Misc
+	* The features to train Quadratic Discriminant Analysis (QDA) should be strictly normally distributed, making it easy for QDA to calculate and fit an ellipsoid shape around the distribution
+	* Very fast even on a 1M row dataset
+* Linear Discriminant Analysis (LDA)
+	* Notes from StatQuest: Linear Discriminant Analysis (LDA) clearly explained [video](https://www.youtube.com/watch?v=azXCzI57Yfc&list=PLblh5JKOoLUICTaGLRoHQDuF_7q2GfuJF&index=37)
+	* Goal is find an axis (2 dim) for a binary outcome or plane (3 dim) for a 3-category outcome, etc. that separates the predictor data which is grouped by the outcome categories.
+	* How well the groups are separated is determined by projecting the points on this lower dim object (e.g. axis, plane, etc.) and looking at these criteria:
+		* **Distance** **(d)** between the means of covariates (by outcome group) should be maximized
+		* **Scatter** (**s2)** ,i.e. variation, of data points per covariate (by outcome group) should be minimized
+	* Maximizing the ratio of Distance to Scatter determines the GoF of the separator![](./_resources/Classification.resources/Screenshot (1408).png)
+		* Figure shows a example of a 2 dim predictor dataset that been projected onto a 1 dim axis. Dots are colored according to a binary outcome (green/red)
+		* In the binary case, the difference between the means is the distance, d.
+	* For multinomial outcomes, there are a couple differences:
+		* A centroid between all the predictor data is chosen, and centroids within each category of the grouped predictor data are chosen. For each category, d is the distance between the group centroid and the overall centroid![](./_resources/Classification.resources/Screenshot (1411).png)
+			* The chosen group predictor centroids are determined by maximizing the distance-scatter ratio
+		* Using the coordinates of the chosen group predictor centroids, a plane is determined.![](./_resources/Classification.resources/Screenshot (1412).png)
+			* For a 3 category outcome, 2 axes (i.e. a plane) are determined which will optimally separate the outcome categories
+	* By looking at which predictors are most correlated with the separator(s), you can determine which predictors are most important in the discrimination between the outcome categories.
+	* The separation can be visualized by using charting the data according to the separators![](./_resources/Classification.resources/Screenshot (1414).png)
+		* Example shows the data is less overlap between black and blue dots and therefore grouped better using LDA than PCA.
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

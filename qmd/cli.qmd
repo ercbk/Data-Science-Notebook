@@ -1,0 +1,588 @@
+# CLI
+
+TOC
+
+* Misc
+* R
+* AWK
+* Bash
+	* Misc
+	* Commands
+		* Basic
+		* Aliases
+		* Files/Directories
+		* Print
+		* Logicals
+		* String Matching
+		* List
+	* Variables
+	* Scripting
+	* Job Management
+	* tmux
+	* SSH
+	* Vim
+	* Packages
+	* Expressions
+* Powershell
+	* String Matching
+* WSL
+
+
+Misc
+
+* `ctrl-r`shell command history search
+	* [McFly](https://github.com/cantino/mcfly) - intelligent command history search engine that takes into account your working directory and the context of recently executed commands. McFly's suggestions are prioritized in real time with a small neural network
+* Path to a folder that's above root folder:
+	* 1 level up: `../desired-folder`
+	* 2 levels up: `../../desired-folder`
+
+
+
+R
+
+* Killing a process
+
+```
+system("taskkill /im java.exe /f", intern=FALSE, ignore.stdout=FALSE)
+```
+
+* Starting a process in the background
+
+```
+# start MLflow server
+sys::exec_background("mlflow server")
+```
+
+* Delete an opened file in the same R session
+	* You \*\*MUST\*\* unlink it before any kind of manipulation of object
+		* I think this works because readr loads files lazily by default
+
+```
+wisc_csv_filename <- "COVID-19_Historical_Data_by_County.csv"
+download_location <- file.path(Sys.getenv("USERPROFILE"), "Downloads")
+wisc_file_path <- file.path(download_location, wisc_csv_filename)
+wisc_tests_new <- readr::read_csv(wisc_file_path)
+# key part, must unlink before any kind of code interaction
+# supposedly need recursive = TRUE for Windows, but I didn't need it
+# Throws an error (hence safely) but still works
+safe_unlink <- purrr::safely(unlink)
+safe_unlink(wisc_tests_new)
+
+# manipulate obj
+wisc_tests_clean <- wisc_tests_new %>%
+      janitor::clean_names() %>%
+      select(date, geo, county = name, negative, positive) %>%
+      filter(geo == "County") %>%
+      mutate(date = lubridate::as_date(date)) %>%
+      select(-geo)
+# clean-up
+fs::file_delete(wisc_file_path)
+```
+
+* Find out which process is locking or using a file
+	* Open Resource Monitor, which can be found
+		* By searching for Resource Monitor or resmon.exe in the start menu, or
+		* As a button on the Performance tab in your Task Manager
+	* Go to the CPU tab
+	* Use the search field in the Associated Handles section
+		* type the name of file in the search field and it'll search automatically
+		* 35548
+
+
+
+AWK
+![](./_resources/CLI.resources/DeLcVfSWAAAw6OZ.jpeg)
+
+* Misc
+	* [Docs](https://www.gnu.org/software/gawk/manual/gawk.html)
+* Print first few rows of columns 1 and 2
+
+```
+awk -F, '{print $1,$2}' adult_t.csv|head
+```
+
+* Filter lines where no of hours/ week (13th column) > 98
+
+```
+awk -F, ‘$13 > 98’ adult_t.csv|head
+```
+
+* Filter lines with "Doctorate" and print first 3 columns
+
+```
+awk '/Doctorate/{print $1, $2, $3}' adult_t.csv
+```
+
+
+Bash
+
+* Misc
+	* Notes from
+		* [Bash for Data Scientists, Data Engineers & MLOps Engineers](https://towardsdatascience.com/bash-for-data-scientists-data-engineers-mlops-engineers-a8e389621e2e)
+			* Bunch of other stuff that I didn't take notes on
+	* Resources
+		* Bash Scripting [Cheatsheet](https://devhints.io/bash)
+		* Curl [Docs](https://curl.se/docs/manpage.html)
+	* `man <command>` displays documentation for command
+	* Special Characters![](./_resources/CLI.resources/image.1.png)
+		* ">" redirects the output from a program to a file.
+			* ">>" does the same thing, but it’s appending to an existing file instead of overwriting it, if it already exists.
+* Commands
+	* Basic Commands![](./_resources/CLI.resources/image.png)
+		* `echo $SHELL` - prints the type of shell you're using
+		* `echo $PATH` - prints all stored pathes
+		* `export PATH="my_new_path:$PATH"` - store a new path
+	* Command Syntax: `command -options arguments`
+	* Piping Commands: `cat user_names.txt|sort|uniq`
+	* **Aliases** are custom commands that you can define in order to avoid typing lengthy commands over and over again
+		* Examples
+
+```
+alias ll="ls -lah"
+alias gs="git status"
+alias gp="git push origin master"
+```
+
+* Create safeguards for yourself
+
+```
+alias mv="mv -i"
+```
+
+* mv will automatically use the "i" flag, so the terminal will warn you if the file you’re about to move does already exist under the new directory,
+	* This way you don’t accidentally overwrite files that you didn’t mean to overwrite.
+
+* **Files/Directories**
+	* Create/Delete Directories
+
+```
+mkdir <dir_name>
+rmdir <dir_name>
+```
+
+* Output to file: `echo “This is an example for redirect” > file1.txt`
+* Append line to file: `echo “This is the second line of the file” >> file1.txt`
+* Create/Delete file(s):
+
+```
+# Create files
+touch file1.txt
+touch file1.txt file2.tx
+
+# Delete files
+rm file1.txt
+rm file1.txt file2.txt
+```
+
+* Move files/dir; Rename
+
+```
+# Move single file
+mv my_file.txt /tmp
+# Move multiple files
+mv file1 file2 file3 /tmp
+# Move a directory or multiple directories
+mv d1 d2 d3 /tmp
+# Rename the file using move command
+mv my_file1.txt my_file_newname.txt
+```
+
+* File(s) and directories being moved to "tmp" directory
+
+* Search
+	* Find
+
+```
+# syntax find <path> <expression>
+# Find by name
+find . -name “my_file.csv"
+#Wildcard search
+find . -name "*.jpg"
+# Find all the files in a folder
+find /temp
+# Search only files
+find /temp -type f
+# Search only directories
+find /temp -type d
+# Find file modified in last 3 hours
+find . -mmin -180
+# Find files modified in last 2 days
+find . -mtime -2
+# Find files not modified in last 2 days
+find . -mtime +2
+# Find the file by size
+find -type f -size +10M
+```
+
+* Locate (faster)
+	* [Docs](https://linuxize.com/post/locate-command-in-linux/)
+	* install
+
+```
+sudo apt install mlocate # Debian
+```
+
+* Usage
+
+```
+sudo updatedb # update before using
+locate .csv
+```
+
+* Split files
+
+```
+# default: 1000 lines per file, names of new files: xaa, xab, xac, etc.
+split my_file
+
+# add a prefix to new file names
+split my_file my_prefix
+
+# specify split threshold (e.g. 5000) by number of lines
+split --lines=5000 my_file
+
+# specify split threshold by size (e.g. 10MB)
+split --bytes=10 MB my_file
+```
+
+* Permissions
+	* `ls -l` See list of files and the permissions
+	* `-rwxrwxrwx` - sytax of permissions for a folder or directory
+		* "rwx" stand for read, write, and execute rights, respectively
+		* The 3 "rwx" blocks are for (1) user, (2) user group, and (3) everyone else.
+			* In the given example, all 3 of these entities have read, write, as well as execute permissions.
+		* The dash indicates that this is a file. Instead of the dash, you can also see a "d" for directory or "l" for a symbolic link.
+	* `chmod` - edit permissions
+		* Example: `chmod u+x my_program.py` - makes this file executable for _yourself_
+	* `sudo` - "super user" - using this prefix gives you all the permissions to all the files
+		* `sudo su` - opens a stand alone super user shell
+
+* **Print**
+	* Print file content
+
+```
+cat < my_file.txt
+# or
+cat my_file.txt
+```
+
+* Print 1 pg at a time: `less my_file.txt`
+* Print specific number of lines: `head -n<num_lines> <file.csv>`
+* Print file content from bottom to top: `tac my_file.txt`
+* `cat -b log.txt | grep error` : shows all lines in log.txt that contain the string ‘error’, along with the line number (-b)
+
+* **Logicals**
+	* ";": `command1 ; command2`
+		* command 1 and command 2 run independently of each other
+	* &: `command1 & command2`
+		* command 1 runs in the background and command 2 runs in the background
+	* &&: `command1 && command2`
+		* If the first command errors out then the second command is not executed
+	* ||: `command1 || command2`
+		* The second commmand is only execute if the first command errors
+	* Example
+
+```
+cd my_dir && pwd || echo “No such directory exist.Check”
+```
+
+* If the my\_dir exists, then the current working directory is printed. If the my\_dir doesn’t exist, then the message “No such directory exists. check” message is printed.
+
+* **String Matching**
+
+```
+#output to a file again
+cat file1 file2 file3 | grep error | cat > error_file.txt
+#Append to the end
+cat file1 file2 file3 | grep error | cat >> error_file.txt
+```
+
+* prints lines into grep which searches for "error" in each line. Lines with "error" get written to "error\_file.txt"
+* Filter lines
+
+```
+grep -i “Doctorate” adult_t.csv |grep -i “Husband”|grep -i “Black”|csvlook
+# -i, --ignore-case-Ignore  case  distinctions,  so that characters that differ only in case match each other.
+```
+
+* select all the candidates who have doctorates and a husband and race are Black
+* "csvlook" is pretty printing from csvkit package (see [Misc](Misc) >> Big Data >> csvkit)
+
+* Count how many rows fit the criteria
+
+```
+grep -i “Doctorate” adult_t.csv | wc -l
+```
+
+* Counts how many rows have "Doctorate"
+	* \-wc is "word count"
+
+* **List**![](./_resources/CLI.resources/image.2.png)
+	* List 10 most recently modified files: `ls -lt | head`
+	* List files sorted by file size: `ls -l -S`
+
+* Variables
+	* Local Variable:
+		* Declared at the command prompt
+		* Use lower case for name
+		* Available only in the current shell
+		* Not accessible by child processes or programs
+		* All user-defined variables are local variables
+	* Environment (global) variables:
+		* Create with `export` command
+		* Use upper case for name
+		* Available to child processes
+	* Declare local and environment variables then access via "$"
+
+```
+# local
+ev_car=’Tesla’
+echo 'The ev car I like is' $ev_car
+
+# environment
+export EV_CAR=’Tesla’ 
+echo 'The ev car I like is' $EV_CAR
+```
+
+* No spaces in variable assignment
+
+* Always quote variable accesses with double-quotes.
+	* One place where it’s _okay_ not to is on the _left-hand-side_ of an `[[ ]]` condition. But even there I’d recommend quoting.
+	* When you need the unquoted behaviour, using bash arrays will likely serve you much better.
+
+* Conditionals
+	* Use `[[ ]]` for conditions in `if` / `while` statements, instead of `[ ]` or `test`.
+		* `[[ ]]` is a bash builtin, and is more powerful than `[ ]` or `test`.
+		* Example: `if [[ -n "${TRACE-}" ]]; then set -o xtrace; fi`
+* Functions
+	* Use local variables in functions.
+	* Accept multiple ways that users can ask for help and respond in kind.
+		* Check if the first arg is `-h` or `--help` or `help` or just `h` or even `-help`, and in all these cases, print help text and exit.
+	* When printing error messages, please redirect to stderr.
+		* Use `echo 'Something unexpected happened' >&2` for this
+* Scripting
+	* Use the .sh (or .bash) extension for your script
+	* Use long options, where possible (like `--silent` instead of `-s`). These serve to document your commands explicitly.
+	* If appropriate, change to the script’s directory close to the start of the script.
+		* And it’s usually always appropriate.
+		* Use `cd "$(dirname "$0")"`, which works in _most_ cases.
+	* Use `shellcheck`. Heed its warnings.
+	* Shebang line
+		* Contains the absolute path of the bash interpreter
+			* List paths to all shells: `cat/etc/shells`
+		* Use as the first line even if you don’t give executable permission to the script file.
+		* Starts with "#!" the states the path of the interpreter
+		* Example: `#!/bin/bash`
+			* Interpreter installed in directory "/bin"
+		* Example: `#!/usr/bin/env bash`
+	* Commands that should start your script
+		* Use `set -o errexit`
+			* So that when a command fails, bash exits instead of continuing with the rest of the script.
+		* Use `set -o nounset`
+			* This will make the script fail, when accessing an unset variable. Saves from horrible unintended consequences, with typos in variable names.
+			* When you want to access a variable that may or may not have been set, use `"${VARNAME-}"` instead of `"$VARNAME"`, and you’re good.
+		* Use `set -o pipefail`
+			* This will ensure that a pipeline command is treated as failed, even if one command in the pipeline fails.
+		* Use `set -o xtrace`, with a check on `$TRACE` env variable.
+			* For copy-paste: `if [[ -n "${TRACE-}" ]]; then set -o xtrace; fi`.
+			* This helps in debugging your scripts, a lot.
+			* People can now enable debug mode, by running your script as `TRACE=1 ./script.sh` instead of `./script.sh` .
+	* Basic Example of Executing a Bash Script
+		* Create a directory bash\_script: `mkdir bash_script`
+		* Create a hello\_world.sh file: `touch hello_script.sh`
+		* Open hello\_script.sh (text editor?)
+		* Add code, save, and close
+
+```
+    #!/bin/bash
+    echo ‘Hello World’
+```
+
+* Make file executable: `chmod +x hello_world.sh`
+* Execute file: `./hello_world.sh`
+
+* Template
+
+```
+#!/usr/bin/env bash
+set -o errexit
+set -o nounset
+set -o pipefail
+if [[ -n "${TRACE-}" ]]; then
+    set -o xtrace
+fi
+if [[ "$1" =~ ^-*h(elp)?$ ]]; then
+    echo 'Usage: ./script.sh arg-one arg-two
+This is an awesome bash script to make your life better.
+'
+    exit
+fi
+cd "$(dirname "$0")"
+main() {
+    echo do awesome stuff
+}
+main "$@"
+```
+
+* Job Management
+	* Programs/Scripts will by default run in the foreground, and prevent you from doing anything else until the program is done.
+	* While program is running:
+		* `control+c` - Will send a SIGINT (signal interrupt) signal to the program, which instructs the machine to interrupt the program immediately (unless the program has a way to handle these signals internally).
+		* `control+z` - Will pause the program.
+			* After pausing the program can be continued either by bringing it to the foreground (`fg`), or by sending it to the backgroud (`bg`).
+	* Execute script to run in the background: `python run.py &`
+	* `jobs` - shows all running jobs and process ids (PIDS)
+	* `kill` - sends signals to jobs running in the background
+		* `kill -STOP %1` sends a STOP signal, pausing program 1.
+		* `kill -KILL %1` sends a KILL signal, terminating program 1 permanently.
+* tmux (‘terminal multiplexer’)
+	* Enables you to easily create new terminal sessions and navigate between them. This can be extremely useful, for example you can use one terminal to navigate your file system and another terminal to execute jobs.
+	* Installation (if necessary): `sudo apt install tmux`
+		* Typically comes with the linux installation
+	* `tmux` - starts an unnamed session
+	* `tmux new -s moose` creates new terminal session with name ‘moose’
+	* `tmux ls` - lists all running sessions
+	* `tmux kill-session -t moose` - kills session named "moose"
+	* `exit` - stops and quits the current session
+	* Kill all sessions (various opinions on how to do this)
+		* `tmux kill-session`
+		* `tmux kill-server`
+		* `tmux ls | grep : | cut -d. -f1 | awk '{print substr($1, 0, length($1)-1){style='color: #990000'}[}]{style='color: #990000'}' | xargs kill`
+	* Attach/Detach
+		* When you log out of a remote machine (either on purpose or accidentally), all of the programs that were actively running inside your shell are automatically terminated. On the other hand, if you run your programs inside a tmux shell, you can come simply detach the tmux window, log out, _close_ your computer, and come back to that shell later as if you’ve never been logged out.
+		* `tmux detach` \- detach current session
+		* `control+b` then press `d`: When you have multiple sesssions running, this will allow you to select the session to detach
+		* From inside bash and not inside a session
+			* `tmux a` : attach to latest created session
+			* `tmux a -t moose` : attach to session called ‘moose’
+	* Pane Creation and Navigation
+		* `control+b` then press `“` (i.e. shift+'): add another terminal pane below
+		* `control+b` then press `%` (i.e. shift+5) : add another terminal pane to the right
+		* `control+b` then press `→` : move to the terminal pane on the right (similar for left, up, down)
+* SSH
+	* Typically uses a key pair to log into remote machines
+		* Key pair consists of a public key (which both machines have access to) and a private key (which only your own machine has access to)
+		* "ssh-keygen" is a program for generating such a key pair.
+			* If you run ssh-keygen, it will by default create a public key named "id\_rsa.pub" and a private key named "id\_rsa", and place both into your "~/.ssh" directory
+			* You’ll need to add the public key to the remote machine by piping together cat, ssh, and a streaming operator
+				* `cat .ssh/id_rsa.pub | ssh user@remote 'cat >> ~/.ssh/authorized_keys'`
+	* Connect to the remote machine: `ssh remote -i ~/.ssh/id_rsa`
+	* Create a config file instead
+		* Location: "~/.ssh/config"
+		* Contents
+
+```
+Host dev
+  HostName remote
+  IdentityFile ~/.ssh/id_rsa
+```
+
+* Connect using config: `ssh dev`
+
+* For Windows and using Putty, see
+	* [AWS](AWS) >> EC2 >> Connect to/ Terminate Instance (also see Docker -- aws -- create cluster ssh -- open port)
+	* [Article, Nested Cross Validation](Article, Nested Cross Validation) >> Notes >> Running EC2 instances checklist
+
+* Vim
+	* Command-line based text editor
+	* Common Usage
+		* Logging into a remote machine and need to make a code change there. vim is a standard program and therefore usually available on any machine you work on.
+		* When running `git commit`, by default git opens vim for writing a commit message. So at the very least you’ll want to know how to write, save, and close a file.
+	* 2 modes: Navigation Mode; Edit Mode
+		* When Vim is launched you're in Navigation mode
+		* Press `i` to start edit mode, in which you can make changes to the file.
+		* Press `Esc` key to leave edit mode and go back to navigation mode.
+	* Commands ([Cheatsheet](https://devhints.io/vim))
+		* `x` deletes a character
+		* `dd` deletes an entire row
+		* `b` (back) goes to the previous word
+		* `n` (next) goes to the next word
+		* `:wq` saves your changes and closes the file
+		* `:q!` ignores your changes and closes the file
+* Packages
+	* Common package managers: apt, Pacman, yum, and portage
+	* APT (Advanced Package Tool)
+		* Install packages
+
+```
+# one pkg
+sudo apt-get install <package_name>
+# multiple
+sudo apt-get install <pkg_name1> <pkg_name2>
+```
+
+* Install but no upgrade: `sudo apt-get install <pkg_name> --no-upgrade`
+
+* Search for an installed package: `apt-cache search <pkg_name>`
+* Update package information prior to "upgrading" the packages
+
+```
+sudo apt-get update
+```
+
+* downloads the package lists from the repositories and "updates" them to get information on the newest versions of packages and their dependencies.
+
+* Upgrade
+
+```
+# all installed packages
+sudo apt-get upgrade
+
+# To upgrade only a specific program
+sudo apt-get upgrade <package_name>
+
+# Upgrades and handles dependencies; delete obsolete, add new
+apt-get dist-upgrade
+
+# together
+sudo apt-get update && sudo apt-get dist-upgrade
+```
+
+* Expressions
+	* Sort data, filter only unique lines, and write to file: `cat adult_t.csv | sort | uniq -c > sorted_list.csv`
+
+
+
+
+
+Powershell
+
+* String Matching
+	* Print line with pattern
+
+```
+Select-String -Path "file*.txt" -Pattern "error"
+file1.txt:3:This is the error line of the file
+file2.txt:3:This is the error line of the file
+file3.txt:3:This is the error line of the file
+```
+
+* matches the 3rd line of each file
+
+
+
+
+WSL
+
+* Resources
+	* [Docs](https://learn.microsoft.com/en-us/windows/wsl/basic-commands)
+	* To update password ([link](https://learn.microsoft.com/en-us/windows/wsl/setup/environment#set-up-your-linux-username-and-password)) using username
+* Desktop Installation: Ubuntu 22.04.2 LTS (GNU/Linux 5.15.90.1-microsoft-standard-WSL2 x86\_64)
+	* Unix username: ercbk
+	* Unix passoword: tr33\_buMp@machine
+* Laptop Installation: Ubuntu 20.04
+	* Unix username: eric
+	* Unix passoword: bigdickdaddy
+* Load Linux: `wsl -d Ubuntu-22.04` where -d is for --distribution
+* WSL Help: `wsl --help`
+* Exit linux terminal back to command prompt or powershell: `exit` 
+
+
+
+
+
+
+
+
+
+

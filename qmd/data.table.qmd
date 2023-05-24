@@ -1,0 +1,399 @@
+# data.table
+
+TOC
+
+* Misc
+* Keys
+	* Filtering
+	* Filter, select
+	* Filter, groupby, summarize
+	* If-Else
+* Pivoting
+* Recipes
+	* group\_by, summarize (and arrange)
+
+
+
+Misc
+
+* `setDT(df)`\- fast conversion of a data frame or list to a data.table without copying
+	* Use when working with larger data sets that take up a considerable amount of RAM (several GBs) because the operation will modify each object in place, conserving memory.
+	* `as.data.table(matrix)` should be used for matrices
+	* `dat <- data.table(df)` can be used for small datasets but there's no reason to.
+	* `setDT(copy(df))` if you want to work with a copy of the df instead of converting the original object.
+
+
+
+Keys
+
+* Fast filtering mechanism; reorders rows (increasing) to group by the values in the key columns. Reordered rows make them easier to find and subset.
+	* all types of columns can be used except list and complex
+* Set Keys - says order in the increasing direction according to origin and then dest.
+
+```
+setkey(flights, origin, dest)
+head(flights)
+#    year month day dep_delay arr_delay carrier origin dest air_time distance hour
+# 1: 2014    1  2        -2      -25      EV    EWR  ALB      30      143    7
+# 2: 2014    1  3        88        79      EV    EWR  ALB      29      143  23
+# 3: 2014    1  4      220      211      EV    EWR  ALB      32      143  15
+# 4: 2014    1  4        35        19      EV    EWR  ALB      32      143    7
+# 5: 2014    1  5        47        42      EV    EWR  ALB      26      143    8
+# 6: 2014    1  5        66        62      EV    EWR  ALB      31      143  23
+```
+
+* Filter by origin == "JFK" and dest == "MIA"
+
+```
+flights[.("JFK", "MIA")]
+#      year month day dep_delay arr_delay carrier origin dest air_time distance hour
+#    1: 2014    1  1        -1      -17      AA    JFK  MIA      161    1089  15
+#    2: 2014    1  1        7        -8      AA    JFK  MIA      166    1089    9
+#    3: 2014    1  1        2        -1      AA    JFK  MIA      164    1089  12
+#    4: 2014    1  1        6        3      AA    JFK  MIA      157    1089    5
+#    5: 2014    1  1        6      -12      AA    JFK  MIA      154    1089  17
+#  ---                                                                             
+# 2746: 2014    10  31        -1      -22      AA    JFK  MIA      148    1089  16
+# 2747: 2014    10  31        -3      -20      AA    JFK  MIA      146    1089    8
+# 2748: 2014    10  31        2      -17      AA    JFK  MIA      150    1089    6
+# 2749: 2014    10  31        -3      -12      AA    JFK  MIA      150    1089    5
+# 2750: 2014    10  31        29        4      AA    JFK  MIA      146    1089  19
+```
+
+* Filter by only the first key column (origin value)
+	* `flights["JFK"]`
+* Filter by only the second key column (dest value)
+
+```
+flights[.(unique(origin), "MIA")]
+#      year month day dep_delay arr_delay carrier origin dest air_time distance hour
+#    1: 2014    1  1        -5      -17      AA    EWR  MIA      161    1085  16
+#    2: 2014    1  1        -3      -10      AA    EWR  MIA      154    1085    6
+#    3: 2014    1  1        -5        -8      AA    EWR  MIA      157    1085  11
+#    4: 2014    1  1        43        42      UA    EWR  MIA      155    1085  15
+#    5: 2014    1  1        60        49      UA    EWR  MIA      162    1085  21
+#  ---                                                                             
+# 9924: 2014    10  31      -11        -8      AA    LGA  MIA      157    1096  13
+# 9925: 2014    10  31        -5      -11      AA    LGA  MIA      150    1096    9
+# 9926: 2014    10  31        -2        10      AA    LGA  MIA      156    1096    6
+# 9927: 2014    10  31        -2      -16      AA    LGA  MIA      156    1096  19
+# 9928: 2014    10  31        1      -11      US    LGA  MIA      164    1096  15
+```
+
+* Filter by origin and dest values, then select a arr.delay column
+	* `flights[.("LGA", "TPA"), .(arr_delay)]`
+* Filter by origin and dest values, then summarize and pull maximum of arr\_delay 
+
+```
+flights[.("LGA", "TPA"), max(arr_delay)]
+# [1] 486
+```
+
+* Filter by origin value, group\_by month, summarize( max(dep\_delay))
+	* `keyby` groups and sets the key to month
+
+```
+ans <- flights["JFK", max(dep_delay), keyby = month]
+head(ans)
+#    month  V1
+# 1:    1  881
+# 2:    2 1014
+# 3:    3  920
+# 4:    4 1241
+# 5:    5  853
+# 6:    6  798
+key(ans)
+# [1] "month"
+```
+
+* Filter by three origin values, one dest value, return the last row for each match
+	* FIltering by more than one key value returns combinations of the first key and second key
+	* remember setting a key reorders (increasing)
+
+```
+flights[.(c("LGA", "JFK", "EWR"), "XNA"), mult = "last"]
+#    year month day dep_delay arr_delay carrier origin dest air_time distance hour
+# 1: 2014    5  23      163      148      MQ    LGA  XNA      158    1147  18
+# 2:  NA    NA  NA        NA        NA    <NA>    JFK  XNA      NA      NA  NA
+# 3: 2014    2  3      231      268      EV    EWR  XNA      184    1131  12
+```
+
+* ifelse(hour == 24, 0, TRUE)
+
+```
+setkey(flights, hour) # hour has values 0-24
+flights[.(24), hour := 0L]
+```
+
+* Consequence: since a key column value has changed, hour is no longer a key
+
+
+
+Pivoting
+
+* {tidyr::pivot\_longer} and melt
+	* Basic
+
+```
+relig_income |>
+  pivot_longer(!religion, # keep religion as a column
+              names_to = "income", # desired name for new column
+              values_to = "count") # what data goes into the new column?
+melt(DT, id.vars = "religion",
+    variable.name = "income",
+    value.name = "count",
+    variable.factor = FALSE) # added to keep output consistent with tidyr
+```
+
+* Columns have a common prefix and missing values are dropped
+
+```
+billboard |>
+  pivot_longer(
+    cols = starts_with("wk"),
+    names_to = "week",
+    names_prefix = "wk",
+    values_to = "rank",
+    values_drop_na = TRUE
+  )
+melt(DT,
+    measure.vars = patterns("^wk"),
+    variable.name = "week",
+    value.name = "rank",
+    na.rm = TRUE)
+```
+
+* Multiple variables stored in column names
+
+```
+who |>
+    pivot_longer(
+      cols = new_sp_m014:newrel_f65,
+      names_to = c("diagnosis", "gender", "age"),
+      names_pattern = "new_?(.*)_(.)(.*)", # Whoa
+      values_to = "count"
+    )
+DT[,melt(.SD, measure.vars = 5:60, value.name = "count")
+# returns a new variable column, which needs splitting up into more columns
+            ][,variable := gsub("new_?","", variable)
+# get rid of "new_" using gsub and replace it with nothing at all
+              ][,c("diagnosis", "temp") := tstrsplit(variable,"_", fixed = TRUE)
+# create a diagnosis column and a “temp” column, which will be split up
+                ][, gender := tstrsplit(temp, "[^mf]+", fixed = FALSE)
+# split out the gender column from the new temp column that has values “m” or “f”.
+                  ][, age := tstrsplit(temp, "[mf]+", fixed = FALSE, keep = 2)
+# retrieve age from the temp column. This generates two vectors, but only want the second one, hence the keep = 2
+                    ][, !c("variable","temp")
+                      ][,c(1:4,6:8,5)][]
+# last two lines discard the variable and temp columns, and sort the columns into the same order as that returned by pivot_longer
+
+##            country iso2 iso3 year diagnosis gender age count
+##      1: Afghanistan  AF  AFG 1980        sp      m 014    NA
+##      2: Afghanistan  AF  AFG 1981        sp      m 014    NA
+##      3: Afghanistan  AF  AFG 1982        sp      m 014    NA
+##      4: Afghanistan  AF  AFG 1983        sp      m 014    NA
+##      5: Afghanistan  AF  AFG 1984        sp      m 014    NA
+##    ---                                                     
+## 405436:    Zimbabwe  ZW  ZWE 2009      rel      f  65    NA
+## 405437:    Zimbabwe  ZW  ZWE 2010      rel      f  65    NA
+## 405438:    Zimbabwe  ZW  ZWE 2011      rel      f  65    NA
+## 405439:    Zimbabwe  ZW  ZWE 2012      rel      f  65    NA
+## 405440:    Zimbabwe  ZW  ZWE 2013      rel      f  65  725
+```
+
+* Matrix to long
+
+```
+anscombe |>
+  pivot_longer(
+    everything(),
+    cols_vary = "slowest",
+    names_to = c(".value", "set"),
+    names_pattern = "(.)(.)" 
+  )
+DT[,melt(.SD,
+            variable.name = "set",
+            value.name = c("x","y"),
+            variable.factor = FALSE,
+            measure.vars = patterns("^x","^y"))]
+```
+
+* {tidyr::pivot\_wider} and dcast
+	* Data in examples
+		* fish\_encounters
+
+```
+## # A tibble: 114 × 3
+##    fish  station  seen
+##    <fct> <fct>  <int>
+##  1 4842  Release    1
+##  2 4842  I80_1      1
+##  3 4842  Lisbon      1
+##  4 4842  Rstr        1
+##  5 4842  Base_TD    1
+##  6 4842  BCE        1
+##  7 4842  BCW        1
+##  8 4842  BCE2        1
+##  9 4842  BCW2        1
+## 10 4842  MAE        1
+## # … with 104 more rows
+```
+
+* Basic
+
+```
+fish_encounters |>
+  pivot_wider(names_from = station, values_from = seen)
+dcast(DT, fish ~ station, value.var = "seen")
+```
+
+* Fill in missing values
+
+```
+fish_encounters |>
+  pivot_wider(names_from = station, values_from = seen, values_fill = 0)
+dcast(DT, fish ~ station, value.var = "seen", fill = 0)
+# alt
+DT[, dcast(.SD, fish ~ station, value.var = "seen", fill = 0)]
+```
+
+* Rather than have the DT inside dcast, we can use .SD and have dcast inside DT, which is helpful for further chaining. (see applied to `melt` above)
+
+* Generate column names from multiple variables
+
+```
+us_rent_income |>
+  pivot_wider(
+    names_from = variable,
+    values_from = c(estimate, moe)
+  )
+dcast(DT, GEOID + NAME ~ variable, 
+          value.var = c("estimate","moe"))
+# alt
+dcast(DT, ... ~ variable, 
+      value.var = c("estimate","moe"))
+```
+
+* Alternative: pass "..." to indicate all other unspecified columns
+
+* Specify a different names separator
+
+```
+us_rent_income |>
+  pivot_wider(
+    names_from = variable,
+    names_sep = ".",
+    values_from = c(estimate, moe)
+  )
+dcast(DT, GEOID + NAME ~ variable,
+      value.var = c("estimate","moe"), 
+      sep = ".")
+# alt
+DT[, dcast(.SD, GEOID + NAME ~ variable,
+    value.var = c("estimate","moe"), 
+          sep = ".")]
+```
+
+* Alternative: Rather than have the DT inside dcast, we can use .SD and have dcast inside DT, which is helpful for further chaining. (see applied to `melt` above)
+
+* Controlling how column names are combined
+
+```
+us_rent_income |>
+  pivot_wider(
+    names_from = variable,
+    values_from = c(estimate, moe),
+    names_vary = "slowest"
+  ) |> names()
+
+DT[, dcast(.SD, GEOID + NAME ~ variable,
+          value.var = c("estimate","moe"))
+  ][,c(1:3,5,4,6)] |> names()
+
+## [1] "GEOID"          "NAME"            "estimate_income" "moe_income"     
+## [5] "estimate_rent"  "moe_rent"
+```
+
+* See {tidyr::pivot\_wider} [docs](https://tidyr.tidyverse.org/reference/pivot_wider.html) and the "names\_vary" arg
+
+* Aggregation
+
+```
+warpbreaks %>%
+  pivot_wider(
+    names_from = wool,
+    values_from = breaks,
+    values_fn = mean
+  )
+dcast(DT, tension ~ wool, 
+          value.var = "breaks", fun = mean)
+# alt
+DT[, dcast(.SD, tension ~ wool, 
+      value.var = "breaks", fun = mean)]
+
+## # A tibble: 3 × 3
+##  tension    A    B
+##  <fct>  <dbl> <dbl>
+## 1 L        44.6  28.2
+## 2 M        24    28.8
+## 3 H        24.6  18.8
+```
+
+* Alternative: Rather than have the DT inside dcast, we can use .SD and have dcast inside DT, which is helpful for further chaining. (see applied to `melt` above)
+
+
+
+Recipes
+
+* group\_by, summarize (and arrange)
+
+```
+dt_res <- dtstudy[, .(n = .N, avg = round(mean(y), 1)), keyby = .(male, over65, rx)]
+
+tb_study <- tibble::as_tibble(dtstudy)
+tb_res <- tb_study |>
+  summarize(n = n(),
+            avg = round(mean(y), 1),
+            .by = c(male, over65, rx)) |>
+  arrange(male, over65, rx)
+```
+
+* dt automatically orders by the grouping variables, so to get the exact output, you have to add an `arrange`
+
+* Cross Tab using `cube` (Titanic5 dataset)
+
+```
+# Note that the mean of a 0/1 variable is the proportion of 1s
+mn <- function(x) mean(x, na.rm=TRUE)
+# Create a function that counts the number of non-NA values
+Nna <- function(x) sum(! is.na(x))
+
+cube(d, .(Proportion=mn(survived), N=Nna(survived)), by=.q(sex, class), id=TRUE)
+
+    grouping    sex class Proportion    N
+1:        0 female    1  0.9652778  144
+2:        0  male    1  0.3444444  180
+3:        0  male    2  0.1411765  170
+4:        0 female    2  0.8867925  106
+5:        0  male    3  0.1521298  493
+6:        0 female    3  0.4907407  216
+7:        1 female    NA  0.7274678  466
+8:        1  male    NA  0.1909846  843
+9:        2  <NA>    1  0.6203704  324
+10:        2  <NA>    2  0.4275362  276
+11:        2  <NA>    3  0.2552891  709
+12:        3  <NA>    NA  0.3819710 1309
+```
+
+
+
+
+
+
+
+
+
+
+
+
+

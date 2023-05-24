@@ -1,0 +1,276 @@
+# Clustering, Time Series
+
+Cluster Validity Indices (CVI)
+
+* notes from dtwclust vignette
+* Types
+	* For either Hard (aka Crisp)  or Soft (aka Fuzzy) Partitioning
+	* Characteristics
+		* internal - try to define a measure of cluster purity
+		* external - compare the obtained partition to the correct one. Thus, external CVIs can only be used if the ground truth is known
+		* relative - ?
+	* ![](./_resources/Clustering,_Time_Series.resources/Screenshot (53).png)
+		* Available through dtwclust::cvi( )
+		* Global centroid is one that's computed  using the whole dataset
+			* dtwclust implements whichever distance method that originally used in the clustering computation
+		* Some CVIs require symmetric distance functions (distance from a to b = distance b to a)
+			* a warning is printed if an asymmetric distance method was used
+		* The **clue package** is a way to compare repetitions of non-deterministic clustering methods (e.g. partitional) where random element means you get a different result each time
+			* It uses a measure called "dissimilarities using minimal Euclidean membership distance" to compare different runs of a cluster method
+
+
+
+
+* **dtwclust package**
+	* See vignette appendices from examples
+	* Takes named matrices, numeric vectors, named arrays, and maybe lists as inputs
+	* need to pick a:
+		1. clustering method
+			* Partitional
+			* Hierarchical
+			* TADPole
+			* k-Shape
+			* Fuzzy
+		2. distance algorithm
+			* Dynamic Time Warping (DTW
+			* soft-DTW
+			* Slope Based Distance (SBD)
+			* Triangular Global Alignment Kernel  (TGAK)
+		3. prototype method
+			* Partition Around Medoids (PAM)
+			* DTW Barycenter Averaging (DBA)
+			* Shape Extraction
+			* Fuzzy-Based
+	* Not all methods, distances, prototypes are interchangeable with each other
+	* Not all methods, distances, prototypes handle multivariate series or unequal length series
+		* Multivariate series are mentioned throughout -- I think this means comparing 2 different dataframes of time series but not sure (maybe examples in appendices)
+	* The documentation for each function specifies if they use parallelization and how, but in general,
+		* all distances use multi-threading (RcppParallel) (see TADPole method for more details on options)
+		* multi-processing (foreach) is leveraged during clustering but no further parallelization on each node
+	* Workflow
+		* compare\_clusterings( )
+		* Provides a way to efficiently grid search different settings for a clustering method  or multiple methods (I think)
+	* **Clustering Methods**
+		* In addition to what's described below, validity measures in the next section can also be used to choose the best number of clusters
+		* Hierarchical
+			* hierarchical\_control( ) through tsclust( type = "hierarchical")
+			* Memory size needs to be a consideration. Depending on resources, might be limited to smaller datasets
+			* creates a hierarchy of groups in which, as the level in the hierarchy increases, clusters are created by merging the clusters from the next lower level, such that an ordered sequence of groupings is obtained.
+			* a (dis)similarity measure (_linkage_) between groups should be specified, in addition to the one that is used to calculate pairwise similarities.
+			* a specific number of clusters does not need to be specified for the hierarchy to be created, and the procedure is deterministic, so it will always give the same result for a chosen set of (dis)similarity measures
+			* If data are easily grouped, the type of linkage used doesn't make much of difference
+			* _Dendrogram_ - a binary tree where the height of each node is proportional to the value of the inter-group dissimilarity between its two daughter nodes
+				* visually evaluate the dendrogram in order to assess the height at which the largest change in dissimilarity occurs, consequently cutting the dendrogram at said height and extracting the clusters that are created
+					* ![](./_resources/Clustering,_Time_Series.resources/Screenshot (49).png)
+						* 3rd level or 4th level from the top is where the disparities in segment length between the daughters start to even out
+		* Partitional
+			* partitional\_control( ) through tsclust(type = "partitional" )
+			* Number of clusters, k, needs to specified beforehand
+				* sometimes during iterations, clusters become empty, and instability created. Try lower value of k or different distance method
+			* Stochastic due to their random start. Thus, it is common practice to test different random starts to evaluate several local optima and choose the best result out of all the repetitions.
+			* Tends to produce spherical clusters, but has a lower complexity, so it can be applied to very large datasets
+			* steps
+				1. k centroids are randomly initialized, usually by choosing k objects from the dataset at random; these are assigned to individual clusters.
+				2. The distance between all objects in the data and all centroids is calculated, and each object is assigned to the cluster of its closest centroid.
+				3. A prototyping function is applied to each cluster to update the corresponding centroid.
+				4. Distances and centroids are updated iteratively until a certain number of iterations have elapsed, or no object changes clusters any more
+		* TADPole
+			* TADPole( ) or tadpole\_control( ) through tsclust(type= "tadpole")
+			* Requires series of equal length (uses Sakoe-Chiba window)
+			* Memory size needs to be a consideration. Depending on resources, might be limited to smaller datasets
+			* Utilizes DTW lower bound method so  lb\_keogh or lb\_improved needs to be specified
+				* in order to use euclidean distance for the upper bound, symmetric1 step pattern needs to specified
+			* dc arg:  cutoff distance(s). Can be a vector with several values
+				* anything below this distance is a neighbor
+				* no details on how to determine the value(s) to use, may need to look at original paper
+			* Deterministic like hierarchical
+			* Uses series from the data as centroids (like PAM)
+			* Uses parallelization with certain specifications and will utilize all available threads
+				* use RcppParallel::setThreadOptions( ) to adjust unless using doParellel pkg
+		* k-Shape
+			* partitional\_control( ) through tsclust(type = "partitional" )
+			* stochastic see the different component setting descriptions for more details
+			* Settings
+				* partitional as the method
+				* SBD as the distance measure
+				* shape extraction as the centroid function
+				* z -normalization as the preprocessing step
+		* Fuzzy
+			* fuzzy\_control( ) through tsclust(type = "fuzzy" )
+			* soft clustering method (like Gaussian Mixture Models)
+				* a series can belong to more than one cluster
+					* a percentage of belongedness to each cluster
+	* **Distances**
+		* Dynamic Time Warping distance (DTW**)**
+			* _dtw\_basic( ) , dtw2( )_
+			* Compares 2 series by "warping" the time axis to bring them as close as possible to each other and measuring the sum of the distances between the points
+			* symmetric (i.e. dist from A to B equals the distance from B to A) only if:
+				* either symmetric1 or symmetric2 step patterns are used
+				* series are equal length after any constraints are used
+			* algorithm compares two series by calculating a local cost matrix (LCM) and traversing it to find the optimal warping path (minimal cost)
+			* list of components:
+				* step pattern that determines how the alg traverses the rows of the LCM to find the optimal path
+				* window range that limits the number lcm calculations for each point
+					
+					
+
+![](./_resources/Clustering,_Time_Series.resources/Untitled.png)
+
+* Figure shows alignment of two series, x and y.
+	* The initial and final points of the series must match, but other points along the axis may be "warped" in order to minimize the distance/cost.
+	* The dashed blue lines are the warp curves and show how some points are mapped to each other.
+* X is the **query** (or test) **series**
+* Yis the **reference** **series**
+* Steps
+	1. Calc LCM matrix for series X and Y
+	2. Simultaneously move along each row of the LCM using a chosen step pattern  (see window constraint to get part of a visual of this process)
+		* The minimum lcm for each point  along x-axis is found. The sequence of minimum lcms or minimum alignment is φ.
+		* Calc the cost, DTWp, using the lcms in the minimum alignment
+			* ![](./_resources/Clustering,_Time_Series.resources/ql_02ec23b82932d4d4c415de25a63afb46_l3.png)
+				* mφ is a per-step weighting coefficient (edge weight in patterns fig)
+				* Mφ is the normalization constant
+				* k is a pairs of points (or position along the x-axis) in the minimum alignment
+				* dtw\_basic( ) sets p = 2 (the dtw in the dtw pkg doesn't use p in this equation)
+	3. Choose the alignment with the lowest cost, DTWp (i.e. sum of lcm distances for that alignment)
+* Components
+	* Local Cost Matrix (LCM)
+		* Computed for each pair of series that are compared
+		* The Lp norm (distance) between the query series and reference series
+			* ![](./_resources/Clustering,_Time_Series.resources/ql_b72756176bf91266ad372613fb264554_l3.png)
+				* xi and yj are elements of the test and reference time series
+				* v stands for "variable" which is for comparing multivariate series
+					* i.e. the Lp norm for each pair of points is summed over all variables in the multivariate series
+				* p is the order of the norm used
+					* e.g. 1 is Manhattan distance; 2 is Euclidean
+					* \*\* Choice of p only matters if multivariate series are being used \*\*
+		* Each lcm(i , j) value fills a spot in the n x m matrix, LCM (where 1 < i < n and 1 < j < m)
+	* Step Patterns
+		* _step.pattern_ arg
+		* Determines how algorithm moves across the rows of the LCM to create alignments (time axis warps)
+		* Each pattern is a set of rules and weights
+			* the rules are used to create different alignments of the LCM (i.e warping of the time axis)
+			* the edge weights, mφ, are used the DTW calculation
+		* ![](./_resources/Clustering,_Time_Series.resources/image.png)
+			* Patterns in fig
+				* symmetric1  symmetric2
+					asymmetric  rabinerJuangStepPattern(4, "c", TRUE) (i.e., Rabiner-Juang’s type IV with slope weighting)
+					
+			* Only some of the patterns are normalizable (i.e. Mφ is used in the DTW equation below) (normalize arg)
+				* Normalization _may_ be important when
+					1. comparing alignments between time series of different lengths, to decide the best match (e.g., for classification)
+					2. When performing partial matches
+				* For dtw\_basic( ), doc says only supported with symmetric2
+				* rabinerJuangStepPattern() with slope weighting types c and d are normalizable
+				* symmetricP\* (where \* is a number) are all normalizable (not shown in fig)
+			* dtwclust pkg author says symmetric1 most commonly used. dtw pkg  and _dtw\_basic( )_ use symmetric2 by default.
+	* Window Constraints
+		* Limits the region that the lcm calculation takes place.
+			* Reduces computation time but makes sense that you don't want to compare points that are separated by to large a time interval
+		* Sakoe-Chiba window creates a calculation region along the diagonal of the LCM
+			* ![](./_resources/Clustering,_Time_Series.resources/Screenshot (46).png)
+			* 1 set of lcm calculations occurs within the horizontal, rectangular block of the query series and the vertical, rectangular block of the reference series.
+			* Sakoe-Chiba requires equal length series but a "slanted band" is equivalent and works for unequal length series.
+				* "Slanted band" is what's used by dtwclust when the window constraint is used.
+		* Optimal window size needs to be tuned
+			* W, the window size, is ~half the size of the actual region covered
+				* value should be greater than 1 if used with series of different length
+			* \[(i, j - w), (i, j + w)\] which has 2w + 1 elements
+	* Lower Bounds (LB)
+		* _dtw\_lb( )_
+		* series are supposed to be row-wise in a matrix (or in a df but not sure how you make a row-wise df)
+		* Steps
+			1. Calculates an initial estimate of a distance matrix between two sets of time series using _lb\_improved_( )
+				* involves the "lower bound" calculation; didn't get into it
+			2. Uses the estimate to calculate the corresponding true DTW distance between only the nearest neighbors (row-wise minima of dist.matrix) of each series in x found in y
+			3. Updates distance matrix with DTW values
+			4. Continues iteratively until no changes in the nearest neighbors occur
+		* Only if dataset is very large will this method will be faster than dtw\_basic( ) in the calculation of DTW
+		* Not symmetric, no multivariate series
+		* Requires
+			* both series to be equal length
+			* window constraint defined
+			* norm defined
+		* Value of LB (tightness of envelope around series) affected by step pattern which is set in dtw\_basic( ) and included via ... in dtw\_lb
+			* size of envelopes in general: LB\_Keoghp  <  LB\_Improvedp <  DTWp
+
+* Soft DTW
+	* _sdtw( )_
+	* "regularizes DTW by smoothing it"  ¯\\\_(ツ)\_/¯
+		* "smoothness" controlled by gamma arg
+			* default: 0.01
+			* with lower values resulting in less smoothing
+	* Uses a gradient to efficiently calculate cluster prototypes
+	* not recommended for stand-alone distance calculations
+		* negative values can happen
+	* symmetric and handles series of different lengths and multivariate series
+* Shape-based distance (SBD)
+	* _SBD( )_
+	* used in k-Shape Clustering
+		* based on the cross-correlation with coefficient normalization (NCCc) sequence between two series
+	* fast (uses FFT to calc), competitive with other distance algorithms, and supports series with different lengths
+	* symmetric, no multivariate series
+	* In preprocessing arg, set to z-normalization
+	* ![](./_resources/Clustering,_Time_Series.resources/ql_ef6e64674c28a243a879e79dbea212d3_l3.png)
+* Triangular global alignment kernel distance
+	* _GAK( )_
+	* "regularizes DTW by smoothing it"  ¯\\\_(ツ)\_/¯
+	* symmetric when normalized (dist a to b = dist b to a)
+	* supports multivariate series and series of different length (as long as one series isn't half the length of the other)
+	* slightly more computationally expensive than DTW
+	* ![](./_resources/Clustering,_Time_Series.resources/ql_63432df03a752958033756587621273f_l3.png)
+		* ![](./_resources/Clustering,_Time_Series.resources/images.jpeg)
+		* σ can defined by the user but if left as NULL, the function estimates it
+		* T is the triangular constraint and is similar to the window constraint in DTW but there no arg for it, so I guess it's taken care of
+		* no idea what i and j refer to
+			* would have to look it up in the original paper or there is a separate website and package for it
+	* if normalize = TRUE, then a distance is returned, can be compared with the other distance measure, and used in clustering
+		* if FALSE, a similarity is returned
+
+* **Prototypes/Average Series/Centroids**
+	* Defines a time-series that effectively summarizes the most important characteristics of all series in a given cluster
+	* Prototypes could be used for visualization aid or to perform time-series classification
+	* Methods
+		* Partition Around Medoids (PAM)
+			* A series in the data whose average distance to all other objects in the same cluster is minimal
+			* Possible to calculate the distance matrix once and use it for each iteration. Takes less compute time and is done by default
+				* _partitional\_control(pam.precompute = TRUE)_
+				* Mentions that if done this way then the matrix is allocated to memory. So can be an issue for large datasets and the option would need to switched off.
+					* When switched off, sparse matrices are used.
+						* _partitional\_control(pam.precompute = FALSE, pam.sparse=TRUE)_
+		* DTW Barycenter Averaging (DBA)
+			* _DBA( )_
+			* With series of different lengths, either symmetric1 or symmetric2 should be used
+			* Expensive unless used in conjunction with the DTW distance algorithm
+			* steps
+				1. For each cluster, a series in the data is chosen at random to be the reference series (or centroid)
+				2. DTW alignments are calc'd wrt to the reference series
+				3. For each point on the reference series, the point values from the other series that map to that point are averaged.
+				4. All the calculated average points become the new reference series.
+				5. Process is iterated until convergence or number of iterations is reached
+		* Shape Extraction
+			* _shape\_extraction( )_
+			* requires z- normalized in preprocessing arg
+			* If lengths unequal, a reference series is chosen
+			* steps
+				1. 2 series are aligned based maximizing a NCCc score
+					* if unequal lengths zeros are append to the shorter series or the longer series is truncated (required for next step
+				2. Aligned series are entered row-wise into a matrix and the Rayleigh Quotient (::shrugs::) is maximized to obtain the final prototype
+		* Fuzzy-Based
+			* c-means
+				* requires series of equal lengths
+				* centroid is like a weighted average using the cluster "belongedness" weight
+					* ![](./_resources/Clustering,_Time_Series.resources/ql_4e1e685fc80948620fbad22f25b0ef41_l3.png)
+						* μ (mu) is the i-th element of the c-th centroid
+						* x is the i-th element of the p-th series in the data
+						* u is "belongedness" proportion of the p-th series to the c-th cluster
+						* m is known as the fuzziness exponent and should be greater than 1, with a common default value of 2
+			* c-medoids (FCMdd)
+				* Centroid selection similar to PAM
+				* handles series of unequal lengths (as long as distance method permits)
+				* ![](./_resources/Clustering,_Time_Series.resources/ql_b78cbcea2b358cabde47b8ca5b021c7b_l3.png)
+					* μ (mu) is the c-th centroid
+					* xq is the q-th series in the data
+					* u is "belongedness" proportion of the p-th series to the c-th cluster
+					* d represents the distance between the p-th series of the data and the c-th centroid
+					* see vignette for details on the optimization procedure
+

@@ -1,0 +1,200 @@
+# Shiny, Production
+
+TOC
+
+* Misc
+* Docker
+* Data Strategies
+* Optimization
+* Development
+* Security
+
+
+
+Misc
+
+* [{]{style='color: #990000'}[cicerone](https://cicerone.john-coene.com/index.html){style='color: #990000'}[}]{style='color: #990000'} - provides guided tours to your shiny apps
+
+
+
+Docker
+
+* Misc
+	* Images have a 2GB limit
+* Base Image Build Times![](./_resources/Shiny,_Production.resources/Screenshot (1054).png)
+	* Smaller images take longer to load because all the packages/libraries have to be compiled
+	* rstudio/base, rocker/shiny, rocker/r-ubuntu use binary packages
+	* rocker/r-bspm and eddelbuettel/r2u uses binary packages and apt-get
+* Order of Image Layers![](./_resources/Shiny,_Production.resources/Screenshot (1055).png)
+	* Order is bottom to top when writing your dockerfile. (see example below)
+	* Important for the bottom layers to be things that you might change most often. This way you don't have to reinstall R everytime you change something in your app code.
+* Example![](./_resources/Shiny,_Production.resources/Screenshot (1052).png)
+* Methods for installing dependencies ([article](https://hosting.analythium.io/dockerized-shiny-apps-with-dependencies/))![](./_resources/Shiny,_Production.resources/Screenshot (1056).png)
+	* `littler::install.r` (littler is installed on all Rocker images)
+	* Example: image size comparison
+
+```
+REPOSITORY                  TAG                SIZE
+analythium/covidapp-shiny  renv                1.7GB
+analythium/covidapp-shiny  deps                1.18GB
+analythium/covidapp-shiny  basic              1.24GB
+```
+
+* basic image (aka "explicit" method above): 105 packages installed
+* deps image (aka "DESCRIPTION" method above): has remotes added on top of these; `remotes::install_deps()` to install packages from the DESCRIPTION file
+* renv image has remotes, renv and BH as extras.
+	* BH seems to be responsible for the size difference, this package provides Boost C++ header files.
+	* Your app will probably work perfectly fine without BH.
+	* You can use `renv::remove("BH")` to remove BH from the project or use the "custom" model and list all the packages to be added to the lockfile
+
+* [{]{style='color: #990000'}[deps](https://hub.analythium.io/deps/){style='color: #990000'}[}]{style='color: #990000'} ([article](https://www.r-bloggers.com/2022/10/manage-dependencies-with-the-deps-r-package-for-docker-containers/))
+	* lightweight method that installs packages via a DESCRIPTION json file
+		* Blend between package and renv approaches to dependency management
+	* Project scripts contain roxygen-like, decorator code about packages and those are used to build the DESCRIPTION json file
+	* Image size should be similar to the "deps/DESCRIPTION" method above
+
+* Security![](./_resources/Shiny,_Production.resources/Screenshot (1057).png)
+	* (taken from above dockerfile example)
+	* Best to create user groups and not run app as a root sudo
+	* `chown`, an abbreviation of change owner, is used on Unix and Unix-like operating systems to change the owner of file system files, directories. Unprivileged users who wish to change the group membership of a file that they own may use chgrp
+* CI/CD![](./_resources/Shiny,_Production.resources/Screenshot (1058).png)
+	* Use github action for docker caching which builds the image and pushes your image to Docker Hub
+	* Then your compute instance (PaaS) pulls the image from that registry
+
+
+
+Data strategies
+
+* Do as little processing as possible in the app
+* Options
+	* Bundle datasets alongside the source code, such that wherever the app is deployed, those datasets are available.
+		* Drawback: data would need to be kept in version control along with your source code, and a new deployment of the app would be required whenever the data is updated.
+			* For frequently updated datasets, this is impractical, but may be valuable if those datasets are unlikely to change during the lifetime of a project.
+	* Keep data in cloud storage
+		* Allows collaborators to upload new data on an ad-hoc basis without touching the app itself. The app would then download data from the cloud for presentation during each user session
+		* Better for frequently updated datasets
+		* Optimization (loading in secs instead of mins)
+			* Use parquet file format
+			* [Caching](https://shiny.rstudio.com/articles/caching.html) the data for the app’s landing page or use [asynchronous computing](https://rstudio.github.io/promises/articles/shiny.html) to initiate downloading the data while presenting a less data-intensive landing page
+			* ![](./_resources/Shiny,_Production.resources/image.png)
+				* Partition data:
+					* Raw data that is not computationally expensive or needs no processing
+					* Processed data that is more computationally expensive to process.
+				* The data processing pipeline is outside of the app. (e.g. GitHub Actions workflow)
+				* Data storage and app server should be in the same region to reduce latency
+			* Create Pipeline Triggers
+				* When new raw data is uploaded, then data gets processed and into the app in a timely manner.
+				* When the source code for the app or the data processing pipeline change, the data processing pipeline should run afresh.
+				* If changes to the structure of the raw dataset mean that the data processing pipeline produces malformed processed data, there should be a way to log that.
+
+
+
+Optimization
+
+* Misc
+	* Resources
+		* [Offload Shiny's Workload: COVID-19 processing for the WHO/Europe](https://www.jumpingrivers.com/blog/who-shiny-covid-maintenance-continuous-integration/)
+			* Overview of how they reduced loading times of a World Health Organization app from minutes to seconds
+		* Shiny docs: [caching](https://shiny.rstudio.com/articles/caching.html) and [async programming](https://shiny.rstudio.com/articles/async.html)
+		* [Chapter 15](https://engineering-shiny.org/common-app-caveats.html) of [Engineering Production-Grade Shiny Apps](https://engineering-shiny.org/index.html) covers, in detail, some common performance pitfalls and how to solve them.
+* Reduce the amount of computation occuring inside the app (by caching plots and tables, or by precomputing your data),
+* Analyze whether the app could be using too much reactivity or regenerating UI elements unnecessarily
+
+
+
+Development
+
+* AWS deployment![](./_resources/Shiny,_Production.resources/architecture.png)
+	* Notes from
+		* [Creating a Dashboard Framework with AWS (Part 1)](https://www.r-bloggers.com/2022/03/creating-a-dashboard-framework-with-aws-part-1/)
+	* Features
+		* Secure, **end-to-end encrypted** (SSL, TLS) access to dashboards.
+		* Secure **authentication** through E-mail and Single-Sign-On (SSO).
+		* Horizontal **scalability** of dashboards according to usage, fail-safe.
+		* Easy adaptability by analysts through automation and **continuous integration** (CI/CD).
+		* **Easy maintenance** and extensibility for system operators.
+	* Components
+		* **Application Load Balancer** (ALB) to handle secure end-to-end (SSL) encrypted access to the dashboards based on different host names (host-based-routing).
+		* **AWS Cognito** for user authentication based on E-mail and SSO through Ping Federate.
+		* **AWS Fargate** for horizontal scalability, fail-safe operations and easy maintenance.
+		* **AWS Codepipeline** and Codebuild for automated build of dashboard Docker containers.
+		* Extensive usage of managed services requiring low maintenance (Fargate, Cognito, ALB) and **Amazon Cloud Development Kit** (CDK) to define and manage infrastructure-as-code managed in Git and deployed via Code Pipelines.
+* Aetna Insurance
+	Notes from Q&A [Shatrunjai Singh | R in Insurance | RStudio](https://www.youtube.com/watch?v=rK2N47r78hc)
+	* RStudio Connect
+		* production & dev "version" (branches?)
+	* Steps
+		1. Build minimum viable product (MVP)
+		2. Upload to dev branch
+		3. Perform Test & Learn for about a month
+			* Give it to a small number of ppl
+			* Have them use it and get feedback
+		4. Create "dev2" app
+			* Apply fixes
+			* Add most critical elements according to the feedback
+		5. Give to a different, slightly larger group of people
+			* Looking for issues, bugs, etc.
+		6. Once satisfied that all major kinks are worked out, move app to production branch
+			* Launched to entire company
+		7. For the 1st 6 months, "recalibrate analysis" every 1.5 months
+		8. Recalibrate every 6 months afterwards
+			* Do packages need updated?
+			* Do the models need retrained
+			* Is the app still working as intended?
+			* If it's all good, do some code optimization, refactoring, etc.
+
+
+
+Security
+
+* [{shinyauthr}]{style='color: #990000'}
+	* for user authentication. App doesn't get rendered until user is authenticated
+* [{backendlessr}]{style='color: #990000'}
+	* `remotes::install_gitlab("rresults/backendlessr")`
+	* Provides user registration, login, logout, profiles
+		* Some small amounts of data can be sent to backendless (not log files)
+			* There are some user counting functions in the package for keeping track of API calls (I think)
+	* API wrapper for backendless platform
+	* free for up to 60 API calls per minute 1M API calls per month
+		* If you need more, use invite code p6tvk3 when you create a new app to get 25% off for the first 6 months
+	* Demo login: `backendlessr::shiny_demo_login`  (http://0.0.0.0:3838)![](./_resources/Shiny,_Production.resources/Screenshot (521).png)
+		* Clicking the "Register" button calls the backendless API
+		* Displays "Successful" if user registration worked
+	* Steps
+		* Register at backendless and get a free account
+		* Register you app![](./_resources/Shiny,_Production.resources/Screenshot (523).png)
+			* Get the Application ID and API key
+		* Add ID and key to .Renviron (for testing)
+
+```
+              BACKENDLESS_APPID = "<app id>"
+              BACKENDLESS_KEY = "<api_key>"
+```
+
+* Add ID and key to Docker Swarm secrets (for production)
+* Install package and run functions in your shiny app
+	* Example (basic)![](./_resources/Shiny,_Production.resources/Screenshot (525).png)
+	* App listens for actionLink open\_login which is the user loggin into the app
+	* Then showElement unhides all the hidden things in the ui (e.g. logout, loginmain module, plot) and actionLink log in becomes hidden (I think)
+
+* Bunch of user credential functions available but here's a list that currently aren't:
+	* Social Network logins (e.g. to allow a user to use their Facebook account to log in to our service);
+	* Async calls;
+	* Geolocation;
+	* Logging (send log messages of your app to Backendless platform).
+	* Enhanced Security
+	* User password reset
+
+
+
+
+
+
+
+
+
+
+
+
+
+

@@ -1,0 +1,915 @@
+# Docker, Fundamentals
+
+TOC
+
+*  "A Cloud Guru: Docker Fundamentals"
+* Misc
+* Creating a Dockerfile
+* Images
+* Docker Hub
+* Running Containers
+* Networking Containers
+* Data Volumes
+* Optimizing container file size
+* Running scripts when a container starts
+* Docker utility functions
+* Docker Compose
+* Managing a web app with Docker-Compose
+
+
+
+Misc
+
+* Notes from the course, "A Cloud Guru: Docker Fundamentals"
+
+
+
+
+
+* **Misc**
+	* Docker help commands (every command preceded by "docker <space> <command>")
+		* Every management command has its own subset of commands associated with it
+		* management
+			* container
+			* image
+			* network
+			* node
+			* plugin
+			* secret
+			* service
+			* stack
+			* swarm
+			* system
+			* volume
+			* Example `docker image --help`
+				* shows sub-commands for management command image and short descriptions
+				* For even more information on a sub-command, add --help after the sub-command
+					* Example: `docker image build --help`
+	* Linux OS stuff
+		* Debian is a very stable Linux distribution
+			* Debian-Jessie is the latest version of Debian
+				* (As of July 6 2019, it's called buster)
+				* Slim is a light-weight Debian-Jessie
+			* Debian-Wheezy is the version before Jessie
+		* Alpine is a very small Linux distribution (much smaller than even Slim)
+	* An instance of an image or the result of running an image is called **container**
+		* Any changes made while running the container is lost once that container has been stopped.
+			* If you create or add a file while in the container, stop the container, rerun the container, then it will no longer be there.
+	* An **image** is the setup of the virtual computer. A combination of a file system and parameters. A package that rolls up everything you need to run an application.
+		* Composed of stacked layers where the layers are self-contained files
+		* You can download, build, and run image, but they cannot be changed (immutable)
+	* You can have many running containers of the same image.
+	* **Docker Hub** is a registry for docker repositories. It's like a github for images. Each repo has 1 image but the repo can store many tagged versions of that image (version control)
+	* **Pull and run** a docker image from Docker Hub from local cli
+		* docker run url/repo/image
+			* example: `docker run docker.io/library/hello-world`
+				* docker.io = docker hub
+				* library = repo name for all "official" images
+				* hello-world = name of image
+	* Two ways to create a image
+		* While inside a container, make changes. Then use commit command to create the new image with the changes
+			* Never used. Creating a dockerfile is superior.
+		* Using a dockerfile
+	* images on docker hub
+		* mdancho/h2o-verse
+			* h20, tidyverse, tensorflow, keras 
+			* ~2 GB
+* **Creating a dockerfile** (example of a toy python flask app)
+	* Architecture 
+		* start with `FROM` base:tag
+			* Essentially copy-pastes the base image
+			* usually good to start with a base image
+				* FROM python:2.7-alpine
+					* python is the base image and 2.7-alpine is the tag
+		* `RUN` executes commands or scripts as if you were in the container's OS
+			* RUN mkdir /app
+				* makes a directory called "app"
+		* `WORKDIR` sets the working directory for everything that happens after this command
+			* WORKDIR /app
+		* `COPY` has source path+file (local) and a destination path+file (container) as args
+			* COPY requirements.txt requirements.txt
+				* the first requirements.txt is in the same dir as the docker file so no "/other-dir/" required
+				* the second "requirements.txt" says the file is to be placed into the /app dir
+					* equivalent to "/app/requirements.txt" because /app is our working directory
+			* Cannot use .. to move above the dockerfile directory. Every path must be below it.
+		* Install packages
+			* `RUN` pip -install  -r requirements.txt
+				* inside requirements.txt says Flask==0.12
+		* Copy entire local directory to the working directory
+			* `COPY` . .
+				* first period says copy everything is the current local directory
+				* second period says put everything in the working dir
+		* `LABEL`s have key-value pairs. can be useful in production settings. The can be retrieved with a command later on. 
+			* Some uses:
+				* filter a container's output based on a label  
+				* can include scripts for automatic load balancing (also see aws load balancer section below)
+			* LABEL maintainer="Eric Book <ericbook@email.com>"\\
+
+                         version="1.0"    
+
+* Often changed or added to, so they should be close to the end of the dockerfile (but not the last line)
+
+* `CMD` gives the default instruction when the image gets ran which is different from RUN commands, which are executed when the image is _built_.
+	* CMD flask run --host=0.0.0.0 --port=5000
+	* Under-the-hood: CMD instructions are arguments to an entrypoint script and get run through a default docker entrypoint (see waaaaay below for info about entrypoints)
+* A `\\` is Linux operator that chains together instructions so they can be in separate lines of code for easier reading. Think a space also does the same thing, but you can't see it in the code.
+
+* The **ordering** of the inputs in the dockerfile will affect its size and efficiency
+	* The source code is much more likely to change in the future than the package dependencies. Therefore even though there would be fewer COPY commands, it's best to install the dependencies before copying the source code.
+	* Whenever changes to the source code occur Docker has a caching mechanism, so that it doesn't rebuild everything above the layer where the changes occur. COPY . . executes in millisecs so the rebuild happens almost instantly while installing dependencies could take minutes.
+* **Attaching packages** and libraries
+	* Download and install R packages
+		* `RUN` R -e "install.packages(c('shinydashboard', 'reticulate', 'shiny'))"
+	* Download, install Python libraries (ubuntu image)
+		* `RUN` ln -s /usr/bin/python3 /usr/bin/python && \\
+
+                                                               ln -s /usr/bin/pip3 /usr/bin/pip    
+
+* `RUN` apt-get update
+* `RUN` apt-get install -y libpython-dev
+* `RUN` apt-get install -y libpython3-dev
+
+* **Images**
+	* Build image from dockerfile (\*\* don't forget the dot at the end \*\*)
+		* `docker image build -t web1 .`
+			* `i`mage is the management command
+			* build is the sub-command of image
+			* \-t is the flag for "tag"
+			* web1 is the tag. This allows us to to refer to this image as "web1" instead of a hash
+			* . says build the image and place in current directory
+		* End of build shows hash id "successfully built <id>"
+		* docker image build -t web1:1.0
+			* versioning the image
+			* for just "web1" the version will be web1:latest
+	* Inspect the image
+		* `docker image inspect web1`
+		* info in json format
+		* At the top complete hash id
+		* shows the versions of the image under "repotag"
+		* various info about how the layers were created
+		* the number of layers created is shown at the bottom by the lines preceded by a "sha" and a hash
+	* List of images in local docker host
+		* `docker image ls`
+			* base images loaded from dockerfiles listed alongside the images we create
+			* <none> images are "dangling images." They are failed image builds or images that were built on top of already existing images
+				* safe to delete; frees up disk space
+	* Delete local image
+		* Using name and version tag
+			* `docker image rm web1:1.0`
+		* Using id
+			* `docker image rm -f 633f`
+				* \-f is the "force" flag
+					* necessary when image has been tagged/copied (like when pushing to docker hub) and you want to remove both images.
+				* 633f - only need the first four characters of the hash id
+					* ids in docker image ls
+* **Docker Hub**
+	* Login to Docker Hub
+		* Have to do it once then a config file is created so you don't have to do it again
+		* Input your username and password for your Docker Hub acct
+		* `docker login`
+	* Push image to Docker Hub
+		1. Tag image with docker hub username
+			* `docker image tag web1 ercbk/web1:latest`
+				* web1 is the image we want to push
+				* ercbk/web1:latest
+					* ercbk is the username
+					* web1 is the repo
+					* latest is the tag
+			* docker image ls will show the newly tagged image
+		2. Push image to docker hub
+			* `docker image push ercbk/web1:latest`
+* **Running Containers**
+	* \*\* Unless you include -d in the run command, you will need to open a separate terminal (i.e. different from the one you ran the run command in) in order run more docker cli commands while an app is running \*\*
+	* \*\* container names and ports need to be unique for each running container \*\*
+	* `docker container ls`
+		* lists all running containers, container\_id, image, creation time, runtime, name
+		* \-a
+			* shows all stopped containers
+	* `docker container rm <name>`
+		* deletes a stopped container
+		* can also use 1st four characters of <container\_id>
+			* shown in ls (see above)
+	* `docker container run`
+		* the basic run command
+		* hardly ever want to use just the basic commmand
+			* see flags and examples below
+	* `docker container stop <name>`
+		* stops a container
+		* add more <name>s to stop more than one container
+			* with spaces between the names
+		* also, ctrl + c
+			* use it in the same terminal you used the run command in.
+			* only works if you included the -it flag when you started it.
+		* also see --rm below
+		* `docker container stop $( docker container ls -q)`
+			* Stops all running containers
+			* \-q flag says list them quietly, so it doesn't print them out
+			* if you a "stop requires at least one argument" error, then there aren't any containers running
+	* `docker container logs <name>`
+		* can also use 1st four characters of <container\_id>
+		* for active or inactive containers
+		* shows times container was accessed
+		* \-f
+			* runs log in the foreground (i.e. you can view accesses in real-time)
+			* ctrl + c to kill it
+	* `docker container stats`
+		* real-time monitoring of active containers
+		* shows cpu and memory usage for each container
+		* network input/output
+	* flags
+		* \*\* Don't think order matters except for that the name of the image needs to be last \*\*
+		* \-d
+			* runs the container in the background
+			* allows you to run commands in the same terminal window that you used the container run command in
+		* \-e
+			* allows you to pass an environment variable into the container
+			* Not always necessary
+				* Flask requires one (e.g. -e FLASK\_APP=app.py)
+					* app.py is the name of the app script
+			* multiple -e flags are allowed
+				* \-e FLASK\_DEBUG=1
+					* turns debug mode on when you run the container
+					* use along with -v to make real-time changes to the app while the container is running
+		* \-it
+			* allows for unix commands such as ctrl c to kill a process (such as a running container)
+			* makes the docker container interactive. Which allows you to go into the container, navigate the file system, and make changes.
+		* \--name
+			* docker automatically provide a name for a container but this flag allows you to provide your own
+			* \--name moose
+		* \-p 
+			* ports
+				* map ports from local machine to ports within docker
+			* expected to supply two ports separated by a colon
+			* \-p 5000:5000
+				* The first 5000 is the host port. The port you use to interact with the app in your browser (e.g. localhost:5000)
+					* All containers running on your docker host need to have unique ports to run on. (e.g. -p 5001:8000)
+					* So, I think this can be any port you want as long something else isn't already using it.
+				* The second 5000 is the container port that was specified in the dockerfile
+					* Tried 5000:5000 and the app didn't run in the browser even when the dockerfile had 5000 specified, but after specifying 800 in the dockerfile, -p 5000:8000 did work
+						* This was run on the default docker network
+					* Running -p 5000:5000 DID work on a custom network.
+						* Also these are 2 different apps. The 1st one was stand-alone (03-lecture cloud guru docker fundamentals), and the 2nd ran in conjunction with a redis server (see custom network section below)(09-lecture in cloud guru docker fundamentals). Not sure if that makes a difference
+			* When running the container, if it's an app, it can be viewed in a browser at localhost:5000 (i.e. the first port specified)
+			* \-p 5000
+				* docker will attach a random port number
+			* You can specify more than one port mapping e.g. -p 5000:5000 -p 3838:3838
+			* ports (second port specified) for common images
+				* redis (storage) - 6379
+				* nginx (web server) - 80
+					* open source, handles a lot of connections efficiently, used to host a lot of websites
+				* RStudio: \-p 3838:3838
+				* Shiny apps launched from within RStudio: -p 8787:8787
+		* \--restart
+			* with value, on-failure
+				* says restart the container if there's some catastrophic failure (e.g. docker daemon dies and restarts)
+				* useful in production
+			* cannot be included if --rm is also used
+		* \--rm
+			* deletes the container once it has been stopped
+			* cannot be included if --restart is also used
+		* \-v
+			* volumes
+			* Use cases
+				* while developing. Makes changes inside the container in real-time.
+				* store data in a db
+				* Mapping to a folder on your local machine allows you to work on projects stored within the container
+			* (1st half) requires address (local machine) to the directory with the script (e.g. app script not dockerfile) where you're making changes <colon> (2nd half) address inside the container where this directory should be "mounted" (i.e. where the script you're making changes to is located inside the container)
+				* 1st half
+					* For Linux, you can used the shortcut, "$PWD" which is a linux environment variable that stores the path to the working directory. It has the same value as the command "pwd -L" which Prints Working Directory.
+						* fyi the -L has something to do with "symlinks" which are thinks that can be created that point to another directory. If you're in in the symlink directory -L will print that directory and -P will print the directory that the symlink points to.
+						* same thing for Mac, except the quotes might need to be included
+					* For windows, "/c/users/<user\_name>/path/to/directory"
+				* 2nd half
+					* "/app" which is where the app script is (also the working directory specified in the dockerfile for the example)
+				* Example in Linux, `docker container run -it -p 5000:5000 -e FLASK\_APP=app.py --rm -name web1 -e FLASK\_DEBUG=1 -v $PWD:/app web1`
+				* Example in Windows, `docker container run --rm -itd -p 5000:5000 -e FLASK\_APP=1 -e FLASK\_DEBUG=1 --name web2 -v /C/Users/tbats/Documents/R/Projects/Docker/Courses/cloud-guru-docker-fund/09-linking-containers-with-docker-networks:/app web2`
+			* While running, if you open a new terminal and `docker container inspect <name>`, then there should be a "mount" section with type = "bind"
+			* Troubleshooting if changes don't show up in the container in real-time
+				* it's probably the path specifications for the value of the -v tag. Docker is picky, esp w/WIndows.
+				* Make sure code script and docker are on same drive
+				* Next try replacing Alpine Linux with Slim Linux in the dockerfile --> rebuild image --> run container with volume flag + the addresses like stated above
+					* Something about inotify in Alpine not doing something
+				* see exec command below
+	* Examples:
+		* `docker container run -it -p 5000:8000 -e FLASK\_APP=app.py web1`
+			* web1 is the name of the image.
+			* This is probably least number of flags necessary to run an app in a container
+		* `docker container run -it --rm --name web2 -p 5000:8000 -e FLASK\_APP=app.py -d --restart on-failure web2`
+	* exec
+		* executes an interactive bash session in the container
+		* Container must be running, so open a new terminal window and type the code line:
+			* `docker container exec -it web1 bash`
+				* where web1 in the name of the container
+				* bash is for the Slim distribution of Linux; use `sh` for Alpine
+			* Or run a bash command detached in the background
+				`docker exec -t -d web1 bash "ls -al"`
+				
+		* you'll be logged in under "root" and dropped into wherever you designated the working directory in the dockerfile
+		* Type ls -la to view the files
+		* Example of a debug
+			* Python app isn't showing changes after running it with a volume flag (-v)
+			* you exec a bash session inside the container
+			* delete some .pyc files (might be corrupted somehow) that are created when python runs flask
+				* rm \*.pyc
+				* ls -la to confirm
+			* go to local script and make changes, save
+			* go to terminal window where container is running and see changes to scripts detected in the terminal
+			* go to browser where app is running and refresh
+			* wait a few secs and changes show up. Yay.
+			* go back to bash terminal window, ctrl + d to kill it
+* **Networking Containers**
+	* Internal networks (LANs), external networks (WAN)
+		* WAN is a wide area network. Can be public or private. Stretches across city or industrial park, etc
+	* Access addresses
+		* servers bound to 0.0.0.0:<port number> give access to any computers on your LAN or WAN
+		* if localhost:<port number>, then only laptop running the server can connect to it
+		* if <laptop address thats running server>:<port number> then any computer on your LAN, WAN, or on the internet can connect
+			* e.g. 192.168.1.4:5000
+	* List of Docker networks
+		* `docker network ls`
+		* ipconfig (windows) ifconfig (Linux, Mac)
+			* shows info about networks
+				* bridge network is docker0 which is the docker supplied network
+			* fyi docker0 didn't show up on Windows for me
+	* Ping from one container to another
+		* Note: ping and ifconfig removed from Alpine and Slim image
+			* to reinstall, add this to 2nd line of dockerfile
+				* Alpine
+					* RUN apk update && apk add iputils
+				* Slim
+					* RUN apt-get update && apt-get install -y net-tools iputils-ping
+		* `docker exec web2 ping 172.17.0.2`
+			* where 172.17.0.2 is the other container's eth0 inet address
+				* found by `docker exec <container name> ifconfig`
+		* ctrl + c to stop the pinging
+	* View etc file
+		* `docker exec <container name> cat /etc/hosts`
+		* shows eth0 inet address is mapped to container id
+	* Create custom network
+		* allows us to connect containers by name which means if the addresses change, the apps won't break.
+		* `docker network create --driver bridge <name>`
+			* the bridge driver is used for networking containers on the same docker host
+			* for networking across multiple docker hosts, the overlay driver is used. (would need to research this further)
+		* Inspect network
+			* `docker network inspect <name>`
+		* add container to custom network
+			* add --net <network name> to the run-container instruction
+				* example: `docker container run -it --rm name web2 -p 5000:5000 -e FLASK\_APP=app.py -d --net firstnetwork web2`
+				* example: `docker container run -it --rm name redis -p 6379:6379 -d --net firstnetwork redis:3.2-alpine`
+					* This containers only linked up with the app running on the browser when they were run on the custom network and not the default docker bridge network
+					* in debug mode: `docker container run -it --name web2 -p 5000:5000 -e FLASK\_APP=app.py -e FLASK\_DEBUG=1 -v /C/Users/tbats/Documents/R/Projects/Docker/Courses/cloud-guru-docker-fund/09-linking-containers-with-docker-networks:/app -d --rm --net firstnetwork web2`
+				* containers will show up when you inspect firstnetwork
+				* can now ping using container names (assuming both containers have been added to the network)
+					* `docker exec web2 ping redis`
+						* web2 is the container doing the pinging
+						* redis being pinged 
+* **Data Volumes**
+	* allows data to persist on docker host after the container is stopped
+		* Should save on the host for apps because they should be portable
+		* For databases, not so bad
+	* A volume is nothing more than a folder on your computer that is linked to a folder inside the Docker container.
+	* Default volume path on host, "/var/lib/docker/volume/"
+	* `docker volume create web2\_redis`
+		* web2\_redis is the name of the volume
+			* good idea to pick a name that's relevant to job
+	* `docker volume ls`
+		* list of volumes
+	* `docker volume inspect web2\_redis`
+		* shows info about volume
+		* "Mountpoint" shows where the volume will be stored on the host machine
+	* `docker volume rm <volume1 name> <volume2 name>`
+		* remove specific volumes by name
+	* `docker volume prune`
+		* removes all volumes
+	* `docker rm -v <container name>`
+		* removes container and anonymous volume
+			* Will not remove a named volume
+		* \-v required else a "dangling" is created
+	* `docker volume ls -qf dangling=true`
+		`docker volume rm $(docker volume ls -qf dangling=true)`
+		* removes dangling volumes
+	* Add volume flag, data volume name, and destination to container
+		* `docker container run -it --rm name redis -p 6379:6379 -d --net firstnetwork -v web2\_redis:/data  redis:3.2-alpine`
+			* web2\_redis is the name we gave to the data volume
+			* /data is designated by the redis people
+				* This technique works for mysql, postgres, elasticsearch, etc. You just have to figure out the WHERE they decided that they want you to store your data (i.e. the /data part)
+					* go to their docker hub image page --> view readme --> look for section on persistent storage
+					* Example I went to postgres page and did an ctrl+f "persistent" and found a section describing when to use /data or /pgdata
+	* Saving the data
+		* redis does it automatically every 30 sec
+		* Manual save if you need to save right away:
+			* `docker exec redis redis-cli SAVE`
+	* Example: Named Volume
+
+```
+            version: '3.8'
+            services:
+              db:
+                image: mysql
+                restart: always
+                environment:
+                  MYSQL_ROOT_PASSWORD: root
+                  MYSQL_DATABASE: test_db
+                ports:
+                  - "3306:3306"
+                volumes:
+                  - db_data:/var/lib/mysql
+            volumes:
+              db_data:
+```
+
+* "db\_data" is the name
+* "/var/lib/mysql" is the path inside the container
+* Advantages
+	* Data persists after we _restart_ or _remove_ a container
+	* Accessible by other containers
+
+* Example: Unnamed (aka Anonymous) Volume
+
+```
+            version: '3.8'
+            services:
+              db:
+                image: mysql
+                restart: always
+                environment:
+                  MYSQL_ROOT_PASSWORD: root
+                  MYSQL_DATABASE: test_db
+                ports:
+                  - "3306:3306"
+                volumes:
+                  - /var/lib/mysql
+```
+
+* No volume name here but still has the path inside the container
+* Data will persist on _restart_ of the container, but not after the container is stopped and _removed_
+* Not accessible by other containers
+* Actually... even without the "volumes" instruction, the "mysql" image/dockerfile has a "VOLUME" instruction, so an anonymous volume would still be created.
+
+* Example (Bind Mounts)
+
+```
+            version: '3.8'
+            services:
+              db:
+                image: mysql
+                restart: always
+                environment:
+                  MYSQL_ROOT_PASSWORD: root
+                  MYSQL_DATABASE: test_db
+                ports:
+                  - "3306:3306"
+                volumes:
+                  - $PWD/data:/var/lib/mysql
+```
+
+* Instead of using the default host directory for the volume, you can specify a location yourself
+* first half (before colon) : where on the host machine to mount (i.e. create) the volume
+	* In the example, it's located in the working directory + /data
+	* For Linux, you can used the shortcut, "$PWD" which is a linux environment variable that stores the path to the working directory. It has the same value as the command "pwd -L" which Prints Working Directory.
+		* fyi the -L has something to do with "symlinks" which are thinks that can be created that point to another directory. If you're in in the symlink directory -L will print that directory and -P will print the directory that the symlink points to.
+		* same thing for Mac, except the quotes might need to be included
+	* For windows, "/c/users/<user\_name>/path/to/directory"
+* second half (after colon): specify the path inside the container you want to use for the volume. Usually specified by the db software.
+	* In the example, it's "/var/lib/mysql" which has been specified by the mysql image
+
+* Sharing data between containers
+	* Containers sharing and receiving need to be on the same docker host
+	* Add to app dockerfile
+		* `VOLUME` \["/app/public"\]
+			* Line location in the dockerfile wasn't specified but he put his right before the CMD line
+			* local directory with app has a folder named "public" that will be shared with other containers.
+	* Steps
+		1. build app image
+		2. run app image
+		3. run redis image with flags, --volume -from <app container name> 
+			* `docker container run -it --rm name redis -p 6379:6379 -d --net firstnetwork -v web2\_redis:/data --volume -from web2  redis:3.2-alpine`
+	* Files in app's public folder will be in redis's container
+		* Steps
+			* go into redis container
+				* `docker container exec -it redis sh`
+			* change directory to the public folder
+				* cd /app/public
+			* contents of app's public folder are in this folder too
+				* examine contents by printing to the terminal
+					* cat main.css
+	* While containers are running, you can exec into volume container (e.g. web2) add files, make changes to files, etc., and the files in the other containers will be updated in real time.
+	* Alternate method (\*not recommended for production\*)
+		* Don't put the VOLUME instruction in the dockerfile
+		* Add -v /app/public to the app run command
+		* Add the --volume -from flags to the redis container run command like before
+
+* **Optimizing container file size**
+	* .dockerignore
+		* Contains file paths to files in the local project directory that you don't want on the image (e.g. files with private data, .git files can be huge)
+		* During the image build, when docker runs the COPY/ADD instructions it will bypass the files in the .dockerignore file
+		* File paths in the .dockerignore file begin wherever you've designated the working directory in WORKDIR in the dockerfile
+		* Examples:
+			* .git/
+				* adding a trailing "/" isn't necessary but lets people know it's a directory and not a file
+			* may want to include the .dockerignore itself
+			* folder/\*
+				* The folder itself will be added to the image but all the content will be ignored
+			* \*\*/\*.txt
+				* says ignore all files with the .txt extension
+			* !name.txt
+				* this grants an exception to the name.txt file. It will be added to the image even with the \*\*/\*.txt
+			* You can negate the .dockerignore file
+				* Just a \* on line 1
+				* begin each file path with a "!" to specify which files to include
+	* Removing the build dependency files of the system dependency files (\*\* only for Alpine Linux \*\*)
+		
+		* In other words the files used to build the system dependency files
+		* He uses the example of a postgres dependency in the video, but no dependencies are actually listed in the dockerfile in the files folder.
+			* 2 hypotheses on what he's talking about:
+				1. The package you use in python to interact with the sql db has dependencies and files are needed to build those dependencies (build dependencies). After the dependencies are built, the build dependencies get deleted.
+				2. This image with include the sql db and that db has build dependencies. They get deleted
+					* I think it's 1., but I dunno. In the Installing packages section above, there are examples of python-dev files being installed, but I'm not sure which hypothesis that favors.
+		
+		* It's a bear of a bash script, so see dockerfile for details in cloud guru docker fund course, 012 lecture files folder on optimizing
+			* script stays above the COPY . . instruction
+			* If you use this script, thoroughly check everything and make sure the packages are working as intended.
+		* Steps
+			* first line (indent of the lines is the same in the file)
+
+```
+RUN apk add --no-cache --virtual .build-deps \
+```
+
+* second line, add dependencies
+
+```
+    postgressql-dev dependency2 dependency3 \
+```
+
+* Then add the rest of the bash gunk
+
+```
+    && pip install -r requirements.txt \
+    && find /usr/local \
+        \( -type d -a -name test -o -name tests \) \
+        -o \( -type f -a -name '*.pyc' -o -name '*.pyo' \) \
+        -exec rm -rf '{}' + \
+    && runDeps="$( \
+        scanelf --needed --nobanner --recursive /usr/local \
+                | awk '{ gsub(/,/, "\nso:", $2); print "so:" $2 }' \
+                | sort -u \
+                | xargs -r apk info --installed \
+                | sort -u \
+    )" \
+    && apk add --virtual .rundeps $runDeps \
+    && apk del .build-deps
+```
+
+* **Running scripts when a container starts**
+	* Instead of making multiple similar dockerfiles/images, you can use entry points into one dockerfile/image
+		* Examples:
+			* For a postgressql image, you pass a run instruction inside the dockerfile that sets up your user authorization and password as an environment variable. It also has an `ENTRYPOINT`, so that if you have other projects that use a postgres sql db, they can gain access to that information through the entry point.
+			* Running a db migration after a container starts
+				* run\_db\_migration1 as environment variable but with a default value set to off. You can control that action through entrypoint and a script
+			* control stuff in a nginx config to set an external ip after the container is running
+	* The docker\_entrypoint scripts aren't in your dockerfile so they don't add layers to an image
+	* Steps
+		* Add lines to dockerfile
+
+```
+                    COPY docker-entrypoint.sh /
+```
+
+* docker-entrypoint.sh should be a file in the root project directory
+	* Not in app directory, because it's best practice to keep entrypoint files separate.
+	* For details see section below
+
+```
+                    RUN chmod +x /docker-entrypoint.sh
+```
+
+* tells Linux to give the entrypoint script permission to run
+
+```
+                    ENTRYPOINT ["/docker-entrypoint.sh"]
+```
+
+* entry point instruction that points to where the script is located.
+
+* Run redis container as before
+* Build app image as before (gave it the name, "webentrypoint")
+* Run app container
+
+```
+docker container run -it --name webentrypoint -p 5000:5000 -e FLASK_APP=app.py -e FLASK_DEBUG=1 --rm --net firstnetwork webentrypoint
+```
+
+* name and image values changed to webentrypoint
+* removed -d flag because we want it to run in the foreground
+
+* If you go to localhost:5000 it has some message printed from the docker-entrypoint.sh script
+* Stop the app container
+* Re-run the app container
+
+```
+docker container run -it --name webentrypoint -p 5000:5000 -e FLASK_APP=app.py -e FLASK_DEBUG=1 -e WEB2_COUNTER_MSG="Docker fans will have visited this page" --rm --net firstnetwork webentrypoint
+```
+
+* WEB2\_COUNTER\_MSG is an environment variable that was given a default value inside the docker-entrypoint.sh script.
+
+* So we were able to change the environment variable without having to run the container, exec into the container, then change it.
+
+* Details on the dockerentrypoint.sh file
+	* When you run the container, this script gets run before the dockerfile
+	* Exports an environment variable that gets accessed by the app.py script
+
+```
+                    #!/bin/sh
+```
+
+* Comment that tells us that we're running a shell script
+
+```
+                    set -e
+```
+
+* says abort if there's an error in the script
+
+```
+                    echo "The Dockerfile ENTRYPOINT has been executed!"
+```
+
+* Line that prints in the terminal when we run the container
+
+```
+                    export WEB2_COUNTER_MSG="${WEB2_COUNTER_MSG:-carbon based life forms have sensed this website}"
+```
+
+* Where the custom scripting takes place
+* In this case, WEB2\_COUNTER\_MSG environment variable is created and a default value set
+	* I think the syntax after the = has something to do with making the value a default value
+
+```
+                    exec "$@"
+```
+
+* Says that after running everything in this script, then run the CMD stuff in the dockerfile
+
+* **Docker utility functions** (can be run in any directory)
+	* `docker system df`
+		* shows resources being used by docker
+		* adding -v tag at the end, produces a verbose output all the info is broken down further
+	* `docker system info`
+		* info about your docker installation
+			* useful when reporting bugs, creating issues
+			* verify docker installation
+	* `docker system prune`
+		* deletes all the crud
+			* stopped containers that you forgot to include --rm
+			* volumes not used by at least one container
+			* networks not used by at least one container
+			* all dangling images
+		* add -f flag to execute the prune without the confirmation message
+			* useful for automating through cron jobs, etc.
+		* add -a flag to remove ALL unused images
+			* \*\*only run if want every image not being used by a running container to be deleted\*\*
+* **Docker Compose** (note dash between docker and compose in commands)
+	* docker-compose.yml properties
+		* yaml files do not need to be in the same directory as your dockerfiles. You just have to give the path in the build property (see below)
+
+```
+version: '3'
+
+
+# pound sign is for comments
+services:
+  redis:
+    image: 'redis:3.2-alpine'
+    ports:
+      - '6379:6379'
+    volumes:
+      - 'redis:/data'
+
+  web:
+    build: '.'
+    depends_on:
+      - 'redis'
+    env_file:
+      - '.env'
+    ports:
+      - '5000:5000'
+    volumes:
+      - '.:/app'
+
+  worker:
+    build: '.'
+    command: celery <command>
+    depends_on:
+      - 'redis'
+    env_file:
+      - '.env'
+    volumes:
+      - '.:/app'
+
+volumes:
+  redis: {}
+```
+
+* `version` is the version of the compose api
+* `services` are the containers we're building
+	* service names (e.g. redis, web) will end up being the container and image names (see below for the exception)
+	* image property
+		* uses the base:tag format like the value for the FROM instruction in the dockerfile
+	* build property
+		* '.' says build an image from the current directory
+		* If your app has it's own folder then you need to specify the path
+			* example './web' 
+	* image and build property in the same service
+		* docker will build 2 of the same image
+			* one with project name (build) and the other with the image value as the name for the image
+		* example build: '.' and image: 'ercbk/web:1.0
+			* says build image using dockerfile in current directory and name it ercbk/web:1.0
+			* useful if the image is going to be pushed to the docker hub
+	* ports
+		* ports to be used for the container (see -p flag in running containers section for more details)
+			* the "bind" port (right side) supplied here needs to match the dockerfile
+		* a <dash> indicates a list in yamls.
+			* example: forward 2 sets of ports
+
+```
+                                                    - '6379:6379'
+                                                    - '5348:5348'
+```
+
+* network
+	* takes list inputs
+	* used when multiple networks are created
+		* example: databases/workers communicate on one network while apps communicate on both networks
+
+```
+  result:
+    build: ./result
+    command: nodemon --debug server.js
+    volumes:
+      - ./result:/app
+    ports:
+      - "5001:80"
+    networks:
+      - front-tier
+      - back-tier
+
+  worker:
+    build: ./worker
+    networks:
+      - back-tier
+
+  db:
+    image: postgres:9.4
+    volumes:
+      - "db-data:/var/lib/postgresql/data"
+    networks:
+      - back-tier
+```
+
+* volumes
+	* see data volumes section for more details
+	* <dash> means, just like for ports, values for this property are in list format
+	* In the app service,
+		* specify which directory to share
+			* '.:/app" says share the current local directory which will be the app directory in the container
+	* in the redis service, 
+		* web2\_redis is the name we give to the data volume
+		* /data is designated by the redis people
+* depends\_on
+	* necessary if one service depends on another. Indicates if one container needs to start before another.
+		* example: web (app) depends on redis (db)
+	* takes a value in list format
+* environment
+	* method 1 for setting environment variables
+	* name: value pair
+		* example:
+
+```
+                                            environment:
+                                                FLASK_DEBUG: 'true'
+```
+
+* env\_file
+	* method 2 takes a list of environment files to load
+	* loads from top to bottom
+		* if any variables in a lower listed file match those in a file listed higher up, then the values in the earlier file get overwritten to the values in the later file
+		* useful if you have a stock env file, decide to put the containers into production, then you can just add a production env file to the directory and the yaml
+	* example: .env is the name of the file in the current directory (<dot> is in the actual name)
+	* file example
+
+```
+                                            COMPOSE_PROJECT_NAME=web2
+
+                                            PYTHONBUFFERED=true 
+                                            FLASK_APP=app.py
+                                            FLASK_DEBUG=1
+```
+
+* The flask variables are the ones we passed in the run containers section
+* Can configure Docker Compose options here
+	* example: supply a project name. Otherwise Docker would just use the current directory for the name of the project. Also gets added as a prefix for networks, etc. that Compose will create.
+* The Python buffer variable is necessary if you want to see the output from the terminal through Compose
+
+* worker (service)
+	* Use the same dockerfile for both services
+		* eg worker uses the same dockerfile as web in the example docker-compose.yml
+	* useful for background services for your app
+		* celery is a python library used this task
+	* differences
+		* no need for port to be exposed (therefore overriding the CMD instruction in the dockerfile)
+		* uses command property which replaces the CMD instruction in the dockerfile
+
+* `volumes`
+	* the name given here needs to match the name of the volume given in the services property
+		* example: for this yaml the name of the volume created is "redis"
+	* {} - curly brackets are for adding options to the volume, such as being read-only (see docker docs for more options)
+		* in this example no options are supplied so it's empty (still necessary though)
+
+* **Managing a web app with Docker-Compose** (note dash between docker and compose in commands)
+	* Current directory need to have the docker-compose.yml file
+		* unless you use the -f flag
+	* `docker-compose --help`
+		* info on commands
+	* `docker-compose build`
+		* builds an image of any service in the yaml file with a build property
+		* docker image ls will show the built images with the project name as the prefix
+			* project name set in the env file (see above)
+	* `docker-compose pull`
+		* pulls any other images specified with the image property in the yaml file
+			*  not just local but also pulls from docker hub I think
+	* `docker-compose up`
+		* runs the project (everything created with project name prefix)
+			* creates network
+				* eg web2\_defaults
+			* creates volume
+				* eg web2\_redis
+			* starts containers
+				* eg web2\_redis\_1, web2\_web\_1
+					* the "\_1" suffix is in case the project calls for multiple instances of the same container
+						* reminder: multiple apps require different ports (binding?) (see -p in running-a-container sections). Would also require setting up a load balancer. (see aws load balancer section below)
+		* `docker-compose up <service>`
+			* starts a specific service
+			* if you start a service with a dependency ("depends\_on" specified in yaml), it will also start that dependency service.
+			* docker compose web
+				* starts web but also redis, because web has a specified redis dependency
+	* `docker-compose stop`
+		* stops all containers
+			* can probably specify a container
+				* eg docker-compose stop web
+		* can also use ctrl+c, but (as of 2017) there's a bug that throws an error and aborts instead
+	* `docker-compose up --build -d`
+		*  runs both build and up commands at once
+		* \-d says run in the background
+	* `docker-compose ps`
+		* similar info as docker container ls but presented slightly differently
+	* `docker-compose logs -f`
+		* since containers running in the background -f needed to logs of the container activity
+		* It's a realtime log of all containers running in the project, so will require ctrl+c to exit
+	* `docker-compose restart`
+		* restarts all containers
+		*  can also just specify one container
+			* eg docker-compose restart redis
+	* `docker-compose exec web`
+		* for a running container, you can execute commands inside the container from the outside
+			* `docker-compose exec web ls -la`
+				* shows file contents inside container
+		* opening a shell inside the container
+			* `docker-compose exec web sh`
+				* no -it flag necessary like for docker container exec (see running-a-container section)
+		* exit
+			* exits the shell
+	* `docker-compose run <service> <command>`
+		* allows you to instantly run the container, execute a command inside the container, and exit the shell
+		* equivalent to the command sequence: up --> exec --> exit
+		* example: docker-compose run redis redis-server --version
+	* `docker-compose rm`
+		* deletes all containers (only stopped ones I assume)
+		* These will also be removed using the docker system prune from the docker-utility-functions section
+
+
+
+* * *
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

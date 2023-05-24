@@ -1,0 +1,426 @@
+# Git, general
+
+TOC
+
+* Misc
+* Optimizations
+* Troubleshooting
+* Pulling
+* Branches
+* Collaboration
+
+
+
+Misc
+
+* URL format to download files from repositories
+	* https://raw.githubusercontent.com/user/repository/branch/filename
+
+```
+# Or evidently this way works too
+# adds ?raw=true to the end of the url
+feat_all_url<-url("https://github.com/notast/hierarchical-forecasting/blob/main/3feat_all.RData?raw=true")
+load(feat_all_url)
+close(feat_all_url)
+```
+
+* Get filelist from repo and download to a directory
+	* \*\* Directory urls change as commits are made \*\*
+
+```
+library(httr)
+
+# example: get url for the data dir of covidcast repo
+req <- httr::GET("https://api.github.com/repos/ercbk/Indiana-COVIDcast-Dashboard/git/trees/master?recursive=1") %>% 
+  httr::content()
+# alphabetical order
+trees <- req$tree %>% 
+  map(., ~pluck(.x, 1)) %>% 
+  as.character()
+# returns 20 which is first instance, so 19 should the "data" folder
+detect_index(trees, ~str_detect(., "data/"))
+# url for data dir
+req$tree[[19]]$url
+
+# example
+# Get all the file paths from a repo
+req <- GET("https://api.github.com/repos/etiennebacher/tidytuesday/git/trees/master?recursive=1")
+# any request errors get printed
+stop_for_status(req)
+file_paths <- unlist(lapply(content(req)$tree, "[", "path"), use.names = F)
+# file_path wanted <- filter file path to file you want
+# gets the very last part of the path
+file_wanted <- basename(file_path_wanted)
+origin <- paste0("https://raw.githubusercontent.com/etiennebacher/tidytuesday/master/", file_wanted)
+destination <- "output-path-with-filename-ext"
+# if file doesn't already exist, download it from repo into destination
+if (!file.exists(destination)) {
+  # if root dir doesn't exist create it
+  if (!file.exists("_gallery/img")) {
+    dir.create("_gallery/img")
+  }
+  download.file(origin, destination)
+```
+
+
+Optimizations
+
+* For large repos, simple actions, like running git status or adding new commits can take many seconds. Cloning repos can take many hours.
+* Benefits
+	* It improves the overall performance of your development workflow, allowing you to work more efficiently. This is especially important when working with large organizations and open source projects, where multiple developers are constantly committing changes to the same repository. A faster repository means less time waiting for Git commands such as `git clone` or `git push` to finish.
+		It helps to optimize the storage space, as large files are replaced by pointers which take up less space. This can help avoid storage issues, especially when working with remote servers.
+		
+	Misc
+		See [How to Improve Performance in Git: The Complete Guide](https://www.git-tower.com/blog/git-performance/)
+			Explainer, config settings, advanced gc, checkout, and clone commands
+			
+	Use .gitignore
+	* Generated files, like cache or build files
+		* They will be modified at each different generation — and there's no need to keep track of those changes.
+	* Third-party libraries
+		* Instead, aim for a list of the required dependencies (and the correct version) so that everyone can download and install them whenever the repo is cloned.
+			* For example, with a package.json file for JavaScript projects you can (and should) exclude the /node\_modules folder.
+			* .DS\_Store files (which are automatically created by macOS) are another good candidate
+* Git LFS
+	* Designed specifically to handle large file versioning. LFS saves your local repositories from becoming unnecessarily big, preventing you from downloading unnessary data.
+		* Git LFS intercepts any large files and sends them to a separate server, leaving a smaller pointer file in the repository that links to the actual asset on the Git LFS server.
+	* This is an extension to the standard Git feature set, so you will need to make sure that your code hosting provider supports it (all the popular ones do).
+	* Also need to [download and install the CLI extension on your machine](https://git-lfs.com/) before installing it in your repository.
+	* Set-Up
+
+```
+$ git lfs install
+$ git lfs track "*.wav"
+$ git lfs track "images/*.psd"
+$ git lfs track "videos"
+$ git add .gitattributes
+```
+
+	Tells Git LFS which file extensions it should manage.
+	
+	`.gitattributes` notes the file names and patterns in this text file and, just like any other change, it should be staged and committed to the repository.
+	
+	Can now add files and commit as normal
+	
+
+	List all file extensions being tracked: `git lfs track`
+	
+	List all files being managed: `git lfs ls-files`
+	
+
+
+
+Troubleshooting
+
+* Keeps asking for username/password when pushing
+	* Solution: You (or if you used usethis::use\_github/git) probably set-up a https connection when you need a ssh connection.
+		* see https://docs.github.com/en/get-started/getting-started-with-git/managing-remote-repositories#changing-a-remote-repositorys-url to change from https to ssh.
+* Undo a commit, but save changes made (e.g. you forgot to pull before you pushed)
+	* Steps
+		* `git log` - Shows commit history. Copy the hash for your last commit
+		* `git diff <last commit hash> > patch` - save the diff of the latest commit to a file
+		* `git reset --hard HEAD^` to revert to the previous commit
+			* \*\*After this, your changes will be lost locally \*\*
+		* `git log` - confirm that you are now at the previous commit
+		* `git pull` - correct the mistake you made in first place
+		* `patch -p1 < patch` - apply the changes you originally made
+		* `git diff` \- to confirm that the changes have been reapplied
+		* Now, you do the regular commit, push routine
+* Undo uncommitted changes: `git stash` followed by `git stash drop`
+	* "but only use if you commit often" - guessing this is not good if your commit is somehow large and/or involves multiple files
+
+
+
+Pulling
+
+* Save your changes, pull in an update, apply your changes
+
+```
+git stash
+git pull
+git stash pop
+```
+
+* `git stash pop` throws away the (topmost, by default) stash after applying it, whereas
+* `git stash apply` leaves it in the stash list for possible later reuse (or you can then `git stash drop` it).
+* Re potential merge conflicts
+	* "For instance, say your stashed changes conflict with other changes that you’ve made since you first created the stash. Both pop and apply will helpfully trigger merge conflict resolution mode, allowing you to nicely resolve such conflicts… and neither will get rid of the stash, even though perhaps you’re expecting pop too. Since a lot of people expect stashes to just be a simple stack, this often leads to them popping the same stash accidentally later because they thought it was gone."
+
+* Pulling is fetching + merging![](./_resources/Git,_general.resources/FLG-tC-UcAEPRNk.jpeg)
+* Fetching just gets the info about the commits made to the remote repo
+
+```
+    git fetch origin
+```
+
+* Some technical discussion for always using git pull --ff
+	* https://blog.sffc.xyz/post/185195398930/why-you-should-use-git-pull-ff-only-git-is-a
+	* https://megakemp.com/2019/03/20/the-case-for-pull-rebase/
+	* it's still confusing but pull rebase sounds fine to me
+	* \--global tag says do it for all my repos
+	* not sure what the true and only are for
+		* git pull --help will open doc in browser
+* pulling by rebase
+	* local: using this method as default
+
+```
+git config pull.rebase true
+git pull
+```
+
+* remote
+
+```
+git pull --rebase
+```
+
+* pulling by fast-forward
+	* local: using this method as default
+
+```
+git config --global pull.ff only
+git pull
+```
+
+* remote
+
+```
+git pull --ff
+```
+
+Branching
+
+* Misc
+	* Create a new branch for each ticket you are working on or each data model. It can get sloppy when you put all your code changes on one branch.
+* Create a branch (e.g. "testing")
+
+```
+git branch testing
+```
+
+* Work in a branch
+
+```
+git checkout testing
+```
+
+* the files in your working directory change to the version saved in that branch
+* It adds, removes, and modifies files automatically to make sure your working copy is what the branch looked like on your last commit to it.
+
+* Create and work in a branch
+
+```
+# new way
+git switch -c testing
+or
+git checkout -b testing
+or
+git branch testing
+git checkout testing
+```
+
+* creates the branch _and_ switches you to working in that branch
+* If you did a bunch of changes in a codebase, only to realize that you're working on \`master\`,  `switch` will bring those local changes with you to the new branch. So I guess they won't affect master then.
+	* Unless If you already committed to main, then those changes are both in your new branch and in main. So you would still have to clean up the main branch.
+
+* Deleting a branch
+	* local branch
+
+```
+        git branch -d testing
+```
+
+* remote branch
+
+```
+        git push <remoteName> --delete <branchName>
+```
+
+* See existing branches
+
+```
+git branch
+```
+
+* See what has been commited the remote repo branches
+
+```
+git fetch origin
+git branch -vv
+```
+
+* "origin" is the name of the remote
+* result
+
+```
+    testing    7e424c3 [origin/testing: ahead 2, behind 1] change abc 
+    master      1ae2a45 [origin/master] Deploy index fix
+    * issue    f8674d9 [origin/issue: behind 1] should do it         
+    cart        5ea463a Try something new
+```
+
+* format: branch, last commit sha-1, local branch status vs remote branch status, commit message
+* the star indicates the HEAD pointer’s location (where you're at, i.e. checkout)
+* testing branch
+	* "ahead 2" means  I _committed_ twice to the local testing branch and this work has not been _pushed_ to the remote testing branch repo yet.
+	* "behind 1" means someone has pushed a commit to the remote testing branch repo and we haven’t merged this work to our local testing branch
+
+* Get the last 10 branches that you've committed to locally:
+
+```
+git branch --sort=-committerdate | head -n 10
+```
+
+* Rename branch
+
+```
+# change locally
+git branch --move <bad-branch-name> <corrected-branch-name>
+# change remotely in repo
+git push --set-upstream origin <corrected-branch-name>
+# confirm change
+git branch --all
+```
+
+* **HEAD** determines to which branch new commits are added![](./_resources/Git,_general.resources/1-mO-snMtFrFEUNRlTkqR7gw.jpeg)
+	* Example
+		* "testing" branch is created (not shown in above picture)
+			* HEAD points at "master" branch
+			* "master" branch and the new "testing" branch both point at commit, f30ab.
+			* f30ab commit **points to previous commit** 34ac2
+		* user executes `checkout` to "testing" branch (not shown in picture)
+			* HEAD now points to testing branch
+		* user commits 87ab2 (shown in pic)
+			* 87ab2 is committed to the "testing" branch
+			* "testing" branch is now ahead of the "master" branch by 1 commit
+	* Example
+		* Everything above happens but now _another user_ commits the master branch.![](./_resources/Git,_general.resources/1-Mm4QwXB5rvbSUoEVYDDeBQ.jpeg)
+			* Both branches are in conflict. The testing branch is ahead and behind by 1 commit
+* **Merging**
+	* Notes
+		* NEVER merge your branch locally on your machine with the master branch, ALWAYS merge online via pull request
+			* Steps
+				1. Push final changes and use of a [pull request](https://inbo.github.io/git-course/course_rstudio.html#214_Pull_requests)
+				2. Switch to master branch locally and pull the merged changes
+	* Update branch with work that's been done in master branch
+		* After updating your local branch, push to remote repo (no commit necessary)
+
+```
+      # while in branch
+      git merge master
+```
+
+* Fast-Forward
+	* [Example]{.ribbon-highlight}
+		* Before the merge![](./_resources/Git,_general.resources/1-mO-snMtFrFEUNRlTkqR7gw.jpeg)
+			* the testing branch is 1 commit ahead of the master branch and the master branch doesnt have a new commit
+		* After the merge![](./_resources/Git,_general.resources/1-JZfeHxjU7GV1cINEeS45OQ.jpeg)
+			* master is moved forward to the testing branch commit
+	* Code (merging work in branch with the master branch for production)
+
+```
+            # currently in test branch           
+            git checkout master
+            git merge testing
+```
+
+* [Example]{.ribbon-highlight}
+	* iss53 branch ahead of master by 2 commits (c3, c5) and behind 1 commit (c2)![](./_resources/Git,_general.resources/basic-branching-6.png)
+	* Same code as Fast-Forward merge but git handles the merge a bit differently
+
+```
+            git checkout master 
+            git merge iss53
+```
+
+* ![](./_resources/Git,_general.resources/basic-merging-1.png)![](./_resources/Git,_general.resources/basic-merging-2.png)
+	* C6 (right pic) is called a "merge commit." Its created by git and points to two commits instead of one.
+	* No need to merge with master (i.e. update local iss53 branch with c4 changes in master) before committing final changes
+		* If there are changes in the same lines of code C4 and C5, then there will be a conflict (See below, Conflicts >> Example)
+
+* Conflicts
+	* [Example]{.ribbon-highlight}
+		* Changed files in C4 (see above example) are in the same lines of the same files that you made changes to in C5
+			* Remember: you're now in the master branch since you did checkout master as part of the merge code
+			* Steps
+				* Check status to which files are causing the conflict (e.g. index.html)
+
+```
+                        git status
+                          Unmerged paths:
+                          (use "git add <file>..." to mark resolution) 
+                            both modified:      index.html
+```
+
+* Lines in file are marked
+
+```
+<<<<<<< HEAD:index.html
+<div id="footer">contact : email.support@github.com</div>
+=======
+<div id="footer">
+please contact us at support@github.com
+</div>
+>>>>>>> iss53:index.html
+```
+
+* Above ======= is the master branch version of the code and below is the iss53 branch version
+* Make necessary changes and save the file
+
+* git add . or git add <resolved file>
+	* tells git that conflict is resolved
+* Check status to confirm everything has been resolved
+
+```
+                        git status
+
+                            On branch master
+                            All conflicts fixed but you are still merging.
+                                  (use "git commit" to conclude merge)
+                                Changes to be committed:
+                                    modified:  index.html
+```
+
+* git commit
+	* no message required (there's a default message) but you can add one if you want
+
+* **Moving between branches**
+	* from master to testing
+
+```
+        git checkout testing
+```
+
+* local files are deleted and replaced with branch versions
+	* alternative: [worktree](https://stackoverflow.com/questions/6270193/multiple-working-directories-with-git/30185564#30185564)
+* Example
+	* What happens when you move from branch-a to branch-b
+
+```
+            BRANCH-A        BRANCH-B
+            alpha.txt      alpha.txt
+            bravo.txt
+            charlie.txt    charlie.txt
+                            delta.txt
+```
+
+* bravo text is deleted from your local disc and delta.txt is added
+* If any changes to alpha.txt or charlie.txt have been made and no commit has been made, the checkout will be aborted
+	* So either revert the changes or commit the changes
+* Untracked files or newly created files
+	* If you have branch-A checked out and you create a new file called echo.txt, Git will not touch this file when you checkout branch-B. This way, you can decide that you want to commit echo.txt against branch-B without having to go through the hassle of (1) move the file outside the repo, (2) checkout the correct branch, and (3) move the file back into the repo.
+
+
+
+Collaboration
+
+* Add collaborators to your repository
+* One person invites the others and provides them with read/write access ([github docs](https://docs.github.com/en/account-and-profile/setting-up-and-managing-your-github-user-account/managing-access-to-your-personal-repositories/inviting-collaborators-to-a-personal-repository))
+	* Steps
+		1. Go to the settings for your repository
+		2. manage access >> "invite a collaborator"
+			* Search for each collaborator by full name, acct name, or email
+			* Click "Add <name> to <repo>"
+		3. Each collaborator will need to accept the invitation
+			* Sent by email
+

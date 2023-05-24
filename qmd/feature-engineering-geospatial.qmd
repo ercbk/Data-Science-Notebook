@@ -1,0 +1,165 @@
+# Feature Engineering, Geospatial
+
+TOC
+
+* Misc
+* Features
+
+
+
+
+Misc
+
+* Safegraph data
+	* Misc
+		* $200 free credits
+		* [{]{style='color: #990000'}[SafeGraphR](https://safegraphinc.github.io/SafeGraphR/){style='color: #990000'}[}]{style='color: #990000'}
+		* [article](https://towardsdatascience.com/deriving-location-intelligence-insights-using-safegraph-d53803e239cb)
+	* measure foot traffic
+	* locate where you customers come from
+
+
+
+Features
+
+* **distance from** <something>
+	* school, supermarket, movie theater, interstate, highway, industrial park, etc.
+	* Distance to the nearest city, Distance to the nearest big city
+	* The [Harvsine Formula](https://en.wikipedia.org/wiki/Haversine_formula) takes into account the Earth's curvature for a more accurate distance
+* **Nearest**
+	* Examples: Nearest city name, Nearest big city, Nearest city population
+* **Round** to longitude and latitude to 3 or 4 decimal places
+* Convert the latitude and longitude **to radians**
+* **Cluster** longitude and latitude and then one-hot encode the cluster labels
+	* DBSCAN and Hierarchical is supposed to work best with geospatial features
+* **Geocode** Addresses to latitude and longitude
+	* [{tidygeocoder}]{style='color: #990000'}
+
+```
+new_tbl <- old_tbl %>%
+    geocode(
+        address = <address_var>, #e.g. "city, state"
+        method = "arcgis"
+    )
+```
+
+* **Reverse geocode** latitude and longitude to Addresses
+	* Create categoricals like city, state, country
+	* If the coordinates are in the same city, for example, then extracting the street address would be necessary
+	* [{tidygeocoder}]{style='color: #990000'}
+
+```
+new_tbl <- old_tbl %>%
+    reverse_geocode(
+        lat = "<latitude_var>",
+        long = "<longitude_var>",
+        address = "estimated_address", # disired column name for result
+        method = "arcgis"
+    )
+```
+
+* outputs street address, city, state, zip, country
+
+* **Zip Codes**
+	* There are 10K Point ZIP codes out of ~42K US ZIP codes and only ~32K ZIP codes have a physical boundary
+	* Every country has its own ZIP code system
+	* Aren't necessarily a location
+		* e.g. US Navy, which has its own ZIP code, but no permanent location
+	* Types - PO Box, Unique (individual addresses), Military, and Standard
+	* Might be easier to work with Zip Code Tabulation Areas (ZCTAs) (see bkmks Geospatial >> Resources >> Shapefiles)
+	* See zip\_code\_database.csv in R >> Data for different attributes of all the US zipcodes (lat, long, cities, population, etc.)
+		* from https://www.unitedstateszipcodes.org/zip-code-database/
+	* Hashing might be a good approach (see [Feature Engineering, General](Feature Engineering, General) >> Categorical >> Encoding/Hashing)
+* **Cosine and Sine transform**
+	* Formulas
+		* Cyclical variable (0° - 360°) (e.g. slope aspect)
+
+```
+new_var <- cos(old_var) * pi / 180)
+new_var <- sin(old_var) * pi / 180)
+```
+
+* If there’s a specific azimuth direction (or point in the cycle) where you expect the maximum or minimum, you can shift the aspect variable before calculating the (co)sine.
+
+* latitude and longitude
+
+```
+        x = cos(lat) * cos(lon)
+        y = cos(lat) * sin(lon)
+        z = sin(lat)
+```
+
+* Latitude and Longitude are 2-D coordinates representing a 3-D system. This transforms them to 3-D.
+
+* **Latitude or Longitude to Decimal**: [function](https://www.r-bloggers.com/2022/02/degree-minute-second-to-decimal-coordinates/)
+* **Binning and Crossing**
+	* "Crossing" is multiplying 1 boolean column times another or more boolean columns
+	* Binning prevents a change in latitude producing the same result as a change in longitude (?)
+	* You can also bin latitude and longitude to different granularities such as by neighborhood or city block to provide info about those areas
+	* If the column is continuous, then it needs to be binned and one-hot encoded before being crossed
+	* Binning and crossing latitude and longitude with a 3rd binned feature provides area info about that 3rd predictor to the model
+		* Example binned\_latitude x binned\_longitude x binned\_traffic\_stops where latitude and longitude are binned by city block
+			* Provides the model with info about traffic stops at the city block granularity
+	* pseudo code
+
+```
+        binned_latitude(lat) = [
+          0  < lat <= 10
+          10 < lat <= 20
+          20 < lat <= 30
+        ]
+
+        binned_longitude(lon) = [
+          0  < lon <= 15
+          15 < lon <= 30
+        ]
+
+        # crossing the binned features
+        binned_latitude_X_longitude(lat, lon) = [
+          0  < lat <= 10 AND 0  < lon <= 15
+          0  < lat <= 10 AND 15 < lon <= 30
+          10 < lat <= 20 AND 0  < lon <= 15
+          10 < lat <= 20 AND 15 < lon <= 30
+          20 < lat <= 30 AND 0  < lon <= 15
+          20 < lat <= 30 AND 15 < lon <= 30
+        ]
+```
+
+* i.e. both conditions true --> 1, either condition false --> 0
+
+* Cyclic var
+
+```
+bin_cycl_var <- function(x) {
+  cut((x + 22.5) %% 360, breaks = seq(0,360,by=45),
+      labels = c("N","NE","E","SE","S","SW","W","NW"))
+}
+```
+
+* Sine/Cosine transform or cyclic smoothing spline will probably produce better results
+
+* **Bin latitude and longitude** **then process**
+	* Embed: use categorical embedding
+		* Might be better to bin, cross, then embed
+		* Or depending on the number of unique pairs, maybe just cross and embed
+	* Exact indexing: maps each grid cell to a dedicated embedding. This takes up the most space.
+	* Feature hashing: maps each grid cell into a compact range of bins using a hash function. The number of bins is much smaller than with exact indexing. 
+		* "while feature hashing saved space compared to exact indexing, the accuracy was the same or slightly worse depending on the grid resolution. This is likely due to hash collisions that cause some information to be lost" (from Uber ETA model article, also see [DL, Tabular](DL, Tabular) >> Uber ETA)
+	* Multiple feature hashing: extends feature hashing by mapping each grid cell to multiple compact ranges of bins using independent hash functions![](./_resources/Feature_Engineering,_Geospatial.resources/figure5.png)
+		* "provided the best accuracy and latency while still saving space compared to exact indexing. This implies that the network is able to combine the information from multiple independent hash buckets to undo the negative effects of single-bucket collisions." (from Uber ETA model article, also see [DL, Tabular](DL, Tabular) >> Uber ETA)
+		* I think this means they binned longitude and latitude at 3 different grid resolutions, then each cell is hashed twice with 2 independent hashing functions. This results in 6 features(?)
+* **cyclic smoothing spline**
+	* `mgcv::s(cyclic_var, bs = "cc", k = k)` 
+		* k lets you optionally control the e.d.f. to avoid overfitting
+			* example used k = 10
+			* I have no idea what edf is lol
+
+
+
+
+
+
+
+
+
+

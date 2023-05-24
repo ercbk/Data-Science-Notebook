@@ -1,0 +1,537 @@
+# Bayes, priors
+
+TOC
+
+* Misc
+* Statistical Rethinking
+	* Misc
+	* Preprocessing
+	* Get Prior Recommendations
+	* Formulating an intercept prior
+	* Formulating a slope prior
+	* Formulating a sigma prior
+	* Extracting a prior
+	* Simulating a prior predictive distribution
+	* Conjugate priors
+* Prior Elicitation
+
+
+Misc
+
+* Resources
+	* Stan/brms prior distributions ([mc-stan/function-ref](https://mc-stan.org/docs/functions-reference/index.html))
+		* Distributions are towards the bottom of the guide
+		* [{brms}]{style='color: #990000'} should have all the distributions available in Stan according to their [docs](https://paul-buerkner.github.io/brms/reference/set_prior.html) (see Details section)
+* Using meta-analyis or previous studies to create informed priors
+	* "Systematic use of informed studies leads to more precise, but more biased estimates (due to non-linear information flow in the literature). Critical comparison of informed and skeptical priors can provide more nuanced and solid understanding of our findings." ([thread + paper](https://twitter.com/fusaroli/status/1570671582695292929))
+		* i.e. try both and compare the result
+* Prior sensitivity analysis
+	* [{]{style='color: #990000'}[priorsense](https://github.com/n-kall/priorsense){style='color: #990000'}[}]{style='color: #990000'}
+		* [Video](https://www.youtube.com/watch?v=TBXD3HjcIps&list=PLUEhQLNNQrgndd7_ZY-U5x9lYssl25jmd&index=14), [Thread](https://twitter.com/avehtari/status/1421041868909985793)
+
+
+
+Statistical Rethinking
+
+* Misc
+	* The "flatness" of a Normal prior is controlled by the size of the s.d. value
+		* not in logistic regression (see examples below)
+	* Flat priors result in poor frequency properties (i.e. consistently give bad inferences) in realistic settings where studies are noisy and effect sizes are small. ([Gelman post](http://statmodeling.stat.columbia.edu/2013/11/21/hidden-dangers-noninformative-priors/))
+	* weakly informative priors: they allow some implausibly strong relationships but generally bound the lines to possible ranges of the variables. (fig 5.3, pg 131)
+	* We want our priors to be skeptical of large differences \[in treatment effects\], so that we reduce overfitting. Good priors hurt fit to sample but are expected to improve prediction. (pg 337)
+	* We don't formulate priors based on the sample data. We want the prior predictive distribution to live in the plausible outcome space, not fit the sample.
+	* For logistic regression and poisson regression, a flat prior in the logit space is not a flat prior in the outcome probability space (pg 336)
+	* As long as the priors are vague, minimizing the sum of squared deviations to the regression line is equivalent to finding the posterior mean. pg 200
+	* "As always in rescaling variables, the goals are to create focal points that you might have prior information about, prior to seeing the actual data values. That way we can assign priors that are not obviously crazy, and in thinking about those priors, we might realize that the model makes no sense. But this is only possible if we think about the relationship between measurements and parameters, and the exercise of rescaling and assigning sensible priors helps us along that path. Even when there are enough data that choice of priors is not crucial, this thought exercise is useful." pg 258
+	* Comparing the posteriors with the priors![](./_resources/Bayes,_priors.resources/image.1.png)
+
+
+
+* Preprocessing
+	* Centering the predictor
+		* makes the posterior easier to sample
+		* reduces covariance among the parameter posterior distributions
+		* makes it easier to define the prior on average temperature in the center of the time range (instead defining prior for temperature at year 0).
+		* Links to Gelman posts about centering your predictors ([article](https://statmodeling.stat.columbia.edu/2022/12/04/centering-predictors-in-bayesian-multilevel-models/))
+	* If you standardize your predictors, you can use a mean of 0 for the prior on your intercept
+		* With flat priors, this doesn't make much of difference
+* Get Prior Recommendations
+	* Example: Fitting a spline
+
+```
+# get recommended prior specifications
+# s is the basis function brms imports from mgcv pkg
+brms::get_prior(data = d2, 
+                family = gaussian, 
+                doy ~ 1 + s(year))
+##                  prior    class    coef group resp dpar nlpar bound      source 
+##                  (flat)        b                                          default 
+##                  (flat)        b syear_1                            (vectorized) 
+##  student_t(3, 105, 5.9) Intercept                                          default 
+##    student_t(3, 0, 5.9)      sds                                          default 
+##    student_t(3, 0, 5.9)      sds s(year)                            (vectorized) 
+##    student_t(3, 0, 5.9)    sigma                                          default
+
+# applying the recommendations
+# multi-level method for spline fitting
+b4.11 <- brm(data = d2, 
+            family = gaussian, 
+            # k = 19, corresponds to 17 basis functions I guess ::shrugs:: 
+            # The default for s() is to use what’s called a thin plate regression spline 
+            # bs uses a basis spline 
+            temp ~ 1 + s(year, bs = "bs", k = 19), 
+            prior = c(prior(normal(100, 10), class = Intercept), 
+                      prior(normal(0, 10), class = b), 
+                      prior(student_t(3, 0, 5.9), class = sds), 
+                      prior(exponential(1), class = sigma)), 
+            iter = 2000, warmup = 1000, chains = 4, cores = 4, 
+            seed = 4, 
+            control = list(adapt_delta = .99))
+```
+
+* Example: multinomial logistic regression
+
+```
+# Outcome categorical variable has k = 3 levels. We fit k-1 models. Hence the 2 intercept priors
+# intercept model
+get_prior(data = d, 
+          # refcat sets the reference category to the 3rd level
+          family = categorical(link = logit, refcat = 3),
+          # just an intercept model
+          career ~ 1)
+##                prior    class coef group resp dpar nlpar bound  source
+##                (flat) Intercept                                  default
+##  student_t(3, 3, 2.5) Intercept                  mu1            default
+##  student_t(3, 3, 2.5) Intercept                  mu2            default
+
+b11.13io <-
+  brm(data = d, 
+      family = categorical(link = logit, refcat = 3),
+      career ~ 1,
+      prior = c(prior(normal(0, 1), class = Intercept, dpar = mu1),
+                prior(normal(0, 1), class = Intercept, dpar = mu2)),
+      iter = 2000, warmup = 1000, cores = 4, chains = 4,
+      seed = 11,
+      file = "fits/b11.13io")
+```
+
+* as of brms 2.12.0, “specifying global priors for regression coefficients in categorical models is deprecated.” Meaning — if we want to use the same prior for both, we need to use the `dpar` argument for each
+
+* Formulating an intercept prior
+	* `example` (6.3.1 pgs 182-83)
+		* a thought process on how to set a predictor prior based on its relationship to the outcome and an intercept prior.
+	* `example` (7.1.1 pg 200)
+		* outcome variable was scaled, outcome/max(outcome)
+			* values now between 0 and 1
+			* Useful for when 0 is a meaningful boundary
+		* Now able to center the intercept prior on mean of outcome, α ∼ Normal(0.5, 1)
+			* says that the average species with an average body mass (predictor variable) has a brain volume (outcome variable) with an 89% credible interval (± 1.5 sd) from about −1 to 2.
+				* Body mass was centered, so it's at its average is when its value is zero.
+	* `example` (8.3.2 pg 259)
+		* similar to 7.1.1 example except there's the observation that a sd = 1 for the intercept prior is too large given that the outcome is bdd between 0 and 1 (after scaling)
+
+```
+a <- rnorm( 1e4 , 0.5 , 1 )
+sum( a < 0 | a > 1 ) / length( a )
+[1] 0.6126
+```
+
+* 61% of the prior is outside the bounds for the outcome which makes no sense
+
+* If it’s 0.5 units from the mean to zero, then a standard deviation of 0.25 should put only 5% of the mass outside the valid range.
+
+```
+a <- rnorm( 1e4 , 0.5 , 0.25 )
+sum( a < 0 | a > 1 ) / length( a )
+[1] 0.0486
+```
+
+* not sure why you want 5% outside the valid range of the outcome variable
+
+* [Example]{.ribbon-highlight} (Ch 11 pg 335-6)
+	* With logistic regression, flat Normal priors aren't priors with a high sd.![](./_resources/Bayes,_priors.resources/Screenshot (199).png)
+		* The Normal prior on the logit scale with the large sd says that the probabilty of an event is either 0 or 1 which usually isn't reasonable.
+			* logit(pi) = α
+		* α ~ Normal(0, 1.5) — the curve for the probability of an event is very flat, looks like a mesa
+		* α ~ Normal(0, 1.0) —the curve for the probability of an event is a fat hill shape. A little more skeptical of extreme probabilities
+* [Example]{.ribbon-highlight}
+	* Also have ggplot code in Documents >> R >> Code >> Simulations >> sim-prior-predictive-distr.R
+	* poisson regression (pg 356)
+	* In poisson regression, flat normal priors aren't priors with high s.d.
+	* ![](./_resources/Bayes,_priors.resources/Screenshot (220).png)
+
+```
+# prior predictive distribution
+curve( dlnorm( x , 3 , 0.5 ) , from=0 , to=100 , n=200 )
+```
+
+* Since poisson regression uses a log link, the outcome is log-normal. We're simulating the effect of a normal prior on a log-normal outcome which is why the simulation code uses `dlnorm`.
+* "number of tools" is the outcome variable
+* The prior with s.d. 10 has almost all the probability density at zero and huge mean
+
+```
+a <- rnorm(1e4,0,10)
+lambda <- exp(a)
+mean( lambda )
+[1] 9.622994e+12
+```
+
+* This usually doesn't make sense for a prior
+
+* The prior with s.d. 0.5 has a mean around 20 and a more spread out probability density which makes much more sense given the literature on the subject.
+
+* Formulating a slope prior
+	* `example` (pg 259)
+		* slopes centered on zero, imply no prior information about direction
+		* How big could can the slopes be in theory?
+			* After centering, range of each predictor is 2—from −1 to 1 is 2 units.
+			* To take us from the theoretical minimum of outcome variable = 0 on one end to the observed maximum of 1—a range of 1 unit—on the other would require a slope of 0.5 from either predictor variable—0.5 × 2 = 1.
+		* Assign a standard deviation of 0.25, then 95% of the prior slopes are from −0.5 to 0.5, so either predictor could in principle account for the entire range, but it would be unlikely
+	* `example` (pg 336-7)
+		* With logistic regression, flat Normal priors aren't priors with a high sd.![](./_resources/Bayes,_priors.resources/Screenshot (200).png)
+			* Shows difference between two levels of the treatment effect (i.e. 2 different treatments) on the 0/1 outcome
+			* The prior with large sd has all the probability density massed at 0 and 1
+				* says that the 2 treatments are completely alike or completely different
+			* The prior with the small sd (e.g. Normal(0, 0.5) is concentrated from about 0 to about 0.4
+				* Although 0 difference in treatments has the highest probability, the mean is at a difference around 0.10
+					* Prior says that large differences between treatments are very unlikely, but if the data contains strong evidence of large differences, they will shine through
+				* Pairs nicely with an intercept prior, α ~ Normal(0, 1.5)
+				* An example of a weakly informative prior that reduces overfitting the sample data
+	* `example` (pg 357)
+		* With poisson regression, flat Normal priors aren't priors with a high sd.
+		* ![](./_resources/Bayes,_priors.resources/Screenshot (222).png)
+
+```
+set.seed(11)
+## TOP ROW
+
+# how many lines would you like?
+n <- 100
+# simulate and wrangle
+tibble(i = 1:n,
+      a = rnorm(n, mean = 3, sd = 0.5)) %>% 
+  mutate(`beta%~%Normal(0*', '*10)`  = rnorm(n, mean = 0 , sd = 10),
+        `beta%~%Normal(0*', '*0.2)` = rnorm(n, mean = 0 , sd = 0.2)) %>% 
+  pivot_longer(contains("beta"),
+              values_to = "b",
+              names_to = "prior") %>% 
+  expand(nesting(i, a, b, prior),
+        x = seq(from = -2, to = 2, length.out = 100)) %>% 
+
+  # plot
+  ggplot(aes(x = x, y = exp(a + b * x), group = i)) +
+  geom_line(size = 1/4, alpha = 2/3,
+            color = wes_palette("Moonrise2")[4]) +
+  labs(x = "log population (std)",
+      y = "total tools") +
+  coord_cartesian(ylim = c(0, 100)) +
+  facet_wrap(~ prior, labeller = label_parsed)
+
+## BOTTOM ROW
+prior <-
+  tibble(i = 1:n,
+        a = rnorm(n, mean = 3, sd = 0.5),
+        b = rnorm(n, mean = 0, sd = 0.2)) %>% 
+  expand(nesting(i, a, b),
+        x = seq(from = log(100), to = log(200000), length.out = 100))
+# left
+p1 <-
+  prior %>% 
+  ggplot(aes(x = x, y = exp(a + b * x), group = i)) +
+  geom_line(size = 1/4, alpha = 2/3,
+            color = wes_palette("Moonrise2")[4]) +
+  labs(subtitle = expression(beta%~%Normal(0*', '*0.2)),
+      x = "log population",
+      y = "total tools") +
+  coord_cartesian(xlim = c(log(100), log(200000)),
+                  ylim = c(0, 500))
+# right
+p2 <-
+  prior %>% 
+  ggplot(aes(x = exp(x), y = exp(a + b * x), group = i)) +
+  geom_line(size = 1/4, alpha = 2/3,
+            color = wes_palette("Moonrise2")[4]) +
+  labs(subtitle = expression(beta%~%Normal(0*', '*0.2)),
+      x = "population",
+      y = "total tools") +
+  coord_cartesian(xlim = c(100, 200000),
+                  ylim = c(0, 500))
+# combine
+p1 | p2
+```
+
+* outcome: total\_tools, predictor: log\_population
+* Bottom row fig titles have a typo. Should be a ~ dnorm(3, 0.5) since it's the Intercept prior
+* variables have been standardized; total\_tools simulated with intercept + predictor priors. So the y axis is simulating the potential fitted values.
+* top left (0 is mean of log\_population):
+	* large sd: mostly results in explosive growth of tools just after mean of log\_population or explosive decline just before mean log\_population (unlikely)
+* top right (0 is mean of log\_population)
+	* small sd (flatter): most results are around the mean of the intercept prior results (see above) but still allows for more extreme estimates. (reasonable)
+* bottom left
+	* 100 trend lines between total tools and un-standardized log population
+		* Viewing prior predictive trends with un-standardized variables is more natural to see what's happening
+	* 100 total tools is probably the most we expect to ever see in these data
+		* looks like 80-85% of the trend lines are under 100. still keeps some explosive possibilities.
+* bottom right
+	* 100 trend lines between total tools and un-standardized, un-logged population
+		* Viewing prior predictive trends with un-standardized, un-transformed variables is even more natural to see what's happening
+	* When a predictor variable is logged in a regression with a log-link (i.e. log-log), this means we are assuming diminishing returns for the raw predictor variable.
+		* Each additional person contributes a smaller increase in the expected number of tools
+		* Diminishing returns as a predictor value continues to increase makes sense in many situations which is why logging predictors is a popular transformation
+* Thoughts
+	* Bottom-right seems like the right way to visualize the prior to think about the association between the outcome and predictor
+	* Top row and bottom-left seem to give a better sense of how many explosive possibilities and their patterns that your allowing for with different transformations
+
+* Formulating a sigma prior
+	* Common to start with `exponential(1)`
+	* Tightening the spread of the Exponential distribution by using a Gamma distribution ([Thread](https://twitter.com/SolomonKurz/status/1592645019273682945))![](./_resources/Bayes,_priors.resources/image.png)
+		* You can keep "mean = 1" (aka exponential(1) and adjust the "sd".
+			* See [Distributions](Distributions) >> Gamma for details on the process
+		* Also allows you to move most of the mass of the prior a littler further away from 0.
+		* Another alternative is the Weibull distribution
+* Extracting a prior from a model
+	* Example Logistic Regression (sect 11.1.1 pg 336)
+		* Intercept
+
+```
+# prior_samples and inv_logit_scaled are brms functions
+# theme is from ggthemes
+prior_samples(b11.1) %>% 
+mutate(p = inv_logit_scaled(Intercept)) %>% 
+
+ggplot(aes(x = p)) +
+geom_density(fill = wes_palette("Moonrise2")[4], 
+          size = 0, adjust = 0.1) +
+scale_y_continuous(NULL, breaks = NULL) +
+xlab("prior prob pull left")
+```
+
+![](./_resources/Bayes,_priors.resources/unnamed-chunk-9-1.png)
+
+* Simulating a prior predictive distribution
+	* Example
+		* pg 176
+
+```
+# log-normal prior
+sim_p <- rlnorm( 1e4 , 0 , 0.25 )
+# "this prior expects anything from 40% shrinkage up to 50% growth"
+rethinking::precis( data.frame(sim_p) )
+# 'data.frame': 10000 obs. of 1 variables:
+#      mean  sd  5.5% 94.5% histogram
+# sim_p 1.03 0.26 0.67 1.48 ▁▃▇▇▃▁▁▁▁▁▁
+
+# tidy-way
+sim_p <-
+tibble(sim_p = rlnorm(1e4, meanlog = 0, sdlog = 0.25))sim_p %>% 
+mutate(`exp(sim_p)` = exp(sim_p)) %>%
+gather() %>%
+group_by(key) %>% 
+tidybayes::mean_qi(.width = .89) %>% 
+mutate_if(is.double, round, digits = 2)
+
+## # A tibble: 2 x 7
+##  key        value .lower .upper .width .point .interval
+##  <chr>      <dbl>  <dbl>  <dbl>  <dbl> <chr>  <chr>   
+## 1 exp(sim_p)  2.92  1.96  4.49  0.89 mean  qi       
+## 2 sim_p      1.03  0.67  1.5    0.89 mean  qi
+```
+
+* Visualize with ggplot
+
+```
+    # wrangle
+    sim_p %>% 
+    mutate(`exp(sim_p)` = exp(sim_p)) %>%
+    gather() %>%   
+    # plot
+    ggplot(aes(x = value)) +
+    geom_density(fill = "steelblue") +
+    scale_x_continuous(breaks = c(0, .5, 1, 1.5, 2, 3, 5)) +
+    scale_y_continuous(NULL, breaks = NULL) +
+    coord_cartesian(xlim = c(0, 6)) +
+    theme(panel.grid.minor.x = element_blank()) +
+    facet_wrap(~key, scale = "free_y", ncol = 1)
+```
+
+![](./_resources/Bayes,_priors.resources/unnamed-chunk-37-1.png)
+
+* Example
+
+```
+    grid <- seq(-3, 3, length.out = 1000) # evenly spaced values from -3 to 3
+    b0_prior <- map_dfr(.x = c(0.5, 1, 2), ~ data.frame( # .x represents the three sigmas
+    grid = grid,
+    b0 = dnorm(grid, mean = 0, sd = .x)),
+    .id = "sigma_id")
+    # create friendlier labels
+    b0_prior <- b0_prior %>%
+    mutate(sigma_id = factor(sigma_id, labels = c("normal(0, 0.5)",
+                                                "normal(0, 1)",
+                                                "normal(0, 2)")))
+    ggplot(b0_prior, aes(x = grid, y = b0)) +
+    geom_area(fill = "cadetblue4", color = "black", alpha = 0.90) +
+    scale_x_continuous(expand = c(0, 0)) +
+    scale_y_continuous(expand = c(0, 0), limits = c(0, 0.85)) +
+    labs(x = NULL,
+      y = "probability density",
+      title = latex2exp::TeX("Possible $\\beta_0$ (intercept) priors")) +
+    facet_wrap(~sigma_id, nrow = 3)
+```
+
+![](./_resources/Bayes,_priors.resources/unnamed-chunk-4-1.png)
+
+```
+    b0b1 <- map2_df(.x = c(0.5, 1, 2), .y = c(0.25, 0.5, 1), ~ data.frame(
+    b0 = rnorm(100, mean = 0, sd = .x), 
+    b1 = rnorm(100, mean = 0, sd = .y)), .id = "sigma_id"
+    )
+    # create friendlier labels
+    b0b1 <- b0b1 %>%
+    mutate(sigma_id = factor(sigma_id, labels = c("b0 ~ normal(0, 0.5); b1 ~ normal(0, 0.25)",
+                                                "b0 ~ normal(0, 1); b1 ~ normal(0, 0.50)",
+                                                "b0 ~ normal(0, 2); b1 ~ normal(0, 1)")))
+    ggplot(b0b1) +
+    geom_abline(aes(intercept = b0, slope = b1), color = "cadetblue4", alpha = 0.75) +
+    scale_x_continuous(limits = c(-2, 2)) +
+    scale_y_continuous(limits = c(-3, 3)) +
+    labs(x = "x",
+      y = "y",
+      title = latex2exp::TeX("Sampling of lines from $\\beta_0$ and $\\beta_1$ priors")) +
+    facet_wrap(~sigma_id, nrow = 3)
+```
+
+![](./_resources/Bayes,_priors.resources/unnamed-chunk-5-1.png)
+
+* Conjugate Priors
+	* if the posterior distributions p(θ | x) are in the same probability distribution family as the prior probability distribution p(θ), the prior and posterior are then called conjugate distributions, and the prior is called a conjugate prior for the likelihood function p(x | θ)
+	* Benefits
+		* Bayesian updates no longer need to compute the product of the likelihood and prior (only addition is needed).
+			* This product is computationally expensive and sometimes not feasible.
+			* Otherwise numerical integration may be necessary
+		* May give intuition, by more transparently showing how a likelihood function updates a prior distribution.
+	* All members of the exponential family have conjugate priors.
+
+```
+<Beta posterior>
+Beta prior * Bernoulli likelihood → Beta posterior
+Beta prior * Binomial likelihood → Beta posterior
+Beta prior * Negative Binomial likelihood → Beta posterior
+Beta prior * Geometric likelihood → Beta posterior
+
+<Gamma posterior>
+Gamma prior * Poisson likelihood → Gamma posterior
+Gamma prior * Exponential likelihood → Gamma posterior
+
+<Normal posterior> 
+Normal prior * Normal likelihood (mean) → Normal posterior
+
+<Others>
+Dirichlet prior * Multinomial likelihood → Dirichlet posterior
+```
+
+
+Prior Elicitation
+
+* Translating expert opinion to a probability density than you can use as a prior
+* Misc
+	* Notes from:
+		* Video: On using expert information in Bayesian statistics (R >> Videos)
+		* Paper: Methods for Eliciting Informative Prior Distributions (R >> Documents >> Bayes)
+	* Packages
+		* [{]{style='color: #990000'}[SHELF](http://www.jeremy-oakley.staff.shef.ac.uk/project/elicitation/){style='color: #990000'}[}]{style='color: #990000'} - shiny apps for eliciting for various distributions and via various methods
+			* webpage also has links to papers
+	* Prior sensitivity analysis should done especially if you're using expert-informed priors.
+* Best Practice
+	* Use domain experts to set constraints for your priors (e.g. upper and lower limits) instead of formulating a prior
+		* Best to use data, previous studies, etc. to formulate priors
+	* Use domain experts to inform you on relationships between variables
+* Elicitation process is resource intensive for what is probably minimal gain in comparison to data
+	* It takes a lot of your time and their time to get this right
+	* Experts may not have the statistical knowledge to understand what you need or how to convey the information
+		* In this case, you'll need to school them on basic statistical concepts
+* When to use expert information to formulate a prior
+	* If your DAG specifies a model that requires more data than you have.
+		* While it might be necessary to augment your data, be aware that expert knowledge has been shown to much less useful in complex models rather than simpler models.
+	* If the your data is really noisy
+	* If experts know something that isn't represented by your data or can't be captured by the data
+	* If domain expertise is required given your research question
+* Interviews with experts
+	* Quality Control: If your subject matter allows, try to create "calibrating" questions to weed-out the experts that aren't really experts
+		* Should be questions that you are certain of the answer and are things any expert should know
+			* This can be difficult for some subject matter.
+		* Maybe consult with an expert that you're confident is an expert to help come up with some questions.
+	* Questions should be standardized, so you know that the results from each expert are consistent.
+	* Face-to-face elicitation produces greater quality results, because the facilitator can clarify the questions from the experts if needed.
+	* Try to keep experts from biasing the information they give you
+		* Don't use experts that have seen the results of your model
+			* If they've seen your raw data that's okay. (I dunno about this, even if they've seen eda plots?)
+		* Don't provide them with any estimates you may have from previous studies or other experts
+		* Don't let them fixate on outlier scenarios they may have encountered
+	* Record conversations with video and/or audio
+		* If problems surface when evaluating the expert's information, these can be useful to go back over the information collection process
+			* Was there a misunderstanding between you and the expert on what information you wanted
+			* Was the information biased? (see above)
+			* If using mulitiple experts, maybe subgroups have different viewpoints/experiences which is causing a divergence in opinion (e.g nurses vs psychologists treating PTSD)
+	* If problems surface when evaluating the expert's information, it can be useful to gather specific experts that differ and have them discuss why they hold their substantially differing opinions. Afterwards, they may adjust their opinions and you'll have a greater consensus.
+	* Process
+		1. Elicit location parameter (e.g. via Trial Roulette) from the expert
+			* Trial Roulette (see paper in Misc for details)
+				* Requires the expert to have sufficient statistical knowledge to be able to place the blocks to form an appropriate distribution
+				* User should be aware that distribution output may be inappropriate for sample data
+					* Example: algorithm may output a Gamma distribution which is inappropriate for percentage data since the upper bound can be greater than one
+				* Parameter space is split into subsections (e.g. quantiles)
+				* User assigns blocks to each subsection
+				* Example: From MATCH website which was an earlier implementation of [{SHELF}]{style='color: #990000'}![](./_resources/Bayes,_priors.resources/Screenshot (906).png)
+					* Top chart is a histogram where each cell is a "block" (called "chips" at the bottom). The right panel shows the options for setting the axis ranges and number of bins
+					* Bottom chart evidently estimates distribution parameters from the histogram in the top chart which are your prior's parameters
+			* With experts with less statistical training, it may be better for you to give them scenarios (e.g. combinations of quantiles of the predictor variables) and have them predict the outcome variable.
+				* Compute the statistics given their answers. Show them the results. Ask them to give an uncertainty range around that statistic.
+				* Example: from their predictions, you calculate the mean. Then you present them with this average and ask them about their uncertainty?
+					* i.e. What is the range around this value they expect the average to be in?
+			* Also try combinations of methods
+			* See paper in Misc for other options
+		2. Feedback session
+			* Explain to the expert how you're interpreting their information. Do they agree with your interpretation? Refine information based on their feedback.
+		3. Elicit scale and shape parameters (upper and lower bounds)
+		4. Feedback session
+		5. Evaluate distribution
+* Evaluating Expert Distribution(s)
+	* Misc
+		* Might be better to use another measure instead of K-L divergence (see Inspect the distributions visually section below)
+			* e.g Jensen-Shannon Divergence, Population Stability Index (see [Production, ML Monitoring](Production, ML Monitoring) for details)
+	* Calculate K-L divergence between the expert distribution and the computed posterior using the expert distribution as a prior
+		* Smaller K-L divergence means the 2 distributions are more similar
+		* Larger K-L divergence means the 2 distributions are more different
+	* Create a benchmark distribution
+		* Should be a low information distribution as compared to the sample data distribution
+		* e.g. uniform distribution
+	* Calculate K-L divergence between the benchmark distribution and the computed posterior using the benchmark distribution as the prior
+	* Calculate ratio of K-L divergences (expert K-L/benchmark K-L)
+		* Greater than 1 is bad. Indicates a "prior data conflict" and it may be better to drop this expert's distribution
+		* Less than 1 is good. Potentially an informative prior
+	* Inspect the distributions visually (Expert prior distributions and computed posterior from benchmark prior)
+		* K-L divergence penalyzes more certain distributions (i.e. skinny, tall) than less certain distribtutions (fatter, shorter) even if they have the same mean/median and mostly the same information
+			* So, an expert that is more certain may have a disqualifying ratio of K-L difference while a less certain expert with a very similar distribution has a qualifying ratio.
+				* After inspecting the distributions, you may determine that distributions really are too different and the expert is far too certain to keep.
+* Aggregate distributions if you're eliciting from multiple experts
+	* Average the distributions (i.e. equal weights for all experts)
+	* Rank experts (e.g. by K-L ratio), weight them, then calculate a weighted average distribution
+	* Use aggregated distribution(s) as your prior(s)
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

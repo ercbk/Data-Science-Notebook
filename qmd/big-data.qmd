@@ -1,0 +1,160 @@
+# Big Data {#sec-bgdat .unnumbered}
+
+## Misc {#sec-bgdat-misc .unnumbered}
+
+-   `RcppArmadillo::fastLmPure` Not sure what this does but it's rcpp so maybe faster than lm for big data.
+-   `.lm.fit` is a base R lm function that is 30%-40% faster than lm.
+
+## High Performance {#sec-bgdat-hghperf .unnumbered}
+
+-   [{rpolars}]{style="color: #990000"}: arrow product; uses SIMD which is a low-level vectorization that can be used to speed up simple operations like addition, subtraction, division, and multiplication
+
+    -   Also see collapse \>\> vs arrow/polars
+
+-   [{collapse}]{style="color: #990000"}: Fast grouped & weighted statistical computations, time series and panel data transformations, list-processing, data manipulation functions, summary statistics and various utilities such as support for variable labels. Class-agnostic framework designed to work with vectors, matrices, data frames, lists and related classes i.e. *xts*, *data.table*, *tibble*, *pdata.frame*, *sf*.\
+
+    ``` r
+    options(collapse_mask = "all")
+    library(collapse)
+    ```
+
+    -   Code chunk above can optimize any script. No other changes necessary. Quick [demo](https://gist.github.com/grantmcdermott/f9af3b7ce3e4aaa6ec6e02443af41a71).
+    -   vs arrow/polars ([benchmark](https://github.com/SebKrantz/collapse/blob/master/misc/arrow%20benchmark/arrow_benchmark.md))
+    -   Depends on the data/groups ratio
+        -   If you have "many groups and little data in each group" then use collapse
+    -   If your calculations involve "more complex statistics algorithms like the median (involving selection) or mode or distinct value count (involving hashing)(cannot, to my knowledge, benefit from SIMD)" then use collapse. r2c: Fast grouped statistical computation; currently limited to a few functions, sometimes faster than [{collapse}]{style="color: #990000"}
+
+-   [{data.table}]{style="color: #990000"}: Enhanced data frame class with concise data manipulation framework offering powerful aggregation, extremely flexible split-apply-combine computing, reshaping, joins, rolling statistics, set operations on tables, fast csv read/write, and various utilities such as transposition of data.
+
+-   [{matrixStats}]{style="color: #990000"}: Efficient row-and column-wise (weighted) statistics on matrices and vectors, including computations on subsets of rows and columns.
+
+-   [{kit}]{style="color: #990000"}: Fast vectorized and nested switches, some parallel (row-wise) statistics, and some utilities such as efficient partial sorting and unique values.
+
+-   [{fst}]{style="color: #990000"}: A compressed data file format that is very fast to read and write. Full random access in both rows and columns allows reading subsets from a '.fst' file.
+
+## Larger than Memory {#sec-bgdat-lgmem .unnumbered}
+
+-   online duckdb shell for parquet files ([gist](https://gist.github.com/RobinL/87b3fd14f5696ee72c732237635ac72c), https://shell.duckdb.org/)
+
+    ```sql
+    select max(wind) 
+    from 'https://raw.githubusercontent.com/RobinL/iris_parquet/main/gridwatch/gridwatch_2023-01-08.parquet';
+    -- Takes 6 seconds on the first query, 200ms on subsequent similar queries
+
+    select * 
+    from 'https://raw.githubusercontent.com/RobinL/iris_parquet/main/NSPL/NSPL.parquet' 
+    where pcd = 'SW1A1AA';
+    -- Takes 13 seconds on the first query, 100ms on subsequent similar queries
+    ```
+
+-   Only work with a sample of the data
+    -   Random sample in CLI
+        -   See binder for code
+    -   Only read the first n lines
+        -   set n_max arg in readr::read\_\*
+-   [jq + jsonlite](https://datawookie.dev/blog/2022/08/unravelling-enormous-json/) - json files
+-   [jsoncrack.com](https://jsoncrack.com/) - online editor/tool to visualize nested json (or regular json)
+-   [sqlite3](https://www.sqlite.org/cli.html) - CLI utility allows the user to manually enter and execute SQL statements against an SQLite database or against a ZIP archive.
+    -   also directly against csv files ([post](https://til.simonwillison.net/sqlite/one-line-csv-operations))
+-   [textql](https://github.com/dinedal/textql) - Execute SQL against structured text like CSV or TSV
+    -   Require Go language installed
+    -   Only for Macs or running a docker image
+-   [columnq-cli](https://github.com/roapi/roapi/tree/main/columnq-cli) - sql query json, csv, parquet, arrow, and more
+-   [csvkit](https://csvkit.readthedocs.io/en/latest/) - suite of command-line tools for converting to and working with CSV
+    -   Installation [docs](https://csvkit.readthedocs.io/en/0.9.1/install.html)
+        -   One of the articles your terminal has to be a bash terminal but I dunno
+            -   If so, they recommend [cmder](https://cmder.net/) or enabling the Linux subsystem with [WSL2](https://cloudbytes.dev/snippets/how-to-install-wsl2-on-windows-1011).
+    -   Notes from
+        -   [Article](https://towardsdatascience.com/analyze-csvs-with-sql-in-command-line-233202dc1241) with additional examples and options
+    -   Features
+        -   Print CSV files out nicely formatted
+        -   Cut out specific columns
+        -   Get statistical information about columns
+    -   Convert excel files to CSV files:
+
+        ``` bash
+        in2csv excel_file.xlsx > new_file.csv
+        # +remove .xlsx file
+        in2csv excel_file.xlsx > new_file.csv && rm excel_file
+        ```
+
+    -   Search within columns with regular expressions:
+
+        ``` bash
+        csvgrep -c county -m "HOLT" new_file.csv
+        # subset of columns (might be faster) with pretty formatting
+        csvcut -c county,total_cost new_file.csv | csvgrep -c county -m "HOLT" | csvlook
+        ```
+
+        -   Searches for "HOLT" in the "county" column
+
+    -   Query with SQL
+        -   syntax `csvsql --query "ENTER YOUR SQL QUERY HERE" FILE_NAME.csv`
+        -   Example  
+        ![](./_resources/Big_Data.resources/1-OLcICMe-piu-XyxdWH5zCA.png)
+    -   View top lines: `head new_file.csv`
+    -   View columns names: `csvcut -n new_file.csv`
+    -   Select specific columns: `csvcut -c county,total_cost,ship_date new_file.csv`
+        -   With pretty output: `csvcut -c county,total_cost,ship_date new_file.csv | csvlook`
+        -   Can also use column indexes instead of names
+    -   Join 2 files: `csvjoin -c cf data1.csv data2.csv > joined.csv`
+        -   "cf" is the common column between the 2 files
+    -   EDA-type stats:
+
+        ``` bash
+        csvstat new_file.csv
+        # subset of columns
+        csvcut -c total_cost,ship_date new_file.csv | csvstat
+        ```
+
+-   fread + CLI tools
+    -   For large csvs and fixing large csv with jacked-up formating see [article](https://redwallanalytics.com/2022/04/21/loading-a-large-messy-csv-using-data-table-fread-with-cli-tools/), RBlogger [version](https://www.r-bloggers.com/2022/04/loading-a-large-messy-csv-using-data-table-fread-with-cli-tools/)
+-   [{arrow}]{style="color: #990000"}
+    -   convert file into parquet files
+        1.  pass the file path to `open_dataset`, use `group_by` to partition the Dataset into manageable chunks
+        2.  use `write_dataset`to write each chunk to a separate Parquet file---all without needing to read the full CSV file into R
+    -   dplyr support
+-   [multiplyr](https://multidplyr.tidyverse.org/)
+    -   Option for data \> 10M rows and you only have access to one machine
+    -   Spreads data over local cores
+-   [{sparklyr}]{style="color: #990000"}
+    -   spin up a spark cluster
+    -   dplyr support
+    -   Set-up a cloud bucket and load data into it. Then, read into a local spark cluster. Process data.
+-   [{h2o}]{style="color: #990000"}
+    -   `h2o.import_file(path=path)` holds data in the h2o cluster and not in memory
+-   [{disk.frame}]{style="color: #990000"}
+    -   supports many dplyr verbs
+    -   supports  future package to take advantage of multi-core CPUs but single machine focused
+    -   state-of-the-art data storage techniques such as fast data compression, and random access to rows and columns provided by the fst package to provide superior data manipulation speeds
+-   Matrix ops
+    -   see bkmks: mathematics \>\> packages
+-   [{ff}]{style="color: #990000"}
+    -   see bkmks: data \>\> loading/saving/memory
+    -   Think it converts files to a ff file type, then you load them and use `ffapply` to perform row and column operations with base R functions and expressions
+    -   may not handle character and factor types but may work with [{bit}]{style="color: #990000"} pkg to solve this
+
+## Viz {#sec-bgdat-viz .unnumbered}
+
+-   Scatter plots
+    -   [{scattermore}]{style="color: #990000"}, [{ggpointdensity}]{style="color: #990000"}
+    -   [{ggrastr}]{style="color: #990000"}
+        -   Rasterize only specific layers of a ggplot2 plot (for instance, large scatter plots with many points) while keeping all labels and text in vector format. This allows users to keep plots within a reasonable size limit without losing the vector properties of scale-sensitive information.
+        -   [github](https://github.com/VPetukhov/ggrastr); [tweet](https://mobile.twitter.com/jefworks/status/1028741712896843778)
+-   H2O
+    -   `h2o.aggregator` Reduces data size to a representive sample, then you can visualize a clustering-based method for reducing a numerical/categorical dataset into a dataset with fewer rows A count column is added to show how many rows is represented by the exemplar row (I think)
+
+        -   Aggregator maintains outliers as outliers but lumps together dense clusters into exemplars with an attached count column showing the member points.
+        -   For cat vars:
+            -   Accumulate the category frequencies.
+            -   For the top 1,000 or fewer categories (by frequency), generate dummy variables (called one-hot encoding by ML people, called dummy coding by statisticians).
+            -   Calculate the first eigenvector of the covariance matrix of these dummy variables.
+            -   Replace the row values on the categorical column with the value from the eigenvector corresponding to the dummy values.
+        -   [docs](https://docs.h2o.ai/h2o/latest-stable/h2o-docs/data-science/aggregator.html); [article](https://www.h2o.ai/blog/visualizing-large-datasets-with-h2o-3/)
+-   [{dbplot}]{style="color: #990000"}
+    -   plots data that are in databases
+        -   Also able to plot data within a spark cluster
+    -   [docs](https://edgararuiz.github.io/dbplot/)
+-   ObservableHQ
+    -   [{{{deepscatter}}}]{style="color: teal"}
+        -   [Thread](https://twitter.com/benmschmidt/status/1561720471497875456) (using Arrow, duckdb)

@@ -1,0 +1,433 @@
+# Model Building, modeltime
+
+TOC
+
+* Misc
+* Steps
+* Set-up
+* Model Specification, Fit
+* Tune
+* Assessing Performance
+* Forecast
+
+
+Misc
+
+* Plotting
+
+```
+plot_times_series(data, date_var, value_var)
+```
+
+* Combining multiple models into a table
+
+```
+model_tbl <- modeltime_table(
+    model_arima,
+    model_prophet,
+    model_glmnet
+)
+```
+
+* Allows you to apply functions across multiple models
+
+* Accessing a fitted model object to see coefficient values, hyperparameter values, etc.
+
+```
+model_arima <- arima_reg() %>%
+    set_engine("auto_arima") %>%
+    fit(value_var ~ date_var, training(splits_obj))
+model_arima
+```
+
+* The fit obj shows coefficients, AICc, etc.
+
+
+Steps
+
+* set-up
+* recipe
+* specify model(s)
+* fit models
+* forecast on test/assessment dataset
+* assess performance
+* choose model
+* forecast and assess performance on holdout dataset
+* refit on whole training set
+* forecast the future
+
+
+Set-up
+
+* Some packages
+	* tidyverse - cleaning
+	* tidymodels - model building
+	* timetk - loss metrics
+	* lubridate - ts cleaning functions
+	* stacks - ensembling
+* Parallelize/Cluster
+	* For all methods, you must also set `allow_par = TRUE`  in the control arg of the function
+	* Parallel
+
+```
+        parallel_start(6, .method = "parallel") # uses 6 vcpus
+        parallel_stop()
+```
+
+* Spark
+
+```
+        sc <- spark_connect(master = "local")
+        parallel_start(sc, .method = "spark")
+        parallel_stop()
+        spark_disconnect_all()
+```
+
+* For Databricks, replace "local" with "databricks"
+
+* split
+
+```
+splits <- time_series_split(
+    data,
+    assess = "3 months",
+    cumulative = TRUE
+)
+```
+
+* The above test set will be 3 months long
+	* dataset is daily so assess arg doesn't haven't to on the same scale as the dataset
+
+* Visualize the split
+
+```
+splits %>%
+    # extract cv plan from split obj
+    tk_time_series_cv_plan() %>%
+    plot_time_series(date_var, value_var)
+```
+
+
+Model Specification, Fit
+
+* **Window mean/median forecast**
+
+```
+median_fit <- window_reg(id = "id", window_size = 6) %>%
+    set_engine("window_function", window_function = median) %>%
+    fit(value ~ ., data = training(splits))
+```
+
+* Basically just calculates the median value for the window size that's specified (not rolling)
+	* The forecast is just this value repeated for the length of the forecast horizon
+* Notes
+	* Used mostly as a baseline forecast, but with tuning, it supposedly performs pretty well for some series
+* Args
+	* window\_function - can be mean or whatever
+	* id - used for global modeling
+* Tuning
+
+```
+        grid_tbl <- tibble(
+            window_size = 1:12
+        ) %>%
+            create_model_grid(
+                f_model_spec = "window_reg",
+                id = "id",
+                engine_name = "window_function",
+                engine_params = list(
+                    window_function = ~ median(.)
+                )
+            )
+```
+
+* Slightly different than the normal procedure where you have to specify the window function like a lambda function
+
+* **Seasonal Naive**
+
+```
+naive_fit <- naive_reg(seasonal_period = 12, id = "id") %>%
+    set_engine("snaive") %>%
+    fit(value ~ ., data = training(splits))
+```
+
+* Seasonal version of a naive forecast which just repeats the last value of the series for the length of the forecast horizon.
+
+* **auto\_arima**
+
+```
+model_arima <- arima_reg() %>%
+    set_engine("auto_arima") %>%
+    fit(value_var ~ date_var, training(splits_obj))
+```
+
+* **prophet**
+
+```
+model_prophet <- prophet_reg(seasonality_yearly = TRUE) %>%
+    set_engine("prophet") %>%
+    fit(value_var ~ date_var, training(split_obj))
+```
+
+* Seems to work better for highly seasonal or cyclical data otherwise it's 💩
+
+* **glmnet**
+
+```
+model_glmnet <- linear_reg(penalty = 0.01) %>%
+    set_engine("glmnet") %>%
+    # date_var is daily in this example
+    fit(value_var ~ wday(date_var, label = TRUE) +
+                    month(date_var, label = TRUE) +
+                    # trend feature
+                    as.numeric(date_var),
+        training(splits_obj)
+    )
+```
+
+* **gluonts deepar**
+
+```
+fit_deepar <- deep_ar(
+    id = "id",
+    freq = "M",
+    prediction_length = 6,
+    lookback_length = 6*3,
+    epochs = 10
+) %>%
+    # set_engine("gluonts_deepar") %>%
+    set_engine("torch") %>%
+    fit(value ~ date + id, data = training(splits))
+```
+
+* Description
+	* Developed by Amazon; LSTM RNN
+	* Requires more data than arima or prophet
+		* Uses weighted resampling techniques to help with lower n, larger p data
+	* Handles seasonality with minimal tuning
+	* Outputs probabilitistic forecasts
+		* in the form of Monte Carlo samples
+		* can be used to develop quantile forecasts
+	* Supports non-normal likelihood functions
+		* e.g. discrete target variables
+* Notes
+	* "gluonts\_deepar" is the older style engine that uses reticulate to use the python gluonts library. "torch" uses the torch pkg which is written in R and is faster.
+	* Standardizing predictors is recommended
+	* impute missing values
+		* Recommended the imputing algorithm uses predictor variables to calculate values
+	* learning rate and encoder/decoder length are subject-specific and should be tuned manually (not sure how these are subject specific)
+	* To ensure the model is not fitting based on the index of our dependent variable in the TS, the authors suggest training the model on “empty” data prior our start period. Just use a bunch of zeros as our dependent variable.
+		* Not sure if this can be implemented in modeltime
+* args
+	* "id" is for fitting a global model with panel data
+	* freq - A pandas timeseries frequency such as "5min" for 5-minutes or "D" for daily. Refer to [Pandas Offset Aliases](https://pandas.pydata.org/pandas-docs/stable/user_guide/timeseries.html#offset-aliases).
+	* prediction\_length - forecast horizon
+	* lookback\_length - Number of steps to unroll the RNN for before computing predictions (default: NULL, in which case context\_length = prediction\_length)
+		* i.e. like the number of lags to use as predictors in a ML or AR model
+	* epochs - default 5, the number of backpropagations before stopping (I think)
+	* and many more...
+
+* **gluonts\_gp\_forecaster**
+
+```
+fit_gp_forecaster <- gp_forecaster(
+    id = "id",
+    freq = "M",
+    prediction_length = 6,
+    epochs = 30
+) %>%
+    set_engine("gluonts_gp_forecasster") %>%
+    fit(value ~ date + id, data = training(splits))
+```
+
+* Gaussian Process (GP) Forecaster model
+* Notes
+* Args
+	* "id" is for fitting a global model with panel data
+	* freq - A pandas timeseries frequency such as "5min" for 5-minutes or "D" for daily. Refer to [Pandas Offset Aliases](https://pandas.pydata.org/pandas-docs/stable/user_guide/timeseries.html#offset-aliases).
+	* prediction\_length - forecast horizon
+	* epochs - default 5, the number of backpropagations before stopping (I think)
+	* and many more...
+
+* **gluonts\_deepstate**
+
+```
+fit_deepar <- deep_state(
+    id = "id",
+    freq = "M",
+    prediction_length = 6,
+    lookback_length = 6*3,
+    epochs = 20
+) %>%
+    set_engine("gluonts_deepstate") %>%
+    fit(value ~ date + id, data = training(splits))
+```
+
+* deep learning state-space model
+* Args
+	* "id" is for fitting a global model with panel data
+	* freq - A pandas timeseries frequency such as "5min" for 5-minutes or "D" for daily. Refer to [Pandas Offset Aliases](https://pandas.pydata.org/pandas-docs/stable/user_guide/timeseries.html#offset-aliases).
+	* prediction\_length - forecast horizon
+	* lookback\_length - Number of steps to unroll the RNN for before computing predictions (default: NULL, in which case context\_length = prediction\_length)
+		* i.e. like the number of lags to use as predictors in a ML or AR model
+	* epochs - default 5, the number of backpropagations before stopping (I think)
+	* and many more...
+
+
+Tune
+
+* `create_model_grid`
+
+```
+grid_tbl <- tibble(
+    learn_rate = c(0.001, 0.01, 0.1)
+) %>%
+    create_model_grid(
+        f_model_spec = boost_tree,
+        engine_name = "xgboost",
+        mode = "regression
+    )
+# or
+grid_tbl <- dials::grid_regular(
+    learn_rate(),
+    levels = 3
+)
+grid_tbl %>%
+    create_model_grid(
+        f_model_spec = boost_tree,
+        engine_name  = "xgboost",
+        # Static boost_tree() args
+        mode = "regression",
+        # Static set_engine() args
+        engine_params = list(
+            max_depth = 5
+        )
+    )
+```
+
+* Creates a list of model specifications
+	* I think you could create more than 1 of these objects in order to tune multiple algorithms.  Then `append` the `$.models` together and feed it to `workflow_set(models= )` (see below)
+	* Example of another way
+
+```
+            models <- union(snaive_grid_tbl %>% select(.models), window_grid_median_tbl %>% select(.models))
+```
+
+* combination of seasonal naive and window-median models
+
+* Args
+	* f\_model\_spec - the parsnip model function
+	* engine\_name - the parsnip model engine
+	* mode - always regression for forecasting
+
+* `workflow_set`
+
+```
+wfset <- workflow_set() %<%
+    preproc = list(
+        recipe_spec),
+    models = grid_tbl$.models,
+    cross = TRUE
+)
+```
+
+* Instantiates workflfow
+* Args
+	* cross = TRUE says fit each recipe to each model
+
+* `modeltime_fit_workflowset`
+
+```
+# parallel_start(6)
+
+wkflw_fit <- wfset %>%
+    modeltime_fit_workflowset(
+        data = training(splits),
+        control = control_fit_workflowset(
+            verbose = TRUE,
+            allow_par = TRUE
+        )
+    )
+
+# parallel_stop()
+```
+
+* Fit all the models with different hyperparameter combinations
+* `parallel_start/stop` is a wrapper around `parallel::doParallel` stuff
+	* Think I'd rather use doFuture
+* Args
+	* allow\_par - turns on parallel processing
+
+Assessing Performance
+
+* `modeltime_calibration`: Calculate Residuals
+
+```
+calib_tbl <- model_table %>%
+    modeltime_calibration(testing(split_obj), id = "id")
+```
+
+* adds residuals to model table
+* "id" allows you to assess accuracy for each group member
+
+* `modeltime_accuracy` :
+
+```
+calib_tbl %>%
+    modeltime_accuracy(acc_by_id = TRUE) #%>%
+    # select best model by rmse for each group
+    # slice_min(rmse)
+```
+
+* uses the residual data to calculate mae, mape, mase, smape, rmse, rsq
+* `acc_by_id = TRUE` assess accuracy by group id (for global models)
+
+* `table_modeltime_accuracy`
+
+```
+calib_tbl %>%
+    group_by(id)
+    table_modeltime_accuracy()
+```
+
+* html table of results (might be interactive)
+
+
+Forecast
+
+* `modeltime_forecast` : makes predictions, calculates prediction intervals
+	* On the test set:
+
+```
+# Using test set
+forcast_obj <- calibration_table %>%
+    modeltimes_forecast(
+        new_data = testing(splits_obj),
+        actual_data = whole_training_dataset,
+        conf_by_id = TRUE
+    )
+```
+
+* `conf_by_id = TRUE` is for global models to get individual PIs for each group
+	* must have included an id arg in the model function
+
+* Forecast the future using `modeltime_refit`
+
+```
+future_forecast_tbl <- calibration_tbl %>%
+    modeltime_refit(whole_training_set) %>%
+    modeltime_forecast(
+        h = "3 months",
+        actual_data = whole_training_set
+    )
+```
+
+* In example, dataset is daily, so horizon time scale doesn't have to match the dataset's scale.
+
+* `plot_modeltime_forecast`
+
+```
+plot_modeltime_forecast(forecast_obj)
+```
+
+

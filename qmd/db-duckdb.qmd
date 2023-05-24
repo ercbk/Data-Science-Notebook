@@ -1,0 +1,202 @@
+# DuckDB {#sec-db-duckdb .unnumbered}
+
+## Misc {#sec-db-duckdb-misc .unnumbered}
+
+-   High performance embedded database for analytics which provides a few enhancements over SQLite such as increased speed and allowing a larger number of columns
+    -   Faster than sqlite for most analytics queries (sums, aggregates etc).
+        -   Vectorizes query executions (columnar-oriented), while other DBMSs (SQLite, PostgreSQL...) process each row sequentially
+    -   Also has fast JSON extension
+    -   Unlike some other big data tools it is entirely self-contained. (aka embedded, in-process)
+        -   no external dependencies, or server software to install, update, or maintain
+-   Can directly run queries on [Parquet files](https://duckdb.org/docs/data/parquet), [CSV files](https://duckdb.org/docs/data/csv), [SQLite files](https://github.com/duckdblabs/sqlite_scanner), [postgres files](https://duckdb.org/2022/09/30/postgres-scanner.html), [Pandas](https://duckdb.org/docs/guides/python/sql_on_pandas), [R](https://duckdb.org/docs/api/r#efficient-transfer) and [Julia](https://duckdb.org/docs/api/julia#scanning-dataframes) data frames as well as [Apache Arrow sources](https://duckdb.org/docs/guides/python/sql_on_arrow)
+-   VS Code [extension](https://marketplace.visualstudio.com/items?itemName=RandomFractalsInc.duckdb-sql-tools)
+    -   Connect to a local DuckDB instance
+    -   Create new in-memory DuckDB instance
+    -   View DuckDB tables, columns, and views
+    -   Run SQL queries on open DuckDB connections
+    -   Attach SQLite database files to in-memory DuckDB instances
+    -   Query remote CSV and Parquet data files with DuckDB HTTPFS extension
+    -   Create in-memory DuckDB tables from remote data sources and query results
+    -   Manage DuckDB connections in SQLTools Database Explorer
+    -   Autocomplete SQL keywords, table names, column names, and view names on open database connections in VSCode SQL editor
+    -   Save named SQL query Bookmarks
+    -   Use SQL Query History
+    -   Export SQL query results in CSV and JSON data formats
+    -   integrate with the equally spiffy [SQL Tools](https://vscode-sqltools.mteixeira.dev/en/home/) extension
+
+## Set-up {#sec-db-duckdb-setup .unnumbered}
+
+-   Installation: `install.packages("duckdb")`
+-   Create db and populate table from csv
+    -   [Example]{.ribbon-highlight} ![](./_resources/DB,_duckdb.resources/image.png)
+
+    -   [Example]{.ribbon-highlight}
+
+        ``` r
+        # includes filename/id
+        withr::with_dir("data-raw/files/", {
+          dbSendQuery(
+            con, "
+            CREATE TABLE files AS
+            SELECT *, regexp_extract(filename, '\\d{7}') AS file_number
+            FROM read_csv_auto('*Control*File-*.txt', FILENAME = TRUE);"
+          )
+        })
+        ```
+
+## dbplyr {#sec-db-duckdb-dbplyr .unnumbered}
+
+-   [Example]{.ribbon-highlight} Connect to db; Write a df to table; Query it
+
+    ``` r
+    library(dbplyr)
+
+    duck = DBI::dbConnect(duckdb::duckdb(), dbdir="duck.db", read_only=FALSE)
+    DBI::dbWriteTable(duck, name = "sales", value = sales)
+    sales_duck <- tbl(duck, "sales")
+
+    sales_duck %>%
+      group_by(year, SKU) %>%
+      mutate(pos_sales = case_when(
+              sales_units > 0 ~ sales_units,
+              TRUE ~ 0)) %>%
+      summarize(total_revenue = sum(sales_units * item_price_eur),
+                max_order_price = max(pos_sales * item_price_eur),
+                avg_price_SKU = mean(item_price_eur),
+                items_sold = n())
+
+    DBI::dbDisconnect(duck)
+    ```
+
+## Apache Arrow {#sec-db-duckdb-arrow .unnumbered}
+
+-   `to_duckdb()` and `to_arrow()`: Converts between using {arrow} engine and {duckdb} engieg in workflow without paying any cost to (re)serialize the data when you pass it back and forth
+
+    -   Useful in cases where something is supported in one of Arrow or DuckDB but not the other
+
+-   Benefits
+
+    -   utilization of a parallel vectorized execution engine without requiring any extra data copying
+    -   Larger Than Memory Analysis: Since both libraries support streaming query results, we are capable of executing on data without fully loading it from disk. Instead, we can execute one batch at a time. This allows us to execute queries on data that is bigger than memory.
+    -   Complex Data Types: DuckDB can efficiently process complex data types that can be stored in Arrow vectors, including arbitrarily nested structs, lists, and maps.
+    -   Advanced Optimizer: DuckDB's state-of-the-art optimizer can push down filters and projections directly into Arrow scans. As a result, only relevant columns and partitions will be read, allowing the system to e.g., take advantage of partition elimination in Parquet files. This significantly accelerates query execution.
+
+-   [Example]{.ribbon-highlight} (using a SQL Query; method 1)
+
+    ``` r
+    # open dataset
+    ds <- arrow::open_dataset(dir_out, partitioning = "species")
+    # open connection to DuckDB
+    con <- dbConnect(duckdb::duckdb())
+    # register the dataset as a DuckDB table, and give it a name
+    duckdb::duckdb_register_arrow(con, "my_table", ds)
+    # query
+    dbGetQuery(con, "
+      SELECT sepal_length, COUNT(*) AS n
+      FROM my_table
+      WHERE species = 'species=setosa'
+      GROUP BY sepal_length
+    ")
+
+    # clean up
+    duckdb_unregister(con, "my_table")
+    dbDisconnect(con)
+    ```
+
+    -   filtering using a partition, the WHERE format is '\<partition_variable\>=\<partition_value\>'
+
+-   [Example]{.ribbon-highlight} (using SQL Query; method 2)
+
+    ``` r
+    library(duckdb)
+    library(arrow)
+    library(dplyr)
+
+    # Reads Parquet File to an Arrow Table
+    arrow_table <- arrow::read_parquet("integers.parquet", as_data_frame = FALSE)
+
+    # Gets Database Connection
+    con <- dbConnect(duckdb::duckdb())
+
+    # Registers arrow table as a DuckDB view
+    arrow::to_duckdb(arrow_table, table_name = "arrow_table", con = con)
+
+    # we can run a SQL query on this and print the result
+    print(dbGetQuery(con, "SELECT SUM(data) FROM arrow_table WHERE data > 50"))
+
+    # Transforms Query Result from DuckDB to Arrow Table
+    result <- dbSendQuery(con, "SELECT * FROM arrow_table")
+    ```
+
+-   [Example]{.ribbon-highlight} (using dplyr)
+
+    ``` r
+    library(duckdb)
+    library(arrow)
+    library(dplyr)
+
+    # Open dataset using year,month folder partition
+    ds <- arrow::open_dataset("nyc-taxi", partitioning = c("year", "month"))
+
+    ds %>%
+      # Look only at 2015 on, where the number of passenger is positive, the trip distance is
+      # greater than a quarter mile, and where the fare amount is positive
+      filter(year > 2014 & passenger_count > 0 & trip_distance > 0.25 & fare_amount > 0) %>%
+      # Pass off to DuckDB
+      to_duckdb() %>%
+      group_by(passenger_count) %>%
+      mutate(tip_pct = tip_amount / fare_amount) %>%
+      summarize(
+        fare_amount = mean(fare_amount, na.rm = TRUE),
+        tip_amount = mean(tip_amount, na.rm = TRUE),
+        tip_pct = mean(tip_pct, na.rm = TRUE)
+      ) %>%
+      arrange(passenger_count) %>%
+      collect()
+    ```
+
+    -   In the [docs](https://arrow.apache.org/docs/r/reference/to_duckdb.html), the example has `to_duckdb` after the `group_by`. Not sure if that makes a difference in speed. 
+
+-   [Example]{.ribbon-highlight} (Streaming Data)
+
+    ``` r
+    # Reads dataset partitioning it in year/month folder
+    nyc_dataset = open_dataset("nyc-taxi/", partitioning = c("year", "month"))
+
+    # Gets Database Connection
+    con <- dbConnect(duckdb::duckdb())
+
+    # We can use the same function as before to register our arrow dataset
+    duckdb::duckdb_register_arrow(con, "nyc", nyc_dataset)
+
+    res <- dbSendQuery(con, "SELECT * FROM nyc", arrow = TRUE)
+    # DuckDB's queries can now produce a Record Batch Reader
+    record_batch_reader <- duckdb::duckdb_fetch_record_batch(res)
+
+    # Which means we can stream the whole query per batch.
+    # This retrieves the first batch
+    cur_batch <- record_batch_reader$read_next_batch()
+    ```
+
+## SQL {#sec-db-duckdb-sql .unnumbered}
+
+-   Misc
+
+-   Star Expressions
+
+    -   Allows you dynamically select columns
+
+        ``` sql
+        -- select all columns present in the FROM clause
+        SELECT * FROM table_name;
+        -- select all columns from the table called "table_name"
+        SELECT table_name.* FROM table_name JOIN other_table_name USING (id);
+        -- select all columns except the city column from the addresses table
+        SELECT * EXCLUDE (city) FROM addresses;
+        -- select all columns from the addresses table, but replace city with LOWER(city)
+        SELECT * REPLACE (LOWER(city) AS city) FROM addresses;
+        -- select all columns matching the given expression
+        SELECT COLUMNS(c -> c LIKE '%num%') FROM addresses;
+        -- select all columns matching the given regex from the table
+        SELECT COLUMNS('number\d+') FROM addresses;
+        ```

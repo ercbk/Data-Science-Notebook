@@ -1,0 +1,209 @@
+# Regression, Discrete
+
+TOC
+
+* Misc
+* Terms
+* Binomial
+* Poisson
+
+
+
+Misc
+
+* Packages
+	* [{]{style='color: #990000'}[glmnet](https://glmnet.stanford.edu/){style='color: #990000'}[}]{style='color: #990000'}
+* For Diagnostics see:
+	* [{]{style='color: #990000'}[DHARMa](https://cran.r-project.org/web/packages/DHARMa/vignettes/DHARMa.html){style='color: #990000'}[}]{style='color: #990000'} \- Built for Mixed Effects Models for count distributions but handles lm, glm (poisson) and MASS::glm.nb (neg.bin)
+	* [Diagnostics, Probabilistic](Diagnostics, Probabilistic) >> Visual Inspection
+	* [Diagnostics, Regression](Diagnostics, Regression) >> GLMs
+* With aggregated counts that are bound within a certain range, it can be better to turn the range of counts into percentages (see example) and model those as your outcome
+	* Distributions
+		* zero-one inflated beta![](./_resources/Regression,_Discrete.resources/image.1.png)
+		* zero-one inflated binomial
+			* In general, you can have a zero-N inflated binomial
+	* Example Aggregated counts from 1 to 32 ([Thread](https://twitter.com/andrewheiss/status/1641463793686560768))![](./_resources/Regression,_Discrete.resources/image.2.png)
+		* If something specific is generating 1 and 32 counts
+			* Ideally you'd do this, but these require creating bespoke distribution families which is possible in STAN
+				* if you _cannot_ get zero, then a 0-31-inflated binomial works fine.
+				* If 0 is possible but it didn't happen, then do a 1-32-inflated binomial.
+			* More conveniently, you'd transform the range (1-32) to percentages where 100% = 32, and use zero-one inflated beta (currently available in [{brms}]{style='color: #990000'} or zero-one inflated binomial
+		* If there is NOT something specific generating the 1 and 32 counts(?)
+			* You can keep the counts and treat them as an ordered factor
+				* Collapse the counts from 2-31 into a category, so you have 3 categories: 1, 2-31, 32.
+				* Model as an ordered logit![](./_resources/Regression,_Discrete.resources/image.3.png)
+
+
+Terms
+
+* A **saturated model** is a regression model that includes a discrete (indicator) variable for each set of values the explanatory variables can take.
+	* Another case is when there are as many estimated parameters as data points.
+		* e.g. if you have 6 data points and fit a 5th-order polynomial to the data, you would have a saturated model (one parameter for each of the 5 powers of your independant variable plus one for the constant term).
+	* Multi-variable models require interactions to be able to cover each set of values that the explanatory variables can take (see 3rd example)
+	* Since saturated models, perfectly model the sample, they don't generalize to the population well.
+		* No data left to estimate variance.
+	* Examples of saturated models
+		* Wages ~ College Graduation (binary),
+			* Wagesi = α + β I{College Graduate}i + εi
+		* Wages ~ Schooling (discrete, yrs).
+			* Wages = α + β1 I{si = 1} + β2 I{si = 2} + ⋯ + βT I{si = T} +
+				* where si ∈ {0, 1, 2,…T}
+				* 0 is the reference level; β is the effect of j years of schooling.
+		* Wages ~ College Graduation + Gender + interaction.
+			* Wages = α + β1 I{College Graduate} + β2 I{Female} + β3 I{College Graduate} × I{Female} + ε
+			* E\[Wagesi | College Graduatei = 0, Femalei = 0\] = α
+				* Expected value of Wages for individual i given they're not a college graduate and are male
+			* E\[Wagesi | College Graduatei = 1, Femalei = 0\] = α + β1
+			* E\[Wagesi | College Graduatei = 0, Femalei = 1\] = α + β2
+			* E\[Wagesi | College Graduatei = 1, Femalei = 1\] = α + β1 + β2 + β3
+* **Null Model** has only one parameter, which is the intercept.
+	* This is essentially the mean of all the data points.
+	* For a bivariate model, this is a horizontal line with the same prediction for every point
+* **Deviance**
+	* ![](./_resources/Regression,_Discrete.resources/1-SFg8m1V2MRgliQHs3t4e3A.png)
+	* LS is the saturated model
+	* LP is the "proposed model" (i.e. the model being fit)
+
+
+
+Binomial
+
+* [Example]{.ribbon-highlight}: UCB Admissions
+
+```
+# Array to tibble (see below for deaggregation this to 1/0)
+ucb <- 
+    as_tibble(UCBAdmissions) %>% 
+    mutate(across(where(is.character), ~ as.factor(.))) %>% 
+    pivot_wider(
+        id_cols = c(Gender, Dept),
+        names_from = Admit,
+        values_from = n,
+        values_fill = 0L
+      )
+
+## # A tibble: 12 × 4
+##    Gender Dept  Admitted Rejected
+##    <fct>  <fct>    <dbl>    <dbl>
+##  1 Male  A          512      313
+##  2 Female A          89      19
+##  3 Male  B          353      207
+##  4 Female B          17        8
+##  5 Male  C          120      205
+##  6 Female C          202      391
+##  7 Male  D          138      279
+##  8 Female D          131      244
+##  9 Male  E          53      138
+## 10 Female E          94      299
+## 11 Male  F          22      351
+## 12 Female F          24      317
+
+glm(
+  cbind(Rejected, Admitted) ~ Gender + Dept,
+  data = ucb,
+  family = binomial
+)
+## Coefficients:
+## (Intercept)  GenderMale        DeptB        DeptC        DeptD        DeptE 
+##    -0.68192      0.09987      0.04340      1.26260      1.29461      1.73931 
+##      DeptF 
+##    3.30648 
+## 
+## Degrees of Freedom: 11 Total (i.e. Null);  5 Residual
+## Null Deviance:     877.1 
+## Residual Deviance: 20.2 AIC: 103.1
+```
+
+* `cbind(Rejected, Admitted)` says that "Rejected" is the response variable since it is listed first in the `cbind` function
+* Can also use a logistic model, but need case-level data (e.g. 0/1)
+	* Deaggregate count data into 0/1 case-level data
+
+```
+data(UCBadmit, package = "rethinking")
+ucb <- UCBadmit %>%
+  mutate(applicant.gender = relevel(applicant.gender, ref = "male"))
+
+# deaggregate to 1/0
+deagg_ucb <- function(x, y) {
+  UCBadmit %>%
+    select(-applications) %>%
+    group_by(dept, applicant.gender) %>%
+    tidyr::uncount(weights = !!sym(x)) %>%
+    mutate(admitted = y) %>%
+    select(dept, gender = applicant.gender, admitted)
+}
+ucb_01 <- purrr::map2_dfr(c("admit", "reject"),
+                          c(1, 0),
+                          ~ disagg_ucb(.x, .y)
+)
+```
+
+* 
+
+* [Example]{.ribbon-highlight}: Treatment/Control
+
+```
+            Disease      No Disease
+Treatment        55                67
+Control          42                34
+
+df <- tibble(treatment_status = c("treatment", "no_treatment"),
+      disease = c(55, 42),
+      no_disease = c(67,34)) %>% 
+  mutate(total = no_disease + disease,
+        proportion_disease = disease / total) 
+
+model_weighted <- glm(proportion_disease ~ treatment_status,
+                      data = df,
+                      family = binomial,
+                      weights = total)
+model_cbinded <- glm(cbind(disease, no_disease) ~ treatment_status,
+                    data = df,
+                    family = binomial)
+
+# Aggregated counts expanded into case-level data
+df_expanded <- tibble(disease_status = c(1, 1, 0, 0), 
+                      treatment_status = rep(c("treatment", "control"), 2)) %>%
+                        .[c(rep(1, 55), rep(2, 42), rep(3, 67), rep(4, 34)), ]
+# logistic
+model_expanded <- glm(disease_status ~ treatment_status, data = df_expanded, family = binomial("logit"))
+```
+
+* All methods are equivalent
+* "disease" is listed first in the `cbind` function, therefore it is the response variable.
+
+
+
+Poisson
+![](./_resources/Regression,_Discrete.resources/1-ci0iQSqNzgZFrMIL9AKJZA.png)
+
+* Misc
+* Interpretation
+	* Effect of a binary treatment![](./_resources/Regression,_Discrete.resources/image.png)
+		* θ is the effect interpreted as a percentage
+		* E\[Y(1)\] is the expected value of the outcome for a subject assigned to Treatment.
+		* Therefore, eβ - 1 is the average percent increase or decrease from baseline to treatment
+		* Parameter may difficult to interpret in contexts where Y spans several order of magnitudes.
+			* Example, the econometrician may perceive a change in income from $5,000 to $6,000 very differently from a change in income from $100,000 to $101,000, yet both those changes are treatment effects in levels of $1,000 and thus contribute equally to θATE%.
+			* See [Regression, Other](Regression, Other) >>
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

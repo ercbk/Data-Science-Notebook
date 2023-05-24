@@ -1,0 +1,166 @@
+# Diagnostics, GLM
+
+TOC
+
+* Misc
+* Deviance Metrics
+* Residuals
+
+
+
+Misc
+
+	The **degrees of freedom** are related to the number of observations, and how many predictors you have used. If you look at the mean value in the prostate dataset for recurrence, it is 0.1708861, which means that 17% of the participants experienced a recurrence of prostate cancer. If you are calculating the mean of 315 of the 316 observations, and you know the overall mean of all 315, you (mathematically) _know_ the value of the last observation - recurrence or not - it has no degrees of freedom. So for 316 observations, you have n-1 or 315, degrees of freedom. For each predictor in your model you ‘use up’ one degree of freedom. The degrees of freedom affect the significance of the test statistic (T, or chi-squared, or F statistic).
+		Should be in the `summary` of the model
+		
+* Chi Square test for the deviance only works for nested models
+* \*\* The formulas for the deviances for a logistic regression model are slightly different since the deviance for the saturated logistic regression model is 0 \*\*
+
+
+
+
+Deviance Metrics
+
+* Misc
+	* Notes from Saturated Models and Deviance [video](https://www.youtube.com/watch?v=9T0wlKdew6I&list=PLblh5JKOoLUICTaGLRoHQDuF_7q2GfuJF&index=24)
+	* **Deviance** is 2 \* Log Likelihood
+		* Log likelihood can usually be extracted from the model object (e.g. `ll_proposed <- mod$logLik`)
+	* **Saturated model** also called the Full model (Also see [Regression, Discrete](Regression, Discrete) >> Misc)
+		* The full model has a parameter for each observation and describes the data perfectly while the reduced model provides a more concise description of the data with fewer parameters.
+		* Usually calculated from the data themselves
+
+```
+data(wine, package = "ordinal")
+tab <- with(wine, table(temp:contact, rating))
+## Get full log-likelihood (aka saturated model log-likelihood)
+pi.hat <- tab / rowSums(tab)
+(ll.full <- sum(tab * ifelse(pi.hat > 0, log(pi.hat), 0))) ## -84.01558
+```
+
+* GOF: as a rule of thumb, if the deviance about the same size as the difference in the number of parameters (i.e. pfull - pproposed), there is NOT evidence of lack of fit. ([{ordinal}]{style='color: #990000'} [vignette](http://people.vcu.edu/~dbandyop/BIOS625/CLM_R.pdf), pg 14)
+	* Example (have doubts this is correct)
+		* Looking at the number of params ("no.par") for fm1 in Example: [{ordinal}]{style='color: #990000'}, model selection with LR tests below and the model summary in Proportional Odds (PO) >> Example: [{ordinal}]{style='color: #990000'}, response = wine rating (1 to 5 = most bitter), the number of parameters for the reduced model is the number of regression parameters (2) + number of thresholds (4)
+		* For the full model (aka saturated), the number of thresholds should be the same, and there should be one more regression parameter, an interaction between "temp" and "contact". So, 7 should be the number of parameters for the full model
+		* Therefore, for a good-fitting model, the deviance should be close to pfull - preduced = 7 - 6 = 1
+		* This example uses "number of parameters" which is the phrase in the vignette but I think it's possible he might mean degrees of freedom (dof) which he immediatedly discusses afterwards. In the LR Test example below, under LR.Stat, which is essentially what deviance is, the number is around 11 which is quite aways from 1. Not exactly an apples to apples comparison, but the size after adding 1 parameter just makes me wonder if dof would match this scale of numbers for deviances better.
+
+* **Residual Deviance (G2)**: Dresid = Dsaturated - Dproposed
+	* 2\*log\_likelihood between a saturated model and the proposed model
+		* 2 \*(LL(sat\_mod) - LL(proposed\_mod))
+		* \-2 \* (LL(proposed\_mod) - LL(sat\_mod))
+	* See example 7, pg 13 ([{ordinal}]{style='color: #990000'} [vignette](http://people.vcu.edu/~dbandyop/BIOS625/CLM_R.pdf)) for (manual) code
+	* Your residual deviance should be lower than the null deviance.
+			You can even measure whether your model is significantly better than the null model by calculating the difference between the Null Deviance and the Residual Deviance. This difference \[281.9 - 246.8 = 35.1\] has a chi-square distribution. You can look up the value for chi-square with 2 degrees (because you had 2 predictors) of freedom.
+			
+			Or you can calculate this in R with `pchisq(q = 35.1, df=2, lower.tail = TRUE)` which gives you a p value of 1.
+			
+	**Null Deviance**: Dnull = Dsaturated - Dnull
+	* As a GOF for a single model, a model can be compared to the Null model (aka intercept-only model)
+	* 2\*log\_likelihood between a saturated model and the intercept-only model (aka Null model)
+		* 2 \*(LL(sat\_mod) - LL(null\_mod))
+		* \-2 \* (LL(null\_mod) - LL(sat\_mod))
+* **McFadden's Pseudo R2** = (LL(null\_mod) - LL(proposed\_mod)) / (LL(null\_mod) - LL(saturated\_mod))
+	* The p-value for this R2 is the same as the p-value for:
+		* 2 \* (LL(proposed\_mod) - LL(null\_mod))
+		* Null Deviance - Residual Deviance
+			* For the dof, use proposed\_dof - null\_dof
+				* dof for the null model is 1
+	* [Example]{.ribbon-highlight}: Getting the p-value
+
+```
+m1 <- glm(outcome ~ treat)
+m2 <- glm(outcome ~ 1)
+(ll_diff <- logLik(m1) - logLik(m2))
+## 'log Lik.' 3.724533 (df=3)
+1 - pchisq(2*ll_diff, 3)
+```
+
+* **Likelihood Ratio Test (LR Test)** - For a pair of nested models, the difference in −2ln L values has a χ2 distribution, with degrees of freedom equal to the difference in number of parameters estimated in the models being compared.
+	* Requirement: Deviance tests are fine if the expected frequencies under the proposed model are not too small and as a general rule they should all be at least five.
+		* Also see Discrete Analysis notebook
+	* [Example]{.ribbon-highlight}
+		* χ2 = (-2)\*log(model1\_likelihood) - (-2)\*log(model2\_likelihood) = 4239.49 – 4234.02 = 5.47
+			* \-2\*log can probably be factored out
+		* degrees of freedom = model1\_dof - model2\_dof = 12 – 8 = 4
+		* pval > 0.05 therefore the likelihoods of these models are not signficantly different
+* Compare nested models
+	* [Example]{.ribbon-highlight}: LR Test Manually
+		* Models
+
+```
+model1 <- glm(TenYearCHD ~ ageCent + currentSmoker + totChol, 
+              data = heart_data, family = binomial)
+model2 <- glm(TenYearCHD ~ ageCent + currentSmoker + totChol + 
+                as.factor(education), 
+              data = heart_data, family = binomial)
+```
+
+* Add Education or not?
+
+* Extract Deviances
+
+```
+# Deviances
+(dev_model1 <- glance(model1)$deviance)
+## [1] 2894.989
+(dev_model2 <- glance(model2)$deviance)
+## [1] 2887.206
+```
+
+* Calculate difference and test significance
+
+```
+# Drop-in-deviance test statistic
+(test_stat <- dev_model1 - dev_model2)
+## [1] 7.783615
+
+# p-value
+1 - pchisq(test_stat, 3)  # 3 = number of new model terms in model2 (i.e. 3(?) levels of education)
+## [1] 0.05070196
+```
+
+* [Example]{.ribbon-highlight}: LR test with anova
+
+```
+anova(fm2, fm1)
+
+Likelihood ratio tests of cumulative link models:
+    formula:                link:  threshold:
+fm2 rating ~ temp          logit  flexible
+fm1 rating ~ temp + contact logit  flexible
+    no.par AIC    logLik  LR.stat df Pr(>Chisq)
+fm2 5      194.03 -92.013
+fm1 6      184.98 -86.492  11.043  1  0.0008902 ***
+```
+
+
+Residuals
+
+	Notes from Deviance Residuals [video](https://www.youtube.com/watch?v=JC56jS2gVUE&list=PLblh5JKOoLUICTaGLRoHQDuF_7q2GfuJF&index=26)
+	
+	The **Deviance Residuals** should have a Median near zero, and be roughly symmetric around zero.
+		If the median is close to zero, the model is not biased in one direction (the outcome is not over- nor under-estimated).
+		
+	Deviance residuals are like the values from computing the residual deviance at each data point
+	![](./_resources/Diagnostics,_GLM.resources/image.1.png)
+	* Top line: "3.3" is the likelihood for a data point in the saturated model and "1.8" is the likelihood for that same data point in the proposed model
+	* Therefore, squaring each residual and summing them would give you the Residual Deviance for the model.
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

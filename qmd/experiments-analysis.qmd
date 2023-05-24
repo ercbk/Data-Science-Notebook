@@ -1,0 +1,173 @@
+# Experiments, Analysis
+
+TOC
+
+* Misc
+* A/B Post-Hoc Analysis
+	* Metrics
+	* Bayesian
+* Examples
+
+
+Misc
+
+* Also see [Post-Hoc Analysis, ANOVA](ANOVA note) >> ANCOVA
+* Analysis of a two armed trial comparing a treatment to placebo:
+	* Questions
+		1. Was there a treatment effect in this trial?
+		2. What was the ATE of this trial?
+		3. Was the treatment effect identical for all patients in the trial?
+		4. What was the treatment effect for the different subgroups of the trial?
+		5. What will the treatment effect be when used more generally (outside the trial)?
+	* Strategies
+		* (Predictive) adjustment variables (e.g. Age) are good to help answer Q1 & Q2
+		* Interactions (group\_cat ⨯ treatment) could help answer Q3 and Q4.
+		* Q5 is about external validity (see [Diagnostics, Classification](Diagnostics, Classification) >> Terms)
+* Analysis of substudies must be separate
+	* Example of **Study Effects**: 2 Studies with the same treatment (Lumiracoxib) but different controls (ibuprofen, naproxen) ([article](https://www.linkedin.com/pulse/studying-effects-studies-stephen-senn))![](./_resources/Experiments,_Analysis.resources/1640543316808.png)
+		* Cells are p-values
+		* Bottom table shows when a "Sub-study" indicator is used as a model term ("Treatment given Sub-study") vs not used ("Treatment"), the p-values for all the "Demographic Characteristic" variables lose significance.
+
+
+
+A/B Post-Hoc Analysis
+![](./_resources/Experiments,_Analysis.resources/image.png)
+
+* Misc
+	* Notes from: [How to Select the Right Statistical Tests for Different A/B Metrics](https://towardsdatascience.com/how-to-select-the-right-statistical-tests-for-different-a-b-metrics-c8a1865851e)
+	* Also see
+		* [Post-Hoc Analysis, general](Post-Hoc Analysis, general) >> Frequentist
+		* [Experiments, A/B Testing](Experiments, A_B Testing)
+			* \>> Workflow >> Post-Experiment - Analyze the Results
+			* \>> Potential Biases in the Experiment
+	* Some business metric distributions significantly differ from the nice uni-modal normal/student-t distribution
+	* Ask
+		* Does the sampling distribution match the assumption (e.g. independence, normality, etc.) of the proposed test methods?
+		* Does the randomization unit align with the analysis unit?
+* Metrics
+	* User Average Metrics
+		* Indicators that average the total business performance by the number of unique users
+			* Examples
+				* average number of likes per user
+				* average stay time per user during the experiment period.
+	* User-level Conversion Metrics
+		* metrics out of binary outcomes, 1/0
+			* e.g conversion rate = # converted users/# all users
+	* Pageview-level Conversion Metrics
+		* e.g. click-through rate (CTR) = # click events / # view events
+		* The essential problem is that the unit of analysis (i.e. event level — click events and impression events) is different from the unit of randomization (i.e. user level), which could invalidate our t-test and underestimate the variance.
+			* Since each sample observation is a view event, we need to ensure all the view events are independent. Otherwise, we are not able to use CLT to assert normality for our mean statistics.
+			* In A/B experiments where we randomize by users (this is usually the default option because each user would have an inconsistent product experience if we randomize by sessions), a user can have multiple click events or view events, and these events will be correlated.
+				* Therefore, sample variance will no longer be an unbiased estimate of the population variance
+				* Can result in spuriously low p-values
+		* Delta method converts the pageview metric to a user-level metric where independence and iid assumption hold![](./_resources/Experiments,_Analysis.resources/image.1.png)
+			* [article with py code](https://medium.com/@ahmadnuraziz3/applying-delta-method-for-a-b-tests-analysis-8b1d13411c22)
+			* With the correct variance, you can perform the t-test and get the p-value
+		* Bootstrap method - repeatedly draw many samples from all the view events in each group stratified by user ids, then calculate many mean statistics from these bootstrap samples, and estimate the variance for these statistics accordingly.
+			* Stratifying by user ID ensures i.i.d. assumption is met and the variance estimation is trustworthy.
+			* Computationally expensive as the simulation is basically manipulating and aggregating the tens of billions of user logs for many iterations (Complexity ~ O(nB) where n is the sample size and B is the number of bootstrap iterations).
+			* With the correct variance, you can perform the t-test and get the p-value
+	* Percentile Metrics
+		* Many business aspects are characterized by edge cases and thus are better described by quantile metrics
+			* e.g. 95th percentile page load time/latency
+		* Issue is that some of these defined at the Pageview level and not at the user-level (i.e. randomization level)(For more details, see Pageview-level Conversion Metrics)
+		* Bootstrap method - Use to estimate the empirical variance and t-test the sample means of percentile metrics ((For more details, see Pageview-level Conversion Metrics)
+		* Proportional Z-test
+			* For details, see the article and [Ch 8.6](https://alexdeng.github.io/causal/abstats.html#percentilevar) of Causal Inference and Its Applications in Online Industry
+	* Sum Metrics (Not Recommended)
+		* Aggregated counts
+			* e.g. total number of the article read, the total Gross Merchandise Value (GMV), the total videos posted
+		* Article says these sum metrics are problematic because of business fluctuations (user average metrics) and by the inevitable random error introduced by the traffic diversion
+			* I don't know what this means and the article didn't explain it well.
+			* There may be a better explanation in the book in the previous section
+			* There are also references at the end of the article
+		* Recommended to test the effectiveness/statistical significance of the product feature using a user average metric and calculating the incremental lift in the SUM metrics
+* Bayesian
+	* Misc
+		* packages:
+			* [{]{style='color: #990000'}[bayesAB](https://github.com/FrankPortman/bayesAB){style='color: #990000'}[}]{style='color: #990000'} - Independent Beta Estimation (IBE)
+			* [{]{style='color: #990000'}[abtest](https://cran.r-project.org/web/packages/abtest/abtest.pdf){style='color: #990000'}[}]{style='color: #990000'} - Logit Transformation Testing (LTT)
+			* [{]{style='color: #990000'}[bartCausal](https://github.com/vdorie/bartCause){style='color: #990000'}[}]{style='color: #990000'} - Bayesian Additive Regression Trees (BART)
+				* No website or vignettes so see bkmks (Algorithms >> Decision Tree/Random Forests >> Bayes) for articles, papers
+				* 1st or 2nd in causal competitons from 2016 to 2022
+	* vs Frequentist analysis
+		* Differentiates between different hypotheses and can prove the absence of an effect (e.g., A and B do not differ) in light of the data. A low p-value however is only indirect evidence suggests that the data are too inconclusive or not odd enough to reject the null hypothesis.
+			* "Differentiates between different hypotheses" - maybe this has something do with working with distributions in Bayesianism
+		* Informs economic decision-making. Because frequentist statistics do not estimate the probability of parameters (e.g., conversion rate for A vs. B), we cannot translate it back into relevant business outcomes like expected profit or survival rates.
+		* Is truly intuitive or straightforward to non-stats people. It naturally complements the human way of thinking about evidence. For Frequentists, the interpretation of probability is reversed which makes it a pain to understand directly.
+			* Bayesian updating is more intuitive and thus easier to explain than p-values (i.e. imagine a universe where the null hypothesis is true, then...)
+		* Requires much less data and is more time-efficient. Unlike frequentist statistics, Bayesians do not follow a sampling plan that would make an analysis of existing data illegitimate before the full sample size is reached. (?)
+
+
+
+Examples
+[Example]{.ribbon-highlight}: Gelman (general approach)
+
+* Notes from: [Article](https://statmodeling.stat.columbia.edu/2022/01/25/im-skeptical-of-that-claim-that-cash-aid-to-poor-mothers-increases-brain-activity-in-babies/)
+* EDA![](./_resources/Experiments,_Analysis.resources/Rplot01.png)![](./_resources/Experiments,_Analysis.resources/Rplot01-1.png)
+	* Variables
+		* Outcome:
+			* (top) Absolute EEG (brainwaves) power; X-axis is frequency
+			* (bottom) log(Absolute EEG (brainwaves) power); X-axis is frequency
+		* Blue: Each control group patient
+		* Red: Each treatment group patient
+	* Interpretations
+		* Raw, z-scores, Relative to mean:
+			* Not logged: substantial overlap between Control and Treatment groups
+			* log: Control and Treatment groups almost completely overlap
+		* Group averages relative to the mean at each frequency:
+			* So grouped by group, frequency--> mutate(mean)?
+			* Substantial differences
+	* Compare sample data with random-chance data
+		* Keep the same observations but randomly permute the treatment assignment variable and see what happens
+		* Repeat (e.g. 9 times)![](./_resources/Experiments,_Analysis.resources/Rplot05.png)![](./_resources/Experiments,_Analysis.resources/Rplot04.png)![](./_resources/Experiments,_Analysis.resources/Rplot04.png)
+			* Group averages: patterns in these random permutations don’t look so different, either qualitatively or quantitatively, from what we saw from the actual comparison
+				* The red line is on top most of the time and substantially separated from the blue line 3 out fo the 9 times.
+* log response if:
+	* all the measurements are positive
+	* Seems reasonable to start with proportional effect
+* include pre-test brain activity as a predictor (baseline)
+* fit y ~ z + x
+	* y = outcome (log brain activity),
+	* z = treatment indicator
+	* x = pre-treatment measure
+* Try including interaction of x and z
+* Plot y vs. x with blue dots for the controls (z=0) and red dots for the treated kids (z=1).
+
+
+
+[Example]{.ribbon-highlight}: Soloman, RCT, 2 groups, unequal treatment schedule
+![](./_resources/Experiments,_Analysis.resources/FJ-q_GCXIAEybd3.jpeg)
+
+* Notes from: [Thread](https://twitter.com/SolomonKurz/status/1486094617896525830)
+* first three time points are baseline, mid-treatment, and immediately post-treatment. The last two are follow-ups
+* Nonlinear means indicate a GAM would be a good option
+* Solution
+	* GAM: `mgcv::gam(data, y ~ 1 + group + s(weeks, by = group, k = 4) + s(week, subject, bs = "fs", k = 4))`
+		* random smooth for subjects not just a random intercept
+		* "subject" is a factor variable
+		* "fs" is a factor smooth spline
+	* `predict(fit, exclude = "s(weeks,subject)")`
+		* computes the population fitted lines
+		* `gratia::smooths(model)` will return the labels for all smooths in the model so you know what you need for the exclude call without having to call `summary()`
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

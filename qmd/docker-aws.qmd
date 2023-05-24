@@ -1,0 +1,759 @@
+# Docker, AWS
+
+
+TOC
+
+* Summary
+* Glossary of AWS services used
+* Two methods for running containers on AWS
+* Elastic Container Registry (ECR)
+* CodeCommit
+* Create a CodeBuild project
+* Create Cluster: EC2 method (user-managed)
+* Create Cluster: EC2 method with SSH access
+* Create Cluster: Fargate method (AWS-managed)
+* Creating a Task Definition
+* Update task definition to share data volumes between containers
+* Running a task with an available definition
+* Creating an application load balancer (ALB)
+* Create ECS service and task
+* Update service to include autoscaling
+* Troublshooting
+
+****
+
+Misc
+
+* Notes from Linkedin Learning Docker on AWS
+	* The example used in this class is for a web server
+
+
+
+
+* **Summary**
+	* Push docker image to ECR
+	* Push app code and build instructions (buildspec yaml) to CodeCommit
+	* Create CodeBuild project that executes image building instructions
+	* Create a Pipeline that triggers CodeBuild (automatic image build when new code is committed)
+	* Choose a Cluster method (fargate or manual EC2), then create and start cluster instances
+		* only able to specify number of instances to create with the EC2 method
+		* fargate handles most of the configuration (cost extra?)
+	* Create a task or a service
+		* A task is for short running jobs, no load balancer or autoscaling. Its definition details the container configuration; how much of the resources you want your workloads (e.g. app) to be able to use; communication between containers, etc.
+		* A service is for long running jobs. Creates tasks and autoscales number of instances and load balances traffic 
+	* Add a storage container and update task definition to include a shared volume
+* **Glossary of AWS services used**
+	* ECR stores your images that you build
+	* CodeCommit (CC) is like a github (code storage)
+	* CodeBuild sets up the process of using a yaml file in your CC repo as instructions to build the images
+	* Pipeline is the CI/CD part. Triggers an image build every time there's a new push to CodeCommit 
+	* Route 53 takes your domain name (www.store.com/app), creates a DNS ip address and reroutes traffic from that domain to your load balancer.
+	* Container Networking Models
+		* Host - direct mapping to host networking (EC2)
+			* use when performance is prime concern
+			* only 1 container per task per port
+		* Awsvpc - ENI per task, required for fargate
+			* most flexibility
+			* recommended for most use cases
+		* Bridge - "Classic" docker networking
+			* didn't get discussed
+		* None - multi-container localhost and storage
+			* only local connectivity (i.e. communication between containers within a task)
+		* Securtiy groups available for Host and AWSvpc
+			* security groups allow for tracking container performance and limiting access
+* **Two methods for running containers on AWS**
+	* Managing the EC2 instances yourself (see section below for set-up instructions)
+		* if you understand the capacity you need and want greater control, this might be better
+		* You pay for unused capacity
+		* Billing is like the standard billing for using an EC2 instance 
+	* Fargate (see section below for set-up instructions)
+		* Managed by Amazon, less control, less to deal with
+		* You don't have to deal with starting, stopping, choosing compute sizes, capacities etc. of EC2 instances
+		* Billed by CPU/Memory and Time that's used by your container
+* **Elastic Container Registry (ECR)**
+	1. **Create an ECR account**
+		* Log into your account
+		* search ecr
+		* Click create "get started" under Create a Repository (mid right)
+			* Says you pay for the amount of data you store in the repository and data transferred to the internet.
+				* Reason for doing this is latency. The repo is regional and you want your image/app to be close to the host
+		* Assign a name
+			* first part is a hash + region + [amazon.com](http://amazon.com/)
+			* you add a name. whatever you want
+		* mutable/immutable
+			* If you're going to be storing multiple versions of the same image, you should choose mutable.
+		* Click create repository (bottom right)
+	2. **Push image to ECR repo**
+		
+		* copy the URI for your repo from the ecr console (ecr -- left panel -- repositories -- images)
+			* save it to registry-tag.txt file in your local image directory
+			* Also include it as the tag to your docker image
+				* `docker build . -t <URI>` 
+					* auto-appends ":latest"
+		
+		1. In terminal
+			* `(aws ecr get-login --no-include-email --region <region>}`
+				* \*with parentheses
+				* region is whatever you have in your profile e.g. us-east-2
+				* gets login from the aws profile you've already set-up
+				* prints some kind of warning, he didn't act like it was meaningful
+			* `docker push <tag>`
+				* which is your URI:<version>
+					* in the example, the version is "latest"
+			* If something doesn't work, the instructions are at aws
+				1. In repository console
+					1. click repo name
+					2. click view push commands (top right)
+					3. shows how to connect to repository and "push" instance
+	
+	* In console
+		* hit refresh (mid-right) to see that the image is loaded into the repo
+	
+* **CodeCommit**
+	* Create a CodeCommit git repository - benefit is having (image/app) code live near hosting service, less latency for CI/CD processes
+		1. Developer tools -- CodeCommit -- (maybe left panel -- Source -- Repositories)
+		2. Click create repository (top right)
+			* Enter name
+				* Doesn't have to match the name of the image repo, but might be worth doing
+				* also a box for entering a description
+			* Click create
+		3. Connection Steps
+			* https or ssh
+				* click ssh
+			* follow these directions to gitbash and create SSH keys for windows, enter them into config file, clone repository, etc. etc.
+				* https://docs.aws.amazon.com/codecommit/latest/userguide/setting-up-ssh-windows.html
+				* He cloned the repo, one directory above the .ssh directory
+	* Push Container Code to CodeCommit repo
+		* cd to cloned repo directory
+		* copy code files to that directory
+		* git add \*, git commit -m "blah blah", git push -u origin master
+			* \-u is for upstream
+			* "-u origin master"  necessary for a first push
+		* Files should be present in developer tools -- CodeCommit -- Source -- Repositories -- repo 
+* **Create a CodeBuild project to build the CodeCommit repo into a docker container**
+	* buildspec.yml (see hostname folder in exercise files)
+		* yaml script that automates building docker, logging into ECR, building an image, and pushing it to ECR
+		* codebuild version used was 2.0 (which is at the top of the yaml script)
+			* codebuild must be some aws tool you can use to do this
+		* add, commit, push to CodeCommit repo
+	* developer tools --- codecommit -- left panel -- build -- build projects
+		1. click create build project (upper right)
+			* anything not listed below, just used defaults
+		2. enter project name
+			* he gave same name as CC repo
+		3. Under Source, make sure it says CodeCommit, enter repo name in box
+		4. Make sure Manage Image box is ticked
+		5. Operating System
+			* he used Ubuntu
+		6. Runtime
+			* select Standard
+		7. Image
+			* standard 2.0
+		8. Priviledged
+			* tick box "Enable this flag if you want to build Docker images or want your builds to have elevated priviledges"
+		9. Logs
+			* Using cloudwatch
+				* group name - codebuild
+				* Stream Name
+					* he used the name of the CC repo
+		10. Click Create build project (bottom right)
+	* Goto IAM console -- left panel -- Roles
+		* When the "build project" was created a role was also created
+			1. Under Role name -  click "codebuild-<project name>-service-role"
+			2. click attach policy (mid left)
+			3. Search for _AmazonEC2ContainerRegistryPowerUser_
+			4. tick box to select it
+			5. click attach policy (bottom right)
+	* Goto Developer tools -- CodeBuild -- left panel -- Build -- Build Project -- project name
+		1. Click Start Build (top right)
+		2. keep all defaults, Click Start Build (bottom right)
+	* Project builds and under Build Status, status should say "succeeded" when it finishes
+		* Which means there are now two images in the ECR repo
+			* original push and image built from this project build process (duplicate)
+	* Automate building container when new code is pushed (CI/CD)
+		* developer tools -- codebuild -- left panel -- pipeline -- pipelines
+		* click create pipeline
+			1. enter pipeline name
+				* he named it the CC repo name, hostname
+				* click next
+			2. Add source stage
+				* choices
+					* CodeCommit
+					* ECR
+					* S3
+					* Github
+					* Choose codecommit
+				* Select repo name
+					* example: "hostname"
+				* Select branch
+					* example "master"
+				* Detection option
+					* select CloudWatch
+				* Click next
+			3. Add build stage
+				* CodeBuild or Jenkins
+					* choose CodeBuild
+				* Region
+					* example US East - (Ohio)
+				* Project Name
+					* name of the build project from last section
+					* example hostname
+				* Click next
+			4. Add deploy stage
+				* skipped, because something I didn't understand. Sound like another level of automation that might be used in the future
+				* click skip deploy stage
+			5. Review
+				* Click create pipeline (bottom right)
+		* Once created, it will start building the pipeline from the CodeCommit source
+			* Process takes a few minutes
+			* detects the buildspec.yml in CC and executes it
+			* under Build Section, there will be a details link, you can right-click and open it in a new tab
+		* Should result in a 3rd image (duplicate images) in the ECR repo
+			* So anytime a new commit is pushed to CodeCommit, an image will be built and stored in ECR
+* **Create Cluster: Set-up instructions for running containers using** **EC2 method**
+	1. Search for ECS
+	2. left panel -- Under Amazon ECS: Clusters
+		1. Click create cluster
+		2. Choose Linux + Networking
+			* Windows + Networking and Networking-only (Fargate see below) options also available
+			* click next (bottom right)
+		3. Configure Cluster
+			* Enter Cluster name
+				* example: ecs-ec2
+			* Provisioning
+				* On demand instance
+				* spot instance
+			* EC2 instance type (size of compute)
+				* example: t2.medium
+			* Number of instances
+				* he chose 1
+			* EC2 AMI id
+				* Linux-1, linux-2
+					* he chose linux-2; didn't give a reason
+			* Defaults kept for Virtual Private Cloud (VPC), Security Group, storage, etc.
+			* CloudWatch container insights
+				* tick enable container insights
+				* so you can monitor stats in Cloudwatch and help you tune compute resources in the future
+			* Click create
+				* takes a minute or two to spin up the instance
+* **Create Cluster: EC2 method with SSH access (not possible with a Fargate cluster) and connect to it**
+	1. Find your ssh public key
+		1. go into git bash and type "cat ~/.ssh/id\_ed25519.pub"
+			* options
+				* id\_rsa.pub
+				* id\_ecdsa.pub
+				* id\_ed25519.pub
+			* I have 2, rsa that I created when linking rstudio to github and ed25519 when I created gitlab acct
+		2. Copy everything (including the ssh-filename beginning part) all the way until your email (don't include)
+	2. Goto EC2 services page (open new tab)
+		1. Under Resources (mid), click Key Pairs
+			1. Click import
+			2. paste key into Public Key Contents box
+			3. enter a name
+				* example ecs-ec2-key
+			4. click import
+	3. Go back to the ECS services page and create another cluster
+		* Same as before. (create cluster - EC2 method above) except:
+			1. cluster name - ecs-ec2-ssh
+			2. key pair - chose newly imported key pair
+			3. Networking
+				* vpc
+					* drop down
+						* choose vpc created by prev. cluster (some big long hash)
+				* subnets
+					* dropdown
+						* choose subnet created by prev. cluster
+						* spawns another dropdown to add another subnet
+					* dropdown
+						* choose second subnet created by prev.cluster
+					* Should only be 2, they're names should gray-out after you choose them
+				* security group
+					* choose the one created by the prev. cluster
+			4. Having SSH available will allow us to go into the container and view docker ressource
+	4. Copy public ip address and open SSH port (also see AWS notebook -- EC2 -- connect/terminate instance)
+		* Click on Cluster name
+		* click on ECS instances tab (mid left)
+		* right-click EC2 Instance id and open in new tab
+			* copy IPv4 Public IP (lower right)
+			* click security group link (lower left)
+				* click inbound tab (lower left)
+				* click edit
+					* click add rule
+					* under Type, click dropdown and select SSH
+						* automatically chooses port 22
+					* Source
+						* kept 0.0.0.0  ("v4 address", guess 4 is for the 4 numbers in the address)
+					* Description
+						* kept default
+					* click save
+	5. Open terminal
+		* ssh -i ~/.ssh/id\_rsa ec2-user@<public ip address>
+			* asks if you're sure, say yes
+		* Check container status on instance
+			* sudu su -
+				* switches to being a root user
+			* docker ps
+				* shows container id and name, image, status, etc.
+		* exec into container
+			* docker exec -it <container name> sh
+				* only works if linux image has a shell environment
+				* instead of sh, can try bash
+				* or docker run  --rm --name linux -it alpine:latest sh
+				* ctrl + d
+					* leave shell
+				* exit
+					* to exit as root user
+				* exit
+					* leaves instance, closes connection
+* **Create Cluster: Set-up instructions for running containers using** **Fargate method**
+	* Search for ECS
+	* left panel -- Under Amazon ECS: Clusters
+		1. Click create cluster
+			1. Choose Network-only (amazon fargate)
+			2. Enter Cluster name
+				* example ecs-fargate
+			3. tick box for Enable Container insights (cloudwatch)
+			4. click create (bottom right)
+	* Cluster created instantaneously
+		* click view cluster
+* **Creating a Task Defintion**
+	* If using load balancer goto the "create appplication load balancer" and  "add ecs service and task" below
+	* details the images to use, the CPU and memory to allocate, environment variables, ports to expose, and how the containers interact.
+		* associates the cluster created in the previous section with the app or workload
+	* 1 task definition can be used in multiple containers
+	* search for ECS
+	* left panel -- Clusters -- task definitions
+		1. click create new task definition
+		2. select cluster method (Fargate or EC2)
+			* choose fargate
+			* click next step
+		3. create task-definition name
+			* eg hostname-fargate
+		4. task role
+			* used if workload creates other resources inside aws
+			* leave blank
+			* some kind of warning about the network settings, he ignored it.
+		5. task execution iam role
+			* gives permission for cluster to use task defintion
+			* keep default
+		6. task size
+			* memory size choice effects available choices for cpu
+			* depends on your application needs, if running multiple containers with this definition, etc.
+				* he chose the smallest for each just because this is for illustrative purposes
+		7. container definitions
+			* assigns which containers will be using this definition
+			* click add container
+				* container name
+					* whatever you want, he chose hostname
+				* image
+					* goto services (top left) (open new tab) -- left panel -- ecr -- left panel -- repositories
+						* click image repo name
+						* copy image uri that you want to associate with the definition
+						* go back to the task definitions tab
+					* paste uri into the box
+						* If you want to always use the latest image and your uri has build version tag, replace the build tag with "latest"
+							* build tag starts at "build" and goes to the end of the uri
+				* authentication only necessary if ecr repo is private
+				* soft memory limit
+					* specify a memory limit for the container
+					* leaving blank says only limit will be the memory size of the task definition (see 6.)
+				* port mappings
+					* whatever is specified in dockerfile/image
+					* example nginx image exposes 80 tcp
+				* Advanced options
+					* healthcheck
+						* some cli code that allows you to check if your container is running properly at the container level
+						* he already has this in his buildspec.yml code (see create CodeBuild project section)
+							* healthcheckz is a check at the system level
+					* Environment, network settings, volumes
+						* seems like a bunch of stuff that would be used in a docker run command or in a docker-compose file
+						* all left blank
+				* click add
+		8. volumes
+			* external volume to be shared
+			* left blank
+		9. click create
+	* Takes you to launch status
+		* click view task definition
+* **Update task definition to share data volumes between containers (fargate cluster example)**
+	* Also see the Data Volumes, Sharing Data between containers, Docker-Compose sections of part 1 of this note
+		* think a lot of what happens in those sections is automated by using the this task definition
+	* Search ECS -- Left panel -- Task Definitions
+		* click on fargate task definition
+			* click on latest revision of the definition
+				* definitions are versioned
+				* click on create new revision
+					* scroll down to click on add container
+						* container name
+							* whatever, fargate-storage (he called his hostname-v2)
+						* image
+							* add image uri (see creating task definition above)
+							* he used the same image as the first container. This becomes a problem because he has two containers using the same port since both nginx containers are using 80. See troubleshooting section below. Also mentioned in part 1 -- running containers -- flags -- p
+							* Think for data science we'd use a postgressql, redis, etc. image
+						* Environment
+							* Think this was for display purposes. He added one just so when he went to the webpage and it displayed the container names, we could tell the difference. The first container said version 1 and this one says version two.
+							* environment variables
+								* key
+									* example VERSION
+								* value
+									* example versionTwo
+						* click add
+					* Volumes
+						* click add volume
+							* name
+								* whatever
+								* example shared-volume
+							* click add
+					* GO BACK to container section
+						* Do this for each container: click on the container name
+							* Storage and Logging
+								* mount points
+									* source volume
+										* click dropdown and select volume name
+											* example from above: shared-volume
+									* container path
+										* he added the shared folder path and it was the same for both containers
+										* see part 1 Data Volumes and Sharing Data between containers sections
+											* I think using that example, we'd specify "/app/public/" (no quotes) for the app container. \*\*\* This dude said to add a trailing "/" to the paths \*\*\*
+											* for storage container, example redis, it'd be "/data/" which is designated by the redis image authors.
+							* click update
+					* Click create
+				* Note the revision number that's given
+	* left panel -- Clusters
+		* click on fargate cluster
+			* click services tab (mid left)
+				* click service name (example is hostname) using the task definition
+					* This was created in the Add ECS service and task section below
+					* click update button (top right)
+						* Configure Service
+							* Task Definition
+								* revision
+									* select revision number of the updated definition
+							* click next
+						* click next all the way to review
+							* click update service
+						* click view service
+			* click tasks tab (mid left)
+				* refresh (mid right) and watch new task start up with "provisioning" status and then "running"
+	* can go to ip address with volume path appended to the address to see that the volumes are up and running
+		* not sure if this would work with a database example or not
+* **Running a Task with an available task definition**
+	* left panel -- Clusters
+		* Click Cluster your using for the task definition
+			* he used the fargate one he created
+		* click tasks tab (mid left)
+		* click run new task
+			* tick fargate launch type
+			* cluster vpc, subnets
+				* click dropdown boxes
+				* it'll show the ones that were made during cluster creation
+					* choose vpc and both subnets
+			* Security group
+				* creates one for you with default rules which you can keep
+					* Also can manipulate after created by going to EC2 -- left panel -- Network and Security -- Security Groups
+				* Or click edit button to specify ports, choose existing security group, etc
+					* add additional port
+						* type
+							* select custom with tcp protocol
+						* port range
+							* 81-90
+							* container must be configured to be able to listen on the range of ports
+						* Source
+							* can choose a group that allows you to connect with other tasks in the environment and limit access
+							* he kept Anywhere
+						* click save
+			* click run task (bottom right)
+		* click the task hash under Task column
+			* at the bottom, you can watch the status turn from "pending" to "running"
+				* refresh button (right)
+			* copy the public ip under Network section
+		* paste into address bar + port
+			* example 3.15.13.43:80
+			* example: for his nginx server, it just displayed the private ip and the image name
+	* Simple way for a minor scale up the access to the application is to duplicate the task definition (also see autoscaling section below)
+		* left panel -- Clusters
+			* select the same cluster
+			* click tasks tab again
+			* click task hash id again
+				* click "run more like this" (top right)
+					* tick fargate again
+					* select the same vpc and subnets again
+					* click run task
+				* get the public ip the same way as before
+				* now two ips are available for the app
+* **Create application load balancer (ALB) (also see AWS notebook -- configure load balancer ports)**
+	* search ec2
+	* left panel -- load balancing --- load balancers
+		* click create load balancer (top left)
+			* Configure Load Balancer
+				* select type
+					* application, network or classic
+						* application is for http, https
+							* guess this is for internet traffic coming into (and out of?) application
+						* network is for tcp, tls, udp
+							* guess this would be for communication between containers
+						* classic is for http, https, and tcp
+							* something about an app running on an ec2 classic network
+						* he chose application
+				* give it a name
+					* example ecs-alb
+				* ip address type
+					* ipv4 (default)
+				* scheme
+					* internal or internet facing
+						* kept internet-facing (default)
+				* Listeners
+					* http, port 80
+					* can add other ports if you want
+						* for production should add a https, 80
+				* Availability zones
+					* vpc, subnets
+						* select those asscociated with the cluster
+						* subnets have region specification (us-east-2a, b)
+				* click next: configure security settings (bottom right)
+					* if you haven't add https port, it'll give you a warning
+						* click next if don't care about https
+			* Configure Security Settings
+				* tick box that has the name of the security group that was created during the cluster creation
+					* example: EC2ContainerServic-ecs-ec2-EcsSecurityGroup-somehash
+						* description: ECS Allowed Ports
+				* click Next
+			* Configure Routing
+				* target group (backend of load balancer)
+					* new target group (default)
+				* Name
+					* (literally) "default"
+				* target type
+					* Instance, IP, Lambda
+					* chose IP
+						* something about being able to use on EC2 and Fargate
+				* protocol
+					* kept http
+				* port
+					* kept 80
+				* health check
+					* kept defaults
+				* click next
+			* Register targets
+				* keep defaults
+				* going to specify this info through ecs in the next section
+				* click next to review
+			* Review
+				* click create
+	* Edit the default forwarding target
+		* A listener rule is comprised of a target (or group of targets) and conditions. When the load balancer receives a request, it checks it against the conditions in the listener rules. For whichever condition the request meets, the load balancer then sends the request to the target (e.g. ip address(instance) or lambda function (code scripts)) associated with that condition.
+		* Search ec2 -- left panel -- load balancing -- load balancer 
+			1. tick the load balancer you want
+			2. click listener tab (mid left)
+			3. For listener id = http 80 and under the Rules column it will say Default: forwarding to default
+				* click view/edit rules
+					* under the IF column (ie the condition) it says, Requests otherwise not routed. Which means any request that doesn't meet any of the other conditions
+					* click the edit pencil icon (top left) -- click pencil icon next to http 80: default action
+						* Under the THEN column -- click the trash can to delete "forward to default"
+						* click add action
+						* select return fixed response
+							* keep response code 503
+								* means server had an issue responding
+							* in Response body, type message
+								* example: sorry, no one is home right now
+								* click check mark
+								* click update (top right)
+					* click back arrow (top left)
+			4. test it out by clicking description tab (mid left)
+				*  get DNS (Domain Name Service) name
+					* example [blahblahamazonaws.com](http://blahblahamazonaws.com/)
+					* Normally, you take your domain name (www.store.com/app) and give it the Amazon Route 53 service which translates your domain name into an ip address.
+					* You then reroute traffic from your domain ip address to this dns name.
+				* paste it in the browser and the error message displays
+* **Add ECS service and task (also see create task definition and run task sections above)**
+	* search ecs -- left panel -- clusters -- click fargate cluster
+	* click tasks tab (mid left) -- select task that was created in Create task section -- click stop button (mid left)
+	* click services tab (mid left) -- click create service
+		* Configure Service
+			* Configure Service
+				* select launch type
+					* choose fargate
+				* Task Definiton and Cluster
+					* kept the ones created in sections above
+				* enter a service name
+					* example hostname
+				* number of tasks
+					* example 2
+				* click next step
+			* Deployments
+				* keep default, rolling update
+					* allows you to upgrade the task definition from version 1 to version 2 in a rolling fashion 
+						* don't know what he's talking about here with versions
+			* click next step
+		* Configure Network
+			* Service
+				* cluster vpc, subnets
+					* select the ones that are associated with this fargate cluster
+				*  security group
+					* keep default (allows traffic in)
+				* auto-assign public ip
+					* keep default ENABLED
+					* with a load balancer, we could choose to use only used private ips though
+			* Health check grace period
+				* set to 60 (in seconds)
+				* gives the container/cluster a chance to get up an running before it tests it to see if everything is working
+			* Load Balancing
+				* tick application load balancer
+				* container to load balancer
+					* shows container name port:port
+					* click add to load balancer
+						* production listener port
+							* click dropdown -- select 80 HTTP
+								* 80 is our port of the container and we chose http when we created the load balancer
+						* path pattern
+							* it was /hostname but he changed it to /\* which is every pattern
+								* I think /hostname would that "<your website DNS address>/hostname" would be ip address pattern associated with this container (i.e. the condition or rule)
+								* and /\* means route any request from <your website DNS address> no matter what pattern is attached to it.
+						* evaluation order
+							* as soon as the first rule/condition is matched, traffic goes to that target and no other rules are considered. Lower the evaluation order, the sooner the rule is considered
+							* he chose 1
+						* health check path
+							* default was /hostname
+							* since he's using /\*, he changed it to /hostname/ so the healthcheck will get a webpage (code 200) and not a redirect (code 300 error)
+						* Service Discovery
+							* Enables Route 53 to create a local network dns address for your container.
+							* Useful for when you have multiple applications talking to each other
+							* untick box for enable service discovery integation since this is only one application
+			* click next step
+		* Set Autoscaling
+			* See next section on adding autoscaling
+			* This can be added after this service has been created by updating
+			* click next step
+		* Review
+			* click create service
+		* Creates target group, rule/condition
+			* click view service
+			* should see two tasks starting up
+			* goto the dns address on a webpage (see end of create load balancer section)
+				* before it displayed the error message (default target), now it shows a webpage (like in the Create Task section above)
+				* refresh and it shows the second dns address associated with having a second task
+					* 2 tasks means it can handle more traffic (just like the end of the create task section above)
+* **Updating the service to add autoscaling**
+	* search ecs -- left panel -- clusters
+	* Click on your cluster that you want to update its service
+		* services tab (mid left) -- click service name or id
+			* click update
+				* Click next until you get to Set Autoscaling
+				* tick configure service autoscaling
+				* minimum number of tasks
+					* he chose 1
+				* desired number of tasks
+					* he chose 3
+				* maximum number of tasks
+					* he chose 5
+				* IAM role
+					* use default ecsautoscalerole
+					* use create new role if there isn't already one available
+				* click Add scaling policy
+					* tick step scaling
+					* enter policy name
+						* example stepUp
+					* execute policy when
+						* tick create new alarm
+						* alarm name
+							* example upAlarm
+						* ECS service metric
+							* CPU Utilization
+						* Alarm threshold
+							* avg cpu utilization > 10 (%)
+							* consecutive period = 1
+							* period = 8 min
+								* he chose 1 just for illustrative purposes
+							* click save
+					* scaling action
+						* add 1 task
+						* when cpu utilization > 10
+					* countdown period
+						* amount of time it takes to make a decision
+						* 30 sec
+					* click save
+				* click Add scaling policy (again)
+					* same thing but for scaling down
+					* avg cpu utilization
+						* he chose <= 10 but I'm not sure if that's what you'd do in real life. I'd think you'd want some separation between the up and down scaling, but maybe not
+					* scaling action
+						* remove 1 task
+				* Click next to review
+				* click update service
+		* Click tasks tab (mid left) to see how many task are currently running
+		* click autoscaling tab to see the both upAlarm and downAlarm condition info
+		* To see status of the targets (ip addresses of instances/containers)
+			* Goto EC2 -- left panel -- load balancing -- target groups
+				* tick the target group name of the load balancer
+				* Under Registered Targets (Bottom)
+					* shows ips, status
+						* status == draining when auto-scaling taking a resource offline
+* **Troubleshooting** 
+	* Notes:
+		* normal for an active cluster without any running services or tasks to have 1 active container instance. It's called the container management instance.
+	* Example: you notice your cluster is running 5 containers when you only desire 3
+		* Can see this in Clusters -- fargate -- services tab, under the desired tasks and running tasks columns
+			* its says 5 for desired but he chose that for his max in the autoscaling section, so I don't know if he adjusted it for demonstration purposes or if this something confusing that AWS does.
+		* Answer: he had both containers trying to bind to port 80 (see logs below)
+		* Service level
+			* click service name
+				* tasks tab
+					* can see the task ids and definitions that the various active tasks are using
+						* example: tasks are alternating between running and provisioning. Why are some shutting down and others starting in their place? The container is running for some time and then being stopped for some reason.
+					* click task id
+						* logs tab -- select container
+							* shows errors that have occurred
+						* Details tab
+							* Containers (bottom)
+								* click expand-arrow on desired container
+									* click view logs in CloudWatch
+										* takes you to CloudWatch console
+											* view the logs of the task
+												* able to filter log by events
+											* go up one level to see log streams
+												* can match containers and tasks to see if it might be a task issue
+												* end hash is the task id
+				* Details tab
+					* Load Balancing -- click target group name
+						* targets tab
+							* shows the individual targets (ip addresses), ports, statuses
+							* status by region (if you have resources in different zones)
+								* example: there were 2 zones -  us.east.2a and 2b and one had all healthy and the other had zero healthy, but he didn't mention anything about it. Think that's just how nodes are taken on and offline and not that there's a regional issue.
+						* health checks tab
+							* healthy threshold
+								* number of code 200s i.e. healthy responses required in order for a node to be considered healthy
+							* unhealthy threshold
+								* number of code 300s i.e. error responses required in order for the node to be considered unhealthy
+				* Logs tab
+					* shows the aggregate of the logs for each container (all tasks included)
+					* select a container from the dropdown
+						* timestamp, message, task id
+						* example: shows a "bind" error that says the container can't a bind to port 80 because it's already in use.  In the Update task definition to share data volumes section, the second container he added was a duplicate of the nginx container and both were trying to bind to port 80. Hence the error
+		* Cluster metrics
+			* Clusters -- EC2 cluster -- metrics tab
+				* only useful for EC2 clusters
+				* compute and memory resources being used
+					* shows time series of min, max, and average percent usage
+			* Clusters -- fargate cluster -- services tab
+				* click service name -- metrics tab
+					* same stuff as EC2 metrics tab
+					* can click on the different metrics (cpu, memory utilization) and create custom metric functions, change period length, etc.
+						* left panel has alarms (autoscaling trigger history), events, logs, and settings
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

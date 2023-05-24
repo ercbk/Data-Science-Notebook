@@ -1,0 +1,1051 @@
+# Model Building, tidymodels
+
+
+TOC
+
+* Misc
+* Steps
+* Checks, Debugging
+* Helpers
+* Set-up
+* Workflow
+* Fit
+* Tune
+* Finalize and Predict
+* Model Specification
+* Recipe
+* Examples
+
+
+Misc
+
+* CV dataset terminology: training, validation, test --> analyswis, assessment, test
+* (I don't think this is necessary anymore. Outcome may remain categorical) Transform categorical outcome variables to factors
+
+```
+# outside recipe
+mutate(rain_tomorrow = factor(ifelse(rain_tomorrow, "Rained", "Didn't Rain")))
+
+# skip = TRUE is so this is tried to be applied the test set which won't have the outcome var when its being preprocessed
+step_mutate(rain_tomorrow = factor(ifelse(rain_tomorrow, "Rained", "Didn't Rain"),
+            skip = TRUE)
+
+# this would have 0 and 1 values though
+step_num2factor(rain_tomorrow)
+```
+
+* With long running models, you can work with a sample of the data in order to iterate through initial ranges of tuning grids. Once you start to narrow down the range of hyperparameter values, then you can adjust the portion of the data and/or number of folds.
+
+```
+train_fold_small <- train %>%
+            sample_n(4000) %>%
+            vfold_cv(v = 2)
+# change data obj in resamples arg of tune_grid
+```
+
+* Accessing a fitted model object to see coefficient values, hyperparameter values, etc.
+
+```
+lin_trained <- lin_workflow %>%
+        finalize_workflow(select_best(lin_tune)) %>%
+        fit(split_obj) # or train_obj or test_ob, etc.
+
+lin_trained$fit$fit %>%
+        broom::tidy()
+
+# returns a parsnip object
+extract_fit_parsnip(lin_trained) %>%
+    tidy()
+# returns an engine specific object
+xgboost::xgb.importance(model = extract_fit_engine(xgb_fit)
+```
+
+* Utilizing a sparse matrix with blueprint arg
+
+```
+wf_sparse <- 
+  workflow() %>%
+  add_recipe(text_rec, blueprint = sparse_bp) %>%
+  add_model(lasso_spec)
+```
+
+* estimates, model performance metrics, etc. are unaffected
+* Advantages
+	* Speed is gained from any specialized model algorithms built for sparse data.
+	* The amount of memory this object requires decreases dramatically.
+* Engines that can utilize a sparse matrix: glmnet, xgboost, and ranger.
+
+* If your CV results have close scores --> increase from 5-fold to 10 fold cv
+	* Can take much longer though
+* Back-transform predictions if you made a non-recipe transformation of the target variable
+
+```
+# log 10 transformed target variable
+preds_intervals <- predict(
+  workflows::pull_workflow_fit(lm_wf),
+  workflows::pull_workflow_prepped_recipe(lm_wf) %>% bake(ames_holdout),
+  type = "pred_int",
+  level = 0.90
+) %>% 
+  mutate(across(contains(".pred"), ~10^.x))
+```
+
+* Get CV coefs (?)
+
+```
+get_glmnet_coefs <- function(x) {
+  x %>%
+    extract_fit_engine() %>%
+    tidy(return_zeros = TRUE) %>%
+    rename(penalty = lambda)
+}
+parsnip_ctrl <- control_grid(extract = get_glmnet_coefs)
+
+glmnet_res <-
+  glmnet_wflow %>%
+  tune_grid(
+    resamples = bt,
+    grid = grid,
+    control = parsnip_ctrl
+  )
+
+```
+
+* Showing table of results from multiple models
+
+```
+list(
+  "Original" = unbalanced_model, 
+  "Undersampled" = balanced_model, 
+  "Smote" = smote_model
+) %>%
+  map(tidy) %>%
+  imap(~ select(.x, "Term" = term, !!.y := "estimate")) %>%
+  reduce(inner_join, by = "Term") %>%
+  pretty_print()
+```
+
+
+Steps
+
+1. set-up
+2. recipe
+3. Specify model(s)
+4. workflow, workflow\_set
+5. fit, fit\_resamples, or tune\_grid
+6. autoplot
+7. collect metrics
+8. Repeat as necessary
+9. finalize\_workflow
+10. last\_fit
+
+
+Checks, Debugging
+
+* check number of predictors and preprocessing results
+
+```
+check_recipe <- function(recipe_obj) {
+recipe_obj %>%  # already created recipe instructions
+    prep() %>%  # instantiates recipe (makes necessary calcs)
+    bake() %>% # executes recipe on data
+    glimpse()
+}
+```
+
+* check tuning error
+
+```
+tune_obj$.notes[[2]] # 2 is the fold number
+```
+
+* check a particular fold after preprocessing
+
+```
+recipe_obj %>%
+training(cv_obj$splits[[2]]) %>% # 2 is the fold number
+prep()
+```
+
+* `show_best`: Display the top sub-models and their performance estimates
+
+```
+show_best(tune_obj, "rmse")
+```
+
+* example orders models by rmse
+
+* Check learning curves after tuning a model
+
+```
+autoplot(tune_obj)
+```
+
+Helpers
+
+* predictions + newdata tbl for workflow and stacks objects
+
+```
+augment.workflow <- function(x, newdata, ...) {
+predict(x, newdata, ...) %>%
+bind_cols(newdata)
+}
+# model_stack is the class of a stack obj
+augment.model_stack <- function(x, newdata, ...) {
+predict(x, newdata, ...) %>%
+bind_cols(newdata)
+}
+```
+
+* 
+
+
+Set-up
+
+* Some packages
+	* tidyverse - cleaning
+	* tidymodels - model building
+	* scales - loss metrics
+	* lubridate - ts cleaning functions
+	* textrecipes - tokenizers, etc.
+	* themis - up/down-sampling for imbalanced/unbalanced outcomes
+	* stacks - ensembling
+* split
+
+```
+set.seed(2021)
+spl <- initial_split(dataset, prop = .75)
+train <- training(spl)
+test <- testing(spl)
+train_folds <- train %>%
+        vfold_cv(v = 5)
+```
+
+* Might be useful to create a row id column before splitting to keep track of observations after the split
+	* `df %>% rowid_to_column(var = "row_id")`  then use `step_rm(row_id)` to remove it in the recipe
+
+* metrics
+
+```
+mset <- metric_set(mn_log_loss)
+```
+
+* Parallel
+
+```
+doFuture::registerDoFuture()
+doFuture::plan(multisession, workers = 4)
+```
+
+* grid control options
+
+```
+
+
+grid_control <- control_grid(
+                        # save the out-of-sample predictions
+                        save_pred = TRUE,
+                        save_workflow = TRUE,
+                        extract = extract_model)
+```
+
+* ggplot theme
+
+```
+theme_set(theme_light)
+```
+
+* Liked this theme for calibration curves
+
+
+
+Workflow
+
+* format: workflow function, add\_recipe, add\_model
+
+```
+imb_wf <-
+  workflow() %>%
+  add_recipe(bird_rec) %>%
+  add_model(bag_spec)
+```
+
+* Can also add `fit(training(splits))` to the pipe to go ahead and fit the model if you're not tuning, etc.
+
+* Fit multiple models and multiple recipes
+
+```
+preproc <- list(none = basic_recipe, pca = pca_recipe, sp_sign = ss_recipe)
+models <- list(knn = knn_mod, logistic = lr_mod)
+wf_set <- workflow_set(preproc, models, cross = TRUE)
+```
+
+* Args
+	* cross = TRUE says fit each model with each recipe
+
+
+
+Fit
+
+* `fit`:  fit a model on a dataset
+
+```
+imb_fit <- fit(workflow_obj, data = dat)
+```
+
+* `fit_resample`: cross-validation
+
+```
+imb_rs <-
+  fit_resamples(
+    workflow_obj,
+    resamples = cv_folds_obj,
+    metrics = metrics_obj
+  )
+collect_metrics(imb_rs)
+```
+
+
+Tune
+
+* CV and Tune Model with Multiple Recipes ([article](https://juliasilge.com/blog/project-feederwatch/))
+
+```
+doParallel::registerDoParallel()
+set.seed(345)
+
+tune_res <-
+    workflow_map(
+        wf_set,
+        "tune_grid",
+        resamples = cv_folds,
+        grid = 15,
+        metrics = metric_set(accuracy, roc_auc, mn_log_loss, sensitivity, specificity),
+        param_info = parameters(narrower_penalty)
+    )
+```
+
+* "wf\_set" is a `workflow_set` object
+* "grid = 15": this workflow set is only tuning one model, glmnet, and the parameter being tuned is the penalty. So "grid = 15" says try 15 different values.
+* "narrow\_penalty" is `narrower_penalty <- penalty(range = c(-3, 0)`
+* Viz: `autoplot(tune_res)`![](./_resources/Model_Building,_tidymodels.resources/Screenshot (1360).png)
+	* Interpretation:
+		* When accuracy is high, specificity (accuracy at picking negative class) is very high but sensitivity (accuracy at picking positive class) is very low.
+		* Add middling values of specificity and sensitivity, mean log loss is also middling
+		* mean log loss is high when sensitivity is high
+		* AUROC is high at middling values of specificity and sensitivity indicating a best model for discriminating both classes. (but which recipe is this; see next section)
+	* Workflow Rank (X-Axis): In this example there were 15 values of penalty considered and 2 differerent recipes, so I'm guessing that's where the 30 comes from.
+* Extract a particular model/recipe combo and viz![](./_resources/Model_Building,_tidymodels.resources/Screenshot (1362).png)
+
+```
+downsample_rs <-
+  tune_rs %>%
+  extract_workflow_set_result("downsampling_glmnet")
+autoplot(downsample_rs)
+```
+
+* Y-Axis: metric value, X-Axis: parameter value (e.g. glmnet penalty value)
+* Where "downsampling\_glmnet" is the model/recipe combo you want to extract
+* Shows how downsampling affects the glmnet model
+* Interpretation:
+	* Looks like the 1st half of workflow set in above viz is the downsampling recipe
+	* Shows downsampling without recalibration of the predicted probabilities results in a model that can only pick 1 class well based on the penalty
+	* The GOF metrics: high accuracy, low mean log loss, high auroc prefer the model that picks the negative class really well.
+
+* Show results ordered by a metric
+
+```
+rank_results(tune_rs, rank_metric = "mn_log_loss")
+```
+
+* results ordered from best to worst according to the metric
+
+* tune\_grid
+	* Format: workflow, data, grid, metrics, control
+
+```
+lin_tune <- lin_wf %>%
+  tune_grid(train_fold,
+            grid = crossing(penalty = 10 ^ seq(-6, -.5, .05)),
+            metrics = mset,  # see set-up section
+            control = grid_control) # see set-up section
+```
+
+* Tuning multiples of the same hyperparameter
+	1. add id to specification (e.g. recipe step)
+	2. use id name instead of parameter name in grid
+
+```
+step_ns(var1, deg_free = tune("df_var1"))
+step_ns(var2, def_free = tune("df_var2"))
+
+tune_obj <- workflow_obj %>%
+    tune_grid(train_fold,
+              grid = crossing(df_var1 = 1:4, df_var2 = 4:6),
+              metrics = mset,
+              control = grid_control)
+```
+
+* grids
+	* [{]{style='color: #990000'}[dials](https://dials.tidymodels.org/){style='color: #990000'}[}]{style='color: #990000'}
+	* purrr::crossing
+
+```
+grid = crossing(mtry = 2:7,
+                trees - seq(100, 1000, 100),
+                learn_rate = 0.1)
+```
+
+* Latin Hypercube
+
+```
+xgb_grid <- grid_latin_hypercube(
+    tree_depth(),
+    min_n = sample(2, 10, 3)
+    loss_reduction = sample(runif(min = 0.01, max = 0.1), 3),
+    sample_size = sample(0.5:0.8, 3),
+    mtry = sample(3:6, 3),
+    learn_rate = sample(runif(min = 0.03, max = 0.1), 3)
+)
+```
+
+* size: total number of parameter value combinations (default: **3**)
+
+* Random
+
+```
+xgb_grid <- grid_random(
+    tree_depth(),
+    min_n(),
+    loss_reduction(),
+    learn_rate(),
+    finalize(sample_prop(), train_data),
+    finalize(mtry(), train_baked),
+    size = 20
+)
+```
+
+* size: default: 5
+
+* Get coefficients for folds with  
+
+```
+get_glmnet_coefs <- function(x) {
+  x %>% 
+    extract_fit_engine() %>% 
+    tidy(return_zeros = TRUE) %>% 
+    rename(penalty = lambda)
+} 
+glmnet_res <- 
+  glmnet_wflow %>% 
+  tune_grid(
+    resamples = bt,
+    grid = grid,
+    control = control_grid(extract = get_glmnet_coefs)
+  )
+glmnet_coefs <- 
+  glmnet_res %>% 
+  select(id, .extracts) %>% 
+  unnest(.extracts) %>% 
+  select(id, mixture, .extracts) %>% 
+  group_by(id, mixture) %>%          # ┐
+  slice(1) %>%                      # │ Remove the redundant results
+  ungroup() %>%                      # ┘
+  unnest(.extracts)
+glmnet_coefs %>% 
+  select(id, penalty, mixture, term, estimate) %>% 
+  filter(term != "(Intercept)")
+#> # A tibble: 300 × 5
+#>    id        penalty mixture term      estimate
+#>    <chr>        <dbl>  <dbl> <chr>        <dbl>
+#>  1 Bootstrap1 1          0.1 Clark_Lake    0.391
+#>  2 Bootstrap1 0.464      0.1 Clark_Lake    0.485
+#>  3 Bootstrap1 0.215      0.1 Clark_Lake    0.590
+#>  4 Bootstrap1 0.1        0.1 Clark_Lake    0.680
+#>  5 Bootstrap1 0.0464      0.1 Clark_Lake    0.746
+#>  6 Bootstrap1 0.0215      0.1 Clark_Lake    0.793
+#>  7 Bootstrap1 0.01        0.1 Clark_Lake    0.817
+#>  8 Bootstrap1 0.00464    0.1 Clark_Lake    0.828
+#>  9 Bootstrap1 0.00215    0.1 Clark_Lake    0.834
+#> 10 Bootstrap1 0.001      0.1 Clark_Lake    0.837
+#> # … with 290 more rows
+```
+
+* `extract_fit_engine`adds an additional column ".extracts" to tuning output
+* "return\_zeros" keeps records of variables with penalized coefficients to zero during tuning
+* Viz![](./_resources/Model_Building,_tidymodels.resources/glmnet-plot-1.svg)
+
+```
+        glmnet_coefs %>% 
+          filter(term != "(Intercept)") %>% 
+          mutate(mixture = format(mixture)) %>% 
+          ggplot(aes(x = penalty, y = estimate, col = mixture, groups = id)) + 
+          geom_hline(yintercept = 0, lty = 3) +
+          geom_line(alpha = 0.5, lwd = 1.2) + 
+          facet_wrap(~ term) + 
+          scale_x_log10() +
+          scale_color_brewer(palette = "Accent") +
+          labs(y = "coefficient") +
+          theme(legend.position = "top")
+```
+
+* Interpretation
+	* With a pure lasso model (i.e., mixture = 1), the Austin station predictor is selected out in each resample. With a mixture of both penalties, its influence increases.
+		* Also, as the penalty increases, the uncertainty in this coefficient decreases.
+	* The Harlem predictor is either quickly selected out of the model or goes from negative to positive.
+
+
+
+Finalize
+
+* Misc
+	* Make sure to set control option, `ctrl <- control_grid(save_workflow = TRUE)`
+	* `collect_notes(tuning_results)` - If you need more information about errors or warnings that occur
+		* To turn off the interactive logging, set the `verbose` control option to `TRUE`
+* `fit_best(x, metric = NULL, parameters = NULL, verbose = FALSE, ...)` is a shortcut for:
+
+```
+
+
+  best_param <- select_best(tune_results, metric) # or other `select_*()`
+  wflow <- finalize_workflow(wflow, best_param)  # or just `finalize_model()`
+  wflow_fit <- fit(wflow, data_set)
+```
+
+* x: results of class, "tune\_results", from functions like `tune_*`
+
+* Select a simpler model or a more complex model
+
+```
+downsample_rs <- 
+  tune_rs %>% 
+  extract_workflow_set_result("downsampling_glmnet")
+
+best_penalty <- 
+  downsample_rs %>%
+  select_by_one_std_err(-penalty, metric = "mn_log_loss")
+
+final_fit <- 
+  wf_set %>% 
+  extract_workflow("downsampling_glmnet") %>%
+  finalize_workflow(best_penalty) %>%
+  last_fit(feeder_split)
+```
+
+* Selecting a simpler model can reduce chances of overfitting
+* Selects a model that has a mean log loss score that's 1 standard deviation from the top mean log loss value
+	* `select_by_pct_loss()` also available
+* The first argument is passed to dplyr::arrange
+	* So with "-penalty," penalty is a column in the results tibble that you want to sort by and the "-" says you want start at the higher penalty parameter values
+	* A higher penalty (lasso model) means a simpler model
+* "tune\_rs" is a workflow\_map object
+* The last chunk finalizes the original tuneable workflow with this value for the penalty, and then `last_fit`   fits the model one time to the (entire) training data and evaluates one time on the testing data.
+* Metrics
+
+```
+collect_metrics(final_fit)
+collect_predictions(final_fit) %>%
+  conf_mat(squirrels, .pred_class)
+```
+
+* Variable Importance
+
+```
+library(vip)
+feeder_vip <-
+  extract_fit_engine(final_fit) %>%
+  vi()
+feeder_vip
+
+feeder_vip %>%
+  group_by(Sign) %>%
+  slice_max(Importance, n = 15) %>%
+  ungroup() %>%
+  ggplot(aes(Importance, fct_reorder(Variable, Importance), fill = Sign)) + 
+  geom_col() +
+  facet_wrap(vars(Sign), scales = "free_y") +
+  labs(y = NULL) +
+  theme(legend.position = "none")
+```
+
+
+* `finalize_model, recipe, workflow`
+	* after finding the best parameter values, this updates the object
+
+```
+lin_wf_best <- lin_wf %>%
+  finalize_workflow(select_best(lin_tune))
+
+# or manually list parameter/vale pairs
+xgb_wf_best <- lin_wf %>% 
+  finalize_workflow(list(mtry = 6, trees = 1200, learn_rate = 0.01)
+```
+
+* `last_fit`: fit finalized model on entire learning dataset and collect metrics
+
+```
+xgb_wf_best %>%
+    last_fit(initial_split_obj, metrics = metric_set_obj) %>%
+    collect_metrics()
+```
+
+* Manually
+
+```
+        xgb_wf_best %>%
+            fit(train) %>%
+            augment(test, type_predict = "prob") %>%
+            mn_log_loss(churned, .pred_yes)
+```
+
+* Predict on new data
+
+```
+xgb_wf_best %>%
+    fit(new_data) %>%
+    predict(newdata, type = "prob") %>%
+    bind_cols(newdata)
+```
+
+* Predict on test set and score
+
+```
+wflw_fit %>%
+    predict(testing(splits) %>% select(outcome_var)) %>%
+    metric_set(rmse, mae, rsq)(outcome_var, .pred)
+```
+
+
+Model Specification
+
+* Format: model function, set\_engine, set\_mode ("classification" or "regression")
+
+```
+bag_spec <-
+  bag_tree(min_n = 10) %>%
+  set_engine("rpart", times = 25) %>%
+  set_mode("classification")
+```
+
+* **Logistic/Linear**
+
+```
+# lasso
+logistic_reg(penalty = tune()) %>%
+    set_engine("glmnet")
+```
+
+* function: `logistic_reg`, `linear_reg`
+	* args: penalty (λ), mixture (α) (number or `tune()`)
+		* penalty grid examples: `10^seq(-7, -1, .1), 10 ^ seq(-6, -.5, .05)`
+		* penalty default: `penalty(range = c(-10, 0), trans = log10_trans())`
+			* Silge uses `range = c(-3, 0)`
+* engines
+	* types: glm, glmnet, LiblineaR (only logistic), stan, spark, keras
+	* Liblinear
+		* built for large data
+			* faster than using glmnet even w/sparse matrix
+		* requires mixture = 0 or 1; default: 0 (ridge)
+		* also regularizes intercept which affects coef values
+	* glmnet
+		* mixture default = 1 (lasso)
+	* spark
+		* mixture default = 0 (ridge)
+	* args
+		* `path_values`: sequence of  values for penalty
+			* assigns a collection of penalty values used by each glmnet fit (regardless of the data or value of mixture)
+				* Without this arg, glmnet uses multiple penalty values which depend on the data set; changing the data (or the mixture amount) often produces a different set of values
+					* So, if you want to look at results for a specific penalty value, you need to use this arg to make sure its included.
+			* must still give penalty arg a number
+			* if using ridge, include 0 in sequence of values for penalty
+
+```
+path_values = c(0, 10^seq(-10, 1, length.out = 20))
+# example in docs
+10^seq(-3, 0, length.out = 10)
+# drob's range
+10 ^ seq(-6, -.5, .05)
+```
+
+* **Support Vector Machines (SVM)**
+
+```
+svm_linear() %>% 
+  set_engine("LiblineaR") %>% 
+  set_mode("regression")
+```
+
+* modes: regression or classification
+* engines
+	* LiblineaR
+		* built for bigdata (C++ library)
+		* No probability predictions for classification models
+			* In order to use tune\_grid, metrics must be hard classification metrics (e.g. accuracy, specificity, sensitivity, etc.)
+			* Won't be able to adjust thresholds either
+		* L2-regularized
+	* kernlab
+		* kernel = "vanilladot"
+	* args
+		* cost: default = 1
+		* margin: default = 0.1
+
+* **Boosted Trees**
+
+```
+xgb_mod <- boost_tree("regression",
+                      mtry = tune(),
+                      trees = tune(),
+                      learn_rate = 0.01,
+                      stop_iter = tune()) %>%
+        set_engine("xgboost")
+```
+
+* XGBoost
+	* drob says
+		* logging predictors has no effect on this algorithm
+	* args
+		* mtry
+		* trees
+		* learn\_rate
+		* tree\_depth
+		* stop\_iter: early stopping; stops if no improvement has been made after this many iterations
+
+* **Random Forest**
+
+```
+rand_forest(
+  mode = "regression",
+  engine = "ranger",
+  mtry = tune(),
+  trees = tune(),
+  min_n = tune()
+) %>%
+  set_engine(importance = "permutation",
+            seed = 63233,
+            quantreg = TRUE)
+```
+
+* ranger [doc](https://cran.r-project.org/web/packages/ranger/ranger.pdf)
+* args
+	* mode: "classification", "regression", "unknown"
+	* engine: ranger (default), randomForest, spark
+	* default hyperparameters: mtry, trees, min\_n
+	* importance: ’none’, ’impurity’, ’impurity\_corrected’, ’permutation’
+	* num.threads = 1 (default)
+	* quantreg = TRUE for quantile regression
+
+```
+preds <- regr_fit$fit %>% predict(airquality, type = 'quantiles')
+head(preds$predictions)
+```
+
+* Currently have to extract the ranger model in order to obtain quantile predictions
+* [issue](https://github.com/tidymodels/parsnip/issues/119) still open
+
+
+
+Recipe
+
+* Step args are tunable. Just use tune( ) for value in the arg and include it in tune\_grid
+	* e.g spline degrees in step\_ns or bs, number of bootstraps in step\_impute\_bag, or number of neighbors in step\_impute\_knn
+* `recipe(formula, data)`
+
+```
+recipe(rain_tomorrow ~ date + location + rain_today +
+                min_temp + max_temp + rainfall +
+                wind_gust_speed + wind_speed9am +
+                wind_speed3pm + humidity9am + humidity3pm + pressure9am +
+                pressure3pm + cloud9am + cloud3pm + temp9am + temp3pm +
+                wind_gust_dir + wind_dir9am + wind_dir3pm +
+                rain_today, data = train)
+```
+
+* Variable selectors
+	* based on role
+
+```
+has_role, all_outcomes, all_predictors, all_numeric_predictors(), all_nominal_predictors
+```
+
+* based on type
+
+```
+has_type, all_numeric, all_nominal
+```
+
+* Misc
+	* Also see Feature Engineering, \* notes
+	* zv, nzv
+		* Removes predictors with zero variance or near-zero variance
+
+```
+step_nsv(all_predictors(), freq_cut = 90/10)
+```
+
+* freq\_cut: ratio that determines when indicator variables with too few 1s or too few 0s are removed.
+	* default: 95/5
+* unique\_cut: percentage (not a decimal), number of unique values divided by the total number of samples
+	* default: 10
+
+* Transformations
+	* log, BoxCox, YeoJohnson, sqrt
+
+```
+step_log(rainfall, offset = 1, base = 2)
+```
+
+* If variable has zeros, _offset_ adds 1 to the value.
+* _base_ is the log base
+
+* splines (also see Ch 4 in [Statistical Rethinking](Statistical Rethinking))
+	* bs (basis splines); ns (natural splines), poly
+		* More are available, see [docs](https://recipes.tidymodels.org/dev/reference/index.html#step-functions-individual-transformations)
+	* both have deg\_free args where larger values --> more complex curves
+	* degree arg: bs-only, degree of polynomial spline (e.g. 2 quadratic, 3 cubic)
+	* original variable replaced with varname\_ns\_1
+
+* Categorical
+	* novel
+		* Should be used for all factor/character variables.
+		* Stops pipeline breakage when newdata for a factor has a new level
+	* other
+		* collapses categories that have a frequency below a specified threshold
+		* threshold: proportion of total rows that a category will be collapsed into other
+			* default = 0.05
+			* grid value examples: 0.001, 0.003, 0.01, 0.03
+	* unknown
+		* If NAs aren't random, they can be pooled into a category called "Unknown"
+* Imputation `step_impute_*`
+	* Also see [Missingness](Missingness)
+	* tldr;
+		* Try **bag** first, **knn** second
+			* Seems to me that bag would be more flexible
+		* **rolling** would be useful for time series
+	* common args
+		* `impute_with`: arg for including other predictors (besides outcome and variable to be imputed) in the imputation model.
+
+```
+step_impute_<method>(var, impute_with = imp_vars(pred1, pred2))
+```
+
+* `skip`: When set to false, this step will not be used when the recipe is baked (unless newdata=NULL)
+	* useful when down/up-sampling an outcome variable. New data should be asis in the wild. So usecases where the step is good for training but not production.
+	* default = T for step\_filter, slice, sample, naomit
+
+* bag
+	* bagged tree model
+	* categoricals and numerics can be imputed
+	* Predictors can have NAs but can't be included in the list of variables to be imputed
+		* Guess you could do separate imputation steps if you want to include them as predictors
+	* speed up by lowering bootstrap replications
+
+```
+# keepX = FALSE says don't return a df of predictions - not sure why that's included (memory optimization?)
+options = list(nbagg = 5, keepX = FALSE))
+```
+
+* knn
+	* K-Nearest Neighbors
+	* categoricals and numerics can be imputed
+		* gower distance used (only distance available)
+	* possible that missing values will still occur after imputation if a large majority (or all) of the imputing variables (predictors?) are also missing
+	* Can be computationally intensive and is NOT robust to outliers
+	* neighbors = 5 by default
+	* options: nthreads, eps (threshold for values to be set to 0, default = 1e-8)
+* linear, mean, median
+	* regression model, mean, median
+	* only numerics can be imputed
+	* if missingness is missing not at random (MNAR) then mean shouldn't be used (probably not median either)
+* mode
+	* most common value
+	* discrete variable (maybe only nominal variables)
+	* if more than one mode, one of them will be chosen at random
+* roll
+	* rolling window
+	* window: window of data that you want to use to calculate the statistic
+		* For time series, maybe look at a acf, pacf plot to get an idea for a good window size
+	* statistic: stat to calculate over the window (e.g. mean, median, etc)
+		* probably takes a custom function with a single arg (data)
+	* values in the window that would be imputed in previous steps aren't used to impute the current value.
+
+* up/down-sampling
+	* [{]{style='color: #990000'}[themis](https://themis.tidymodels.org/){style='color: #990000'}[}]{style='color: #990000'} for unbalanced outcome variables
+	* Common args
+		* `skip`: When set to false, this step will not be used when the recipe is baked (unless newdata=NULL)
+			* useful when down/up-sampling an outcome variable. New data should be asis in the wild. So usecases where the step is good for training but not production.
+			* default = T for step\_filter, slice, sample, naomit, and themis data balancing steps
+		* `over_ratio`: desired ratio of num\_rows of  the minority level(s) to num\_rows of the majority level. Default = 1 (i.e. all levels have equal number of rows)
+			* Example: Bring the minority levels up to about 200 rows each where the majority level has 16562 rows in the data. Therefore, 200/16562 is approx 0.0121. Set over\_ratio to 0.0121 and each minority level will have 200 rows in the upsampled dataset.
+		* `neighbors`:  number of clusters, default = 5
+	* Upsampling
+		* All methods handle multi-level factor variables except rose.
+		* Misc
+			* Applying SMOTE without re-calibration is bad ([paper](https://twitter.com/MaartenvSmeden/status/1495668297630633985))
+		* tldr;
+			* If time isn't an issue AND you have a binary variable, **rose** sounds like a good approach, otherwise use **bsmote** (probably should tune the all\_neighbor option)
+		* upsample
+			* repeats rows of minority level until dataset has desired ratio
+		* smote
+			* SMOTE alg performs knn, generates points between the that level's points and the centroid for each cluster
+			* Preprocessing: Every predictor in the formula must be numeric with no missing data.
+				* impute missing data and encode all categoricals before using this step
+			* Generated points can form "bridges" between that level's outlier points and the main distribution. This is like adding a feature that doesn't exist in the sample.
+		* bsmote
+			* borderline-SMOTE alg is the same as SMOTE except that it generates points in the border region between classes. Ignores outliers in the resampling process.
+			* Preprocessing: Every predictor in the formula must be numeric with no missing data.
+				* impute missing data and encode all categoricals before using this step
+			* all\_neighbors; default = FALSE
+				* FALSE then points will be generated between nearest neighbors in its own class.
+					* This can produce mini-clusters of points
+				* TRUE then points will be generated between neighbors of the upsampled class and the other classes.
+					* May blur the line between clusters (and levels? Therefore potentially making classification tasks more difficult)
+			* Only selecting from the borderline region can be an issue if there aren't that many borderline points in the original dataset.
+		* adasyn
+			* similar to SMOTE, but generates the most points from points that have the smallest representation in the data, i.e. generates a lot of outlier or extreme value points.
+				* Might produce much more stable results with tree models as compared to regression models
+			* Preprocessing: Every predictor in the formula must be numeric with no missing data.
+				* impute missing data and encode all categoricals before using this step
+		* rose
+			* Uses a "smoothed" bootstrap approach to generate new samples. (paper was incoherent as fuck)
+			* Only for binary (factor) variables
+			* Preprocessing: Every predictor in the formula must be numeric with no missing data.
+				* impute missing data and encode all categoricals before using this step
+					* no mention of missing data in the docs but probably still a good idea.
+			* minority\_prop: same function as over\_ratio. Default = 0.5
+			* minority\_smoothness and majority\_smoothness
+				* default = 1. Reducing this value will shrink the (resampling?) region in the feature space associated with that class (minority or majority).
+				* If these regions are too large, the boundary between class regions blurs. If too small, maybe you aren't getting the variance out of the resampling that you could be getting.
+	* Downsampling
+		* Misc
+			* Manually
+
+```
+minority_class <- data %>%
+  count(class) %>%
+  filter(n == min(n))
+balanced <- data %>%
+  group_split(class, .keep = TRUE) %>%
+  map_dfr(
+    ~ {
+      if (.x$class[1] == minority_class$class) {
+        .x
+      } else {
+        slice_sample(
+          .x,
+          n = minority_class$n,
+          replace = FALSE
+        )
+      }
+    }
+  )
+balanced %>%
+  count(class) %>%
+  pretty_print()
+```
+
+* tldr;
+	* none of the methods below sound too bad.
+* downsample
+	* removes majority level(s) rows randomly to match the under\_ratio (see over\_ratio defintion above)
+* nearmiss
+	* removes majority level(s) rows by undersampling points in the majority level(s) based on their distance to other points in the same level.
+	* Default: neighbors = 5
+	* Preprocessing: Every predictor in the formula must be numeric with no missing data.
+		* impute missing data and encode all categoricals before using this step
+* tomek
+	* undersamples by removing pairs of points that each other's nearest neighbor but are of different levels (tomek links)
+		* Doesn't make sense to me this way. SInce it's binary, maybe the point that's the majority class gets removed the other point in the pair (minority class) gets saved.
+	* Only for binary (factor) variables
+	* Preprocessing: Every predictor in the formula must be numeric with no missing data.
+		* impute missing data and encode all categoricals before using this step
+
+
+
+Examples
+
+* Basic workflow ([article](https://juliasilge.com/blog/uk-museums/))
+
+```
+pacman::p_load(tidymodels, embed, finetune, vip)
+
+# "Accredation" is the binary outcome
+set.seed(123)
+museum_split <- initial_split(museum_parsed, strata = Accreditation)
+museum_train <- training(museum_split)
+museum_test <- testing(museum_split)
+set.seed(234)
+museum_folds <- vfold_cv(museum_train, strata = Accreditation)
+
+# "Subject_Matter" is a high cardinality categorical predictor
+museum_rec <- 
+  recipe(Accreditation ~ ., data = museum_train) %>%
+  update_role(museum_id, new_role = "id") %>%
+  step_lencode_glm(Subject_Matter, outcome = vars(Accreditation)) %>%
+  step_dummy(all_nominal_predictors())
+
+# specify model and workflow
+xgb_spec <-
+  boost_tree(
+    trees = tune(),
+    min_n = tune(),
+    mtry = tune(),
+    learn_rate = 0.01
+  ) %>%
+  set_engine("xgboost") %>%
+  set_mode("classification")
+xgb_wf <- workflow(museum_rec, xgb_spec)
+
+# fit
+doParallel::registerDoParallel()
+set.seed(345)
+xgb_rs <- tune_race_anova(
+  xgb_wf,
+  resamples = museum_folds,
+  grid = 15,
+  control = control_race(verbose_elim = TRUE)
+)
+
+# evaluate
+collect_metrics(xgb_rs)
+# viz for race_anova grid search strategy
+plot_race(xgb_rs)
+
+
+# fit on whole training set
+xgb_last <- xgb_wf %>%
+  finalize_workflow(select_best(xgb_rs, "accuracy")) %>%
+  last_fit(museum_split)
+
+# evalute final model on test
+collect_metrics(xgb_last)
+collect_predictions(xgb_last) %>%
+    conf_mat(Accreditation, .pred_class)
+xgb_last %>%
+  extract_fit_engine() %>%
+  vip()
+```
+
+* Multi-Recipe (article)
+
+```
+
+```
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

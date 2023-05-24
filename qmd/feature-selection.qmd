@@ -1,0 +1,191 @@
+# Feature Selection
+
+TOC
+
+* Why?
+* Basic
+* Complex
+* Multidimensional Feature Selection (MFDS)
+
+
+
+Why?
+
+1. Reduces chances of overfitting
+2. Multicollinearity among predictors blows up std.errors in regression
+3. Lowers computer resources requirements and increase speed
+	
+
+
+
+Basic
+
+* Harrell: Use the full model unless p > m/15 → number\_of\_columns > number\_of\_rows / 15
+	* If p > m/15, then use penalyzed regression (see below, Shrinkage Methods)
+* VIF - eliminate low variance predictors 
+* Remove noisy features - compare correlation between a var in train set and same var in test set
+* Best subset
+	* [{lmSubsets}]{style='color: #990000'}: for linear regression; computes best set of predictors by fitting all subsets; chooses based on metric (AIC, BIC, etc.)
+	* {leaps::regsubsets} performs best subset selection for regression models using RSS. summary(obj) gives best subset of variables for different sized subsets. nvmax arg can be used set the max size of the subsets.
+	* Likelihood Ratio Test (LR Test) - For a pair of nested models, the difference in −2ln L values has a χ2 distribution, with degrees of freedom equal to the difference in number of parameters estimated in the models being compared.
+		* \-2 \* Log Likelihood is called the residual deviance of the model
+		* Example:
+			* χ2 = (-2)\*log(model1\_likelihood) - (-2)\*log(model2\_likelihood) = 4239.49 – 4234.02 = 5.47
+				* \-2\*log can probably be factored out
+			* degrees of freedom = model1\_dof - model2\_dof = 12 – 8 = 4
+			* pval > 0.05 therefore the likelihoods of these models are not signficantly different and the variable isn't worth adding.
+* Reduction methods (if multicollinearity is a problem) - PCA
+* Shrinkage methods (if multicollinearity is a problem) - lasso, ridge, elastic net, Least Angle Regression (LAR)
+
+
+
+Complex
+
+* [{]{style='color: #990000'}[projpred](https://mc-stan.org/projpred/){style='color: #990000'}[}]{style='color: #990000'} (Vehtari): projection predictive variable selection for various regression models, and also allows for valid post-selection inference
+	* Papers and other articles in bkmks >> Features >> Selection >> projpred
+	* Currently requires {rstanarm} or {brms} models
+	* Families: gaussian, binomial, poisson. Also categorical and ordinal
+	* Terms: linear main effects, interactions, multilevel, other additive terms
+	* Components
+		* Search: determines the solution path, i.e., the best submodel for each submodel size (number of predictor terms).
+		* Evaluation: determines the predictive performance of the submodels along the solution path
+	* After model selection, a matrix of _projected_ posterior draws is produced using the reference model and the selected number of features. Then, typical posterior stats for variable effects can be calculated, visualized via {posterior}, {bayesplot}, etc.
+		* projected posterior distribution - the distribution arising from the deterministic projection of the reference model’s posterior distribution onto the parameter space of the final submodel
+	* Also see Horseshoe model
+		* Regularized Horseshoe prior
+		* Gelman - [link](https://statmodeling.stat.columbia.edu/2017/07/09/updated-ponyshoe-paper-juho-piironen-aki-vehtari/)
+		* [Paper](https://arxiv.org/abs/1707.01694)
+* [{]{style='color: #990000'}[MLGL](https://www.jstatsoft.org/article/view/v106i03){style='color: #990000'}[}]{style='color: #990000'} - approach combines variables aggregation and selection in order to improve interpretability and performance
+	* Goal is to remove redundant variables from a high dim dataset.
+	* Steps
+		* First, hierarchical clustering procedure provides at each level a partition of the variables into groups.
+		* Then, the set of groups of variables from the different levels of the hierarchy is given as input to group-Lasso, with weights adapted to the structure of the hierarchy.
+			* At this step, group-Lasso outputs sets of candidate groups of variables for each value of the regularization parameter
+* [{]{style='color: #990000'}[Rdimtools](https://www.kisungyou.com/Rdimtools/reference/index.html#-feature-selection){style='color: #990000'}[}]{style='color: #990000'} - has many algorithms for feature selection
+* Ensemble Ranking: apply multiple feature selection methods then create an ensemble ranking![](./_resources/Feature_Selection.resources/image.png)
+	* [paper](https://www.sciencedirect.com/science/article/abs/pii/S1574954121000157), [article](https://towardsdatascience.com/ensemble-feature-selection-for-machine-learning-c0df77b970f9)
+		* Compared 12 individual feature selection methods and the 6 ensemble methods described above in 8 datasets for a classification task
+	* Best performance is Ensemble Reciprocal Ranking![](./_resources/Feature_Selection.resources/image.png)
+		
+		* where r(f) is the final rank of feature f
+			* j is the the index for the feature selection methods
+		
+		* Equivalent to the harmonic mean rank
+		* aka Inverse Rank Position
+		* Lower is better (I think)
+	* Best performance by single method is SHAP
+* Boruta - built around random forest algorithm, can identify variables involved in non-linear interactions, slow if dealing with thousands of variables
+* Multivariable Fractional Polynomials
+	* fits polynomial transformations of features with exponents in a range of numbers including fractions
+	* includes a pretty intensive statistical model testing procedure
+	* [{mfp}]{style='color: #990000'}, [explainer](https://towardsdatascience.com/multivariate-fractional-polynomials-why-isnt-this-used-more-1a1fa9ead12c)
+* bounceR pkg - ?
+* nimble pkg - Reversible Jump MCMC (RJMCMC) is a general framework for MCMC simulation in which the dimension of the parameter space (i.e., the number of parameters) can vary between iterations of the Markov chain. ([article](https://r-nimble.org/variable-selection-in-nimble-using-reversible-jump-mcmc))
+* Random forest with shallow trees - see overview kdnuggets 7 methods article and notebook, pg 153 for proper var importance flavor
+* 
+* Fuzzy Forests: Extending Random Forest Feature Selection for Correlated, High-Dimensional Data
+* Gain Penalyzed Forests: Uses gain penalization to regularize the random forest algorithm
+	* Think this also works for numeric target variables
+	* Notes from
+		* [Feature Selection via Gain Penalization in Random Forests](https://brunaw.com/blog/posts/2021-03-30-rf-penalization/)
+			* Includes coded example
+		* [Paper](https://arxiv.org/pdf/2006.07515.pdf)
+	* When determining the next child node to be added to a decision tree, the gain (or the error reduction) of each feature is multiplied by a penalization parameter![](./_resources/Feature_Selection.resources/Screenshot (557).png)
+		* U is the set of indices of the features previously used in the tree
+		* Xi is the candidate feature
+		* t is the candidate splitting point and λ∈(0,1\]
+		* So at each split point, variables that have NOT been chosen at prior split points receive a penalty
+	* Penalty for each variable (the λ shown in the Gain equation above)![](./_resources/Feature_Selection.resources/Screenshot (558).png)
+		* λi ∈ \[0,1)
+		* λ0 ∈ \[0,1) is interpreted as the baseline regularization
+		* γ ∈ \[0,1) is the mixture parameter
+		* g(xi) is a function of the ith feature
+			* should represent relevant information about the feature, based on some characteristic of interest (correlation to the target, for example)
+			* introduces “prior knowledge” regarding the importance of each feature into the model
+			* the data will tell us how strong our assumptions about the penalization are, since even if we try to penalize a truly important feature, its gain will be high enough to overcome the penalization and the feature will get selected by the algorithm
+			* Examples
+				* The Mutual Information between each feature and the target variable y
+					* normalized to be between 0 and 1
+				* The variable importance values obtained from a previously run standard Random Forest, which is what I call a Boosted g(xi)
+					* normalized to be between 0 and 1
+				* other options, see the paper
+	* Steps
+		* We run a bunch of penalized random forests models with different hyperparameters and record their accuracies and final set of features
+			* γ, λ0 and mtry are hyperparameters that should be tuned
+		* For each training dataset, select the top-n (e.g. n = 3) fitted models in terms of the accuracies, and run a “new” random forest for each of the feature sets used by them. This is done using all of the training sets so we can evaluate how these features perform in slightly different scenarios
+		* Finally, get the top-m set of models (here m = 30) from these new ones, check which features were the most used between them and run a final random forest model with this feature set.
+			* e.g. select only the 15 most used features from the top 30 models, but both numbers can be changed depending on the situation
+* distance correlation algorithm (also see [Regression, Regularized](Regression, Regularized) >> Misc
+	* "the distance correlation algorithm for variable selection (DC.VS) of Febrero-Bande et al. (2019). This makes use of the correlation distance (Székely et al., 2007; Szekely & Rizzo, 2017) to implement an iterative procedure (forward) deciding in each step which covariate enters the regression model."
+	* Starting from the null model, the distance correlation function, dcor.xy,  in [{]{style='color: #990000'}[fda.usc](https://www.jstatsoft.org/article/view/v051i04){style='color: #990000'}[}]{style='color: #990000'} is used to choose the next covariate
+		* guessing you want large distances between an already chosen variable and the next variable
+		* Maybe for the first explanatory variable you want a short distance between the it and the outcome variable
+		* dunno what the stopping criteria is
+	* algorithm discussed in this paper, [Variable selection in Functional Additive Regression Models](https://arxiv.org/pdf/1801.00736.pdf)
+
+
+
+Multidimensional Feature Selection (MFDS)
+
+* Compares tuples of variables using entropy/information gain (see below for details on the algorithm)
+* A filter method which means it identifies informative variables before modelling is performed.
+	* In general, filter methods are usually simplistic and therefore fast, but simplicity can sometimes lead to errors
+* As of 10-13-2019, implementation only for use with binary outcomes
+	* For multi-categorical outcomes, vignette suggests either performing the analyses with all pairs of outcome categories, then any variable deemed relevant for one analysis is considered relevant. Instead of doing all-pairs, you can dichotomize variable into pairs of category-other which would be less expensive
+	* Continuous outcomes have to be discretized 
+* the algorithm explores all k-tuples of variables,![](./_resources/Feature_Selection.resources/unknown_filename.png)
+	 , for k-dimensional analysis., where 
+	![](./_resources/Feature_Selection.resources/Image.png)
+	 is one of the explanatory variables
+	* \*\*\* max k is 5
+		* For larger values than 5, it becomes computationally expensive and detecting significant differences in conditional entropy becomes less likely.
+	* For example, 2-dimensional analysis would explore the set of all possible pairs (2-tuples) of variables.
+		* For each variable, ![](./_resources/Feature_Selection.resources/Image.png)
+			, check whether adding it to the set with another variable, 
+			![](./_resources/Feature_Selection.resources/unknown_filename.1.png)
+			, adds information to the system. If there exists such a
+			![](./_resources/Feature_Selection.resources/unknown_filename.1.png)
+			, then we declare 
+			![](./_resources/Feature_Selection.resources/Image.png)
+			as 2-weakly relevant.
+			
+* Steps
+	1. Discretize all variables
+		* Choose the number of classes, c
+			* All variables are coerced into having the same number of classes (even binary? So if you have one binary, then all variables are coerced into binaries?)
+			* Unless there's domain knowledge, multiple cs should be tried.
+		* Randomly sample (c-1) integers from a uniform distribution on the interval, (2, N) where N is the number of observations.
+			* The integers will be indexes where the variable is split into c classes
+			* At first glance it looks like the interval starts at 2 so that each class has minimum of 2 or 3 values (depending if the split happens before or after the integer), but unless there's some kind of check, two consecutive integers, like 19,20, could still be sampled and then you have a problem. With a large data set, it seems unlikely to happen, but it'd still be possible. So I don't know why it starts at 2. The vignette isn't clear about this IMO.
+		* Sort the variable
+			* I guess smallest value to largest? Probably doesn't matter as long as it's consistent for all variables)
+		* Split the sorted variable at the indexes given by the randomly sampled integers
+		* repeat for each variable
+			* outcome variable might have to be done manually by the user prior to starting analysis/
+	2. Compute conditional entropy for Y given the k-dimension variable set that includes a specific variable and the conditional entropy for the (k-1) set that excludes that specific variable.
+		* _Conditional Entropy_ for  ![](./_resources/Feature_Selection.resources/unknown_filename.2.png)
+			  is
+			* ![](./_resources/Feature_Selection.resources/unknown_filename.4.png)
+				* d is for the outcome variable category which much be binary
+				* i\_1 is the ith category of the 1st variable
+				* i\_k is the ith category of the kth variable
+				* This sequence of summations amounts to taking every permutation of outcome category and every category of every explanatory variable and summing them together.
+				* See the decision tree section in the "Algorithm descriptions" note for further discussion
+			* The conditional entropy for the (k-1) set of explanatory variable is calculated similarily
+		* If k is less than total number of variables, then this process could include many permutations
+	3. Compute the mutual information gain between these two entropies. Then out of all the mutual information values from all the different permutations of the k-tuple, choose the maximum value
+		* mutual information is the difference between two conditional entropies. Very similar to the information gain used in trees
+			* ![](./_resources/Feature_Selection.resources/unknown_filename.3.png)
+			* m is mth permutation of the k-tuple
+			* N is the number of observations. The reason for it being there is that multiplying the max-IG by N makes it a distribution parameter that can be hypothesis tested.
+	4. Hypothesis test this difference (IG\_max) to see if it's significant
+		* If the difference is significant, then that variable is "k-weakly relevant"
+		* Test statistic for a specific α-level is from an empirically calculated distribution
+		*  Adjust p-values to control FWER or FDR
+	5. If performing a more complicated model selection process, take the top n variables whose IG\_max was significant and repeat steps
+		* Guessing this is backwards elimination
+		* This is a method that's built for dealing with thousands of variables, so this taking top-n-then-repeat seems to be a way of controlling the amount of time needed to complete the analysis.
+
+
+
+
