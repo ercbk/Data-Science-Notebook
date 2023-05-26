@@ -1,239 +1,235 @@
-# Feature Engineering, General
+# Feature Engineering, General {#sec-feats-general}
 
 TOC
 
-* Misc
-* Numeric
-	* Binning
-	* Transformations
-		* Standardization
-		* Rescaling/Normalization
-		* Logging
-		* Combos
-		* Splines
-* Discrete
-* Categorical
-	* Collapse
-	* Lump
-	* Combine
-	* Encoding/Hashing
-	* Ordinal
-	* Embeddings
-	* Weight of Evidence
-	* Range to Average
-* Interactions
-* Date
-	* Duration
-* Domain Specific
-	* Rates/Ratios
-	* Pre-treatment Baseline
-
-
+-   Misc
+-   Numeric
+    -   Binning
+    -   Transformations
+        -   Standardization
+        -   Rescaling/Normalization
+        -   Logging
+        -   Combos
+        -   Splines
+-   Discrete
+-   Categorical
+    -   Collapse
+    -   Lump
+    -   Combine
+    -   Encoding/Hashing
+    -   Ordinal
+    -   Embeddings
+    -   Weight of Evidence
+    -   Range to Average
+-   Interactions
+-   Date
+    -   Duration
+-   Domain Specific
+    -   Rates/Ratios
+    -   Pre-treatment Baseline
 
 Misc
 
-* Tree-based Models
-	* From [Uber](https://eng.uber.com/tuning-model-performance/), "Tree-based models are performing piecewise linear functional approximation, which is not good at capturing complex, non-linear interaction effects."
-* With regression models, you have to be careful about encoding categoricals as ordinal (i.e. integers) which means one-hot encoding is better.
-	* For example, the raw numerical encoding (0-24) of the "hour" feature prevents the linear model from recognizing that an increase of hour in the morning from 6 to 8 should have a strong positive impact on the number of bike rentals while a increase of similar magnitude in the evening from 18 to 20 should have a strong negative impact on the predicted number of bike rentals.
-* Models with large numbers (100s) of features increases the opportunity for feature drift
-* **Zero-Inflated** Predictors/Features
-	* For ML, transformations probably not necessary
-	* For regression
-		* log(x + 0.05)
-			* larger effect on skew than sqrt
-		* arcsinh(x) (see Continuous >> Transformations >> Logging)
-			* approximates a log but handles 0s
-		* sqrt
-			maybe Yeo-Johnson (?)
-			
-	* \>60% of values = 0, consider binning or binary
-
+-   Tree-based Models
+    -   From [Uber](https://eng.uber.com/tuning-model-performance/), "Tree-based models are performing piecewise linear functional approximation, which is not good at capturing complex, non-linear interaction effects."
+-   With regression models, you have to be careful about encoding categoricals as ordinal (i.e. integers) which means one-hot encoding is better.
+    -   For example, the raw numerical encoding (0-24) of the "hour" feature prevents the linear model from recognizing that an increase of hour in the morning from 6 to 8 should have a strong positive impact on the number of bike rentals while a increase of similar magnitude in the evening from 18 to 20 should have a strong negative impact on the predicted number of bike rentals.
+-   Models with large numbers (100s) of features increases the opportunity for feature drift
+-   **Zero-Inflated** Predictors/Features
+    -   For ML, transformations probably not necessary
+    -   For regression
+        -   log(x + 0.05)
+            -   larger effect on skew than sqrt
+        -   arcsinh(x) (see Continuous \>\> Transformations \>\> Logging)
+            -   approximates a log but handles 0s
+        -   sqrt maybe Yeo-Johnson (?)
+    -   \>60% of values = 0, consider binning or binary
 
 Numeric
 
-* **Binning**
-	* Benefits
-		* Reduces Noise
-			* Continuous variables tend to store information with minute fluctuations that provide no added value for the machine learning task of interest
-		* Makes the feature more intuitive
-			* Is there an important threshold value?
-				* 1 value --> split into a binary
-				* multiple values --> multinomial
-		* Minimizes outlier influence
-	* bin and embed
-		* Steps
-			* Find bin ranges
-				* If sufficient data, calculate quantiles of the numeric vector to find the bin ranges
-				* `sklearn.preprocessing.KBinsDiscretizer` has a few different methods
-				* Use some other method to find the number/ranges of bins (see R packages)
-			* Use the indices of the bins (i.e. leftmost bin is 1, 2nd leftmost bin is 2) to discretize each value of the numeric
-				* might need to be one-hot coded
-			* create an embedding of the discretized vector and use the embedding as features.
-	* Dichotomizing is bad ([post](https://www.bmj.com/content/332/7549/1080.1), [list of papers](https://docs.google.com/document/d/14Z0twsQ82CHzZTmcYwddfeRLNPkuInF0-wOKfKHdTXM/edit))
-		* Typical arguments for splitting (even when there's no underlying reason to do so) include: simplifies the statistical analysis and leads to easy interpretation and presentation of results
-			* Example: splitting at the median—leads to a comparison of groups of individuals with high or low values of the measurement, leading in the simplest case to a t test or χ2 test and an estimate of the difference between the groups (with its confidence interval) on another variable.
-		* Using multiple categories (to create an “ordinal” variable) is generally preferable , and using four or five groups the loss of information can be quite small
-		* Issues:
-			* Information is lost, so the statistical power to detect a relation between the variable and patient outcome is reduced.
-				* Dichotomising a variable at the median reduces power by the same amount as would discarding a third of the data
-			* May increase the risk of a positive result being a false positive
-			* may seriously underestimate the extent of variation in outcome between groups, such as the risk of some event, and considerable variability may be subsumed within each group.
-			* Individuals close to but on opposite sides of the cutpoint are characterised as being very different rather than very similar.
-			* Conceals any non-linearity in the relation between the variable and outcome
-			* Using a stat like median for a cutpoint means studies will have different cutpoints, therefore results cannot easily be compared, seriously hampering meta-analysis of observational studies
-			* An “optimal” cutpoint (usually that giving the minimum P value) runs a high risk of a spuriously significant result. Effect will be overestimated and the CI too narrow
-			* Adjusting for the effect of a confounding variable, dichotomisation will run the risk that a substantial part of the confounding remains
-	* Harrell
-		* Think most of these issues are related to inference models like types of logistic regression
-		* A better approach that maximizes power and that only assumes a smooth relationship is to use a restricted cubic spline (regression spline; piecewise cubic polynomial) function for predictors that are not known to predict linearly. Use of flexible parametric approaches such as this allows standard inference techniques (_P_ -values, confidence limits) to be used (see below, Numeric >> Transformations >> Splines)
-		* Issues with binning continuous variables
-			1. If cutpoints are chosen by trial and error in a way that utilizes the response, even informally, ordinary _P_ -values will be too small and confidence intervals will not have the claimed coverage probabilities.
-				* The correct Monte-Carlo simulations must take into account both multiple tests and uncertainty in the choice of cutpoints.
-			2. Using the "minimum p-value approach" often results in multiple cutpoints so ¯\\\_(ツ)\_/¯ plus multiple testing p-value adjustments need to be used.
-				* This approach involves testing multiple cutpoints and choosing one that minimizes the p-value below a threshold.
-			3. Optimal cutpoints often change from sample to sample
-			4. The optimal cutpoint for a predictor would necessarily be a function of the continuous values of all the other predictors
-			5. You're losing variation (information) which causes a loss of power and precision
-			6. Assumes that the relationship between the predictor and the response is flat within each interval
-				* this assumption is far less reasonable than a linearity assumption in most cases
-			7. Percentiles
-				* Usually estimated from the data at hand, are estimated with sampling error, and do not relate to percentiles of the same variable in a population
-				* Value of binned variable potentially takes on a different relationship with the outcome
-					* e.g. Body Mass Index has a smooth relationship with every outcome studied, and relates to outcome according to anatomy and physiology. Binning may change that relationship to being how many subjects have a similar BMI.
-			8. Many bins usually required to make it worth it. Therefore, many dummy variables will end up being created resulting in a loss of power and precision. (i.e. more bins = more variables = more dof used)
-			9. Poor predictive performance with Cox regression models
-	* They might help with prediction using ML or DL models though
-		* "Instead of directly using marketplace health as a continuous feature, we decided to use a form of target-encoding by splitting up the metric into buckets and taking the average historical delivery duration within that bucket as the new feature. With this approach, we directly helped the model learn that very supply-constrained market conditions are correlated with very high delivery times — rather than relying on the model to learn those patterns from the relatively sparse data available."
-			* https://doordash.engineering/2021/04/28/improving-eta-prediction-accuracy-for-long-tail-events/
-			* Helps to "represent features in a way that makes it easy for the model to learn sparse patterns."
-				* This article was about modeling tail events, so maybe this is most useful for features that have an association with the tail values in the outcome variable
-		* xgboost seems to like numerics much more than dummies
-			* Trees may prefer larger cardinalities. So if you do bin, you'd probably want quite a few bins
-			* Never really seen a binned age variable do well, so guessing more than 10 at least. Though maybe Age just wasn't important enough.
-	* Examples
-		* binary
-			* whether a user spent more than $50 or didn't
-			* if user had activity on the weekend or not
-		* multinomial
-			* timestamp to morning/afternoon/ night,
-			* order values into buckets of $10–20, $20–30, $30+
-			* height, age
-* **Transformations**
-	* Also see [Regression, OLS](Regression, OLS) >> Transformations
-	* Guide for choosing a scaling method for classification modeling
-		* Notes from [The Mystery of Feature Scaling is Finally Solved](https://towardsdatascience.com/the-mystery-of-feature-scaling-is-finally-solved-29a7bb58efc2) (narrator: it wasn't)
-			* Only used a SVM model for experimentation so who knows if this carries over to other classifiers
-		* tldr
-			* Got time and compute resources? --> Ensemble different standardization methods using averaging
-			* No time and limited compute resources --> standardization
-		* Models that are distribution independent or distance sensitive (e.g. SVM, kNN, ANNs) should use standardization
-			* Models that are distribution dependent (e.g. regularized linear regression, regularized logistic regression, or linear discriminant analysis) weren't tested
-		* No evidence that data-centric rules (e.g. normal or non-normal distributed variables, outliers present)
-		* feature scaling that is aligned with the data or model can be responsible for overfitting
-		* Ensembling by averaging (instead of using a model to ensemble) different standarization methods
-			* experiment used robust scaler (see below) and z-score standardization
-				* When they added a 3rd method it created more biased results
-			* Requires predictions to be probabilities
-				* For ML models, this takes longer because an extra CV has to be run
-	* Standardization
-		* Transforms feature to have mean = 0, and standard deviation = 1
-		* Not robust to outliers
-			* Feature will be skewed
-			* See RobustScaler below
-		* Notes from
-			* [When conducting multiple regression, when should you center your predictor variables & when should you standardize them?](https://stats.stackexchange.com/questions/29781/when-conducting-multiple-regression-when-should-you-center-your-predictor-varia)
-		* Reasons to standardize
-			* Most ML/DL models require it
-				* many elements used in the objective function of a learning algorithm (such as the RBF kernel of Support Vector Machines or the l1 and l2 regularizers of linear models) assume that all features are centered around zero and have variance in the same order. If a feature has a variance that is orders of magnitude larger than others, it might dominate the objective function and make the estimator unable to learn from other features correctly as expected.
-			* Most Clustering methods require it
-			* PCA can only be interpreted as the singular value decomposition of a data matrix when the columns have centered
-			* Interpreting the intercept as the mean of the outcome when all predictors are held at their means
-			* Predictors with large values (country populations) can have really small regression coefficients. Standardization makes the coefficients have a more managable scale.
-			* Some types of models are more numerically stable with the predictors have been standardized
-			* Easier to set priors in Bayesian modeling
-			* Centering fixes collinearity issues when creating powers and interaction terms
-				* Collinearity between the created terms and the main effects
-		* Other Reasons why you might want to:
-			* Creating a composite score
-				* when you're trying to [sum or average variables that are on different scales](https://stats.stackexchange.com/questions/13267/how-to-sum-two-variables-that-are-on-different-scales/13271#13271), perhaps to create a composite score of some kind. Without scaling, it may be the case that one variable has a larger impact on the sum due purely to its scale, which may be undesirable.
-				* Other Examples:
-					* Research into children's behavioral disorders - researchers might get ratings from both parents & teachers, & then want to combine them into a single measure of maladjustment.
-					* Study on the activity level at a nursing home w/ self-ratings by residents & the number of signatures on sign-up sheets for activities
-			* To simplify calculations and notation.
-				* A sample covariance matrix of values that has been centered by their sample means is simply X′X (correlation matrix)
-				* If a univariate random variable, X, has been mean centered, then var(X)=E(X2) and the variance can be estimated from a sample by looking at the sample mean of the squares of the observed values.
-		* Reasons NOT to standardize
-			* We don't want to standardize when the value of 0 is meaningful.
-		* `scale(var or matrix)`
-			* default args: center = T, scale = T
-			* standardizes each column of a matrix separately
-			* fyi scale(var) == scale(scale(var))
-		* RobustScaler (sklearn function)
-			* standardize by median and IQR instead of mean and sd
-				* (value − median) / IQR
-			* The resulting variable has a zero mean and median and a standard deviation of 1, although not skewed by outliers and the outliers are still present with the same relative relationships to other values.
-			* `step_normalize` has means, sd args, so it might be able to do this
-		* Harrell recommends substituting the gini mean difference for the standard deviation
-			* Gini's mean difference - the mean absolute difference between any two distinct elements of a vector.![](./_resources/Feature_Engineering,_General.resources/image.1.png)
-				* `Hmisc::GiniMd(x, na.rm = F)` ([doc](https://search.r-project.org/CRAN/refmans/Hmisc/html/GiniMd.html))
-				* `sjstats::gmd(x or df, ...)` ([doc](https://strengejacke.github.io/sjstats/reference/gmd.html#:~:text=Gini's%20mean%20difference%20is%20defined,from%20x%20are%20silently%20removed.))
-					* If "df" then it will compute gmd for all vectors in the df
-					* "..." allows for use of tidy selectors
-				* manual
+-   **Binning**
+    -   Benefits
+        -   Reduces Noise
+            -   Continuous variables tend to store information with minute fluctuations that provide no added value for the machine learning task of interest
+        -   Makes the feature more intuitive
+            -   Is there an important threshold value?
+                -   1 value --\> split into a binary
+                -   multiple values --\> multinomial
+        -   Minimizes outlier influence
+    -   bin and embed
+        -   Steps
+            -   Find bin ranges
+                -   If sufficient data, calculate quantiles of the numeric vector to find the bin ranges
+                -   `sklearn.preprocessing.KBinsDiscretizer` has a few different methods
+                -   Use some other method to find the number/ranges of bins (see R packages)
+            -   Use the indices of the bins (i.e. leftmost bin is 1, 2nd leftmost bin is 2) to discretize each value of the numeric
+                -   might need to be one-hot coded
+            -   create an embedding of the discretized vector and use the embedding as features.
+    -   Dichotomizing is bad ([post](https://www.bmj.com/content/332/7549/1080.1), [list of papers](https://docs.google.com/document/d/14Z0twsQ82CHzZTmcYwddfeRLNPkuInF0-wOKfKHdTXM/edit))
+        -   Typical arguments for splitting (even when there's no underlying reason to do so) include: simplifies the statistical analysis and leads to easy interpretation and presentation of results
+            -   Example: splitting at the median---leads to a comparison of groups of individuals with high or low values of the measurement, leading in the simplest case to a t test or χ2 test and an estimate of the difference between the groups (with its confidence interval) on another variable.
+        -   Using multiple categories (to create an "ordinal" variable) is generally preferable , and using four or five groups the loss of information can be quite small
+        -   Issues:
+            -   Information is lost, so the statistical power to detect a relation between the variable and patient outcome is reduced.
+                -   Dichotomising a variable at the median reduces power by the same amount as would discarding a third of the data
+            -   May increase the risk of a positive result being a false positive
+            -   may seriously underestimate the extent of variation in outcome between groups, such as the risk of some event, and considerable variability may be subsumed within each group.
+            -   Individuals close to but on opposite sides of the cutpoint are characterised as being very different rather than very similar.
+            -   Conceals any non-linearity in the relation between the variable and outcome
+            -   Using a stat like median for a cutpoint means studies will have different cutpoints, therefore results cannot easily be compared, seriously hampering meta-analysis of observational studies
+            -   An "optimal" cutpoint (usually that giving the minimum P value) runs a high risk of a spuriously significant result. Effect will be overestimated and the CI too narrow
+            -   Adjusting for the effect of a confounding variable, dichotomisation will run the risk that a substantial part of the confounding remains
+    -   Harrell
+        -   Think most of these issues are related to inference models like types of logistic regression
+        -   A better approach that maximizes power and that only assumes a smooth relationship is to use a restricted cubic spline (regression spline; piecewise cubic polynomial) function for predictors that are not known to predict linearly. Use of flexible parametric approaches such as this allows standard inference techniques (*P* -values, confidence limits) to be used (see below, Numeric \>\> Transformations \>\> Splines)
+        -   Issues with binning continuous variables
+            1.  If cutpoints are chosen by trial and error in a way that utilizes the response, even informally, ordinary *P* -values will be too small and confidence intervals will not have the claimed coverage probabilities.
+                -   The correct Monte-Carlo simulations must take into account both multiple tests and uncertainty in the choice of cutpoints.
+            2.  Using the "minimum p-value approach" often results in multiple cutpoints so ¯\\\_(ツ)\_/¯ plus multiple testing p-value adjustments need to be used.
+                -   This approach involves testing multiple cutpoints and choosing one that minimizes the p-value below a threshold.
+            3.  Optimal cutpoints often change from sample to sample
+            4.  The optimal cutpoint for a predictor would necessarily be a function of the continuous values of all the other predictors
+            5.  You're losing variation (information) which causes a loss of power and precision
+            6.  Assumes that the relationship between the predictor and the response is flat within each interval
+                -   this assumption is far less reasonable than a linearity assumption in most cases
+            7.  Percentiles
+                -   Usually estimated from the data at hand, are estimated with sampling error, and do not relate to percentiles of the same variable in a population
+                -   Value of binned variable potentially takes on a different relationship with the outcome
+                    -   e.g. Body Mass Index has a smooth relationship with every outcome studied, and relates to outcome according to anatomy and physiology. Binning may change that relationship to being how many subjects have a similar BMI.
+            8.  Many bins usually required to make it worth it. Therefore, many dummy variables will end up being created resulting in a loss of power and precision. (i.e. more bins = more variables = more dof used)
+            9.  Poor predictive performance with Cox regression models
+    -   They might help with prediction using ML or DL models though
+        -   "Instead of directly using marketplace health as a continuous feature, we decided to use a form of target-encoding by splitting up the metric into buckets and taking the average historical delivery duration within that bucket as the new feature. With this approach, we directly helped the model learn that very supply-constrained market conditions are correlated with very high delivery times --- rather than relying on the model to learn those patterns from the relatively sparse data available."
+            -   https://doordash.engineering/2021/04/28/improving-eta-prediction-accuracy-for-long-tail-events/
+            -   Helps to "represent features in a way that makes it easy for the model to learn sparse patterns."
+                -   This article was about modeling tail events, so maybe this is most useful for features that have an association with the tail values in the outcome variable
+        -   xgboost seems to like numerics much more than dummies
+            -   Trees may prefer larger cardinalities. So if you do bin, you'd probably want quite a few bins
+            -   Never really seen a binned age variable do well, so guessing more than 10 at least. Though maybe Age just wasn't important enough.
+    -   Examples
+        -   binary
+            -   whether a user spent more than \$50 or didn't
+            -   if user had activity on the weekend or not
+        -   multinomial
+            -   timestamp to morning/afternoon/ night,
+            -   order values into buckets of \$10--20, \$20--30, \$30+
+            -   height, age
+-   **Transformations**
+    -   Also see [Regression, OLS](Regression,%20OLS) \>\> Transformations
+    -   Guide for choosing a scaling method for classification modeling
+        -   Notes from [The Mystery of Feature Scaling is Finally Solved](https://towardsdatascience.com/the-mystery-of-feature-scaling-is-finally-solved-29a7bb58efc2) (narrator: it wasn't)
+            -   Only used a SVM model for experimentation so who knows if this carries over to other classifiers
+        -   tldr
+            -   Got time and compute resources? --\> Ensemble different standardization methods using averaging
+            -   No time and limited compute resources --\> standardization
+        -   Models that are distribution independent or distance sensitive (e.g. SVM, kNN, ANNs) should use standardization
+            -   Models that are distribution dependent (e.g. regularized linear regression, regularized logistic regression, or linear discriminant analysis) weren't tested
+        -   No evidence that data-centric rules (e.g. normal or non-normal distributed variables, outliers present)
+        -   feature scaling that is aligned with the data or model can be responsible for overfitting
+        -   Ensembling by averaging (instead of using a model to ensemble) different standarization methods
+            -   experiment used robust scaler (see below) and z-score standardization
+                -   When they added a 3rd method it created more biased results
+            -   Requires predictions to be probabilities
+                -   For ML models, this takes longer because an extra CV has to be run
+    -   Standardization
+        -   Transforms feature to have mean = 0, and standard deviation = 1
+        -   Not robust to outliers
+            -   Feature will be skewed
+            -   See RobustScaler below
+        -   Notes from
+            -   [When conducting multiple regression, when should you center your predictor variables & when should you standardize them?](https://stats.stackexchange.com/questions/29781/when-conducting-multiple-regression-when-should-you-center-your-predictor-varia)
+        -   Reasons to standardize
+            -   Most ML/DL models require it
+                -   many elements used in the objective function of a learning algorithm (such as the RBF kernel of Support Vector Machines or the l1 and l2 regularizers of linear models) assume that all features are centered around zero and have variance in the same order. If a feature has a variance that is orders of magnitude larger than others, it might dominate the objective function and make the estimator unable to learn from other features correctly as expected.
+            -   Most Clustering methods require it
+            -   PCA can only be interpreted as the singular value decomposition of a data matrix when the columns have centered
+            -   Interpreting the intercept as the mean of the outcome when all predictors are held at their means
+            -   Predictors with large values (country populations) can have really small regression coefficients. Standardization makes the coefficients have a more managable scale.
+            -   Some types of models are more numerically stable with the predictors have been standardized
+            -   Easier to set priors in Bayesian modeling
+            -   Centering fixes collinearity issues when creating powers and interaction terms
+                -   Collinearity between the created terms and the main effects
+        -   Other Reasons why you might want to:
+            -   Creating a composite score
+                -   when you're trying to [sum or average variables that are on different scales](https://stats.stackexchange.com/questions/13267/how-to-sum-two-variables-that-are-on-different-scales/13271#13271), perhaps to create a composite score of some kind. Without scaling, it may be the case that one variable has a larger impact on the sum due purely to its scale, which may be undesirable.
+                -   Other Examples:
+                    -   Research into children's behavioral disorders - researchers might get ratings from both parents & teachers, & then want to combine them into a single measure of maladjustment.
+                    -   Study on the activity level at a nursing home w/ self-ratings by residents & the number of signatures on sign-up sheets for activities
+            -   To simplify calculations and notation.
+                -   A sample covariance matrix of values that has been centered by their sample means is simply X′X (correlation matrix)
+                -   If a univariate random variable, X, has been mean centered, then var(X)=E(X2) and the variance can be estimated from a sample by looking at the sample mean of the squares of the observed values.
+        -   Reasons NOT to standardize
+            -   We don't want to standardize when the value of 0 is meaningful.
+        -   `scale(var or matrix)`
+            -   default args: center = T, scale = T
+            -   standardizes each column of a matrix separately
+            -   fyi scale(var) == scale(scale(var))
+        -   RobustScaler (sklearn function)
+            -   standardize by median and IQR instead of mean and sd
+                -   (value − median) / IQR
+            -   The resulting variable has a zero mean and median and a standard deviation of 1, although not skewed by outliers and the outliers are still present with the same relative relationships to other values.
+            -   `step_normalize` has means, sd args, so it might be able to do this
+        -   Harrell recommends substituting the gini mean difference for the standard deviation
+            -   Gini's mean difference - the mean absolute difference between any two distinct elements of a vector.![](./_resources/Feature_Engineering,_General.resources/image.1.png)
+                -   `Hmisc::GiniMd(x, na.rm = F)` ([doc](https://search.r-project.org/CRAN/refmans/Hmisc/html/GiniMd.html))
+                -   `sjstats::gmd(x or df, ...)` ([doc](https://strengejacke.github.io/sjstats/reference/gmd.html#:~:text=Gini's%20mean%20difference%20is%20defined,from%20x%20are%20silently%20removed.))
+                    -   If "df" then it will compute gmd for all vectors in the df
+                    -   "..." allows for use of tidy selectors
+                -   manual
 
-```
+```         
 gmd <- function(x) {
   n <- length(x)
   sum(outer(x, x, function(a, b) abs(a - b))) / n / (n - 1)
   }
 ```
 
-* Rescaling/Normalization
-	* If the values of the feature get rescaled between 0 and 1, i.e. \[0,1\], then it's called _normalization_
-	* Except in min/max, all values of the scaling variable should be > 0 since you can't divide by 0
-	* min/max
-		* Range: \[0, 1\]![](./_resources/Feature_Engineering,_General.resources/1-OKpwzVyWmpxyrwYzDvT_LQ.gif]]
-			* \*\* Make sure the min max value are NOT outliers. If they are outliers, then the range of your data will be more constricted that it needs to be \*\*
-				* e.g. if values are in between 100 and 500 with an exceptional value of 25000, then 25000 is scaled as 1 and all the other values become very close to the lower bound of zero
-			* Scenario: Age is the predictor and Happiness is the outcome. Imagine a very strong relationship between age and happiness, such that happiness is at its maximum at age 18 and its minimum at age 65. It’ll be easier if we rescale age so that the range from 18 to 65 is one unit. Now this new variable A ranges from 0 to 1, where 0 is age 18 and 1 is age 65. (from Statistical Rethinking section 6.3.1 pg 182)
+-   Rescaling/Normalization
+    -   If the values of the feature get rescaled between 0 and 1, i.e. \[0,1\], then it's called *normalization*
+    -   Except in min/max, all values of the scaling variable should be \> 0 since you can't divide by 0
+    -   min/max
+        -   Range: \[0, 1\]\[\](./\_resources/Feature_Engineering,\_General.resources/1-OKpwzVyWmpxyrwYzDvT_LQ.gif\]\]
+            -   \*\* Make sure the min max value are NOT outliers. If they are outliers, then the range of your data will be more constricted that it needs to be \*\*
+                -   e.g. if values are in between 100 and 500 with an exceptional value of 25000, then 25000 is scaled as 1 and all the other values become very close to the lower bound of zero
+            -   Scenario: Age is the predictor and Happiness is the outcome. Imagine a very strong relationship between age and happiness, such that happiness is at its maximum at age 18 and its minimum at age 65. It'll be easier if we rescale age so that the range from 18 to 65 is one unit. Now this new variable A ranges from 0 to 1, where 0 is age 18 and 1 is age 65. (from Statistical Rethinking section 6.3.1 pg 182)
 
-```
+```         
                         d2 <- d[ d$age>17 , ] # only adults
                         d2$A <- ( d2$age - 18 ) / ( 65 - 18 )
 ```
 
-* Range: \[a, b\]![](./_resources/Feature_Engineering,_General.resources/image.png)
-* Also see notebook for code to transform more than 1 variable at a time.
+-   Range: \[a, b\]![](./_resources/Feature_Engineering,_General.resources/image.png)
 
-* By max
+-   Also see notebook for code to transform more than 1 variable at a time.
 
-```
+-   By max
+
+```         
                     scaled_var = var/max(var)
 ```
 
-* (example from Statistical Rethinking, pg 246) "... zero ruggedness is meaningful. So instead terrain ruggedness is divided by the maximum value observed. This means it ends up scaled from totally flat (zero) to the maximum in the sample at 1 (Lesotho, a very rugged and beautiful place)."
-* (example from Statistical Rethinking, pg 258) "I’ve scaled blooms by its maximum observed value, for three reasons. First, the large values on the raw scale will make optimization difficult. Second, it will be easier to assign a reasonable prior this way. Third, we don’t want to standardize blooms, because zero is a meaningful boundary we want to preserve."
-	* blooms is bloom size. So there can't be a negative but zero makes sense.
-	* blooms is 2 magnitudes larger than both its predictors.
+-   (example from Statistical Rethinking, pg 246) "... zero ruggedness is meaningful. So instead terrain ruggedness is divided by the maximum value observed. This means it ends up scaled from totally flat (zero) to the maximum in the sample at 1 (Lesotho, a very rugged and beautiful place)."
+-   (example from Statistical Rethinking, pg 258) "I've scaled blooms by its maximum observed value, for three reasons. First, the large values on the raw scale will make optimization difficult. Second, it will be easier to assign a reasonable prior this way. Third, we don't want to standardize blooms, because zero is a meaningful boundary we want to preserve."
+    -   blooms is bloom size. So there can't be a negative but zero makes sense.
+    -   blooms is 2 magnitudes larger than both its predictors.
+-   By mean
 
-* By mean
-
-```
+```         
                     scaled_var = var/mean(var)
 ```
 
-* (example from Statistical Rethinking, pg 246) "log GDP is divided by the average value. So it is rescaled as a proportion of the international average. 1 means average, 0.8 means 80% of the average, and 1.1 means 10% more than average."
+-   (example from Statistical Rethinking, pg 246) "log GDP is divided by the average value. So it is rescaled as a proportion of the international average. 1 means average, 0.8 means 80% of the average, and 1.1 means 10% more than average."
 
-* Logging
-	* Useful for skewed variables
-	* If you have zeros, then its common to add 1 to the predictor values
-		* To backtransform: `exp(logged_predictor) - 1`
-		* arcsinh(x): approximates a log (at large values of x) but handles 0s: `log(sqrt(1+x^2) + x)`
-		* \* Reminder: Don't use these for outcome variables (See [Regression, Other](Regression, Other) >> Zero-Inflated/Truncated >> Continuous, [Thread](https://twitter.com/jiafengkevinc/status/1602403378809647104))
-	* Remember to  back-transform predictions if you transformed the target variable
+-   Logging
 
-```
+    -   Useful for skewed variables
+    -   If you have zeros, then its common to add 1 to the predictor values
+        -   To backtransform: `exp(logged_predictor) - 1`
+        -   arcsinh(x): approximates a log (at large values of x) but handles 0s: `log(sqrt(1+x^2) + x)`
+        -   \* Reminder: Don't use these for outcome variables (See [Regression, Other](Regression,%20Other) \>\> Zero-Inflated/Truncated \>\> Continuous, [Thread](https://twitter.com/jiafengkevinc/status/1602403378809647104))
+    -   Remember to  back-transform predictions if you transformed the target variable
+
+```         
 # log 10 transformed target variable
 preds_intervals <- predict(
   workflows::pull_workflow_fit(lm_wf),
@@ -244,163 +240,162 @@ preds_intervals <- predict(
   mutate(across(contains(".pred"), ~10^.x))
 ```
 
-* Combos
-	* Log + scale by mean
-		* Example: SR Ch8 pg 246
-			* "Raw magnitudes of GDP aren’t meaningful to humans. Since wealth generates wealth, it tends to be exponentially related to anything that increases it (earlier in chapter). This is like saying that the absolute distances in wealth grow increasingly large, as nations become wealthier. So when we work with logarithms instead, we can work on a more evenly spaced scale of magnitudes"
-			* "log GDP is divided by the average value. So it is rescaled as a proportion of the international average. 1 means average, 0.8 means 80% of the average, and 1.1 means 10% more than average."
-* Splines
-	* Knots are placed at several places within the data range with (usually) low-order polynomials are chosen to fit the data between two consecutive knots.
-		* Choices
-			* Number of knots
-			* Their positions
-			* Degree of polynomial to be used between the knots (a straight line is a polynomial of degree 1)
-		* The type of polynomial and the number and placement of knots is what defines the type of spline.
-			* e.g. cubic splines are created by using a cubic polynomial in an interval between two successive knots.
-		* Increasing the number of knots may overfit the data and increase the variance, whilst decreasing the number of knots may result in a rigid and restrictive function that has more bias.
-	* Misc
-		* Also see
-			* [Feature Engineering, Time Series](Feature Engineering, Time Series) >> Engineering >> Calendar features
-			* [Statistical Rethinking](Statistical Rethinking) >> (end of ) Ch 4
-			* [Generalized Additive Models (GAM)](Generalized Additive Models (GAM)) >> Splines, Interactions
-				* This section is a reduced version of the section in the GAM note.
-			* [Feature Engineering, Geospatial](Feature Engineering, Geospatial) >> Features >> Cyclic Smoothing Spline
-			* Harrell's [RMS](http://hbiostat.org/rmsc/genreg.html#splines-for-estimating-shape-of-regression-function-and-determining-predictor-transformations)
-			* [Model Building, tidymodels](Model Building, tidymodels) >> Recipe >> Transformations >> Splines
-			* [Review of Spline Function Procedures in R](https://bmcmedresmethodol.biomedcentral.com/articles/10.1186/s12874-019-0666-3)
-	* Package Comparison
-		* Default types: [{mgcv}]{style='color: #990000'} uses thin plate splines (see smoothing splines) as a default for it's `s()` which makes it's spline more flexible (i.e. curvy) than the default splines for {gam}, {VGAM}, and [{gamlss}]{style='color: #990000'} which use cubic smoothing splines.
-			* [{gamlss}]{style='color: #990000'} doesn't use `s` but instead has specific functions for specific types of splines
-		* P-Splines: [{mgcv}]{style='color: #990000'} and [{gamlss}]{style='color: #990000'} are very similar, and the differences can be attributed to the different way that two packages optimize the penalty weight, λ.
-			* [{mgcv}]{style='color: #990000'}: option, "ps" within `s` will create a cubic p-spline basis on a default of 10 knots, with a third order difference penalty.
-				* The penalty weight, λ, is optimized with generalized cross validation.
-			* [{gamlss}]{style='color: #990000'}: `pb` defines cubic p-splines functions with 20 interior knots and a second order difference penalty.
-				* The smoothing parameter is estimated using local maximum likelihood method, but there are also other options based on likelihood methods, AIC, generalized cross validation and more.
-				* Multiple other functions available for p-splines with various attributes.
-		* Dependencies: [{mgcv}]{style='color: #990000'} creates its own spline functions while {gam}, {VGAM}, and [{gamlss}]{style='color: #990000'} use the base R package, {splines}.
-			* {gam} and {VGAM} call the base R function `smooth.spline` (smoothing spline) with four degrees of freedom as default and give identical results
-	* Common variables: trend, calendar features, age, cardinal directions (N, S, E, W, etc.)
-	* Tuning Parameters
-		* Type of basis function (e.g. B-Spline)
-		* d: the degree of the underlying polynomials in the basis
-			* Typically d = 3 (cubic) is used (>3 usuallly indistinguishable)
-		* K: Number of knots for Regression Splines
-			* Usually k = 3, 4, 5. Often k = 4
-				* Harrell (likes natural splines): "For many datasets, k = 4 offers an adequate fit of the model and is a good compromise between flexibility and loss of precision caused by overfitting"
-					* If the sample size is small, three knots should be used in order to have enough observations in between the knots to be able to fit each polynomial.
-					* If the sample size is large and if there is reason to believe that the relationship being studied changes quickly, more than five knots can be used.
-			* Flexibility of fit vs. n and variance
-				* Large n (e.g. n ≥ 100): k = 5
-				* Small n (e.g. n < 30): k = 3
-			* Can use Akaike’s information criterion (AIC) to choose k
-				* This chooses k to maximize model likelihood ratio of χ2 − 2k.
-			* Also an option for knot positions
-				* Locations not important in most situations
-				* Place knots where data exist e.g. fixed quantiles of predictor’s marginal distribution (see B-Splines for examples)
-					* From Harrell's RMS![](./_resources/Feature_Engineering,_General.resources/Screenshot (1370).png)
-		* λ: penalty weight for Smoothing Splines
-			* Calculated by generalized cross-validation in [{mgcv}]{style='color: #990000'} which is an approximation of LOO-CV
-				* see [article](https://towardsdatascience.com/what-form-of-cross-validation-should-you-use-76aaecc45c75) or Wood's GAM book or Elements of Statistical Learning (~pg 244) for details
-	* Regression Splines
-		* No penalty function added
-			* splined variable is just added to the regression model like any other predictor
-		* B-splines
-			* Issue: can be erratic at the boundaries of the data (boundary knots) if there isn't much data at the endpoints
-			* Degrees of freedom (dof) = d + K
-			* `bs(x)` will create a cubic B-spline basis with two boundary knots and one interior knot placed at the median of the observed data values
-				* Bounded by the range of the data
-				* `lm(y ~ bs(x))`
-			* Example: `bs(x, degree=2, knots=c(0,.5,1))`
-				* degree specifies d
-				* knots specifies the number of knots and their locations
-			* Example: `bs(x, knots = median(x))`
-				* 1 interior knot created at the median
-				* 4 dof since d + K \= 3 + 1
-					* d = 3 (default)
-			* Example: `bs(x, knots = c(min(x), median(x), max(x)))`
-				* 1 interior knot specified at the median and 2 boundary knots at the min and max.
-				* 6 dof since d + K = 3 + 3
-					* d = 3 (default)
-		* Natural cubic and cardinal splines (aka Restricted Cubic Splines)
-			* Stable at boundaries of data because of additional constraints that they are linear in the tails of the boundary knots
-			* Degrees of freedom (dof) = K - 1
-			* `ns(x)` returns a straight line within the boundary knots
-				* `lm(y ~ ns(x))`
-			* Example: `ns(x,df=3)`
-				* "df" specifies degrees of freedom
-				* "knots": alternatively to specifying df, you can specify the knots (# and positions) like in `bs`
-			* Example: [{mgcv}]{style='color: #990000'}: `s(time, bs = "cr")`
-				* Penalized by the conventional intergrated square second derivative cubic spline penalty
-				* `bs="cs"` specifies a shrinkage version of "cr"
-			* Cardinal splines
-				* Have an additional constraint that leads to the interpretation that each coefficient βk is equal to the value of the spline function at the knot τk
-	* Smoothing splines (aka penalyzed splines)
-		* Automatically handles the number of knots and knot positions by using a large number of knots and letting _λ_ control the amount of smoothness
-			* Different packages usually produce similar results. Penalties are very powerful in controlling the fit, given that enough knots are supplied into the function
-		* Requires modification of the fitting routine in order to accommodate it
-			* Probably need a GAM package to use.
-		* A special case of the more general class of thin plate splines
-		* λ is a tuning parameter that's ≥0
-		* B-Spline basis is typically used
-		* Penalized Regression Splines
-			* Approximation of a smoothing spline
-			* Best used when n is large and the variable range is covered densely by the observed data
-			* P-Spline
-				* Packages: [{mgcv}]{style='color: #990000'}, [{gamlss}]{style='color: #990000'} (see above, Misc >> Package Comparison)
-
-
+-   Combos
+    -   Log + scale by mean
+        -   Example: SR Ch8 pg 246
+            -   "Raw magnitudes of GDP aren't meaningful to humans. Since wealth generates wealth, it tends to be exponentially related to anything that increases it (earlier in chapter). This is like saying that the absolute distances in wealth grow increasingly large, as nations become wealthier. So when we work with logarithms instead, we can work on a more evenly spaced scale of magnitudes"
+            -   "log GDP is divided by the average value. So it is rescaled as a proportion of the international average. 1 means average, 0.8 means 80% of the average, and 1.1 means 10% more than average."
+-   Splines
+    -   Knots are placed at several places within the data range with (usually) low-order polynomials are chosen to fit the data between two consecutive knots.
+        -   Choices
+            -   Number of knots
+            -   Their positions
+            -   Degree of polynomial to be used between the knots (a straight line is a polynomial of degree 1)
+        -   The type of polynomial and the number and placement of knots is what defines the type of spline.
+            -   e.g. cubic splines are created by using a cubic polynomial in an interval between two successive knots.
+        -   Increasing the number of knots may overfit the data and increase the variance, whilst decreasing the number of knots may result in a rigid and restrictive function that has more bias.
+    -   Misc
+        -   Also see
+            -   [Feature Engineering, Time Series](Feature%20Engineering,%20Time%20Series) \>\> Engineering \>\> Calendar features
+            -   [Statistical Rethinking](Statistical%20Rethinking) \>\> (end of ) Ch 4
+            -   [Generalized Additive Models (GAM)](Generalized%20Additive%20Models%20(GAM)) \>\> Splines, Interactions
+                -   This section is a reduced version of the section in the GAM note.
+            -   [Feature Engineering, Geospatial](Feature%20Engineering,%20Geospatial) \>\> Features \>\> Cyclic Smoothing Spline
+            -   Harrell's [RMS](http://hbiostat.org/rmsc/genreg.html#splines-for-estimating-shape-of-regression-function-and-determining-predictor-transformations)
+            -   [Model Building, tidymodels](Model%20Building,%20tidymodels) \>\> Recipe \>\> Transformations \>\> Splines
+            -   [Review of Spline Function Procedures in R](https://bmcmedresmethodol.biomedcentral.com/articles/10.1186/s12874-019-0666-3)
+    -   Package Comparison
+        -   Default types: [{mgcv}]{style="color: #990000"} uses thin plate splines (see smoothing splines) as a default for it's `s()` which makes it's spline more flexible (i.e. curvy) than the default splines for {gam}, {VGAM}, and [{gamlss}]{style="color: #990000"} which use cubic smoothing splines.
+            -   [{gamlss}]{style="color: #990000"} doesn't use `s` but instead has specific functions for specific types of splines
+        -   P-Splines: [{mgcv}]{style="color: #990000"} and [{gamlss}]{style="color: #990000"} are very similar, and the differences can be attributed to the different way that two packages optimize the penalty weight, λ.
+            -   [{mgcv}]{style="color: #990000"}: option, "ps" within `s` will create a cubic p-spline basis on a default of 10 knots, with a third order difference penalty.
+                -   The penalty weight, λ, is optimized with generalized cross validation.
+            -   [{gamlss}]{style="color: #990000"}: `pb` defines cubic p-splines functions with 20 interior knots and a second order difference penalty.
+                -   The smoothing parameter is estimated using local maximum likelihood method, but there are also other options based on likelihood methods, AIC, generalized cross validation and more.
+                -   Multiple other functions available for p-splines with various attributes.
+        -   Dependencies: [{mgcv}]{style="color: #990000"} creates its own spline functions while {gam}, {VGAM}, and [{gamlss}]{style="color: #990000"} use the base R package, {splines}.
+            -   {gam} and {VGAM} call the base R function `smooth.spline` (smoothing spline) with four degrees of freedom as default and give identical results
+    -   Common variables: trend, calendar features, age, cardinal directions (N, S, E, W, etc.)
+    -   Tuning Parameters
+        -   Type of basis function (e.g. B-Spline)
+        -   d: the degree of the underlying polynomials in the basis
+            -   Typically d = 3 (cubic) is used (\>3 usuallly indistinguishable)
+        -   K: Number of knots for Regression Splines
+            -   Usually k = 3, 4, 5. Often k = 4
+                -   Harrell (likes natural splines): "For many datasets, k = 4 offers an adequate fit of the model and is a good compromise between flexibility and loss of precision caused by overfitting"
+                    -   If the sample size is small, three knots should be used in order to have enough observations in between the knots to be able to fit each polynomial.
+                    -   If the sample size is large and if there is reason to believe that the relationship being studied changes quickly, more than five knots can be used.
+            -   Flexibility of fit vs. n and variance
+                -   Large n (e.g. n ≥ 100): k = 5
+                -   Small n (e.g. n \< 30): k = 3
+            -   Can use Akaike's information criterion (AIC) to choose k
+                -   This chooses k to maximize model likelihood ratio of χ2 − 2k.
+            -   Also an option for knot positions
+                -   Locations not important in most situations
+                -   Place knots where data exist e.g. fixed quantiles of predictor's marginal distribution (see B-Splines for examples)
+                    -   From Harrell's RMS![](./_resources/Feature_Engineering,_General.resources/Screenshot%20(1370).png)
+        -   λ: penalty weight for Smoothing Splines
+            -   Calculated by generalized cross-validation in [{mgcv}]{style="color: #990000"} which is an approximation of LOO-CV
+                -   see [article](https://towardsdatascience.com/what-form-of-cross-validation-should-you-use-76aaecc45c75) or Wood's GAM book or Elements of Statistical Learning (\~pg 244) for details
+    -   Regression Splines
+        -   No penalty function added
+            -   splined variable is just added to the regression model like any other predictor
+        -   B-splines
+            -   Issue: can be erratic at the boundaries of the data (boundary knots) if there isn't much data at the endpoints
+            -   Degrees of freedom (dof) = d + K
+            -   `bs(x)` will create a cubic B-spline basis with two boundary knots and one interior knot placed at the median of the observed data values
+                -   Bounded by the range of the data
+                -   `lm(y ~ bs(x))`
+            -   Example: `bs(x, degree=2, knots=c(0,.5,1))`
+                -   degree specifies d
+                -   knots specifies the number of knots and their locations
+            -   Example: `bs(x, knots = median(x))`
+                -   1 interior knot created at the median
+                -   4 dof since d + K = 3 + 1
+                    -   d = 3 (default)
+            -   Example: `bs(x, knots = c(min(x), median(x), max(x)))`
+                -   1 interior knot specified at the median and 2 boundary knots at the min and max.
+                -   6 dof since d + K = 3 + 3
+                    -   d = 3 (default)
+        -   Natural cubic and cardinal splines (aka Restricted Cubic Splines)
+            -   Stable at boundaries of data because of additional constraints that they are linear in the tails of the boundary knots
+            -   Degrees of freedom (dof) = K - 1
+            -   `ns(x)` returns a straight line within the boundary knots
+                -   `lm(y ~ ns(x))`
+            -   Example: `ns(x,df=3)`
+                -   "df" specifies degrees of freedom
+                -   "knots": alternatively to specifying df, you can specify the knots (# and positions) like in `bs`
+            -   Example: [{mgcv}]{style="color: #990000"}: `s(time, bs = "cr")`
+                -   Penalized by the conventional intergrated square second derivative cubic spline penalty
+                -   `bs="cs"` specifies a shrinkage version of "cr"
+            -   Cardinal splines
+                -   Have an additional constraint that leads to the interpretation that each coefficient βk is equal to the value of the spline function at the knot τk
+    -   Smoothing splines (aka penalyzed splines)
+        -   Automatically handles the number of knots and knot positions by using a large number of knots and letting *λ* control the amount of smoothness
+            -   Different packages usually produce similar results. Penalties are very powerful in controlling the fit, given that enough knots are supplied into the function
+        -   Requires modification of the fitting routine in order to accommodate it
+            -   Probably need a GAM package to use.
+        -   A special case of the more general class of thin plate splines
+        -   λ is a tuning parameter that's ≥0
+        -   B-Spline basis is typically used
+        -   Penalized Regression Splines
+            -   Approximation of a smoothing spline
+            -   Best used when n is large and the variable range is covered densely by the observed data
+            -   P-Spline
+                -   Packages: [{mgcv}]{style="color: #990000"}, [{gamlss}]{style="color: #990000"} (see above, Misc \>\> Package Comparison)
 
 Discrete
 
-* Quantitative variables that are countable with no in-between the values. (e.g. integer value variables)
-	* e.g. Age, Height (depending on your scale), Year of Birth, Counts of things
-		* Many variables can be either discrete or continuous depending on whether they are "exact" or have been rounded (i.e. their scale).
-	* Time since event, distance from location
-	* A zip code would not be a discrete variable since it is not quantitative (i.e. don't represent amounts of anything). The values just represent geographical locations and could just as easily be names instead of numbers. There is no inherent meaning to arithmetic operations performed on them (e.g. zip\_code1 - 5 has no obvious meaning)
-* Binning (see Numerics >> Binning)
-* From Range to Average (see Categoricals >> Range to Average)
-* Rates/Ratios (see Domain Specific)
+-   Quantitative variables that are countable with no in-between the values. (e.g. integer value variables)
+    -   e.g. Age, Height (depending on your scale), Year of Birth, Counts of things
+        -   Many variables can be either discrete or continuous depending on whether they are "exact" or have been rounded (i.e. their scale).
+    -   Time since event, distance from location
+    -   A zip code would not be a discrete variable since it is not quantitative (i.e. don't represent amounts of anything). The values just represent geographical locations and could just as easily be names instead of numbers. There is no inherent meaning to arithmetic operations performed on them (e.g. zip_code1 - 5 has no obvious meaning)
+-   Binning (see Numerics \>\> Binning)
+-   From Range to Average (see Categoricals \>\> Range to Average)
+-   Rates/Ratios (see Domain Specific)
 
+## Categoricals {#sec-feats-general-cats}
 
+-   **DON'T ONE-HOT ENCODE. IT'S AWFUL.**
+    -   With high cardinality, the feature space explodes --\>
+        -   less power
+        -   Likely to encounter memory problems
+            -   Using a sparse matrix is memory efficient which might make the one-hot encode feasible
+        -   sparse data sets don't work well with highly efficient tree-based algorithms like Random Forest or Gradient Boosting.
+    -   Model can't determine similarity between categories (embedding does)
+    -   Every kind of encoding and embedding outperforms it by a lot, especially in tree models
+-   **Collapse** categories with similar characteristics to reduce dimensionality
+    -   states to regions (midwest, northwest, etc.)
+-   **Lump**
+    -   cat vars with levels with too few counts --\> lump together into an "Other" category
 
-Categoricals
-
-* **DON'T ONE-HOT ENCODE. IT'S AWFUL.**
-	* With high cardinality, the feature space explodes -->
-		* less power
-		* Likely to encounter memory problems
-			* Using a sparse matrix is memory efficient which might make the one-hot encode feasible
-		* sparse data sets don’t work well with highly efficient tree-based algorithms like Random Forest or Gradient Boosting.
-	* Model can't determine similarity between categories (embedding does)
-	* Every kind of encoding and embedding outperforms it by a lot, especially in tree models
-* **Collapse** categories with similar characteristics to reduce dimensionality
-	* states to regions (midwest, northwest, etc.)
-* **Lump**
-	* cat vars with levels with too few counts --> lump together into an "Other" category
-
-```
+```         
             step_other(cat_var, threshold = 0.01) # see
 ```
 
-* For details see [Model Building, tidymodels](Model Building, tidymodels) >> Recipe
+-   For details see [Model Building, tidymodels](Model%20Building,%20tidymodels) \>\> Recipe
 
-* levels with too few data will have large uncertainties about the effect and the bloated std.devs can cause some models to throw errors
+-   levels with too few data will have large uncertainties about the effect and the bloated std.devs can cause some models to throw errors
 
-* **Combine**
-	* The feature reduction can help when data size is a concern
-		* Think this is equivalent to a cat-cat interaction.  ML models usually algorithmically create interactions but I guess this way you get the interaction but with fewer features.
-		* Also might be useful to use the same considerations that you use to choose interactions to choose which cat variables to combine.
-	* Steps
-		1. Combine var1 and var2 (e.g. "dog", "minnesota") to create a new feature called var3 ("dog\_minnesota").
-		2. Remove individual features (var1 and var2) from the dataset.
-		3. encode (one-hot, dummy, etc.) var 3
-* **Encode/Hashing**
-	* cat vars with high numbers of levels need encoded
-	* can't dummy var because it creates too many additional variables --> reduces power
-	* numeric `as.numeric(as.factor(char_var))`
-	* Target encoding
+-   **Combine**
 
-```
+    -   The feature reduction can help when data size is a concern
+        -   Think this is equivalent to a cat-cat interaction.  ML models usually algorithmically create interactions but I guess this way you get the interaction but with fewer features.
+        -   Also might be useful to use the same considerations that you use to choose interactions to choose which cat variables to combine.
+    -   Steps
+        1.  Combine var1 and var2 (e.g. "dog", "minnesota") to create a new feature called var3 ("dog_minnesota").
+        2.  Remove individual features (var1 and var2) from the dataset.
+        3.  encode (one-hot, dummy, etc.) var 3
+
+-   **Encode/Hashing**
+
+    -   cat vars with high numbers of levels need encoded
+    -   can't dummy var because it creates too many additional variables --\> reduces power
+    -   numeric `as.numeric(as.factor(char_var))`
+    -   Target encoding
+
+```         
 pip install category_encoders
 import category_encoders as ce
 target_encoder = ce.TargetEncoder(cols=['cat_col_1', 'cat_col_2'])
@@ -408,9 +403,9 @@ target_encoder.fit(X, y)
 X_transformed = target_encoder.transform(X_pre_encoded)
 ```
 
-* Catboost Encoder
+-   Catboost Encoder
 
-```
+```         
 pip install category_encoders
 import category_encoders as ce
 target_encoder = ce.CatBoostEncoder(cols=['cat_col_1', 'cat_col_2'])
@@ -418,84 +413,83 @@ target_encoder.fit(X, y)
 X_transformed = target_encoder.transform(X_pre_encoded)
 ```
 
-* binary encoding
-	* benchmarks for decision trees:
-		* numeric best (< 1000 categories)
-		* binary best (> 1000 categories)
-	* store N cardinalities using ceil(log(N+1)/log(2)) features![](./_resources/Feature_Engineering,_General.resources/9a5182ec-2848-11e7-83e8-57cf3633c3ee.png)
-* Hashing
-	* beyond security and fast look-ups, hashing is used for similarity search.
-		* e.g. different pictures of the same thing should have similar hashes
-		* So, if these hashes are being binned, you'd want something a hashing algorithm thinks is similar to actually be similar in order for this to be most effective.
-			* zip codes, postal codes, lat + long would be good
-			* Not countries or counties since I'd think the hashing similarity would be related to how similar they are alphabetically or maybe phonetically
-			* Maybe something like latin species names since those have similar roots, etc. would work. (e.g. dogs are canis-whatever)
-	* can't be reversed to the original values
-		* although since you have the original, it seems like you could see which cat levels are in a particular hash and maybe glean some latent variable
-	* Creates dummies for each cat but fewer of them.
-		* It is likely that multiple levels of the column will map to the same hashed columns (even with small data sets). Similarly, it is likely that some columns will have all zeros.
-			* A zero-variance filter (via recipes::step\_zv()) is recommended for any recipe that uses hashed columns
-	* `embed::step_feature_hash` - dimension reduction. It hashes the categorical level string and then bins them somehow
-		* Docs don't say which algorithm this uses, so I don't know if it's data independent hashing or not. If it is, then this probably doesn't help.
-* Likelihood Encodings
-	* Estimate the effect of each of the factor levels on the outcome and these estimates are used as the new encoding. The estimates are estimated by a generalized linear model. This step can be executed without pooling (via glm) or with partial pooling (stan\_glm or lmer). Currently implemented for numeric and two-class outcomes.
-	* [{embed}]{style='color: #990000'}
-		* `step_lencode_glm`, `step_lencode_bayes` , and `step_lencode_mixed`
-* Rainbow Method ([article](https://towardsdatascience.com/hidden-data-science-gem-rainbow-method-for-label-encoding-dfd69f4711e1))
-	* Creates an artifical ordinal variable from a nominal variable (i.e. ordering colors according the rainbow, roy.g.biv)
-	* At worst, it maintains the signal of a one-hot encode, but with tree models, it results in less splits and therefore a simpler, more efficient, and less overfit model.
-	* Methods:
-		* Domain Knowledge
-		* Variable Attribute (see examples)
-		* Others - Best to compute these on a hold out set, so as not cause data leakage
-			* Association with the target variable where the value of association is used to rank the categories
-			* Proportion of the event for a binary target variable where the value of the proportion is used to rank the categories
-	* If it's possible, use domain knowledge according the project's context to help choose the ranking of the categories.
-	* There are always multiple ways to rank the categories, so it may be worthwhile to try multiple versions of the artificial ordinal variable
-		* Not recommended to use more than log₂(K) versions, so as to not surpass the number of variables creating using One-hot (where k is the number of categories)
-	* Example: Vehicle Type
-		* Categories
-			* C: “Compact Car”
-			* F: “Full-size Car”
-			* L: “Luxury Car”
-			* M: “Mid-Size Car”
-			* P: “Pickup Truck”
-			* S: “Sports Car”
-			* U: “SUV”
-			* V: “Van”
-		* Potential attributes to order by: vehicle size, capacity, price category, average speed, fuel economy, costs of ownership, motor features, etc.
-	* Example: Occupation
-		* Categories
-			* 1: “Professional/Technical”
-			* 2: “Administration/Managerial”
-			* 3: “Sales/Service”
-			* 4: “Clerical/White Collar”
-			* 5: “Craftsman/Blue Collar”
-			* 6: “Student”
-			* 7: “Homemaker”
-			* 8: “Retired”
-			* 9: “Farmer”
-			* A: “Military”
-			* B: “Religious”
-			* C: “Self Employed”
-			* D: “Other”
-		* Potential attributes to order by: average annual salary, by their prevalence in the geographic area of interest, or variables in a Census dataset or some other data source
+-   binary encoding
+    -   benchmarks for decision trees:
+        -   numeric best (\< 1000 categories)
+        -   binary best (\> 1000 categories)
+    -   store N cardinalities using ceil(log(N+1)/log(2)) features![](./_resources/Feature_Engineering,_General.resources/9a5182ec-2848-11e7-83e8-57cf3633c3ee.png)
+-   Hashing
+    -   beyond security and fast look-ups, hashing is used for similarity search.
+        -   e.g. different pictures of the same thing should have similar hashes
+        -   So, if these hashes are being binned, you'd want something a hashing algorithm thinks is similar to actually be similar in order for this to be most effective.
+            -   zip codes, postal codes, lat + long would be good
+            -   Not countries or counties since I'd think the hashing similarity would be related to how similar they are alphabetically or maybe phonetically
+            -   Maybe something like latin species names since those have similar roots, etc. would work. (e.g. dogs are canis-whatever)
+    -   can't be reversed to the original values
+        -   although since you have the original, it seems like you could see which cat levels are in a particular hash and maybe glean some latent variable
+    -   Creates dummies for each cat but fewer of them.
+        -   It is likely that multiple levels of the column will map to the same hashed columns (even with small data sets). Similarly, it is likely that some columns will have all zeros.
+            -   A zero-variance filter (via recipes::step_zv()) is recommended for any recipe that uses hashed columns
+    -   `embed::step_feature_hash` - dimension reduction. It hashes the categorical level string and then bins them somehow
+        -   Docs don't say which algorithm this uses, so I don't know if it's data independent hashing or not. If it is, then this probably doesn't help.
+-   Likelihood Encodings
+    -   Estimate the effect of each of the factor levels on the outcome and these estimates are used as the new encoding. The estimates are estimated by a generalized linear model. This step can be executed without pooling (via glm) or with partial pooling (stan_glm or lmer). Currently implemented for numeric and two-class outcomes.
+    -   [{embed}]{style="color: #990000"}
+        -   `step_lencode_glm`, `step_lencode_bayes` , and `step_lencode_mixed`
+-   Rainbow Method ([article](https://towardsdatascience.com/hidden-data-science-gem-rainbow-method-for-label-encoding-dfd69f4711e1))
+    -   Creates an artifical ordinal variable from a nominal variable (i.e. ordering colors according the rainbow, roy.g.biv)
+    -   At worst, it maintains the signal of a one-hot encode, but with tree models, it results in less splits and therefore a simpler, more efficient, and less overfit model.
+    -   Methods:
+        -   Domain Knowledge
+        -   Variable Attribute (see examples)
+        -   Others - Best to compute these on a hold out set, so as not cause data leakage
+            -   Association with the target variable where the value of association is used to rank the categories
+            -   Proportion of the event for a binary target variable where the value of the proportion is used to rank the categories
+    -   If it's possible, use domain knowledge according the project's context to help choose the ranking of the categories.
+    -   There are always multiple ways to rank the categories, so it may be worthwhile to try multiple versions of the artificial ordinal variable
+        -   Not recommended to use more than log₂(K) versions, so as to not surpass the number of variables creating using One-hot (where k is the number of categories)
+    -   Example: Vehicle Type
+        -   Categories
+            -   C: "Compact Car"
+            -   F: "Full-size Car"
+            -   L: "Luxury Car"
+            -   M: "Mid-Size Car"
+            -   P: "Pickup Truck"
+            -   S: "Sports Car"
+            -   U: "SUV"
+            -   V: "Van"
+        -   Potential attributes to order by: vehicle size, capacity, price category, average speed, fuel economy, costs of ownership, motor features, etc.
+    -   Example: Occupation
+        -   Categories
+            -   1: "Professional/Technical"
+            -   2: "Administration/Managerial"
+            -   3: "Sales/Service"
+            -   4: "Clerical/White Collar"
+            -   5: "Craftsman/Blue Collar"
+            -   6: "Student"
+            -   7: "Homemaker"
+            -   8: "Retired"
+            -   9: "Farmer"
+            -   A: "Military"
+            -   B: "Religious"
+            -   C: "Self Employed"
+            -   D: "Other"
+        -   Potential attributes to order by: average annual salary, by their prevalence in the geographic area of interest, or variables in a Census dataset or some other data source
+-   **Ordinal**
 
-* **Ordinal**
-
-```
+```         
             step_mutate(ordinal_factor_var = as_integer(ordinal_factor_var))
             # think this uses as_numeric
             step_ordinalscore(ordinal_factor_var)
 ```
 
-* If there are NAs or Unknowns, etc.,
-	* after coercing into a numeric/integer, you can convert Unknowns to NA and then impute the variable
-* Polynomial Contrasts
-	* See the [section](http://www.feat.engineering/encodings-for-ordered-data.html) Kuhn's book
-* FYI, all these encodings will produce the same results for a tree model, since tree-based models rely on variable ranks rather than exact values.
+-   If there are NAs or Unknowns, etc.,
+    -   after coercing into a numeric/integer, you can convert Unknowns to NA and then impute the variable
+-   Polynomial Contrasts
+    -   See the [section](http://www.feat.engineering/encodings-for-ordered-data.html) Kuhn's book
+-   FYI, all these encodings will produce the same results for a tree model, since tree-based models rely on variable ranks rather than exact values.
 
-```
+```         
 0 = “0 Children”
 1 = “1 Child”
 2 = “2 Children”
@@ -515,44 +509,43 @@ X_transformed = target_encoder.transform(X_pre_encoded)
 44  = “4 or more Children”
 ```
 
+-   **Embedding**
+    -   Issue: one-hot encoding does not place similar entities closer to one another in vector space.
+    -   The [embeddings form the parameters](https://stats.stackexchange.com/questions/182775/what-is-an-embedding-layer-in-a-neural-network) --- weights --- of the network which are adjusted to minimize loss on the task.
+    -   Also see
+    -   Which categories get placed closer to each other in the embedding depends on the outcome variable during the training
+        -   Figuring out how to create the supervised task to produce relevant representations is the toughest part of making embeddings.
+        -   Example: Categorical to be embedded is book titles
+            -   "Whether or not a book was written by Leo Tolstoy"  as the outcome variable will result in embeddings would place books written by Tolstoy closer to each other.
+    -   The categorical variable with 100s of levels can be reduced to something like 50 vectors (node weights in the embedding layer of the network)![](./_resources/Feature_Engineering,_General.resources/Screenshot%20(359).png)
+        -   Sale Price is the outcome (observed values represented by "Sale Price" in orange box)
+        -   Sparse Vector Encoding (I think this is one-hot) for the categorical levels you want embedded
+        -   Other features are included in the embedding model but they only connect to other hidden layers (pink) We can use the same group of predictors and outcome variable in the embedding DL model that we want to use in the tree (or whatever) algorithm
+    -   Hyperparameter: Dimension of the embedding layer
+        -   Higher dimension embeddings are a more accurate representation of the relationship
+            -   Downside is a greater risk of overfitting and longer training times
+        -   Should be tuned
+            -   Starting point: dimensions ≈ (possible values)0.25
+                -   "possible values" would be the vocabulary for a text variable embedding
+    -   [{embed}]{style="color: #990000"}
+        -   Example
 
-* **Embedding**
-	* Issue: one-hot encoding does not place similar entities closer to one another in vector space.
-	* The [embeddings form the parameters](https://stats.stackexchange.com/questions/182775/what-is-an-embedding-layer-in-a-neural-network) — weights — of the network which are adjusted to minimize loss on the task.
-	* Also see 
-	* Which categories get placed closer to each other in the embedding depends on the outcome variable during the training
-		* Figuring out how to create the supervised task to produce relevant representations is the toughest part of making embeddings.
-		* Example: Categorical to be embedded is book titles
-			* “Whether or not a book was written by Leo Tolstoy”  as the outcome variable will result in embeddings would place books written by Tolstoy closer to each other.
-	* The categorical variable with 100s of levels can be reduced to something like 50 vectors (node weights in the embedding layer of the network)![](./_resources/Feature_Engineering,_General.resources/Screenshot (359).png)
-		* Sale Price is the outcome (observed values represented by "Sale Price" in orange box)
-		* Sparse Vector Encoding (I think this is one-hot) for the categorical levels you want embedded
-		* Other features are included in the embedding model but they only connect to other hidden layers (pink)
-		We can use the same group of predictors and outcome variable in the embedding DL model that we want to use in the tree (or whatever) algorithm
-		
-	* Hyperparameter: Dimension of the embedding layer
-		* Higher dimension embeddings are a more accurate representation of the relationship
-			* Downside is a greater risk of overfitting and longer training times
-		* Should be tuned
-			* Starting point: dimensions ≈ (possible values)0.25
-				* "possible values" would be the vocabulary for a text variable embedding
-	* [{embed}]{style='color: #990000'}
-		* Example
-
-```
+```         
             embed::step_embed(cat_var, 
                             num_terms = 4, hidden_units = 16, outcome = vars(binary_outcome_var),
                             options = embed_control(loss = "binary_crossentropy",
                                                     epochs = 10))
 ```
 
-* `num_terms` is the dimension of the embedding layer (i.e. number of output variables)
-* `hidden_units` is the layer between the embedding layer and output layer
-* Should probably try to`tune()` "num\_terms" at least.
+-   `num_terms` is the dimension of the embedding layer (i.e. number of output variables)
 
-* Example: Likelihood or Effect Encoding
+-   `hidden_units` is the layer between the embedding layer and output layer
 
-```
+-   Should probably try to`tune()` "num_terms" at least.
+
+-   Example: Likelihood or Effect Encoding
+
+```         
 museum_rec <- 
   recipe(Accreditation ~ ., data = museum_train) %>%
   update_role(museum_id, new_role = "id") %>%
@@ -560,68 +553,61 @@ museum_rec <- 
   step_dummy(all_nominal_predictors())
 ```
 
-* "Subject\_Matter" is the high cardinality cat var
-* `step_lencode_glm` fits a glm for each? level of the cat var uses its estimated effect as the encoded value
-* _mixed_ linear model and _bayes_ian model are also available instead of a glm
-* These type of embeddings use the average estimated effect as a value for any new levels that show-up in future data
+-   "Subject_Matter" is the high cardinality cat var
+-   `step_lencode_glm` fits a glm for each? level of the cat var uses its estimated effect as the encoded value
+-   *mixed* linear model and \_bayes_ian model are also available instead of a glm
+-   These type of embeddings use the average estimated effect as a value for any new levels that show-up in future data
 
-```
+```         
 tidy(grants_glm, number = 1) %>%
   dplyr::filter(level == "..new") %>%
   select(-id)
 ```
 
-* View embedding values
+-   View embedding values
 
-```
+```         
 prep(museum_rec) %>%
   tidy(number = 1)
 ```
 
-* not sure if "number = 1" is the step in the recipe or what
+-   not sure if "number = 1" is the step in the recipe or what
 
-* [{]{style='color: #990000'}[text](http://r-text.org/){style='color: #990000'}[}]{style='color: #990000'}
-	* provides access to hugginface transformers
+-   [{]{style="color: #990000"}[text](http://r-text.org/){style="color: #990000"}[}]{style="color: #990000"}
 
-* **Weight of Evidence** encoding
-	* `embed::step_woe`
-	**Range to Average**
-	* So numerical range variables like Age can have greater predictive power in ML/DL algorithms by just using the average value of the range
-	* e.g. Age == 21 to 30 --> (21+30)/2 = 25.5
+    -   provides access to hugginface transformers
 
+-   **Weight of Evidence** encoding
+
+    -   `embed::step_woe` **Range to Average**
+    -   So numerical range variables like Age can have greater predictive power in ML/DL algorithms by just using the average value of the range
+    -   e.g. Age == 21 to 30 --\> (21+30)/2 = 25.5
 
 Interactions
 
-* Manually
-	* Numeric \* Cat
-		* dummy the cat, then multiply the numeric times each of the dummies.
-
+-   Manually
+    -   Numeric \* Cat
+        -   dummy the cat, then multiply the numeric times each of the dummies.
 
 Date
 
-* **Duration**
-	* days since last purchase per customer
-		* example: (max(invoice\_date) - max\_date\_overall) / lubridate::ddays(1)
-			* think ddays converts this value to a numeric
-	* customer tenure
-		* example: (min(invoice\_date) - max\_date\_overall) / lubridate::ddays(1)
-
+-   **Duration**
+    -   days since last purchase per customer
+        -   example: (max(invoice_date) - max_date_overall) / lubridate::ddays(1)
+            -   think ddays converts this value to a numeric
+    -   customer tenure
+        -   example: (min(invoice_date) - max_date_overall) / lubridate::ddays(1)
 
 Domain Specific
 
-* **Rates/Ratios**
-	* purchase per customer
-		* total spent
-			* example: sum(total\_per\_invoice, na.rm = TRUE)
-		* avg\_spent
-			* example: mean(total\_per\_invoice, na.rm = TRUE)
-* **Pre-treatment baseline**
-	* Example
-		from http://charlieludowici.com/posts/2021-06-29-Modeling-Treatment-Effects-and-Nonlinearities-in-an-A-B-Test-Using-Generalized-Additive-Models/
-		* outcome = log(profit), treatment = exposure to internation markets, group = store
-		* Baseline variable is log(profit) before experiment is conducted
-			* Should center this variable
-
-
-
-
+-   **Rates/Ratios**
+    -   purchase per customer
+        -   total spent
+            -   example: sum(total_per_invoice, na.rm = TRUE)
+        -   avg_spent
+            -   example: mean(total_per_invoice, na.rm = TRUE)
+-   **Pre-treatment baseline**
+    -   Example from http://charlieludowici.com/posts/2021-06-29-Modeling-Treatment-Effects-and-Nonlinearities-in-an-A-B-Test-Using-Generalized-Additive-Models/
+        -   outcome = log(profit), treatment = exposure to internation markets, group = store
+        -   Baseline variable is log(profit) before experiment is conducted
+            -   Should center this variable
