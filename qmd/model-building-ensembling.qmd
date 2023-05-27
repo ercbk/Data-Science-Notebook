@@ -1,152 +1,123 @@
-# Model Building, Ensembling
+# Ensembling {#sec-modbld-ensemb .unnumbered}
 
-TOC
+## Misc {#sec-modbld-ensemb-misc .unnumbered}
 
-* Misc
-* Manually
-* Stacks
-* sklearn
-
-
-
-Misc
-
-* May be better to used a ML model for the ensembling procedure since the features are probably highly correlated
-* Feature-Weighted Linear Stacking (FWLS) ([Paper](https://arxiv.org/abs/0911.0460))
-	* Incorporates meta-features for improved accuracy while retaining the well-known virtues of linear regression regarding speed, stability, and interpretability
-	* use of meta-features, additional inputs describing each observation in a dataset, can boost the performance of ensemble methods, but the greatest reported gains have come from nonlinear procedures requiring significant tuning and training time.
-	* Meta-features - should be discrete variables
-		* Example (product sales model): current season, year, information about the products, and vendors variables![](./_resources/Model_Building,_Ensembling.resources/0-TKwF6j5rLGbOtvyS.png)
-			* "benchmark" is just a 28-day MA model, prediction\_CNNLSTM is a DL model, and prediction\_XGBoost is an xgboost model
-	* Need to read the paper but the article I read that used this method used predictors from the base models as these "meta-features."
-
+-   May be better to used a ML model for the ensembling procedure since the features are probably highly correlated
+-   Feature-Weighted Linear Stacking (FWLS) ([Paper](https://arxiv.org/abs/0911.0460))
+    -   Incorporates meta-features for improved accuracy while retaining the well-known virtues of linear regression regarding speed, stability, and interpretability
+    -   use of meta-features, additional inputs describing each observation in a dataset, can boost the performance of ensemble methods, but the greatest reported gains have come from nonlinear procedures requiring significant tuning and training time.
+    -   Meta-features - should be discrete variables
+        -   Example (product sales model): current season, year, information about the products, and vendors variables  
+        ![](./_resources/Model_Building,_Ensembling.resources/0-TKwF6j5rLGbOtvyS.png)
+            -   "benchmark" is just a 28-day MA model, prediction_CNNLSTM is a DL model, and prediction_XGBoost is an xgboost model
+    -   Need to read the paper but the article I read that used this method used predictors from the base models as these "meta-features."
 
 Manually
 
-* With tidymodels objects
-	from drob 1:58:08, [Predicting box office performance](https://www.youtube.com/watch?v=IkTfKnUoYf0)
-	
+-   With tidymodels objects from drob 1:58:08, [Predicting box office performance](https://www.youtube.com/watch?v=IkTfKnUoYf0)
 
-```
-on_test_set <- function(d) {
-    bind_cols(predict(mod_obj1, d) %>% rename(mod_name1 = .pred),
-              predict(mod_ojt2, d) %>% rename(mod_name2 = .pred)) %>%
-        augment(combination, newdata = .) %>%
-        transmute(id = d$id, outcome_var = 2 ^ fitted # outcome was transformed with log2 during preprocessing
+    ```r    
+    on_test_set <- function(d) {
+        bind_cols(predict(mod_obj1, d) %>% rename(mod_name1 = .pred),
+                  predict(mod_ojt2, d) %>% rename(mod_name2 = .pred)) %>%
+            augment(combination, newdata = .) %>%
+            transmute(id = d$id, outcome_var = 2 ^ fitted # outcome was transformed with log2 during preprocessing
 
-on_test_set(test_set) %>%
-    rename(.pred = outcome_var) %>%
-    bind_cols(test) %>%
-    rmse(log2(.pred), outcome_var) # loss metric is RMSLE (Root Mean Squared Log Error)
-```
+    on_test_set(test_set) %>%
+        rename(.pred = outcome_var) %>%
+        bind_cols(test) %>%
+        rmse(log2(.pred), outcome_var) # loss metric is RMSLE (Root Mean Squared Log Error)
+    ```
 
-Stacks
+## Stacks {#sec-modbld-ensemb-stacks .unnumbered}
 
-* [{stacks}]{style='color: #990000'}
-* Steps:
-	1. Add models and tune a penalyzed regression model to determine weights
-		* blend\_predictions args: penalty, mixture, metric, control
-			* control is for tune::control\_grid
-			* metric used to determine penalty. Use the same one you used to tune the models.
+-   [{stacks}]{style="color: #990000"}
+-   Steps:
+    1.  Add models and tune a penalyzed regression model to determine weights
+        -   blend_predictions args: penalty, mixture, metric, control
+            -   control is for tune::control_grid
+            -   metric used to determine penalty. Use the same one you used to tune the models.
 
-```
-lin_best <- lin_location_tune %>% filter_parameters(parameters = select_best(lin_location_tune))
-xg_best <- xg_tune %>% filter_parameters(parameters = select_best(xg_tune))
-lin_xg_blend <- stacks() %>%
-  add_candidates(lin_best) %>%
-  add_candidates(xg_best) %>%
-  blend_predictions()
-```
+    ```r         
+    lin_best <- lin_location_tune %>% filter_parameters(parameters = select_best(lin_location_tune))
+    xg_best <- xg_tune %>% filter_parameters(parameters = select_best(xg_tune))
+    lin_xg_blend <- stacks() %>%
+      add_candidates(lin_best) %>%
+      add_candidates(xg_best) %>%
+      blend_predictions()
+    ```
 
-1. Fit the ensemble on the full training set
+    2.  Fit the ensemble on the full training set
 
-```
-lin_xg_fit <- lin_xg_blend %>%
-  fit_members()
-```
+    ```r         
+    lin_xg_fit <- lin_xg_blend %>%
+      fit_members()
+    ```
 
-1. Measure performance on the test set
+    3.  Measure performance on the test set
 
-```
-predictions <- lin_xg_fit %>%
-  predict(test, type = "prob", members = TRUE)
+    ```r         
+    predictions <- lin_xg_fit %>%
+      predict(test, type = "prob", members = TRUE)
 
-# Log loss by model, or by the blend
-predictions %>%
-  select(contains("_Rained")) %>%
-  bind_cols(select(test, rain_tomorrow)) %>%
-  gather(model, prediction, -rain_tomorrow) %>%
-  mutate(prediction = 1 - prediction) %>%
-  group_by(model) %>%
-  mn_log_loss(rain_tomorrow, prediction)
-```
+    # Log loss by model, or by the blend
+    predictions %>%
+      select(contains("_Rained")) %>%
+      bind_cols(select(test, rain_tomorrow)) %>%
+      gather(model, prediction, -rain_tomorrow) %>%
+      mutate(prediction = 1 - prediction) %>%
+      group_by(model) %>%
+      mn_log_loss(rain_tomorrow, prediction)
+    ```
 
-sklearn
+## sklearn {#sec-modbld-ensemb-stacks .unnumbered}
 
-* Majority Vote
+-   Majority Vote
 
-```
-from sklearn.ensemble import VotingClassifier
-X, y = make_classification(n_samples=1000)
-ensemble = VotingClassifier(
-    estimators=[
-        ("xgb", xgb.XGBClassifier(eval_metric="auc")),
-        ("lgbm", lgbm.LGBMClassifier()),
-        ("cb", cb.CatBoostClassifier(verbose=False)),
-    ],
-    voting="soft",
-    # n_jobs=-1,
-)
-_ = ensemble.fit(X, y)
-```
+    ```r         
+    from sklearn.ensemble import VotingClassifier
+    X, y = make_classification(n_samples=1000)
+    ensemble = VotingClassifier(
+        estimators=[
+            ("xgb", xgb.XGBClassifier(eval_metric="auc")),
+            ("lgbm", lgbm.LGBMClassifier()),
+            ("cb", cb.CatBoostClassifier(verbose=False)),
+        ],
+        voting="soft",
+        # n_jobs=-1,
+    )
+    _ = ensemble.fit(X, y)
+    ```
 
-* If the classes are probabilities or predictions are continuous, the predictions are averaged.
-* voting = "soft" says use probabilities
-	* voting = "hard" says each model makes a binary classification (guessing 50/50 threshold), and the ensemble model tally's up the votes to output its final result
-* weights argument can be used to assign different coefficients for more accurate models
-* `votingRegressor` also available
+    -   If the classes are probabilities or predictions are continuous, the predictions are averaged.
 
-* Stacking
+    -   voting = "soft" says use probabilities
 
-```
-from sklearn.ensemble import StackingClassifier, StackingRegressor
-from sklearn.linear_model import LogisticRegression
-X, y = make_classification(n_samples=1000)
-ensemble = StackingClassifier(
-    estimators=[
-        ("xgb", xgb.XGBClassifier(eval_metric="auc")),
-        ("lgbm", lgbm.LGBMClassifier()),
-        ("cb", cb.CatBoostClassifier(verbose=False)),
-    ],
-    final_estimator=LogisticRegression(),
-    cv=5,
-    passthrough=False
-    # n_jobs=-1,
-)
-_ = ensemble.fit(X, y)
-```
+    -   voting = "hard" says each model makes a binary classification (guessing 50/50 threshold), and the ensemble model tally's up the votes to output its final result
 
-* `StackingRegressor` also available
-* 
+    -   weights argument can be used to assign different coefficients for more accurate models
 
+    -   `votingRegressor` also available
 
+-   Stacking
 
+    ```r         
+    from sklearn.ensemble import StackingClassifier, StackingRegressor
+    from sklearn.linear_model import LogisticRegression
+    X, y = make_classification(n_samples=1000)
+    ensemble = StackingClassifier(
+        estimators=[
+            ("xgb", xgb.XGBClassifier(eval_metric="auc")),
+            ("lgbm", lgbm.LGBMClassifier()),
+            ("cb", cb.CatBoostClassifier(verbose=False)),
+        ],
+        final_estimator=LogisticRegression(),
+        cv=5,
+        passthrough=False
+        # n_jobs=-1,
+    )
+    _ = ensemble.fit(X, y)
+    ```
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
+    -   `StackingRegressor` also available
 
