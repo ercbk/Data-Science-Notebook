@@ -4,13 +4,13 @@
 
 -   Plotting
 
-    ```r         
+    ``` r
     plot_times_series(data, date_var, value_var)
     ```
 
 -   Combining multiple models into a table
 
-    ```r         
+    ``` r
     model_tbl <- modeltime_table(
         model_arima,
         model_prophet,
@@ -22,7 +22,7 @@
 
 -   Accessing a fitted model object to see coefficient values, hyperparameter values, etc.
 
-    ```r         
+    ``` r
     model_arima <- arima_reg() %>%
         set_engine("auto_arima") %>%
         fit(value_var ~ date_var, training(splits_obj))
@@ -33,20 +33,21 @@
 
 ## Steps {#sec-modbld-mdltm-steps .unnumbered}
 
-1.   set-up
-2.   recipe
-3.   specify model(s)
-4.   fit models
-5.   forecast on test/assessment dataset
-6.   assess performance
-7.   choose model
-8.   forecast and assess performance on holdout dataset
-9.   refit on whole training set
-10.   forecast the future
+1.  set-up
+2.  recipe
+3.  specify model(s)
+4.  fit models
+5.  forecast on test/assessment dataset
+6.  assess performance
+7.  choose model
+8.  forecast and assess performance on holdout dataset
+9.  refit on whole training set
+10. forecast the future
 
 ## Set-up {#sec-modbld-mdltm-setup .unnumbered}
 
 -   Some packages
+
     -   tidyverse - cleaning
     -   tidymodels - model building
     -   timetk - loss metrics
@@ -54,17 +55,19 @@
     -   stacks - ensembling
 
 -   Parallelize/Cluster
+
     -   For all methods, you must also set `allow_par = TRUE`  in the control arg of the function
+
     -   Parallel
 
-        ```r         
+        ``` r
                 parallel_start(6, .method = "parallel") # uses 6 vcpus
                 parallel_stop()
         ```
 
     -   Spark
 
-        ```r         
+        ``` r
                 sc <- spark_connect(master = "local")
                 parallel_start(sc, .method = "spark")
                 parallel_stop()
@@ -75,7 +78,7 @@
 
 -   Splits
 
-    ```r         
+    ``` r
     splits <- time_series_split(
         data,
         assess = "3 months",
@@ -88,7 +91,7 @@
 
 -   Visualize the split
 
-    ```r         
+    ``` r
     splits %>%
         # extract cv plan from split obj
         tk_time_series_cv_plan() %>%
@@ -99,22 +102,28 @@
 
 -   **Window mean/median forecast**
 
-    ```r         
+    ``` r
     median_fit <- window_reg(id = "id", window_size = 6) %>%
         set_engine("window_function", window_function = median) %>%
         fit(value ~ ., data = training(splits))
     ```
 
     -   Basically just calculates the median value for the window size that's specified (not rolling)
+
         -   The forecast is just this value repeated for the length of the forecast horizon
+
     -   Notes
+
         -   Used mostly as a baseline forecast, but with tuning, it supposedly performs pretty well for some series
+
     -   Args
+
         -   window_function - can be mean or whatever
         -   id - used for global modeling
+
     -   Tuning
 
-        ```r         
+        ``` r
                 grid_tbl <- tibble(
                     window_size = 1:12
                 ) %>%
@@ -132,7 +141,7 @@
 
 -   **Seasonal Naive**
 
-    ```r         
+    ``` r
     naive_fit <- naive_reg(seasonal_period = 12, id = "id") %>%
         set_engine("snaive") %>%
         fit(value ~ ., data = training(splits))
@@ -142,7 +151,7 @@
 
 -   **auto_arima**
 
-    ```r         
+    ``` r
     model_arima <- arima_reg() %>%
         set_engine("auto_arima") %>%
         fit(value_var ~ date_var, training(splits_obj))
@@ -150,7 +159,7 @@
 
 -   **prophet**
 
-    ```r         
+    ``` r
     model_prophet <- prophet_reg(seasonality_yearly = TRUE) %>%
         set_engine("prophet") %>%
         fit(value_var ~ date_var, training(split_obj))
@@ -160,7 +169,7 @@
 
 -   **glmnet**
 
-    ```r         
+    ``` r
     model_glmnet <- linear_reg(penalty = 0.01) %>%
         set_engine("glmnet") %>%
         # date_var is daily in this example
@@ -174,7 +183,7 @@
 
 -   **gluonts deepar**
 
-    ```r         
+    ``` r
     fit_deepar <- deep_ar(
         id = "id",
         freq = "M",
@@ -216,7 +225,7 @@
 
 -   **gluonts_gp_forecaster**
 
-    ```r         
+    ``` r
     fit_gp_forecaster <- gp_forecaster(
         id = "id",
         freq = "M",
@@ -238,7 +247,7 @@
 
 -   **gluonts_deepstate**
 
-    ```r         
+    ``` r
     fit_deepar <- deep_state(
         id = "id",
         freq = "M",
@@ -264,7 +273,7 @@
 
 -   `create_model_grid`
 
-    ```r         
+    ``` r
     grid_tbl <- tibble(
         learn_rate = c(0.001, 0.01, 0.1)
     ) %>%
@@ -273,32 +282,36 @@
             engine_name = "xgboost",
             mode = "regression
         )
-    
-    # or
-    
-    grid_tbl <- dials::grid_regular(
-        learn_rate(),
-        levels = 3
-    )
-    
-    grid_tbl %>%
-        create_model_grid(
-            f_model_spec = boost_tree,
-            engine_name  = "xgboost",
-            # Static boost_tree() args
-            mode = "regression",
-            # Static set_engine() args
-            engine_params = list(
-                max_depth = 5
-            )
-        )
     ```
 
+    -   Alternative
+
+        ``` r
+        grid_tbl <- dials::grid_regular(
+            learn_rate(),
+            levels = 3
+        )
+
+        grid_tbl %>%
+            create_model_grid(
+                f_model_spec = boost_tree,
+                engine_name  = "xgboost",
+                # Static boost_tree() args
+                mode = "regression",
+                # Static set_engine() args
+                engine_params = list(
+                    max_depth = 5
+                )
+            )
+        ```
+
     -   Creates a list of model specifications
+
         -   I think you could create more than 1 of these objects in order to tune multiple algorithms.  Then `append` the `$.models` together and feed it to `workflow_set(models= )` (see below)
+
         -   Example of another way
 
-            ```r         
+            ``` r
             models <- union(snaive_grid_tbl %>% select(.models), window_grid_median_tbl %>% select(.models))
             ```
 
@@ -312,7 +325,7 @@
 
 -   `workflow_set`
 
-    ```r         
+    ``` r
     wfset <- workflow_set() %<%
         preproc = list(
             recipe_spec),
@@ -327,7 +340,7 @@
 
 -   `modeltime_fit_workflowset`
 
-    ```r         
+    ``` r
     # parallel_start(6)
 
     wkflw_fit <- wfset %>%
@@ -348,12 +361,11 @@
     -   Args
         -   allow_par - turns on parallel processing
 
-
 ## Assessing Performance {#sec-modbld-mdltm-perf .unnumbered}
 
 -   `modeltime_calibration`: Calculate Residuals
 
-    ```r         
+    ``` r
     calib_tbl <- model_table %>%
         modeltime_calibration(testing(split_obj), id = "id")
     ```
@@ -364,7 +376,7 @@
 
 -   `modeltime_accuracy` :
 
-    ```r         
+    ``` r
     calib_tbl %>%
         modeltime_accuracy(acc_by_id = TRUE) #%>%
         # select best model by rmse for each group
@@ -376,7 +388,7 @@
 
 -   `table_modeltime_accuracy`
 
-    ```r         
+    ``` r
     calib_tbl %>%
         group_by(id)
         table_modeltime_accuracy()
@@ -384,13 +396,13 @@
 
     -   html table of results (might be interactive)
 
-
 ## Forecast {#sec-modbld-mdltm-fcast .unnumbered}
 
 -   `modeltime_forecast` : makes predictions, calculates prediction intervals
+
     -   On the test set:
 
-    ```r         
+    ``` r
     # Using test set
     forcast_obj <- calibration_table %>%
         modeltimes_forecast(
@@ -405,7 +417,7 @@
 
 -   `modeltime_refit` : forecast the future
 
-    ```r         
+    ``` r
     future_forecast_tbl <- calibration_tbl %>%
         modeltime_refit(whole_training_set) %>%
         modeltime_forecast(
@@ -418,6 +430,6 @@
 
 -   `plot_modeltime_forecast`
 
-    ```r         
+    ``` r
     plot_modeltime_forecast(forecast_obj)
     ```
