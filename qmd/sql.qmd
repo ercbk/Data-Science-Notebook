@@ -1,1121 +1,1174 @@
-# SQL
+# SQL {#sec-sql .unnumbered}
 
 TOC
 
-* Misc
-* Set-up
-* Terms
-* Basics
-	* Create Tables
-	* Add data
-	* Subqueries
-	* Joins
-* R
-* Best Practices
-* Indexes
-* Partitioning
-* Views
-* Variables
-* Functions
-* User Defined Functions (UDF)
-* Window Functions
-* Common Table Expressions (CTE)
-* Strings
-* Arrays
-* Transactions
-* Business Queries
-* Processing Expressions
-* Tools
-
-
-
-Misc
-
-* `dplyr::show_query` can convert a dplyr expression to SQL for db object (e.g. dbplyr,  duckdb, arrow)
-* Queries in examples
-	* Window Functions
-		* Average Salary by Job Title
-		* Average Unit Price for each CustomerId
-		* Rank customers by amount spent
-		* Create a new column that ranks Unit Price in descending order for each CustomerId
-		* Create a new column that provides the previous order date’s Quantity for each ProductId
-		* Create a new column that provides the very first Quantity ever ordered for each ProductId
-		* Calculate a cumulative moving average UnitPrice for each CustomerId
-		* Rank customers for each department by amount spent
-		* Find the model and year of the car that been on the lot the longest
-		* Create a subset (CTE)
-			* Calculate a running monthly total (aka cumsum)
-				* Also running average
-			* Calculate a running monthly total for each account id
-			* Calculate a 3 months rolling running total using a window that includes the current month.
-			* Calculate a 7 months rolling running total using a window where the current month is always the middle month
-	* CTE
-		* Average monthly cost per campaign for the company’s marketing efforts
-		* Count the number of interactions of new users
-		* The average top Math test score for students in California
-	* Business Queries
-		* 7-day Simple Moving Average (SMA)
-		* Rank product categories by shipping cost for each shipping address
-		* Daily counts of open jobs (where "open" is an untracked daily status)
-		* Get the latest order from each customer
-* Order of Operations![](./_resources/SQL.resources/1-MCyFDF35OZ3n0dyZqX6_Tw.png)
-	* Higher ranked functions can be inserted inside lower ranked functions
-		* e.g a window function can be inside a SELECT function but not inside a WHERE clause
-		* There are exceptions and hacks around this in some cases
-* Types of Commands
-	* Data Query Language (DQL) - used to find and view data without making any permanent changes to the database.
-	* Data Manipulation Language (DML) - used to make permanent changes to the data, such as updating values or deleting them.
-	* Data Definition Language (DDL) - used to make permanent changes to the table, such as creating or deleting a table.
-	* Data Control Language (DCL) - used for administrative commands, such as adding or removing users of different tables and databases.
-	* Transact Control Language (TCL) - advanced SQL that deals with transaction level statements.
-* Microsoft SQL Server format for referencing a table:
-	* \[database\].\[schema\].\[tablename\]
-	* Alternative
-
-```
-USE my_data_base
-GO
-```
-
-* Check if a table is updatable
-
-```
-SELECT table_name, is_updatable
-FROM information_schema.views
-```
-
-* Useful if some of the tables you are working with are missing values that you need to add
-* If not updatable, then you'll need to contact the database administrator to request permission to update that specific table
-
-* Show all tables
-
-```
-SHOW FULL TABLES -- mysql
-```
-
-
-
-
-Set-up
-
-* postgres
-	* [Download](https://www.postgresql.org/download/) postgres
-	* [pgAdmin](https://www.pgadmin.org/download/) is an IDE commonly used with postgres
-		* open pgAdmin and click on “Add new server.”
-			* Sets up connection to existing server so make sure postgres is installed beforehand
-		* Create Tables
-			* home >> Databases (1) >> postgres >> Query Tool
-		* If needed, give [permission](https://stackoverflow.com/questions/14083311/permission-denied-when-trying-to-import-a-csv-file-from-pgadmin) to pgAdmin to access data from a folder
-			* Might be necessary to upload csv files
-		* Import csv file
-			* right-click the table name >> Import/Export
-			* Options tab
-				* Select import, add file path to File Name, choose csv for format, select Yes for Header, add , for Delimiter
-			* Columns tab
-				* uncheck columns not in the csv (probably the primary key)
-					* Wonder if NULLs will be automatically inserted for columns in the table that aren't in the file.
-
-
-
-Terms
-
-* **Batch** - a set of sql statements e.g. statements between BEGIN and END
-* **Compiled object** \- you can create a function written in C/C++ and load into the database (at least in postgres) to achieve high performance.
-* Correlated Columns - tells how good the match between logical and physical ordering is.
-* **Correlated/Uncorrelated** **Subqueries**
-	* correlated\- a type of query, where inner query depends upon the outcome of the outer query in order to perform its execution
-		* A correlated subquery can be thought of as a filter on the table that it refers to, as if the subquery were evaluated on each row of the table in the outer query
-	* uncorrelated - a type of sub-query where inner query doesn’t depend upon the outer query for its execution.
-		* It is an independent query, the results of which are returned to and used by the outer query once (not per row).
-
-```
--- Uncorrelated subquery:
--- inner query, c1, only depends on table2
-select c1, c2
-  from table1 where c1 = (select max(x) from table2);
-
--- Correlated subquery:
--- inner query, c1, depends on table1 and table2
-select c1, c2
-  from table1 where c1 = (select x from table2 where y = table1.c2);
-```
-
-* **Functions** execute at a different level of priority and are handled differently than Views. You will likely see better performance.
-* **Index** \- a quick lookup table (e.g. field or set of fields) for finding records users need to search frequently. An index is small, fast, and optimized for quick lookups. It is very useful for connecting the relational tables and searching large tables. (also see [DB, Engineering](DB, Engineering) >> Cost Optimizations)
-* **Migrations (schema)** - version control system for your database schema. Management of incremental, reversible changes and version control to relational database schemas. A schema migration is performed on a database whenever it is necessary to update or revert that database's schema to some newer or older version.
-* **Physical Ordering** - A PostgreSQL table consists of one or more files of 8KB blocks (or "pages"). The order in which the rows are stored in the file is the physical ordering.
-* **Predicate** - defines a logical condition being applied to rows in a table. (e.g. IN, EXISTS, BETWEEEN, LIKE, ALL, ANY)
-* **Scalar/Non-Scalar Subqueries**
-	* A scalar subquery returns a single value (one column of one row). If no rows qualify to be returned, the subquery returns NULL.
-	* A non-scalar subquery returns 0, 1, or multiple rows, each of which may contain 1 or multiple columns. For each column, if there is no value to return, the subquery returns NULL. If no rows qualify to be returned, the subquery returns 0 rows (not NULLs).
-* **Selectivity** - the fraction of rows in a table or partition that is chosen by the predicate
-	* Refers to the quality of a filter in its ability to reduce the number of rows that will need to be examined and ultimately returned
-		* With a high selectivity, using the primary key or indexes to get right to the rows of interest
-		* With a low selectivity, a full table scan would likely be needed to get the rows of interest.
-	* Higher selectivity means: more unique data; fewer duplicates; fewer number of rows for each key value
-	* Used to estimate the cost of a particular access method; it is also used to determine the optimal join order. A poor choice of join order by the optimizer could result in a very expensive execution plan.
-* **Soft-deleted** - An operation in which a flag is used to mark data as unusable, without erasing the data itself from the database
-* **Surrogate key** - very similar to a primary key in that it is a unique value for an object in a table. However, rather than being derived from actual data present in the table, it is a field generated by the object itself. It has no business value like a primary key does, but is rather only used for data analysis purposes. Can be generated using different columns that already exist in your table or more often from two or more tables. [dbt function definition](https://github.com/dbt-labs/dbt-utils#surrogate_key-source)
-	* Examples: PostgreSQL serial column, Oracle sequence column, or MySQL auto\_increment column, Snowflake \_file + \_line columns
-	* Example: Each employee id is concatenated with a department id (e.g. marketing or finance)![](./_resources/SQL.resources/1-upKcdpMyn4wxcKk8wuHj4A.png)
-* **Transaction** - a set of queries tied together such that if one query fails, the entire set of queries are rolled back to a pre-query state if the situation dictates.
-	* A database transaction, by definition, must be atomic, consistent, isolated and durable. These are popularly known as **ACID** properties.  These properties can ensure the concurrent execution of multiple transactions without conflict.
-* **Views** - database objects that represent saved SELECT queries in “virtual” tables.
-	* Contains a query plan.  For each query executed, the planner has to evaluate what’s being asked and calculate an optimal path. Views already have this plan calculated so it allows subsequent queries to be returned with almost no friction in processing aside from data retrieval.
-	* Some views are updateable but under certain conditions (1-1 mapping of rows in view to underlying table, no group\_by, etc.)
-
-
-
-Basics
-
-* Create Tables
-	* If you don't include the schema as part of the table name (e.g. schema\_name.table\_name), pgadmin automatically places it into the "public" schema directory
-	* Field Syntax: name, data type, constraints
-	* [Example]{.ribbon-highlight}: Create table as select (CTAS)
-
-```
-CREATE TABLE new_table AS 
-SELECT * 
-FROM old_table 
-WHERE condition;
-```
-
-* [Example]{.ribbon-highlight}: Table 1 (w/primary key)
-
-```
-    DROP TABLE IF EXISTS classrooms CASCADE;
-    CREATE TABLE classrooms (
-        id INT PRIMARY KEY GENERATED ALWAYS AS IDENTITY,
-        teacher VARCHAR(100)
-    );
-    -- OR
-    CREATE TABLE classrooms ( 
-        id INT GENERATED ALWAYS AS IDENTITY, 
-        teacher VARCHAR(100)
-        PRIMARY KEY(id) 
-    );   
-```
-
-* "classrooms" is the name of the table; "id" and "teacher" are the fields
-* `CASCADE` - postgres won't delete the table if other tables point to it, so cascade will override measure.
-* `GENERATED ALWAYS AS IDENTITY` - makes it so you don't have to keep track of which "id" values have been used when adding rows. You can ommit the value for "id" and just add the values for the other fields
-	* See [tutorial](https://www.postgresqltutorial.com/postgresql-identity-column/) for options, usage, removing, adding, etc. this constraint
-
-```
-                INSERT INTO classrooms
-                    (teacher)
-                VALUES
-                    ('Mary'),
-                    ('Jonah');
-```
-
-* Also see Add Data >> Example: chatGPT
-
-* [Example]{.ribbon-highlight}: Table 2 (w/foreign key)
-
-```
-    DROP TABLE IF EXISTS students CASCADE;
-    CREATE TABLE students (
-        id INT PRIMARY KEY GENERATED ALWAYS AS IDENTITY,
-        name VARCHAR(100),
-        classroom_id INT,
-        CONSTRAINT fk_classrooms
-            FOREIGN KEY(classroom_id)
-                REFERENCES classrooms(id)
-    );
-```
-
-* "students" is the name of the table; "id", "name", and "classroom\_id" are the fields
-* Create a foreign key that points to the "classrooms" table
-	* Expression
-		* fk\_classrooms is the name of the `CONSTRAINT`
-		* "classroom\_id" is the field that will be the `FOREIGN KEY`
-		* `REFERENCES` points the foreign key to the classrooms table's primary key, "id"
-			* foreign keys can point to any table
-	* Postgres won’t allow you to insert a row into students with a "classroom\_id" that doesn’t exist in the "id" field of classrooms but will allow you to use a NULL placeholder
-
-```
-                -- Explicitly specify NULL
-                INSERT INTO students
-                    (name, classroom_id)
-                VALUES
-                    ('Dina', NULL); 
-
-                -- Implicitly specify NULL
-                INSERT INTO students
-                    (name)
-                VALUES
-                    ('Evan');
-```
-
-* Also see Add Data >> Example: chatGPT
-
-* [Example]{.ribbon-highlight}
-
-```
-CREATE TABLE members (
-    id serial primary key,
-    second_name character varying(200) NOT NULL,
-    date_joined date NOT NULL DEFAULT current_date,
-    member_id integer references members(id),
-    booking_start_time timestamp without timezone NOT NULL
-```
-
-* The "serial" data type does the same thing as `GENERATED ALWAYS AS IDENTITY` (see first example), but is NOT compliant with the SQL standard. Use `GENERATED ALWAYS AS IDENTITY`
-* "references" seems to be another old way to create foreign keys (see 2nd example for proper way)
-* "character varying" - variable-length with limit (e.g limit of 200 characters)
-	* character(n), char(n) are for fixed character lengths; text is for unlimited character lengths
-* "current\_date" is a function that will insert the current date as a value
-* "timestamp without timezone" is literally that
-	* also available: time with/without timezone, date, interval (see [Docs](https://www.postgresql.org/docs/14/datatype-datetime.html) for details)
-
-* Add Data
-	* [Example]{.ribbon-highlight}: Copy/Paste table values into chatGPT to get the query![](./_resources/SQL.resources/image.11.png)
-	* [Example]{.ribbon-highlight}: Add data via .csv
-
-```
-COPY assignments(category, name, due_date, weight)
-FROM 'C:/Users/mgsosna/Desktop/db_data/assignments.csv'
-DELIMITER ','
-CSV HEADER;
-```
-
-* "assignments" is the table; "category", "name", "due\_date", "weight" are fields that you want to import from the csv file
-	* \*\* The order of the columns must be the same as the ones in the CSV file \*\*
-* `HEADER` keyword to indicate that the CSV file contains a header
-* Might need to have superuser access in order to execute the COPY statement successfully
-
-* Subqueries
-	* \*\*Better to used CTEs instead of subqueries\*\*
-		* Subqueries make it difficult to understand their context in the larger query
-		* The only way to debug a subquery is by turning it into a CTE or pulling it out of the query entirely.
-		* CTEs and subqueries have a similar runtime, but subqueries make your code more complex for no reason.
-	* Notes from [How to Use SubQueries in SQL](https://towardsdatascience.com/how-to-use-subqueries-in-sql-da660694b8e3)
-		* Also shows the alt method of creating a temporary table to compute the queries
-	* Use cases
-		* Filtering rows from a table with the context of another.
-		* Performing double-layer aggregations such as average of averages or an average of sums.
-		* Accessing aggregations with a subquery.
-	* Tables used in examples
-		* Store A (store\_a)![](./_resources/SQL.resources/image.10.png)
-			* Store B is similar
-	* Example: Filtering rows
-
-```
-select * from 
-sandbox.store_b
-where product_id IN (
-    select product_id
-    from sandbox.store_b
-    group by product_id 
-    having count(product_id) >= 3
-);
-```
-
-* filters the rows with products that have been bought at least three times in store\_b
-
-* Example: Multi-Layer Aggregation
-
-```
-select avg(average_price.total_value) as average_transaction from (
-  select transaction_id, sum(price_paid) as total_value
-  from sandbox.store_a
-  group by transaction_id
-  ) as average_price
-;
-```
-
-* computes the average of all transactions
-* can’t apply an average directly, as our table is oriented to product\_ids and not to transaction\_ids
-
-* Example: Filtering the table based on an Aggregation
-
-```
-select @avg_transaction:= avg(agg_table.total_value)
-from (
-select transaction_id, sum(price_paid) as total_value
-from sandbox.store_a
-group by transaction_id
-) as agg_table;
-
-select * 
-from sandbox.store_a
-where transaction_id in (
-select transaction_id
-from sandbox.store_a
-group by transaction_id
-    having sum(price_paid) > @avg_transaction
-)
-```
-
-* filters transactions that have a value higher than the average (where the output must retain the original product-oriented row)
-
-* Joins![](./_resources/SQL.resources/FPggFYUUcAszeHX.jpeg)![](./_resources/SQL.resources/FPggFYRVkAMc93Z.jpeg)
-	* Cross Join -  acts like an expand\_grid; where each value in the join key column gets all combinations of rows in both tables (also see above pic)![](./_resources/SQL.resources/image.9.png)
-		* Efficient join
-		* When you add the `where` clause, the cross join acts similarly to an `inner join`, except you aren’t joining it on any specified column
-		* Example
-
-```
-SELECT
-  schedule.event,
-  calendar.number_of_days
-FROM schedule
-CROSS JOIN calendar
-WHERE schedule.total_number < calendar.number_of_days
-```
-
-* only join the row in the "schedule" table with the rows in the "calendar" table that meet the specified condition
-
-* Natural Join - don't need to specify join columns; need to have two columns in each table with the same name
-	* Use cases
-		* There are a lot of common columns with the same name across multiple tables
-			* They will all be used as joining keys.
-		* You don’t want to type out all of the common columns in select just to avoid outputting the same columns multiple times.
-
-```
-select
-    *
-from table_a
-natural join table_b
-;
-
--- natural + outer
-select
-    *
-from table_a
-natural outer join table_b
-;
-```
-
-
-R
-
-* Get query from dplyr code
-
-```
-tbl_to_sql <- function(tbl) {
-  dplyr::show_query(tbl) |> 
-    capture.output() |> 
-    purrr::discard_at(1) |> 
-    paste(collapse = " ")
-}
-```
-
-* Transforms query into a string
-* Also see [Generating SQL with [{dbplyr}]{style='color: #990000'} and sqlfluff](https://emilyriederer.netlify.app/post/sql-generation/)
-
-* Connect to or Create a SQLite database
-
-```
-con <- DBI::dbConnect(drv = RSQLite::SQLite(),
-                      here::here("db_name.db"),
-                      timeout = 10)
-```
-
-* Connect to Microsoft SQL Server
-
-```
-con <- DBI::dbConnect(odbc::odbc(), 
-                      Driver = "SQL Server", 
-                      Server = "SERVER", 
-                      Database = "DB_NAME", 
-                      Trusted_Connection = "True", 
-                      Port = 1433)
-```
-
-* Close connection: `dbDisconnect(con)`
-* Create a table from a data source: `df <- dbplyr::tbl(con, "<table name>")`
-	* Allows you to use dplyr verbs with a remote database table then `collect`
-* Cancel a running query (postgres)
-
-```
-# Store PID
-pid <- DBI::dbGetInfo(conn)$pid
-
-# Cancel query and get control of IDE back
-# SQL command
-SELECT pg_cancel_backend(<PID>)
-```
-
-* Useful if query is running too long and you want control of your IDE back
-
-* Create single tables from a list of tibbles to a database
-
-```
-purrr::map2(table_names, list_of_tbls, ~ dbWriteTable(con, .x, .y))
-```
-
-* Load all tables from a database into a list
-
-```
-tables <- dbListTables(con) 
-all_data <- map(tables, dbReadTable, conn = con)
-```
-
-* Can use map\_dfr if all the tables have the same columns
-
-* Dynamic queries with [{glue}]{style='color: #990000'}
-	* Example MS SQL Server
-
-```
-vars <- c("columns", "you", "want", "to", "select")
-date_var <- 'date_col'
-start_date <- as.Date('2022-01-01')
-today <- Sys.Date()
-tablename <- "yourtablename"
-schema_name <- "yourschema"
-query <- glue_sql(.con = con, "SELECT TOP(10) {`vars`*} FROM {`schema_name`}.{`tablename`} ")
-DBI::dbGetQuery(con, query)
-```
-
-* {\`vars\`\*}  format collapses the vars vector, separated by commas, so that it resembles a SELECT statement
-
-
-
-Best Practices
-
-* Misc
-	* Resources
-		* [SQL Style Guide](https://www.sqlstyle.guide/)
-	* Use aliases only when table names are long enough so that using them improves readability (but choose meaningful aliases)
-	* Do not use SELECT \*. Explicitly list columns instead
-	* Use comments to document business logic
-	* A comment at the top should provide a high-level description
-	* Use an auto-formatter
-	* General Optimizations
-		* Removing duplicates or filtering out null values at the beginning of your model will speed up queries
-		* Replace complex code with window functions
-			* Example: Replace `GROUP_BY` + `TOP` with a partition + `FIRST_VALUE()`
-				* e.g. `FIRST_VALUE(test_score) OVER(PARTITION BY student_name ORDER BY test_score DESC)`
-			* Example: `AVG(test_score) OVER(PARTITION BY student_name)`
-* CTEs
-	* Break down logic in CTEs using WITH ... AS
-	* The SELECT statement inside each CTE must do a single thing (join, filter or aggregate)
-	* The CTE name should provide a high-level explanation
-	* The last statement should be a SELECT statement querying the last CTE
-* Joins
-	* Use WHERE for filtering, not for joining
-	* Favor LEFT JOIN over INNER JOIN; in most cases, it’s essential to know the distribution of NULLs
-	* Avoid using"Self-Joins." Use window functions instead (see [Google, BigQuery](Google, BigQuery) >> Optimization for details on self-joins)
-	* When doing equijoins (i.e., joins where all conditions have the something=another form), use the USING keyword
-	* Break-up joins using OR into UNION because SQL uses nested operations for JOIN + OR queries which slow things.
-		* Bad![](./_resources/SQL.resources/1-9K5I9iIKl5gUoYe9mw2CXw.png)
-		* Good![](./_resources/SQL.resources/1-rXsv2pEUKL3qBkM7DK8bVQ.png)
-		* UNION simply joins the outputs of two separate SELECT statements and retains only one occurrence of duplicated rows if there are any.
-* Style Guide![](./_resources/SQL.resources/1-HOcSBns8ec2jIO5A0gGHEw.png)
-
-
-
-Indexes
-
-* Misc
-	* An index may consist of up to 16 columns
-	* The first column of the index must always be present in the query’s filter, order , join or group operations to be used
-* Create Index on an existing table (postgres)
-
-```
-CREATE INDEX
-    score_index ON grades(score, student);
-```
-
-* "score\_index" is the name of the index
-* "grades" is the name of the table
-* "score" and "student" are fields to be used as the indexes
-
-* Create Index that only uses a specific character length
-
-```
-/* mysql */
-CREATE TABLE test (blob_col BLOB, INDEX(blob_col(10)));
-```
-
-* index only uses the first 10 characters of the column value of a BLOB column type
-
-* Create index with multiple columns
-
-```
-/* mysql */
-CREATE TABLE test (
-    id        INT NOT NULL,
-    last_name  CHAR(30) NOT NULL,
-    first_name CHAR(30) NOT NULL,
-    PRIMARY KEY (id),
-    INDEX name (last_name,first_name)
-)
-```
-
-* Usage of multiple column index (\*\* order of columns is important \*\*)
-
-```
-SELECT * FROM test WHERE last_name='Jones';
-SELECT * FROM test
-  WHERE last_name='Jones' AND first_name='John';
-SELECT * FROM test
-  WHERE last_name='Jones'
-  AND (first_name='John' OR first_name='Jon');
-SELECT * FROM test
-  WHERE last_name='Jones'
-  AND first_name >='M' AND first_name < 'N';
-```
-
-* Index is used when both columns are used as part of filtering criteria or when only the left-most column is used
-* if you have a three-column index on (col1, col2, col3), you have indexed search capabilities on (col1), (col1, col2), and (col1, col2, col3).
-
-* _Invalid_ usage of multiple column index
-
-```
-SELECT * FROM test WHERE first_name='John';
-SELECT * FROM test
-  WHERE last_name='Jones' OR first_name='John';
-```
-
-* The "name" index won't be used in these queries since
-	* first\_name is NOT the left-most column specified in the index
-	* OR is used instead of AND
-
-* Create index with DESC, ASC
-
-```
-/* mysql */
-CREATE TABLE t (
-  c1 INT, c2 INT,
-  INDEX idx1 (c1 ASC, c2 ASC),
-  INDEX idx2 (c1 ASC, c2 DESC),
-  INDEX idx3 (c1 DESC, c2 ASC),
-  INDEX idx4 (c1 DESC, c2 DESC)
-);
-```
-
-* Used by `ORDER BY`
-	* See [Docs](https://dev.mysql.com/doc/refman/8.0/en/descending-indexes.html) to see what operations and index types support Descending Indexes
-* Note:
-		idx\_a on column\_p, column\_q desc is not the same as an
-		* Index idx\_a on column\_q desc, column p or,
-		* Index idx\_b on column\_p desc, column q
-
-* Usage of Descending Indexes
-
-```
-ORDER BY c1 ASC, c2 ASC    -- optimizer can use idx1
-ORDER BY c1 DESC, c2 DESC  -- optimizer can use idx4
-ORDER BY c1 ASC, c2 DESC  -- optimizer can use idx2
-ORDER BY c1 DESC, c2 ASC  -- optimizer can use idx3
-```
-
-* See previous example for definition of idx\* names
-* See [Docs](https://dev.mysql.com/doc/refman/8.0/en/descending-indexes.html) to see what operations and index types support Descending Indexes
-
-
-
-Partitioning
-
-* Misc
-	* Also see
-		* MySQL [Docs](https://dev.mysql.com/doc/refman/8.0/en/partitioning-types.html)
-		* [Google, BigQuery](Google, BigQuery) >> Optimizations >> Partitioning and Clustering
-		* [DB, Engineering](DB, Engineering) >> Cost Optimizations
-	* all of your queries to the partitioned table must contain the `partition_key` in the `WHERE` clause
-
-
-
-Views
-
-* A smaller data object that contains the subset of data resulting from a specific query
-* Whereas a query happens after data is loaded, a materialized view is a precomputation
-* The computation is done once, and changes to the data are incorporated as they occur, making subsequent updates to the view much cheaper and more efficient than querying the entire database from scratch.
-* Create a View
-	* [Example]{.ribbon-highlight}: Create view as select (CVAS)
-
-```
-CREATE VIEW high_earner AS 
-SELECT p.id AS person_id, j.salary
-FROM People p
-JOIN Job j 
-ON p.job = j.title
-WHERE j.salary >= 200000;
-```
-
-* Query a view (same as a table): `SELECT * FROM high_earner`
-* Update view
-
-```
-CREATE OR REPLACE VIEW high_earner AS 
-SELECT p.id AS person_id, j.salary
-FROM People p
-JOIN Job j 
-ON p.job = j.title
-WHERE j.salary >= 150000;
-```
-
-* Expects the query output to retain the same number of columns, column names, and column data types. Thus, any modification that results in a change in the data structure will raise an error.
-
-* List views![](./_resources/SQL.resources/image.4.png)
-
-```
-SELECT * 
-FROM information_schema.views
-WHERE table_schema NOT IN ('pg_catalog', 'information_schema');
-```
-
-* "table\_name" has the names of the views
-* "view\_definition" shows the query stored in the view
-* WHERE command is included to omit built-in views from PostgreSQL.
-
-* Delete view: `DROP VIEW high_earner;`
-
-
-
-Variables
-
-* User-defined
-	* DECLARE and SET
-
-```
--- Declare your variables
-DECLARE @start date
-DECLARE @stop date
--- SET the relevant values for each variable
-SET @start = '2021-06-01'
-SET @stop = GETDATE()
-```
-
-* DECLARE sets the variable type (e.g. date)
-* SET assigns a value
-
-* Or just use DECLARE
-
-```
-DECLARE @Iteration Integer = 0;
-```
-
-* Examples
-	* [Example]{.ribbon-highlight}: Exclude 3 months of data from the query
-
-```
-SELECT t1.[DATETIME], COUNT(*) AS vol
-FROM Medium.dbo.Earthquakes t1
-WHERE t1.[DATETIME] BETWEEN @start AND DATEADD(MONTH, -3, @stop)
-GROUP BY t1.[DATETIME]
-ORDER BY t1.[DATETIME] DESC;
-```
-
-* See above for the definitions of @start and @stop
-
-* [Example]{.ribbon-highlight}: Apply a counter
-
-```
--- Declare the variable (a SQL Command, the var name, the datatype)
-DECLARE @counter INT;
--- Set the counter to 20
-SET @counter = 20;
--- Print the initial value
-SELECT @counter AS _COUNT;
--- Select and increment the counter by one
-SELECT @counter = @counter + 1;
--- Print variable
-SELECT @counter AS _COUNT;
--- Select and increment the counter by one
-SELECT @counter += 1;
--- Print the variable
-SELECT @counter AS _COUNT;
-```
-
-* System
-	* ROWCOUNT - returns the number of rows affected by the last previous statement
-		* Example
-
-```
-BEGIN
-    SELECT
-        product_id,
-        product_name
-    FROM
-        production.products
-    WHERE
-        list_price > 100000;
-    IF @@ROWCOUNT = 0
-        PRINT 'No product with price greater than 100000 found';
-END
-```
-
-
-
-Functions
-
-* "||" Concantenate strings. e.g 'Post' || 'greSQL' --> PostgreSQL
-* BEGIN...END - defines a compound statement or statement block. A compound statement consists of a set of SQL statements that execute together. A statement block is also known as a batch
-	* A compound statement can have a local declaration for a variable, a cursor, a temporary table, or an exception
-		* Local declarations can be referenced by any statement in that compound statement, or in any compound statement nested within it.
-		* Local declarations are invisible to other procedures that are called from within a compound statement
-* COMMIT - a transaction control language that is used to permanently save the changes done in the transaction in tables/databases. The database cannot regain its previous state after its execution of commit.
-* DATEADD - adds units of time to a variable or value
-	* e.g. `DATEADD(month, -3, '2021-06-01')`
-		* subtracts 3 months from 2021-06-01
-* DATE\_TRUNC - pulls a component of a date object.
-	* e.g. `date_trunc('month', date_var) as month`
-* `DENSE_RANK`\- similar to the `RANK` , but it does not skip any numbers even if there is a tie between the rows.
-	* Values are ranked by the column specified in ORDER BY expression of the window function
-* EXPLAIN - a means of running your query as a what-if to see what the planner thinks about it. It will show the process the system goes through to get to the data and return it.
-
-```
-EXPLAIN
-SELECT
-    s.id AS student_id,
-    g.score
-FROM
-    students AS s
-LEFT JOIN
-    grades AS g
-    ON s.id = g.student_id
-WHERE
-    g.score > 90
-ORDER BY
-    g.score DESC;
-/*
-QUERY PLAN
-----------
-Sort (cost=80.34..81.88 rows=617 width=8)
-[...] Sort Key: g.score DESC
-[...] -> Hash Join (cost=16.98..51.74 rows=617 width=8)
-[...] Hash Cond: (g.student_id = s.id)
-[...] -> Seq Scan on grades g (cost=0.00..33.13 rows=617 width=8)
-[...] Filter: (score > 90)
-[...] -> Hash (cost=13.10..13.10 rows=310 width=4)
-[...] -> Seq Scan on students s (cost=0.00..13.20 rows=320 width=4)
-*/
-```
-
-* sequentially scanning ("Seq Scan") the grades and students tables because the tables aren’t indexed
-	* Any Seq Scan, parallel or not, is sub-optimal
-* `EXPLAIN (BUFFERS)` also shows how may data pages the database had to fetch using slow disk read operations ("read"), and how many of them were cached in memory ("shared hit")
-
-* EXPLAIN ANALYZE - tells the planner to not only hypothesize on what it would do, but actually run the query and show the results.
-	* shows where indexes are being hit — or not hit as it may be. You can step through and re-optimize your basic and complex queries.
-* GETDATE() - Gets the current date
-* GO - Not a sql function. Used by some interpreters as a reset.
-	* i.e. any variables set before the GO statement will now not be recognized by the interpreter.
-	* Helps to separate code into different sections
-* ISDATE - boolean - checks that a variable is a date type
-* QUALIFY clause filters the results of window functions.
-	* useful when answering questions like fetching the most XXX value of each category
-	* QUALIFY does with window functions as what HAVING does with GROUP BY. As a result, in the order of execution, QUALIFY is evaluated after window functions.
-	* See Business Queries >> Get the latest order from each customer
-* UNNEST - BigQuery - takes an ARRAY and returns a table with a row for each element in the ARRAY ([docs](https://medium.com/firebase-developers/how-to-use-select-from-unnest-to-analyze-multiple-parameters-in-bigquery-for-analytics-5838f7a004c2))
-	* [Google, Analytics](Google, Analytics) >> Analysis >> Example 17
-
-
-
-User Defined Functions (UDF)
-
-* Misc
-	* Available in SQL Server ([Docs1](https://learn.microsoft.com/en-us/sql/relational-databases/user-defined-functions/user-defined-functions?view=sql-server-ver16), [Docs2](https://learn.microsoft.com/en-us/sql/t-sql/statements/create-function-transact-sql?source=recommendations&view=sql-server-ver16)), Postgres ([Docs](https://www.postgresql.org/docs/current/xfunc-sql.html)), BigQuery ([docs](https://cloud.google.com/bigquery/docs/reference/standard-sql/user-defined-functions)), etc.
-	* Keep a dictionary with the UDFs you’ve created and make sure to share it with any collaborators.
-	* Can be persistent or temporary
-		* Persistent UDFs can be used across multiple queries, while temporary UDFs only exist in the scope of a single query
-* Create
-	* Example: temporary udf (BQ)
-
-```
-CREATE TEMP FUNCTION AddFourAndDivide(x INT64, y INT64)
-RETURNS FLOAT64
-AS (
-  (x + 4) / y
-);
-SELECT
-  val, AddFourAndDivide(val, 2)
-FROM
-  UNNEST([2,3,5,8]) AS val;
-```
-
-* "@exponent" is the input variable
-
-* Example: persistent udf (BQ)
-
-```
-CREATE FUNCTION mydataset.AddFourAndDivide(x INT64, y INT64)
-RETURNS FLOAT64
-AS (
-  (x + 4) / y
-);
-
-SELECT
-  val, mydataset.AddFourAndDivide(val, 2)
-FROM
-  UNNEST([2,3,5,8,12]) AS val;
-```
-
-* Delete persistent udf: `DROP FUNCTION <udf_name>`
-* With Scalar subquery (BQ)
-
-```
-CREATE TEMP FUNCTION countUserByAge(userAge INT64)
-AS (
-  (SELECT COUNT(1) FROM users WHERE age = userAge)
-);
-SELECT
-  countUserByAge(10) AS count_user_age_10,
-  countUserByAge(20) AS count_user_age_20,
-  countUserByAge(30) AS count_user_age_30;
-```
-
-
-
-Loops
-
-* Misc
-	* posgres [docs](https://www.postgresql.org/docs/15/plpgsql-control-structures.html#PLPGSQL-CONTROL-STRUCTURES-LOOPS) for loops
-* WHILE
-	* Example: Incrementally add to a counter variable
-
-```
--- Declare the initial value
-DECLARE @counter INT;
-SET @counter = 20;
--- Print initial value
-SELECT @counter AS _COUNT;
--- Create a loop
-BEGIN;
--- Loop code starting point
-WHILE @counter < 30
-SELECT @counter = @counter + 1;
--- Loop finish
-END;
--- Check the value of the variable
-SELECT @counter AS _COUNT;
-```
-
-* Cursors ([Docs](https://www.postgresql.org/docs/current/plpgsql-cursors.html))
-	* Rather than executing a whole query at once, it is possible to set up a cursor that encapsulates the query, and then read the query result a few rows at a time.
-		* One reason for doing this is to avoid memory overrun when the result contains a large number of rows. (However, PL/pgSQL users do not normally need to worry about that, since FOR loops automatically use a cursor internally to avoid memory problems.)
-		* A more interesting usage is to return a reference to a cursor that a function has created, allowing the caller to read the rows. This provides an efficient way to return large row sets from functions.
-	* Example ([article](https://towardsdatascience.com/5-advanced-sql-techniques-for-real-life-projects-f2db9b6680e2) (do not pay attention dynamic sql. it's for embedding sql in C programs))
-
-```
-DECLARE
-    cur_orders CURSOR FOR 
-        SELECT order_id, product_id, quantity
-        FROM order_details
-        WHERE product_id = 456;
-    product_inventory INTEGER;
-BEGIN
-    OPEN cur_orders;
-    LOOP
-        FETCH cur_orders INTO order_id, product_id, quantity;
-        EXIT WHEN NOT FOUND;
-        SELECT inventory INTO product_inventory FROM products WHERE product_id = 456;
-        product_inventory := product_inventory - quantity;
-        UPDATE products SET inventory = product_inventory WHERE product_id = 456;
-    END LOOP;
-    CLOSE cur_orders;
-    -- do something after updating the inventory, such as logging the changes
-END;
-```
-
-* A table called “products” that contains information about all products, including the product ID, product name, and current inventory. You can use a cursor to iterate through all orders that contain a specific product and update its inventory.
-	A cursor called “cur\_orders” that selects all order details that contain a specific product ID. We then define a variable called “product\_inventory” to store the current inventory of the product.
-	
-	Inside the loop, we fetch each order ID, product ID, and quantity from the cursor, subtract the quantity from the current inventory and update the products table with the new inventory value.
-	
-	Finally, we close the cursor and do something after updating the inventory, such as logging the changes.
-	
-
-
-
-Window Functions
-
-* Unlike GROUP BY, keeps original columns after an aggregation![](./_resources/SQL.resources/1-KHkgYYK0Up46b8BunVMYoQ.png)
-	* Allows you to work with both aggregate and non-aggregate values all at once
-		* Better performance than using GROUP BY + JOIN to get the same result
-* Despite the order of operations, if you really need to have a window function inside a WHERE clause or GROUP BY clause, you may get around this limitation by using a subquery or a WITH query
-	* Example: Remove duplicate rows
-
-```
-WITH temporary_employees as
-(SELECT 
-  employee_id,
-  employee_name,
-  department,
-  ROW_NUMBER() OVER(PARTITION BY employee_name,
-                                department,
-                                employee_id) as row_count
-FROM Dummy_employees)
-
-SELECT *
-FROM temporary_employees
-WHERE row_count = 1
-```
-
-* 3 Types of Window Functions![](./_resources/SQL.resources/1-u8SPxze2b1OdCdPo1maVGw.png)
-	* LEAD() will give you the row AFTER the row you are finding a value for.
-	* LAG() will give you the row BEFORE the row you are finding a value for.
-	* FIRST\_VALUE() returns the first value in an ordered, partitioned data output.
-* General Syntax![](./_resources/SQL.resources/1-NKUDO4a5fu5kVW-OlkHUJw.png)
-	* window\_function is the name of the window function we want to use (e.g. see above)
-		* expression is the name of the column that we want the window function operated on.
-			* May not be necessary depending on what window\_function is used
-		* OVER is just to signify that this is a window function
-	* PARTITION BY divides the rows into partitions so we can specify which rows to use to compute the window function
-		* partition\_list is the name of the column(s) we want to partition by (i.e. group\_by)
-	* ORDER BY is used so that we can order the rows within each partition. This is optional and does not have to be specified
-		* order\_list is the name of the column(s) we want to order by
-	* ROWS (optional; typically not used) used to subset the rows _within each partition_.
-		* frame\_clause defines how much to offset from our current row
-		* Syntax: ROWS BETWEEN <starting\_row> AND <ending\_row>
-			* Options for starting and ending row
-				* UNBOUNDED PRECEDING — all rows before the current row in the partition, i.e. the first row of the partition
-				* \[some #\] PRECEDING — # of rows before the current row
-				* CURRENT ROW — the current row
-				* \[some #\] FOLLOWING — # of rows after the current row
-				* UNBOUNDED FOLLOWING — all rows after the current row in the partition, i.e. the last row of the partition
-			* Examples
-				* ROWS BETWEEN 3 PRECEDING AND CURRENT ROW — this means look back the previous 3 rows up to the current row.
-				* ROWS BETWEEN UNBOUNDED PRECEDING AND 1 FOLLOWING — this means look from the first row of the partition to 1 row after the current row
-				* ROWS BETWEEN 5 PRECEDING AND 1 PRECEDING — this means look back the previous 5 rows up to 1 row before the current row
-				* ROWS BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING — this means look from the first row of the partition to the last row of the partition
-* [Example]{.ribbon-highlight}: Average Salary by Job Title![](./_resources/SQL.resources/1-GVX7Ws5Dk_f9-a6o9Wy_kQ.png)![](./_resources/SQL.resources/1-KHkgYYK0Up46b8BunVMYoQ.1.png)
-* **Tables for Examples**![](./_resources/SQL.resources/1-vz3DggeLfupObUnYlCa11A.png)
-* [Example]{.ribbon-highlight}: Average Unit Price for each CustomerId![](./_resources/SQL.resources/1-c9eFD04nSDvxmzg2zza8oA.png)
-
-```
-SELECT CustomerId, 
-      UnitPrice, 
-      AVG(UnitPrice) OVER (PARTITION BY CustomerId) AS “AvgUnitPrice”
-FROM [Order] 
-INNER JOIN OrderDetail ON [Order].Id = OrderDetail.OrderId
-```
-
-* [Example]{.ribbon-highlight}: Average Unit Price for each group of CustomerId AND EmployeeId![](./_resources/SQL.resources/1-NEoVEmqBzFSlX3NHNK9dUg.png)
-
-```
-SELECT CustomerId, 
-      EmployeeId, 
-      AVG(UnitPrice) OVER (PARTITION BY CustomerId, EmployeeId) AS “AvgUnitPrice”
-FROM [Order] 
-INNER JOIN OrderDetail ON [Order].Id = OrderDetail.OrderId
-```
-
-* [Example]{.ribbon-highlight}: Create a new column that ranks Unit Price in descending order for each CustomerId![](./_resources/SQL.resources/1-s7wtLz5LVZleovQtIFgQJg.png)
-
-```
-SELECT CustomerId, 
-      OrderDate, 
-      UnitPrice, 
-      ROW_NUMBER() OVER (PARTITION BY CustomerId ORDER BY UnitPrice DESC) AS “UnitRank”
-FROM [Order] 
-INNER JOIN OrderDetail 
-ON [Order].Id = OrderDetail.OrderId
-```
-
-* Substituting RANK in place of ROW\_NUMBER should produce the same results
-* Note that ranks are skipped (e.g. rank 3 for ALFKI) when there are rows with the same rank
-	* If you don't want ranks skipped, use DENSE\_RANK for the window function
-
-* [Example]{.ribbon-highlight}: Create a new column that provides the previous order date’s Quantity for each ProductId![](./_resources/SQL.resources/1-U5Pb6kyZYtMvbhHw13o3YA.png)
-
-```
-SELECT ProductId, 
-      OrderDate, 
-      Quantity, 
-      LAG(Quantity) OVER (PARTITION BY ProductId ORDER BY OrderDate) AS "LAG"
-FROM [Order] 
-INNER JOIN OrderDetail ON [Order].Id = OrderDetail.OrderId
-```
-
-* Use LEAD for the _following_ quantity
-
-* [Example]{.ribbon-highlight}: Create a new column that provides the very first Quantity ever ordered for each ProductId![](./_resources/SQL.resources/1-crsYDwLQoWTRX1Ilrkwusw.png)
-
-```
-SELECT ProductId, 
-      OrderDate, 
-      Quantity, 
-      FIRST_VALUE(Quantity) OVER (PARTITION BY ProductId ORDER BY OrderDate) AS "FirstValue"
-FROM [Order] 
-INNER JOIN OrderDetail ON [Order].Id = OrderDetail.OrderId
-```
-
-* [Example]{.ribbon-highlight}: Calculate a cumulative moving average UnitPrice for each CustomerId![](./_resources/SQL.resources/1-FK8pEUSQhqKZv4FGNekZFA.png)
-
-```
-SELECT CustomerId, 
-      UnitPrice, 
-      AVG(UnitPrice) OVER (PARTITION BY CustomerId 
-      ORDER BY CustomerId 
-      ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW) AS “CumAvg”
-FROM [Order]
-INNER JOIN OrderDetail ON [Order].Id = OrderDetail.OrderId
-```
-
-* [Example]{.ribbon-highlight}: Rank customers for each department by amount spent
-
-```
-SELECT
-    customer_name,
-    customer_id,
-    amount_spent,
-    department_id,
-    RANK(amount_spent) OVER(ORDER BY amount_spent DESC PARTITION BY department_id) AS spend_rank
-FROM employees
-```
-
-* [Example]{.ribbon-highlight}: Find the model and year of car that been on lot the longest
-
-```
-SELECT 
-FIRST_VALUE(name) OVER(PARTITION BY model, year ORDER BY date_at_lot ASC) AS oldest_car_name
-model,
-year
-FROM cars
-```
-
-* Running Totals/Averages (Cumulative Sums)
-	* Uses SUM as the window function
-		* Just replace SUM with AVG to get running averages
-	* [Example]{.ribbon-highlight}![](./_resources/SQL.resources/1-vZiZM7MBwfeHhi8GP3QrtQ.png)
-		* Generate a new dataset grouped by month, instead of timestamp. (CTE)
-			* Only include three fields: account\_id, occurred\_month and total\_amount\_usd
-			* Only computed for the following accounts: 1041 , 1051, 1061, 10141.
-		* Compute a running total ordered by occurred\_month, without collapsing the rows in the result set.
-			* Display 2 columns: occurred\_month and cum\_amnt\_usd\_by\_month![](./_resources/SQL.resources/1-KcELs2mkbYN3XKk0Gzk-jg.png)![](./_resources/SQL.resources/1-2u7h_5kxKinnn15C7VGmiw.png)
-		* Because no partition was specified, the running total is applied on the full dataset and ordered by (ascending) occurred\_month
-	* [Example]{.ribbon-highlight} running total by grouping variable
-		* Using previous CTE
-			* Compute a running total by account\_id, ordered by occurred\_month, and account\_id (i.e. a separate running total for each account\_id.)
-				* Display 3 columns: account\_id, occurred\_month, and cum\_mon\_amnt\_usd\_by\_account![](./_resources/SQL.resources/1-Axkp3Gp-fk5iWysxLJXklg.png)![](./_resources/SQL.resources/1-0jfZNXzNQ0jVT_bIW_KpCw.png)
-		* Same as previous example except a partition column (account\_id) is added
-	* [Example]{.ribbon-highlight} Running total over various window lengths
-		* Using previous CTE
-			* Compute a 3 months rolling running total using a window that includes the current month.
-			* Compute a 7 months rolling running total using a window where the current month is always the middle month.![](./_resources/SQL.resources/1-lbxUJId6dY1fJHz44A1RKQ.png)![](./_resources/SQL.resources/1-UXXt7TGvkdFFqm-opBx1mg.png)
-		* First case uses 2 PRECEDING rows and the CURRENT\_ROW
-		* Second case uses 3 PRECEDING rows and 3 FOLLOWING rows and the CURRENT\_ROW
-
-
-
-Common Table Expressions (CTE)
-
-* The result set of a query which exists temporarily and for use only within the context of a larger query. Much like a derived table, the result of a CTE is not stored and exists only for the duration of the query. 
-* Also see
-	* Window Functions >> Running Totals >> Examples
-	* [Google, Analytics](Google, Analytics) >> Analysis >> Examples 12-15, 18, 19
-* Use Cases
-	* Needing to reference a derived table multiple times in a single query
-	* An alternative to creating a view in the database
-	* Performing the same calculation multiple times over across multiple query components
-* Improves readability and _usually_ no performance difference
-	* Prior to PostgreSQL 12, https://hakibenita.com/be-careful-with-cte-in-postgre-sql , something with the caching mechanism created a bottleneck. Currently, version 13 is the latest, so hopefully not a common problem anymore.
-* Steps
-	* Initiate a CTE using “WITH”
-	* Provide a name for the result soon-to-be defined query
-	* After assigning a name, follow with “AS”
-	* Specify column names (optional step)
-	* Define the query to produce the desired result set
-	* If multiple CTEs are required, initiate each subsequent expression with a comma and repeat steps 2-4.
-	* Reference the above-defined CTE(s) in a subsequent query
-* Syntax
-
-```
+-   Misc
+-   Set-up
+-   Terms
+-   Basics
+    -   Create Tables
+    -   Add data
+    -   Subqueries
+    -   Joins
+-   R
+-   Best Practices
+-   Indexes
+-   Partitioning
+-   Views
+-   Variables
+-   Functions
+-   User Defined Functions (UDF)
+-   Window Functions
+-   Common Table Expressions (CTE)
+-   Strings
+-   Arrays
+-   Transactions
+-   Business Queries
+-   Processing Expressions
+-   Tools
+
+## Misc {#sec-sql-misc .unnumbered}
+
+-   `dplyr::show_query` can convert a dplyr expression to SQL for db object (e.g. dbplyr,  duckdb, arrow)
+
+-   Queries in examples
+
+    -   Window Functions
+        -   Average Salary by Job Title
+        -   Average Unit Price for each CustomerId
+        -   Rank customers by amount spent
+        -   Create a new column that ranks Unit Price in descending order for each CustomerId
+        -   Create a new column that provides the previous order date's Quantity for each ProductId
+        -   Create a new column that provides the very first Quantity ever ordered for each ProductId
+        -   Calculate a cumulative moving average UnitPrice for each CustomerId
+        -   Rank customers for each department by amount spent
+        -   Find the model and year of the car that been on the lot the longest
+        -   Create a subset (CTE)
+            -   Calculate a running monthly total (aka cumsum)
+                -   Also running average
+            -   Calculate a running monthly total for each account id
+            -   Calculate a 3 months rolling running total using a window that includes the current month.
+            -   Calculate a 7 months rolling running total using a window where the current month is always the middle month
+    -   CTE
+        -   Average monthly cost per campaign for the company's marketing efforts
+        -   Count the number of interactions of new users
+        -   The average top Math test score for students in California
+    -   Business Queries
+        -   7-day Simple Moving Average (SMA)
+        -   Rank product categories by shipping cost for each shipping address
+        -   Daily counts of open jobs (where "open" is an untracked daily status)
+        -   Get the latest order from each customer
+
+-   Order of Operations\
+    ![](./_resources/SQL.resources/1-MCyFDF35OZ3n0dyZqX6_Tw.png)
+
+    -   Higher ranked functions can be inserted inside lower ranked functions
+        -   e.g a window function can be inside a SELECT function but not inside a WHERE clause
+        -   There are exceptions and hacks around this in some cases
+
+-   Types of Commands
+
+    -   Data Query Language (DQL) - used to find and view data without making any permanent changes to the database.
+    -   Data Manipulation Language (DML) - used to make permanent changes to the data, such as updating values or deleting them.
+    -   Data Definition Language (DDL) - used to make permanent changes to the table, such as creating or deleting a table.
+    -   Data Control Language (DCL) - used for administrative commands, such as adding or removing users of different tables and databases.
+    -   Transact Control Language (TCL) - advanced SQL that deals with transaction level statements.
+
+-   Microsoft SQL Server format for referencing a table:
+
+    -   \[database\].\[schema\].\[tablename\]
+
+    -   Alternative
+
+        ``` sql
+        USE my_data_base
+        GO
+        ```
+
+-   Check if a table is updatable
+
+    ``` sql
+    SELECT table_name, is_updatable
+    FROM information_schema.views
+    ```
+
+    -   Useful if some of the tables you are working with are missing values that you need to add
+
+    -   If not updatable, then you'll need to contact the database administrator to request permission to update that specific table
+
+    -   Show all tables
+
+        ``` sql
+        SHOW FULL TABLES -- mysql
+        ```
+
+## Set-up {#sec-sql-setup .unnumbered}
+
+-   postgres
+    -   [Download](https://www.postgresql.org/download/) postgres
+    -   [pgAdmin](https://www.pgadmin.org/download/) is an IDE commonly used with postgres
+        -   Open pgAdmin and click on "Add new server."
+            -   Sets up connection to existing server so make sure postgres is installed beforehand
+        -   Create Tables
+            -   home \>\> Databases (1) \>\> postgres \>\> Query Tool
+        -   If needed, give [permission](https://stackoverflow.com/questions/14083311/permission-denied-when-trying-to-import-a-csv-file-from-pgadmin) to pgAdmin to access data from a folder
+            -   Might be necessary to upload csv files
+        -   Import csv file
+            -   right-click the table name \>\> Import/Export
+            -   Options tab
+                -   Select import, add file path to File Name, choose csv for format, select Yes for Header, add , for Delimiter
+            -   Columns tab
+                -   uncheck columns not in the csv (probably the primary key)
+                    -   Wonder if NULLs will be automatically inserted for columns in the table that aren't in the file.
+
+## Terms {#sec-sql-terms .unnumbered}
+
+-   **Batch** - a set of sql statements e.g. statements between BEGIN and END
+-   **Compiled object** - you can create a function written in C/C++ and load into the database (at least in postgres) to achieve high performance.
+-   Correlated Columns - tells how good the match between logical and physical ordering is.
+-   **Correlated/Uncorrelated** **Subqueries**
+    -   correlated- a type of query, where inner query depends upon the outcome of the outer query in order to perform its execution
+
+        -   A correlated subquery can be thought of as a filter on the table that it refers to, as if the subquery were evaluated on each row of the table in the outer query
+
+    -   uncorrelated - a type of sub-query where inner query doesn't depend upon the outer query for its execution.
+
+        -   It is an independent query, the results of which are returned to and used by the outer query once (not per row).
+
+        ``` sql
+        -- Uncorrelated subquery:
+        -- inner query, c1, only depends on table2
+        select c1, c2
+          from table1 where c1 = (select max(x) from table2);
+
+        -- Correlated subquery:
+        -- inner query, c1, depends on table1 and table2
+        select c1, c2
+          from table1 where c1 = (select x from table2 where y = table1.c2);
+        ```
+-   **Functions** execute at a different level of priority and are handled differently than Views. You will likely see better performance.
+-   **Index** - a quick lookup table (e.g. field or set of fields) for finding records users need to search frequently. An index is small, fast, and optimized for quick lookups. It is very useful for connecting the relational tables and searching large tables. (also see [DB, Engineering](db-engineering.qmd#sec-db-eng-costopt) \>\> Cost Optimizations)
+-   **Migrations (schema)** - version control system for your database schema. Management of incremental, reversible changes and version control to relational database schemas. A schema migration is performed on a database whenever it is necessary to update or revert that database's schema to some newer or older version.
+-   **Physical Ordering** - A PostgreSQL table consists of one or more files of 8KB blocks (or "pages"). The order in which the rows are stored in the file is the physical ordering.
+-   **Predicate** - defines a logical condition being applied to rows in a table. (e.g. IN, EXISTS, BETWEEEN, LIKE, ALL, ANY)
+-   **Scalar/Non-Scalar Subqueries**
+    -   A scalar subquery returns a single value (one column of one row). If no rows qualify to be returned, the subquery returns NULL.
+    -   A non-scalar subquery returns 0, 1, or multiple rows, each of which may contain 1 or multiple columns. For each column, if there is no value to return, the subquery returns NULL. If no rows qualify to be returned, the subquery returns 0 rows (not NULLs).
+-   **Selectivity** - the fraction of rows in a table or partition that is chosen by the predicate
+    -   Refers to the quality of a filter in its ability to reduce the number of rows that will need to be examined and ultimately returned
+        -   With a high selectivity, using the primary key or indexes to get right to the rows of interest
+        -   With a low selectivity, a full table scan would likely be needed to get the rows of interest.
+    -   Higher selectivity means: more unique data; fewer duplicates; fewer number of rows for each key value
+    -   Used to estimate the cost of a particular access method; it is also used to determine the optimal join order. A poor choice of join order by the optimizer could result in a very expensive execution plan.
+-   **Soft-deleted** - An operation in which a flag is used to mark data as unusable, without erasing the data itself from the database
+-   **Surrogate key** - very similar to a primary key in that it is a unique value for an object in a table. However, rather than being derived from actual data present in the table, it is a field generated by the object itself. It has no business value like a primary key does, but is rather only used for data analysis purposes. Can be generated using different columns that already exist in your table or more often from two or more tables. [dbt function definition](https://github.com/dbt-labs/dbt-utils#surrogate_key-source)
+    -   Examples: PostgreSQL serial column, Oracle sequence column, or MySQL auto_increment column, Snowflake \_file + \_line columns
+    -   Example: Each employee id is concatenated with a department id (e.g. marketing or finance)\
+        ![](./_resources/SQL.resources/1-upKcdpMyn4wxcKk8wuHj4A.png)
+-   **Transaction** - a set of queries tied together such that if one query fails, the entire set of queries are rolled back to a pre-query state if the situation dictates.
+    -   A database transaction, by definition, must be atomic, consistent, isolated and durable. These are popularly known as **ACID** properties.  These properties can ensure the concurrent execution of multiple transactions without conflict.
+-   **Views** - database objects that represent saved SELECT queries in "virtual" tables.
+    -   Contains a query plan.  For each query executed, the planner has to evaluate what's being asked and calculate an optimal path. Views already have this plan calculated so it allows subsequent queries to be returned with almost no friction in processing aside from data retrieval.
+    -   Some views are updateable but under certain conditions (1-1 mapping of rows in view to underlying table, no group_by, etc.)
+
+## Basics {#sec-sql-basics .unnumbered}
+
+### Create Tables {#sec-sql-basics-ctabs .unnumbered}
+
+-   If you don't include the schema as part of the table name (e.g. schema_name.table_name), pgadmin automatically places it into the "public" schema directory
+
+-   Field Syntax: name, data type, constraints
+
+-   [Example]{.ribbon-highlight}: Create table as select (CTAS)
+
+    ``` sql
+    CREATE TABLE new_table AS 
+    SELECT * 
+    FROM old_table 
+    WHERE condition;
+    ```
+
+-   [Example]{.ribbon-highlight}: Table 1 (w/primary key)
+
+    ``` sql
+    DROP TABLE IF EXISTS classrooms CASCADE;
+    CREATE TABLE classrooms (
+        id INT PRIMARY KEY GENERATED ALWAYS AS IDENTITY,
+        teacher VARCHAR(100)
+        );
+     -- OR
+    CREATE TABLE classrooms ( 
+        id INT GENERATED ALWAYS AS IDENTITY, 
+        teacher VARCHAR(100)
+        PRIMARY KEY(id) 
+        );   
+    ```
+
+    -   "classrooms" is the name of the table; "id" and "teacher" are the fields
+
+    -   `CASCADE` - postgres won't delete the table if other tables point to it, so cascade will override measure.
+
+    -   `GENERATED ALWAYS AS IDENTITY` - makes it so you don't have to keep track of which "id" values have been used when adding rows. You can ommit the value for "id" and just add the values for the other fields
+
+    -   See [tutorial](https://www.postgresqltutorial.com/postgresql-identity-column/) for options, usage, removing, adding, etc. this constraint
+
+        ``` sql
+        INSERT INTO classrooms
+            (teacher)
+        VALUES
+            ('Mary'),
+            ('Jonah');
+        ```
+
+        -   Also see Add Data \>\> Example: chatGPT
+
+-   [Example]{.ribbon-highlight}: Table 2 (w/foreign key)
+
+    ``` sql
+    DROP TABLE IF EXISTS students CASCADE;
+    CREATE TABLE students (
+        id INT PRIMARY KEY GENERATED ALWAYS AS IDENTITY,
+        name VARCHAR(100),
+        classroom_id INT,
+        CONSTRAINT fk_classrooms
+            FOREIGN KEY(classroom_id)
+            REFERENCES classrooms(id)
+    );
+    ```
+
+    -   "students" is the name of the table; "id", "name", and "classroom_id" are the fields
+    -   Create a foreign key that points to the "classrooms" table
+        -   Expression
+
+            -   fk_classrooms is the name of the `CONSTRAINT`
+            -   "classroom_id" is the field that will be the `FOREIGN KEY`
+            -   `REFERENCES` points the foreign key to the classrooms table's primary key, "id"
+                -   foreign keys can point to any table
+
+        -   Postgres won't allow you to insert a row into students with a "classroom_id" that doesn't exist in the "id" field of classrooms but will allow you to use a NULL placeholder
+
+            ``` sql
+            -- Explicitly specify NULL
+            INSERT INTO students
+                (name, classroom_id)
+            VALUES
+                ('Dina', NULL); 
+
+            -- Implicitly specify NULL
+            INSERT INTO students
+                (name)
+            VALUES
+                ('Evan');
+            ```
+
+            -   Also see Add Data \>\> Example: chatGPT
+
+-   [Example]{.ribbon-highlight}
+
+    ``` sql
+    CREATE TABLE members (
+        id serial primary key,
+        second_name character varying(200) NOT NULL,
+        date_joined date NOT NULL DEFAULT current_date,
+        member_id integer references members(id),
+        booking_start_time timestamp without timezone NOT NULL
+    ```
+
+    -   The "serial" data type does the same thing as `GENERATED ALWAYS AS IDENTITY` (see first example), but is NOT compliant with the SQL standard. Use `GENERATED ALWAYS AS IDENTITY`
+    -   "references" seems to be another old way to create foreign keys (see 2nd example for proper way)
+    -   "character varying" - variable-length with limit (e.g limit of 200 characters)
+        -   character(n), char(n) are for fixed character lengths; text is for unlimited character lengths
+    -   "current_date" is a function that will insert the current date as a value
+    -   "timestamp without timezone" is literally that
+        -   also available: time with/without timezone, date, interval (see [Docs](https://www.postgresql.org/docs/14/datatype-datetime.html) for details)
+
+### Add Data {#sec-sql-basics-add .unnumbered}
+
+-   [Example]{.ribbon-highlight}: Copy/Paste table values into chatGPT to get the query\
+    ![](./_resources/SQL.resources/image.11.png)
+
+-   [Example]{.ribbon-highlight}: Add data via .csv
+
+    ``` sql
+    COPY assignments(category, name, due_date, weight)
+    FROM 'C:/Users/mgsosna/Desktop/db_data/assignments.csv'
+    DELIMITER ','
+    CSV HEADER;
+    ```
+
+    -   "assignments" is the table; "category", "name", "due_date", "weight" are fields that you want to import from the csv file
+    -   \*\* The order of the columns must be the same as the ones in the CSV file \*\*
+    -   `HEADER` keyword to indicate that the CSV file contains a header
+    -   Might need to have superuser access in order to execute the COPY statement successfully
+
+### Subqueries {#sec-sql-basics-subq .unnumbered}
+
+-   \*\*Better to used CTEs instead of subqueries\*\*
+
+    -   Subqueries make it difficult to understand their context in the larger query
+    -   The only way to debug a subquery is by turning it into a CTE or pulling it out of the query entirely.
+    -   CTEs and subqueries have a similar runtime, but subqueries make your code more complex for no reason.
+
+-   Notes from [How to Use SubQueries in SQL](https://towardsdatascience.com/how-to-use-subqueries-in-sql-da660694b8e3)
+
+    -   Also shows the alt method of creating a temporary table to compute the queries
+
+-   Use cases
+
+    -   Filtering rows from a table with the context of another.
+    -   Performing double-layer aggregations such as average of averages or an average of sums.
+    -   Accessing aggregations with a subquery.
+
+-   Tables used in examples
+
+    -   Store A (store_a)![](./_resources/SQL.resources/image.10.png)
+        -   Store B is similar
+
+-   [Example]{.ribbon-highlight}: Filtering rows
+
+    ``` sql
+    select * 
+    from sandbox.store_b
+    where product_id IN (
+        select product_id
+        from sandbox.store_b
+        group by product_id 
+        having count(product_id) >= 3
+    );
+    ```
+
+    -   filters the rows with products that have been bought at least three times in store_b
+
+-   [Example]{.ribbon-highlight}: Multi-Layer Aggregation
+
+    ``` sql
+    select avg(average_price.total_value) as average_transaction from (
+      select transaction_id, sum(price_paid) as total_value
+      from sandbox.store_a
+      group by transaction_id
+      ) as average_price
+    ;
+    ```
+
+    -   computes the average of all transactions
+    -   can't apply an average directly, as our table is oriented to product_ids and not to transaction_ids
+
+-   [Example]{.ribbon-highlight}: Filtering the table based on an Aggregation
+
+    ``` sql
+    select @avg_transaction:= avg(agg_table.total_value)
+    from (
+      select transaction_id, sum(price_paid) as total_value
+      from sandbox.store_a
+      group by transaction_id
+    ) as agg_table;
+
+    select * 
+    from sandbox.store_a
+    where transaction_id in (
+      select transaction_id
+      from sandbox.store_a
+      group by transaction_id
+      having sum(price_paid) > @avg_transaction
+    )
+    ```
+
+    -   filters transactions that have a value higher than the average (where the output must retain the original product-oriented row)
+
+### Joins {#sec-sql-basics-joins .unnumbered}
+
+![](./_resources/SQL.resources/FPggFYUUcAszeHX.jpeg){width="354"}\
+![](./_resources/SQL.resources/FPggFYRVkAMc93Z.jpeg){width="354"}
+
+-   Cross Join -  acts like an expand_grid; where each value in the join key column gets all combinations of rows in both tables (also see above pic)\
+    ![](./_resources/SQL.resources/image.9.png){width="296"}
+
+    -   Efficient join
+
+    -   When you add the `where` clause, the cross join acts similarly to an `inner join`, except you aren't joining it on any specified column
+
+    -   [Example]{.ribbon-highlight}:
+
+        ``` sql
+        SELECT
+          schedule.event,
+          calendar.number_of_days
+        FROM schedule
+        CROSS JOIN calendar
+        WHERE schedule.total_number < calendar.number_of_days
+        ```
+
+        -   Only join the row in the "schedule" table with the rows in the "calendar" table that meet the specified condition
+
+-   Natural Join - don't need to specify join columns; need to have two columns in each table with the same name
+
+    -   Use cases
+        -   There are a lot of common columns with the same name across multiple tables
+            -   They will all be used as joining keys.
+        -   You don't want to type out all of the common columns in select just to avoid outputting the same columns multiple times.
+
+    ``` sql
+    select *
+    from table_a
+    natural join table_b
+    ;
+
+    -- natural + outer
+    select *
+    from table_a
+    natural outer join table_b
+    ;
+    ```
+
+## R {#sec-sql-r .unnumbered}
+
+-   Get query from dplyr code
+
+    ``` r
+    tbl_to_sql <- function(tbl) {
+      dplyr::show_query(tbl) |> 
+        capture.output() |> 
+        purrr::discard_at(1) |> 
+        paste(collapse = " ")
+    }
+    ```
+
+    -   Transforms query into a string
+
+    -   Also see [Generating SQL with [{dbplyr}]{style="color: #990000"} and sqlfluff](https://emilyriederer.netlify.app/post/sql-generation/)
+
+-   Connect to or Create a SQLite database
+
+    ``` r
+    con <- DBI::dbConnect(drv = RSQLite::SQLite(),
+                          here::here("db_name.db"),
+                          timeout = 10)
+    ```
+
+-   Connect to Microsoft SQL Server
+
+    ``` r
+    con <- DBI::dbConnect(odbc::odbc(), 
+                          Driver = "SQL Server", 
+                          Server = "SERVER", 
+                          Database = "DB_NAME", 
+                          Trusted_Connection = "True", 
+                          Port = 1433)
+    ```
+
+-   Close connection: `dbDisconnect(con)`
+
+-   Create a table from a data source: `df <- dbplyr::tbl(con, "<table name>")`
+
+    -   Allows you to use dplyr verbs with a remote database table then `collect`
+
+-   Cancel a running query (postgres)
+
+    ``` r
+    # Store PID
+    pid <- DBI::dbGetInfo(conn)$pid
+
+    # Cancel query and get control of IDE back
+    # SQL command
+    SELECT pg_cancel_backend(<PID>)
+    ```
+
+    -   Useful if query is running too long and you want control of your IDE back
+
+-   Create single tables from a list of tibbles to a database
+
+    ``` r
+    purrr::map2(table_names, list_of_tbls, ~ dbWriteTable(con, .x, .y))
+    ```
+
+-   Load all tables from a database into a list
+
+    ``` r
+    tables <- dbListTables(con) 
+    all_data <- map(tables, dbReadTable, conn = con)
+    ```
+
+-   Can use map_dfr if all the tables have the same columns
+
+-   Dynamic queries with [{glue}]{style="color: #990000"}
+
+    -   [Example]{.ribbon-highlight}: MS SQL Server
+
+        ``` r
+        vars <- c("columns", "you", "want", "to", "select")
+        date_var <- 'date_col'
+        start_date <- as.Date('2022-01-01')
+        today <- Sys.Date()
+        tablename <- "yourtablename"
+        schema_name <- "yourschema"
+        query <- glue_sql(.con = con, "SELECT TOP(10) {`vars`*} FROM {`schema_name`}.{`tablename`} ")
+        DBI::dbGetQuery(con, query)
+        ```
+
+        -   `vars` format collapses the vars vector, separated by commas, so that it resembles a SELECT statement
+
+## Best Practices {#sec-sql-bestp .unnumbered}
+
+-   Misc
+    -   Resources
+        -   [SQL Style Guide](https://www.sqlstyle.guide/)
+    -   Use aliases only when table names are long enough so that using them improves readability (but choose meaningful aliases)
+    -   Do not use SELECT \*. Explicitly list columns instead
+    -   Use comments to document business logic
+    -   A comment at the top should provide a high-level description
+    -   Use an auto-formatter
+    -   General Optimizations
+        -   Removing duplicates or filtering out null values at the beginning of your model will speed up queries
+        -   Replace complex code with window functions
+            -   [Example]{.ribbon-highlight}: Replace `GROUP_BY` + `TOP` with a partition + `FIRST_VALUE()`
+                -   e.g. `FIRST_VALUE(test_score) OVER(PARTITION BY student_name ORDER BY test_score DESC)`
+            -   [Example]{.ribbon-highlight}: `AVG(test_score) OVER(PARTITION BY student_name)`
+-   CTEs
+    -   Break down logic in CTEs using WITH ... AS
+    -   The SELECT statement inside each CTE must do a single thing (join, filter or aggregate)
+    -   The CTE name should provide a high-level explanation
+    -   The last statement should be a SELECT statement querying the last CTE
+-   Joins
+    -   Use WHERE for filtering, not for joining
+    -   Favor LEFT JOIN over INNER JOIN; in most cases, it's essential to know the distribution of NULLs
+    -   Avoid using"Self-Joins." Use window functions instead (see [Google, BigQuery \>\> Optimization](google-bigquery.qmd#sec-goog-bigq-opt){style="color: green"} for details on self-joins)
+    -   When doing equijoins (i.e., joins where all conditions have the something=another form), use the USING keyword
+    -   Break-up joins using OR into UNION because SQL uses nested operations for JOIN + OR queries which slow things.
+        -   Bad\
+            ![](./_resources/SQL.resources/1-9K5I9iIKl5gUoYe9mw2CXw.png){width="335"}
+        -   Good\
+            ![](./_resources/SQL.resources/1-rXsv2pEUKL3qBkM7DK8bVQ.png){width="328"}
+        -   UNION simply joins the outputs of two separate SELECT statements and retains only one occurrence of duplicated rows if there are any.
+-   Style Guide\
+    ![](./_resources/SQL.resources/1-HOcSBns8ec2jIO5A0gGHEw.png){width="912"}
+
+## Indexes {#sec-sql-index .unnumbered}
+
+-   Misc
+
+    -   An index may consist of up to 16 columns
+    -   The first column of the index must always be present in the query's filter, order , join or group operations to be used
+
+-   Create Index on an existing table (postgres)
+
+    ``` sql
+    CREATE INDEX
+        score_index ON grades(score, student);
+    ```
+
+    -   "score_index" is the name of the index
+    -   "grades" is the name of the table
+    -   "score" and "student" are fields to be used as the indexes
+
+-   Create Index that only uses a specific character length
+
+    ``` sql
+    /* mysql */
+    CREATE TABLE test (blob_col BLOB, INDEX(blob_col(10)));
+    ```
+
+    -   index only uses the first 10 characters of the column value of a BLOB column type
+
+-   Create index with multiple columns
+
+    ``` sql
+    /* mysql */
+    CREATE TABLE test (
+        id        INT NOT NULL,
+        last_name  CHAR(30) NOT NULL,
+        first_name CHAR(30) NOT NULL,
+        PRIMARY KEY (id),
+        INDEX name (last_name,first_name)
+    )
+    ```
+
+-   Usage of multiple column index (\*\* order of columns is important \*\*)
+
+    ``` sql
+    SELECT * FROM test WHERE last_name='Jones';
+    SELECT * FROM test
+      WHERE last_name='Jones' AND first_name='John';
+    SELECT * FROM test
+      WHERE last_name='Jones'
+      AND (first_name='John' OR first_name='Jon');
+    SELECT * FROM test
+      WHERE last_name='Jones'
+      AND first_name >='M' AND first_name < 'N';
+    ```
+
+    -   Index is used when both columns are used as part of filtering criteria or when only the left-most column is used
+
+    -   if you have a three-column index on (col1, col2, col3), you have indexed search capabilities on (col1), (col1, col2), and (col1, col2, col3).
+
+-   *Invalid* usage of multiple column index
+
+    ``` sql
+    SELECT * FROM test WHERE first_name='John';
+    SELECT * FROM test
+      WHERE last_name='Jones' OR first_name='John';
+    ```
+
+    -   The "name" index won't be used in these queries since
+        -   first_name is NOT the left-most column specified in the index
+        -   OR is used instead of AND
+
+-   Create index with DESC, ASC
+
+    ``` sql
+    /* mysql */
+    CREATE TABLE t (
+      c1 INT, c2 INT,
+      INDEX idx1 (c1 ASC, c2 ASC),
+      INDEX idx2 (c1 ASC, c2 DESC),
+      INDEX idx3 (c1 DESC, c2 ASC),
+      INDEX idx4 (c1 DESC, c2 DESC)
+    );
+    ```
+
+    -   Used by `ORDER BY`
+        -   See [Docs](https://dev.mysql.com/doc/refman/8.0/en/descending-indexes.html) to see what operations and index types support Descending Indexes
+    -   Note: idx_a on column_p, column_q desc is not the same as an \* Index idx_a on column_q desc, column p or, \* Index idx_b on column_p desc, column q
+
+-   Usage of Descending Indexes
+
+    ``` sql
+    ORDER BY c1 ASC, c2 ASC    -- optimizer can use idx1
+    ORDER BY c1 DESC, c2 DESC  -- optimizer can use idx4
+    ORDER BY c1 ASC, c2 DESC  -- optimizer can use idx2
+    ORDER BY c1 DESC, c2 ASC  -- optimizer can use idx3
+    ```
+
+    -   See previous example for definition of idx\* names
+    -   See [Docs](https://dev.mysql.com/doc/refman/8.0/en/descending-indexes.html) to see what operations and index types support Descending Indexes
+
+## Partitioning {#sec-sql-part .unnumbered}
+
+-   Misc
+    -   Also see
+        -   MySQL [Docs](https://dev.mysql.com/doc/refman/8.0/en/partitioning-types.html)
+        -   [Google, BigQuery \>\> Optimization \>\> Partitioning and Clustering](google-bigquery.qmd#sec-goog-bigq-opt){style="color: green"}
+        -   [DB, Engineering \>\> Cost Optimization \>\> Partitioning](db-engineering.qmd#sec-db-eng-costopt){style="color: green"}
+    -   all of your queries to the partitioned table must contain the `partition_key` in the `WHERE` clause
+
+## Views {#sec-sql-views .unnumbered}
+
+-   A smaller data object that contains the subset of data resulting from a specific query
+
+-   Whereas a query happens after data is loaded, a materialized view is a precomputation
+
+-   The computation is done once, and changes to the data are incorporated as they occur, making subsequent updates to the view much cheaper and more efficient than querying the entire database from scratch.
+
+-   Create a View
+
+    -   [Example]{.ribbon-highlight}: Create view as select (CVAS)
+
+        ``` sql
+        CREATE VIEW high_earner AS 
+        SELECT p.id AS person_id, j.salary
+        FROM People p
+        JOIN Job j 
+        ON p.job = j.title
+        WHERE j.salary >= 200000;
+        ```
+
+-   Query a view (same as a table): `SELECT * FROM high_earner`
+
+-   Update view
+
+    ``` sql
+    CREATE OR REPLACE VIEW high_earner AS 
+    SELECT p.id AS person_id, j.salary
+    FROM People p
+    JOIN Job j 
+    ON p.job = j.title
+    WHERE j.salary >= 150000;
+    ```
+
+    -   Expects the query output to retain the same number of columns, column names, and column data types. Thus, any modification that results in a change in the data structure will raise an error.
+
+-   List views\
+    ![](./_resources/SQL.resources/image.4.png)
+
+    ``` sql
+    SELECT * 
+    FROM information_schema.views
+    WHERE table_schema NOT IN ('pg_catalog', 'information_schema');
+    ```
+
+    -   "table_name" has the names of the views
+    -   "view_definition" shows the query stored in the view
+    -   WHERE command is included to omit built-in views from PostgreSQL.
+
+-   Delete view: `DROP VIEW high_earner;`
+
+## Variables {#sec-sql-vars .unnumbered}
+
+-   User-defined
+    -   DECLARE and SET
+
+        ``` sql
+        -- Declare your variables
+        DECLARE @start date
+        DECLARE @stop date
+        -- SET the relevant values for each variable
+        SET @start = '2021-06-01'
+        SET @stop = GETDATE()
+        ```
+
+        -   DECLARE sets the variable type (e.g. date)
+        -   SET assigns a value
+
+    -   Or just use DECLARE
+
+        ``` sql
+        DECLARE @Iteration Integer = 0;
+        ```
+
+    -   Examples
+
+        -   [Example]{.ribbon-highlight}: Exclude 3 months of data from the query
+
+            ``` sql
+            SELECT t1.[DATETIME], COUNT(*) AS vol
+            FROM Medium.dbo.Earthquakes t1
+            WHERE t1.[DATETIME] BETWEEN @start AND DATEADD(MONTH, -3, @stop)
+            GROUP BY t1.[DATETIME]
+            ORDER BY t1.[DATETIME] DESC;
+            ```
+
+            -   See above for the definitions of @start and @stop
+
+        -   [Example]{.ribbon-highlight}: Apply a counter
+
+            ``` sql
+            -- Declare the variable (a SQL Command, the var name, the datatype)
+            DECLARE @counter INT;
+            -- Set the counter to 20
+            SET @counter = 20;
+            -- Print the initial value
+            SELECT @counter AS _COUNT;
+            -- Select and increment the counter by one
+            SELECT @counter = @counter + 1;
+            -- Print variable
+            SELECT @counter AS _COUNT;
+            -- Select and increment the counter by one
+            SELECT @counter += 1;
+            -- Print the variable
+            SELECT @counter AS _COUNT;
+            ```
+-   System
+    -   ROWCOUNT - returns the number of rows affected by the last previous statement
+        -   [Example]{.ribbon-highlight}
+
+            ``` sql
+            BEGIN
+                SELECT
+                    product_id,
+                    product_name
+                FROM
+                    production.products
+                WHERE
+                    list_price > 100000;
+                IF @@ROWCOUNT = 0
+                    PRINT 'No product with price greater than 100000 found';
+            END
+            ```
+
+## Functions {#sec-sql-funs .unnumbered}
+
+-   "\|\|" Concantenate strings. e.g 'Post' \|\| 'greSQL' --\> PostgreSQL
+-   `BEGIN`...`END` - defines a compound statement or statement block. A compound statement consists of a set of SQL statements that execute together. A statement block is also known as a batch
+    -   A compound statement can have a local declaration for a variable, a cursor, a temporary table, or an exception
+        -   Local declarations can be referenced by any statement in that compound statement, or in any compound statement nested within it.
+        -   Local declarations are invisible to other procedures that are called from within a compound statement
+-   `COMMIT` - a transaction control language that is used to permanently save the changes done in the transaction in tables/databases. The database cannot regain its previous state after its execution of commit.
+-   `DATEADD` - adds units of time to a variable or value
+    -   e.g. `DATEADD(month, -3, '2021-06-01')`
+        -   subtracts 3 months from 2021-06-01
+-   `DATE_TRUNC` - pulls a component of a date object.
+    -   e.g. `date_trunc('month', date_var) as month`
+-   `DENSE_RANK`- similar to the `RANK` , but it does not skip any numbers even if there is a tie between the rows.
+    -   Values are ranked by the column specified in ORDER BY expression of the window function
+-   `EXPLAIN` - a means of running your query as a what-if to see what the planner thinks about it. It will show the process the system goes through to get to the data and return it.
+
+    ```sql       
+    EXPLAIN
+    SELECT
+        s.id AS student_id,
+        g.score
+    FROM
+        students AS s
+    LEFT JOIN
+        grades AS g
+        ON s.id = g.student_id
+    WHERE
+        g.score > 90
+    ORDER BY
+        g.score DESC;
+    /*
+    QUERY PLAN
+    ----------
+    Sort (cost=80.34..81.88 rows=617 width=8)
+    [...] Sort Key: g.score DESC
+    [...] -> Hash Join (cost=16.98..51.74 rows=617 width=8)
+    [...] Hash Cond: (g.student_id = s.id)
+    [...] -> Seq Scan on grades g (cost=0.00..33.13 rows=617 width=8)
+    [...] Filter: (score > 90)
+    [...] -> Hash (cost=13.10..13.10 rows=310 width=4)
+    [...] -> Seq Scan on students s (cost=0.00..13.20 rows=320 width=4)
+    */
+    ```
+
+    -   Sequentially scanning ("Seq Scan") the grades and students tables because the tables aren't indexed
+        -   Any Seq Scan, parallel or not, is sub-optimal
+    -   `EXPLAIN (BUFFERS)` also shows how may data pages the database had to fetch using slow disk read operations ("read"), and how many of them were cached in memory ("shared hit")
+
+-   `EXPLAIN ANALYZE` - tells the planner to not only hypothesize on what it would do, but actually run the query and show the results.
+    -   shows where indexes are being hit --- or not hit as it may be. You can step through and re-optimize your basic and complex queries.
+
+-   `GETDATE()` - Gets the current date
+
+-   `GO` - Not a sql function. Used by some interpreters as a reset.
+    -   i.e. any variables set before the GO statement will now not be recognized by the interpreter.
+    -   Helps to separate code into different sections
+
+-   `ISDATE` - boolean - checks that a variable is a date type
+
+-   `QUALIFY` - clause filters the results of window functions.
+    -   useful when answering questions like fetching the most XXX value of each category
+    -   QUALIFY does with window functions as what HAVING does with GROUP BY. As a result, in the order of execution, QUALIFY is evaluated after window functions.
+    -   See Business Queries \>\> Get the latest order from each customer
+
+-   `UNNEST` - BigQuery - takes an ARRAY and returns a table with a row for each element in the ARRAY ([docs](https://medium.com/firebase-developers/how-to-use-select-from-unnest-to-analyze-multiple-parameters-in-bigquery-for-analytics-5838f7a004c2))
+    -   [Google Analytics, Analysis >> Example 17](google-analytics-analysis.qmd#sec-goog-goog-anal){style='color: green'}
+
+
+## User Defined Functions (UDF) {#sec-sql-udfs .unnumbered}
+
+-   Misc
+    -   Available in SQL Server ([Docs1](https://learn.microsoft.com/en-us/sql/relational-databases/user-defined-functions/user-defined-functions?view=sql-server-ver16), [Docs2](https://learn.microsoft.com/en-us/sql/t-sql/statements/create-function-transact-sql?source=recommendations&view=sql-server-ver16)), Postgres ([Docs](https://www.postgresql.org/docs/current/xfunc-sql.html)), BigQuery ([docs](https://cloud.google.com/bigquery/docs/reference/standard-sql/user-defined-functions)), etc.
+    -   Keep a dictionary with the UDFs you've created and make sure to share it with any collaborators.
+    -   Can be persistent or temporary
+        -   Persistent UDFs can be used across multiple queries, while temporary UDFs only exist in the scope of a single query
+-   Create
+    -   [Example]{.ribbon-highlight}: temporary udf (BQ)
+
+        ```sql         
+        CREATE TEMP FUNCTION AddFourAndDivide(x INT64, y INT64)
+        RETURNS FLOAT64
+        AS (
+          (x + 4) / y
+        );
+        SELECT
+          val, AddFourAndDivide(val, 2)
+        FROM
+          UNNEST([2,3,5,8]) AS val;
+        ```
+
+    -   [Example]{.ribbon-highlight}: persistent udf (BQ)
+
+        ```sql         
+        CREATE FUNCTION mydataset.AddFourAndDivide(x INT64, y INT64)
+        RETURNS FLOAT64
+        AS (
+          (x + 4) / y
+        );
+
+        SELECT
+          val, mydataset.AddFourAndDivide(val, 2)
+        FROM
+          UNNEST([2,3,5,8,12]) AS val;
+        ```
+
+-   Delete persistent udf: `DROP FUNCTION <udf_name>`
+
+-   With Scalar subquery (BQ)
+
+    ```sql         
+    CREATE TEMP FUNCTION countUserByAge(userAge INT64)
+    AS (
+      (SELECT COUNT(1) FROM users WHERE age = userAge)
+    );
+    SELECT
+      countUserByAge(10) AS count_user_age_10,
+      countUserByAge(20) AS count_user_age_20,
+      countUserByAge(30) AS count_user_age_30;
+    ```
+
+
+## Loops {#sec-sql-loops .unnumbered}
+
+-   Misc
+    -   posgres [docs](https://www.postgresql.org/docs/15/plpgsql-control-structures.html#PLPGSQL-CONTROL-STRUCTURES-LOOPS) for loops
+-   WHILE
+    -   [Example]{.ribbon-highlight}: Incrementally add to a counter variable
+
+        ```sql         
+        -- Declare the initial value
+        DECLARE @counter INT;
+        SET @counter = 20;
+        -- Print initial value
+        SELECT @counter AS _COUNT;
+        -- Create a loop
+        BEGIN;
+        -- Loop code starting point
+        WHILE @counter < 30
+        SELECT @counter = @counter + 1;
+        -- Loop finish
+        END;
+        -- Check the value of the variable
+        SELECT @counter AS _COUNT;
+        ```
+
+-   Cursors ([Docs](https://www.postgresql.org/docs/current/plpgsql-cursors.html))
+    -   Rather than executing a whole query at once, it is possible to set up a cursor that encapsulates the query, and then read the query result a few rows at a time.
+        -   One reason for doing this is to avoid memory overrun when the result contains a large number of rows. (However, PL/pgSQL users do not normally need to worry about that, since FOR loops automatically use a cursor internally to avoid memory problems.)
+        -   A more interesting usage is to return a reference to a cursor that a function has created, allowing the caller to read the rows. This provides an efficient way to return large row sets from functions.
+    -   [Example]{.ribbon-highlight} ([article](https://towardsdatascience.com/5-advanced-sql-techniques-for-real-life-projects-f2db9b6680e2) (do not pay attention dynamic sql. it's for embedding sql in C programs))
+
+        ```sql
+        DECLARE
+            cur_orders CURSOR FOR 
+                SELECT order_id, product_id, quantity
+                FROM order_details
+                WHERE product_id = 456;
+            product_inventory INTEGER;
+        BEGIN
+            OPEN cur_orders;
+            LOOP
+                FETCH cur_orders INTO order_id, product_id, quantity;
+                EXIT WHEN NOT FOUND;
+                SELECT inventory INTO product_inventory FROM products WHERE product_id = 456;
+                product_inventory := product_inventory - quantity;
+                UPDATE products SET inventory = product_inventory WHERE product_id = 456;
+            END LOOP;
+            CLOSE cur_orders;
+            -- do something after updating the inventory, such as logging the changes
+        END;
+        ```
+
+        -   A table called "products" that contains information about all products, including the product ID, product name, and current inventory. You can use a cursor to iterate through all orders that contain a specific product and update its inventory. 
+        -   A cursor called "cur_orders" that selects all order details that contain a specific product ID. We then define a variable called "product_inventory" to store the current inventory of the product.
+        -   Inside the loop, we fetch each order ID, product ID, and quantity from the cursor, subtract the quantity from the current inventory and update the products table with the new inventory value.
+        -   Finally, we close the cursor and do something after updating the inventory, such as logging the changes.
+
+
+## Window Functions {#sec-sql-winfun .unnumbered}
+
+-   Unlike GROUP BY, keeps original columns after an aggregation  
+    ![](./_resources/SQL.resources/1-KHkgYYK0Up46b8BunVMYoQ.png)
+    -   Allows you to work with both aggregate and non-aggregate values all at once
+        -   Better performance than using GROUP BY + JOIN to get the same result
+-   Despite the order of operations, if you really need to have a window function inside a WHERE clause or GROUP BY clause, you may get around this limitation by using a subquery or a WITH query
+    -   [Example]{.ribbon-highlight}: Remove duplicate rows
+
+        ```sql         
+        WITH temporary_employees as
+        (SELECT 
+          employee_id,
+          employee_name,
+          department,
+          ROW_NUMBER() OVER(PARTITION BY employee_name,
+                                        department,
+                                        employee_id) as row_count
+        FROM Dummy_employees)
+
+        SELECT *
+        FROM temporary_employees
+        WHERE row_count = 1
+        ```
+
+-   3 Types of Window Functions  
+    ![](./_resources/SQL.resources/1-u8SPxze2b1OdCdPo1maVGw.png)
+    -   LEAD() will give you the row AFTER the row you are finding a value for.
+    -   LAG() will give you the row BEFORE the row you are finding a value for.
+    -   FIRST_VALUE() returns the first value in an ordered, partitioned data output.
+
+-   General Syntax  
+    ![](./_resources/SQL.resources/1-NKUDO4a5fu5kVW-OlkHUJw.png)
+    -   window_function is the name of the window function we want to use (e.g. see above)
+        -   expression is the name of the column that we want the window function operated on.
+            -   May not be necessary depending on what window_function is used
+        -   OVER is just to signify that this is a window function
+    -   PARTITION BY divides the rows into partitions so we can specify which rows to use to compute the window function
+        -   partition_list is the name of the column(s) we want to partition by (i.e. group_by)
+    -   ORDER BY is used so that we can order the rows within each partition. This is optional and does not have to be specified
+        -   order_list is the name of the column(s) we want to order by
+    -   ROWS (optional; typically not used) used to subset the rows *within each partition*.
+        -   frame_clause defines how much to offset from our current row
+        -   Syntax: ROWS BETWEEN \<starting_row\> AND \<ending_row\>
+            -   Options for starting and ending row
+                -   UNBOUNDED PRECEDING --- all rows before the current row in the partition, i.e. the first row of the partition
+                -   \[some #\] PRECEDING --- \# of rows before the current row
+                -   CURRENT ROW --- the current row
+                -   \[some #\] FOLLOWING --- \# of rows after the current row
+                -   UNBOUNDED FOLLOWING --- all rows after the current row in the partition, i.e. the last row of the partition
+            -   Examples
+                -   ROWS BETWEEN 3 PRECEDING AND CURRENT ROW --- this means look back the previous 3 rows up to the current row.
+                -   ROWS BETWEEN UNBOUNDED PRECEDING AND 1 FOLLOWING --- this means look from the first row of the partition to 1 row after the current row
+                -   ROWS BETWEEN 5 PRECEDING AND 1 PRECEDING --- this means look back the previous 5 rows up to 1 row before the current row
+                -   ROWS BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING --- this means look from the first row of the partition to the last row of the partition
+
+-   [Example]{.ribbon-highlight}: Average Salary by Job Title  
+    ![](./_resources/SQL.resources/1-GVX7Ws5Dk_f9-a6o9Wy_kQ.png)  
+    ![](./_resources/SQL.resources/1-KHkgYYK0Up46b8BunVMYoQ.1.png)
+
+-   **Tables for Examples**  
+    ![](./_resources/SQL.resources/1-vz3DggeLfupObUnYlCa11A.png)
+
+-   [Example]{.ribbon-highlight}: Average Unit Price for each CustomerId  
+    ![](./_resources/SQL.resources/1-c9eFD04nSDvxmzg2zza8oA.png)
+
+    ```sql         
+    SELECT CustomerId, 
+          UnitPrice, 
+          AVG(UnitPrice) OVER (PARTITION BY CustomerId) AS “AvgUnitPrice”
+    FROM [Order] 
+    INNER JOIN OrderDetail ON [Order].Id = OrderDetail.OrderId
+    ```
+
+-   [Example]{.ribbon-highlight}: Average Unit Price for each group of CustomerId AND EmployeeId  
+    ![](./_resources/SQL.resources/1-NEoVEmqBzFSlX3NHNK9dUg.png)
+
+    ```sql         
+    SELECT CustomerId, 
+          EmployeeId, 
+          AVG(UnitPrice) OVER (PARTITION BY CustomerId, EmployeeId) AS “AvgUnitPrice”
+    FROM [Order] 
+    INNER JOIN OrderDetail ON [Order].Id = OrderDetail.OrderId
+    ```
+
+-   [Example]{.ribbon-highlight}: Create a new column that ranks Unit Price in descending order for each CustomerId  
+    ![](./_resources/SQL.resources/1-s7wtLz5LVZleovQtIFgQJg.png)
+
+    ```sql         
+    SELECT CustomerId, 
+          OrderDate, 
+          UnitPrice, 
+          ROW_NUMBER() OVER (PARTITION BY CustomerId ORDER BY UnitPrice DESC) AS “UnitRank”
+    FROM [Order] 
+    INNER JOIN OrderDetail 
+    ON [Order].Id = OrderDetail.OrderId
+    ```
+
+    -   Substituting RANK in place of ROW_NUMBER should produce the same results
+    -   Note that ranks are skipped (e.g. rank 3 for ALFKI) when there are rows with the same rank
+        -   If you don't want ranks skipped, use DENSE_RANK for the window function
+
+-   [Example]{.ribbon-highlight}: Create a new column that provides the previous order date's Quantity for each ProductId  
+    ![](./_resources/SQL.resources/1-U5Pb6kyZYtMvbhHw13o3YA.png)
+
+    ```sql         
+    SELECT ProductId, 
+          OrderDate, 
+          Quantity, 
+          LAG(Quantity) OVER (PARTITION BY ProductId ORDER BY OrderDate) AS "LAG"
+    FROM [Order] 
+    INNER JOIN OrderDetail ON [Order].Id = OrderDetail.OrderId
+    ```
+
+    -   Use LEAD for the *following* quantity
+
+-   [Example]{.ribbon-highlight}: Create a new column that provides the very first Quantity ever ordered for each ProductId  
+    ![](./_resources/SQL.resources/1-crsYDwLQoWTRX1Ilrkwusw.png)
+
+    ```sql         
+    SELECT ProductId, 
+          OrderDate, 
+          Quantity, 
+          FIRST_VALUE(Quantity) OVER (PARTITION BY ProductId ORDER BY OrderDate) AS "FirstValue"
+    FROM [Order] 
+    INNER JOIN OrderDetail ON [Order].Id = OrderDetail.OrderId
+    ```
+
+-   [Example]{.ribbon-highlight}: Calculate a cumulative moving average UnitPrice for each CustomerId  
+    ![](./_resources/SQL.resources/1-FK8pEUSQhqKZv4FGNekZFA.png)
+
+    ```sql         
+    SELECT CustomerId, 
+          UnitPrice, 
+          AVG(UnitPrice) OVER (PARTITION BY CustomerId 
+          ORDER BY CustomerId 
+          ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW) AS “CumAvg”
+    FROM [Order]
+    INNER JOIN OrderDetail ON [Order].Id = OrderDetail.OrderId
+    ```
+
+-   [Example]{.ribbon-highlight}: Rank customers for each department by amount spent
+
+    ```sql        
+    SELECT
+        customer_name,
+        customer_id,
+        amount_spent,
+        department_id,
+        RANK(amount_spent) OVER(ORDER BY amount_spent DESC PARTITION BY department_id) AS spend_rank
+    FROM employees
+    ```
+
+-   [Example]{.ribbon-highlight}: Find the model and year of car that been on lot the longest
+
+    ```sql         
+    SELECT 
+    FIRST_VALUE(name) OVER(PARTITION BY model, year ORDER BY date_at_lot ASC) AS oldest_car_name
+    model,
+    year
+    FROM cars
+    ```
+
+-   [Running Totals/Averages (Cumulative Sums)]{.underline}
+    -   Uses `SUM` as the window function
+        -   Just replace SUM with AVG to get running averages
+    
+    -   [Example]{.ribbon-highlight}  
+        ![](./_resources/SQL.resources/1-vZiZM7MBwfeHhi8GP3QrtQ.png)
+        -   Generate a new dataset grouped by month, instead of timestamp. (CTE)
+            -   Only include three fields: account_id, occurred_month and total_amount_usd
+            -   Only computed for the following accounts: 1041 , 1051, 1061, 10141.
+        -   Compute a running total ordered by occurred_month, without collapsing the rows in the result set.
+            -   Display 2 columns: occurred_month and cum_amnt_usd_by_month  
+                ![](./_resources/SQL.resources/1-KcELs2mkbYN3XKk0Gzk-jg.png)![](./_resources/SQL.resources/1-2u7h_5kxKinnn15C7VGmiw.png)
+        -   Because no partition was specified, the running total is applied on the full dataset and ordered by (ascending) occurred_month
+    
+    -   [Example]{.ribbon-highlight} running total by grouping variable
+        -   Using previous CTE
+            -   Compute a running total by account_id, ordered by occurred_month, and account_id (i.e. a separate running total for each account_id.)
+                -   Display 3 columns: account_id, occurred_month, and cum_mon_amnt_usd_by_account  
+                    ![](./_resources/SQL.resources/1-Axkp3Gp-fk5iWysxLJXklg.png)![](./_resources/SQL.resources/1-0jfZNXzNQ0jVT_bIW_KpCw.png)
+        -   Same as previous example except a partition column (account_id) is added
+    
+    -   [Example]{.ribbon-highlight} Running total over various window lengths
+        -   Using previous CTE
+            -   Compute a 3 months rolling running total using a window that includes the current month.
+            -   Compute a 7 months rolling running total using a window where the current month is always the middle month.  
+                ![](./_resources/SQL.resources/1-lbxUJId6dY1fJHz44A1RKQ.png)![](./_resources/SQL.resources/1-UXXt7TGvkdFFqm-opBx1mg.png)
+        -   First case uses 2 PRECEDING rows and the CURRENT_ROW
+        -   Second case uses 3 PRECEDING rows and 3 FOLLOWING rows and the CURRENT_ROW
+
+
+## Common Table Expressions (CTE) {#sec-sql-ctes .unnumbered}
+
+-   The result set of a query which exists temporarily and for use only within the context of a larger query. Much like a derived table, the result of a CTE is not stored and exists only for the duration of the query.
+-   Also see
+    -   Window Functions \>\> Running Totals \>\> Examples
+    -   [Google, Google Analytics, Analysis]((google-analytics-analysis.qmd#sec-goog-goog-anal)) \>\> Examples 12-15, 18, 19
+-   Use Cases
+    -   Needing to reference a derived table multiple times in a single query
+    -   An alternative to creating a view in the database
+    -   Performing the same calculation multiple times over across multiple query components
+-   Improves readability and *usually* no performance difference
+    -   Prior to PostgreSQL 12, https://hakibenita.com/be-careful-with-cte-in-postgre-sql , something with the caching mechanism created a bottleneck. Currently, version 13 is the latest, so hopefully not a common problem anymore.
+-   Steps
+    -   Initiate a CTE using "WITH"
+    -   Provide a name for the result soon-to-be defined query
+    -   After assigning a name, follow with "AS"
+    -   Specify column names (optional step)
+    -   Define the query to produce the desired result set
+    -   If multiple CTEs are required, initiate each subsequent expression with a comma and repeat steps 2-4.
+    -   Reference the above-defined CTE(s) in a subsequent query
+-   Syntax
+
+```         
 WITH
 expression_name_1 AS
 (CTE query definition 1)
@@ -1126,12 +1179,12 @@ SELECT expression_A, expression_B, ...
 FROM expression_name_1
 ```
 
-* [Example]{.ribbon-highlight}
-	* Comparison with a "derived" query
-	* “What is the average monthly cost per campaign for the company’s marketing efforts?”
-	* Using CTE workflow
+-   [Example]{.ribbon-highlight}
+    -   Comparison with a "derived" query
+    -   "What is the average monthly cost per campaign for the company's marketing efforts?"
+    -   Using CTE workflow
 
-```
+```         
 -- define CTE:
 WITH Cost_by_Month AS
 (SELECT campaign_id AS campaign,
@@ -1148,9 +1201,9 @@ GROUP BY campaign
 ORDER BY campaign
 ```
 
-* Used derived query
+-   Used derived query
 
-```
+```         
 -- Derived
 SELECT campaign, avg(monthly_cost) as "Avg Monthly Cost"
 FROM
@@ -1166,14 +1219,14 @@ GROUP BY campaign
 ORDER BY campaign
 ```
 
-* [Example]{.ribbon-highlight}
-	* Count the number of interactions of new users
-	* Steps
-		* Get new users
-		* Count interactions
-		* Get interactions of new users
+-   [Example]{.ribbon-highlight}
+    -   Count the number of interactions of new users
+    -   Steps
+        -   Get new users
+        -   Count interactions
+        -   Get interactions of new users
 
-```
+```         
 WITH new_users AS (
     SELECT id
     FROM users
@@ -1196,17 +1249,17 @@ SELECT *
 FROM interactions_by_new_users
 ```
 
-* [Example]{.ribbon-highlight}
-	* Find the average top Math test score for students in California
-	* Steps
-		1. Get a subset of students (California)
-		2. Get a subset of test scores (Math)
-		3. Join them together to get all Math test scores from California students
-		4. Get the top score per student
-		5. Take the overall average
-	* Derived Query (i.e. w/o CTE)
+-   [Example]{.ribbon-highlight}
+    -   Find the average top Math test score for students in California
+    -   Steps
+        1.  Get a subset of students (California)
+        2.  Get a subset of test scores (Math)
+        3.  Join them together to get all Math test scores from California students
+        4.  Get the top score per student
+        5.  Take the overall average
+    -   Derived Query (i.e. w/o CTE)
 
-```
+```         
 SELECT AVG(score)
 FROM 
   (SELECT students.id, MAX(test_results.score) as score
@@ -1221,9 +1274,9 @@ FROM 
   GROUP BY students.id) as tmp
 ```
 
-* Using CTE
+-   Using CTE
 
-```
+```         
 WITH
   student_subset as (
     SELECT students.id 
@@ -1253,13 +1306,12 @@ SELECT AVG(score) 
 FROM top_score_per_student
 ```
 
+## Strings {#sec-sql-str .unnumbered}
 
-Strings
+-   Concatenate
+    -   "\|\|"
 
-* Concatenate
-	* "||"
-
-```
+```         
 SELECT 'PostgreSQL' || ' ' || 'Databases' AS result;
 
     result
@@ -1267,9 +1319,9 @@ SELECT 'PostgreSQL' || ' ' || 'Databases' AS result;
 PostgreSQL Databases
 ```
 
-* `CONCAT`
+-   `CONCAT`
 
-```
+```         
 SELECT CONCAT('PostgreSQL', ' ', 'Databases') AS result;
 
     result
@@ -1277,30 +1329,30 @@ SELECT CONCAT('PostgreSQL', ' ', 'Databases') AS result;
 PostgreSQL Databases
 ```
 
-* With NULL values
+-   With NULL values
 
-```
+```         
 SELECT CONCAT('Harry', NULL, 'Peter');
 
 --------------
 HarryPeter
 ```
 
-* "||" won't work with NULLs
+-   "\|\|" won't work with NULLs
 
-* Columns
+-   Columns
 
-```
+```         
 SELECT first_name, last_name, 
 CONCAT(first_name,' ' , last_name) "Full Name" 
 FROM candidates;
 ```
 
-* New column, "Full Name", is created with concatenated columns
+-   New column, "Full Name", is created with concatenated columns
 
-* Splitting (BQ)
+-   Splitting (BQ)
 
-```
+```         
 SELECT
 *,
 CASE WHEN ARRAY_LENGTH(SPLIT(page_location, '/')) >= 5 
@@ -1343,25 +1395,23 @@ FROM 
   unnested_events
 ```
 
-* From [article](https://towardsdatascience.com/looking-for-power-user-journeys-in-e-commerce-746f5f68b697), [gist](https://gist.github.com/khunreus/17d0f5377bd15b41b2e4956a7166710a)
-* Query is creating a new categorical column, "page\_title\_adjusted," that is "PDP" when a substring in "page\_location" is one of a set of words, and "PLP" when it's not, and the value of page\_title otherwise.
-* SPLIT splits the string by separator, '/'
-* CONTAINS\_SUBSTR is looking for substring with a "+"
-* \[SAFE\_OFFSET(3)\] pulls the 4th substring (think this indexes by 0?)
-	* after it's been reversed via ARRAY\_REVERSE (?)
-* ELSE says use the value for page\_title when length of the substrings after splitting page\_location is 5 or less
-* "unnested\_events" is a CTE
+-   From [article](https://towardsdatascience.com/looking-for-power-user-journeys-in-e-commerce-746f5f68b697), [gist](https://gist.github.com/khunreus/17d0f5377bd15b41b2e4956a7166710a)
+-   Query is creating a new categorical column, "page_title_adjusted," that is "PDP" when a substring in "page_location" is one of a set of words, and "PLP" when it's not, and the value of page_title otherwise.
+-   SPLIT splits the string by separator, '/'
+-   CONTAINS_SUBSTR is looking for substring with a "+"
+-   \[SAFE_OFFSET(3)\] pulls the 4th substring (think this indexes by 0?)
+    -   after it's been reversed via ARRAY_REVERSE (?)
+-   ELSE says use the value for page_title when length of the substrings after splitting page_location is 5 or less
+-   "unnested_events" is a CTE
 
+## Arrays {#sec-sql-arr .unnumbered}
 
+-   Misc
+    -   PostGres
+        -   Indexing Arrays starts at 1, not at 0
+-   Create Array (BQ)
 
-Arrays
-
-* Misc
-	* PostGres
-		* Indexing Arrays starts at 1, not at 0
-* Create Array (BQ)
-
-```
+```         
 SELECT ARRAY
   (SELECT 1 UNION ALL
   SELECT 2 UNION ALL
@@ -1392,9 +1442,9 @@ SELECT ARRAY
 +----------------------------+
 ```
 
-* Create a table with Arrays (Postgres)![](./_resources/SQL.resources/image.5.png)
+-   Create a table with Arrays (Postgres)![](./_resources/SQL.resources/image.5.png)
 
-```
+```         
 CREATE TEMP TABLE shopping_cart (
   cart_id serial PRIMARY KEY,
   products text ARRAY
@@ -1415,11 +1465,11 @@ VALUES
   ('{"product_a", "product_d"}');
 ```
 
-* Also see Basics >> Add Data >> Example: chatGPT
+-   Also see Basics \>\> Add Data \>\> Example: chatGPT
 
-* Subset an array (postgres)![](./_resources/SQL.resources/image.7.png)
+-   Subset an array (postgres)![](./_resources/SQL.resources/image.7.png)
 
-```
+```         
 SELECT
   cart_id,
   products[1] AS first_product -- indexing starts at 1
@@ -1427,9 +1477,9 @@ FROM
   shopping_cart;
 ```
 
-* Slice an array (postgres)![](./_resources/SQL.resources/image.8.png)
+-   Slice an array (postgres)![](./_resources/SQL.resources/image.8.png)
 
-```
+```         
 SELECT
   cart_id,
   products [1:2] AS first_two_products
@@ -1439,9 +1489,9 @@ WHERE
   CARDINALITY(products) > 2;
 ```
 
-* Unnest an array (postgres)![](./_resources/SQL.resources/image.6.png)
+-   Unnest an array (postgres)![](./_resources/SQL.resources/image.6.png)
 
-```
+```         
 SELECT
   cart_id,
   UNNEST(products) AS products
@@ -1451,11 +1501,11 @@ WHERE
   cart_id IN (3, 4);
 ```
 
-* Useful if you want to perform a join
+-   Useful if you want to perform a join
 
-* Filter according to items in arrays (postgres)
+-   Filter according to items in arrays (postgres)
 
-```
+```         
 SELECT
   cart_id,
   products
@@ -1465,11 +1515,11 @@ WHERE
   'product_c' = ANY (products);
 ```
 
-* Only rows with arrays that have "product\_c" will be returned
+-   Only rows with arrays that have "product_c" will be returned
 
-* Change array values using `UPDATE`, `SET`
+-   Change array values using `UPDATE`, `SET`
 
-```
+```         
 -- update arrays 
 UPDATE
   shopping_cart
@@ -1490,13 +1540,15 @@ FROM
 ORDER BY cart_id;
 ```
 
-* First update: all arrays where cart\_id == 1 are set to \['product\_a','product\_b','product\_e'\]
-* Second update: all array first values where cart\_id == 2 are set to 'product\_f'
+-   First update: all arrays where cart_id == 1 are set to \['product_a','product_b','product_e'\]
 
-* Insert array values
-	* `ARRAY_APPEND` - puts value at the end of the array
+-   Second update: all array first values where cart_id == 2 are set to 'product_f'
 
-```
+-   Insert array values
+
+    -   `ARRAY_APPEND` - puts value at the end of the array
+
+```         
 UPDATE
   shopping_cart
 SET
@@ -1505,11 +1557,11 @@ WHERE
   cart_id = 1;
 ```
 
-* arrays in product column where cart\_id == 1 get "product\_x" appended to the end of their arrays
+-   arrays in product column where cart_id == 1 get "product_x" appended to the end of their arrays
 
-* `ARRAY_PREPEND` - puts value at the beginning of the array
+-   `ARRAY_PREPEND` - puts value at the beginning of the array
 
-```
+```         
 UPDATE 
   shopping_cart
 SET
@@ -1518,11 +1570,11 @@ WHERE
   cart_id = 2;
 ```
 
-* arrays in product column where cart\_id == 2 get "product\_x" prepended to the beginning of their arrays
+-   arrays in product column where cart_id == 2 get "product_x" prepended to the beginning of their arrays
 
-* `ARRAY_REMOVE` - remove array item
+-   `ARRAY_REMOVE` - remove array item
 
-```
+```         
 UPDATE
   shopping_cart
 SET
@@ -1530,11 +1582,11 @@ SET
 WHERE cart_id = 1;
 ```
 
-* arrays in product column where cart\_id == 1 get "product\_e" removed from their arrays
+-   arrays in product column where cart_id == 1 get "product_e" removed from their arrays
 
-* `ARRAY_CONCAT`(BQ), `ARRAY_CAT`(postgres) - Concantenate
+-   `ARRAY_CONCAT`(BQ), `ARRAY_CAT`(postgres) - Concantenate
 
-```
+```         
 SELECT ARRAY_CONCAT([1, 2], [3, 4], [5, 6]) as count_to_six;
 +--------------------------------------------------+
 | count_to_six                                    |
@@ -1550,9 +1602,9 @@ FROM shopping_cart
 ORDER BY cart_id;
 ```
 
-* `ARRAY_TO_STRING` - Coerce to string (BQ)
+-   `ARRAY_TO_STRING` - Coerce to string (BQ)
 
-```
+```         
 WITH items AS
   (SELECT ['coffee', 'tea', 'milk' ] as list
   UNION ALL
@@ -1580,11 +1632,11 @@ FROM items;
 +--------------------------------+
 ```
 
-* `ARRAY_AGG` - gather values of a group by variable into an array ([doc](https://docs.snowflake.com/en/sql-reference/functions/array_agg.html))
-	* Makes the output more readable
-	* Example: Get categories for each brand
+-   `ARRAY_AGG` - gather values of a group by variable into an array ([doc](https://docs.snowflake.com/en/sql-reference/functions/array_agg.html))
+    -   Makes the output more readable
+    -   Example: Get categories for each brand
 
-```
+```         
 -- without array_agg
 select
     brand,
@@ -1620,10 +1672,10 @@ Results:
 | Uniqlo | ['shirts','t-shirts','vest'] |
 ```
 
-* `ARRAY_SIZE` - function takes an array or a variant as input and returns the number of items within the array/variant ([doc](https://docs.snowflake.com/en/sql-reference/functions/array_size.html))
-	* Example: How many categories does each brand have?
+-   `ARRAY_SIZE` - function takes an array or a variant as input and returns the number of items within the array/variant ([doc](https://docs.snowflake.com/en/sql-reference/functions/array_size.html))
+    -   Example: How many categories does each brand have?
 
-```
+```         
 select
   brand,
   array_agg(distinct category) as all_categories,
@@ -1648,13 +1700,13 @@ FROM
   shopping_cart;
 ```
 
-* `ARRAY_CONTAINS` checks if a _variant_ is included in an array and returns a boolean value. ([doc](https://docs.snowflake.com/en/sql-reference/functions/array_contains.html))
-	* Variant is just a specific category
-	* Need to cast the item you’d like to check as a variant first
-	* Syntax: `ARRAY_CONTAINS(variant, array)`
-	* Example: What brands have jackets?
+-   `ARRAY_CONTAINS` checks if a *variant* is included in an array and returns a boolean value. ([doc](https://docs.snowflake.com/en/sql-reference/functions/array_contains.html))
+    -   Variant is just a specific category
+    -   Need to cast the item you'd like to check as a variant first
+    -   Syntax: `ARRAY_CONTAINS(variant, array)`
+    -   Example: What brands have jackets?
 
-```
+```         
 select
   brand,
   array_agg(distinct category) as all_categories,
@@ -1682,16 +1734,14 @@ WHERE
   products  @> ARRAY['product_a', 'product_b'];
 ```
 
-* "@>" example returns all rows with arrays containing product\_a and product\_b
+-   "\@\>" example returns all rows with arrays containing product_a and product_b
 
+## Business Queries {#sec-sql-bizq .unnumbered}
 
+-   Simple Moving Average (SMA)
+    -   Example: 7-day SMA including today
 
-Business Queries
-
-* Simple Moving Average (SMA)
-	* Example: 7-day SMA including today
-
-```
+```         
 SELECT
   Date, Conversions,
   AVG(Conversions) OVER (ORDER BY Date ROWS BETWEEN 6 PRECEDING AND
@@ -1699,9 +1749,9 @@ SELECT
 FROM daily_sales
 ```
 
-* Example: 3-day SMA not including today
+-   Example: 3-day SMA not including today
 
-```
+```         
 select
   date,
   sales,
@@ -1710,9 +1760,9 @@ select
 from table_daily_sales
 ```
 
-* Rank product categories by shipping cost for each shipping address![](./_resources/SQL.resources/image.png)
+-   Rank product categories by shipping cost for each shipping address![](./_resources/SQL.resources/image.png)
 
-```
+```         
 SELECT Product_Category,
   Shipping_Address,
   Shipping_Cost,
@@ -1734,26 +1784,29 @@ AND Shipping_Address IN ('Germany','India')
 AND Status IN ('Delivered')
 ```
 
-* `RANK()` is retrieves ranked rows based on the condition of `ORDER BY` clause. As you can see there is a tie between 1st two rows i.e. first two rows have same value in Shipping\_Cost column (which is mentioned in ORDER BY clause).
-* `DENSE_RANK` is similar to the `RANK` , but it does not skip any numbers even if there is a tie between the rows. This you can see in Blue box in the above picture.
-* Rank resets to 1 when "Shipping\_Address" changes location
+-   `RANK()` is retrieves ranked rows based on the condition of `ORDER BY` clause. As you can see there is a tie between 1st two rows i.e. first two rows have same value in Shipping_Cost column (which is mentioned in ORDER BY clause).
 
-* Total order quantity for each month
+-   `DENSE_RANK` is similar to the `RANK` , but it does not skip any numbers even if there is a tie between the rows. This you can see in Blue box in the above picture.
 
-```
+-   Rank resets to 1 when "Shipping_Address" changes location
+
+-   Total order quantity for each month
+
+```         
 SELECT strftime('%m', OrderDate) as Month,
       SUM(Quantity) as Total_Quantity
 from Dummy_Sales_Data_v1
 GROUP BY strftime('%m', OrderDate)
 ```
 
-* `strftime` extracts the month (%m) from the datetime column, "OrderDate"
+-   `strftime` extracts the month (%m) from the datetime column, "OrderDate"
 
-* Daily counts of open jobs
-	* The issue is that there aren't rows for transactions that remain in a type of holding status
-		* e.g. Job Postings website has date columns for the date the job posting was created, the date the job posting went live on the website, and the date the job posting was taken down (action based timestamps), but no dates for the status between "went live" and "taken down".
+-   Daily counts of open jobs
 
-```
+    -   The issue is that there aren't rows for transactions that remain in a type of holding status
+        -   e.g. Job Postings website has date columns for the date the job posting was created, the date the job posting went live on the website, and the date the job posting was taken down (action based timestamps), but no dates for the status between "went live" and "taken down".
+
+```         
 -- create a calendar column
 SELECT parse_datetime('2020–01–01 08:00:00', 'yyyy-MM-dd H:m:s') + (interval '1' day * d) as cal_date from 
 FROM ( SELECT
@@ -1784,14 +1837,17 @@ Left Join
         and (o.stage_exited is null or o.stage_exited > c.cal_date)
 ```
 
-* Calendar column should probably be a CTE
-* Notes from [Using SQL to calculate trends based on historical status](https://towardsdatascience.com/using-sql-to-calculate-trends-based-on-historical-status-2ee75f23c4e4)
-* Some flavours of SQL have a [generate_series](https://www.postgresql.org/docs/current/functions-srf.html) function, which will create this calendar column for you
-* For one particular month, then create an indicator column with "if posting\_publish\_date ≤ 2022–01–01 and (posting\_closed\_date is null or posting\_closed\_date > 2022–01–31) then True" and then filter for True and count.
+-   Calendar column should probably be a CTE
 
-* Get the latest order from each customer
+-   Notes from [Using SQL to calculate trends based on historical status](https://towardsdatascience.com/using-sql-to-calculate-trends-based-on-historical-status-2ee75f23c4e4)
 
-```
+-   Some flavours of SQL have a [generate_series](https://www.postgresql.org/docs/current/functions-srf.html) function, which will create this calendar column for you
+
+-   For one particular month, then create an indicator column with "if posting_publish_date ≤ 2022--01--01 and (posting_closed_date is null or posting_closed_date \> 2022--01--31) then True" and then filter for True and count.
+
+-   Get the latest order from each customer
+
+```         
 -- Using QUALIFY
 select
     date,
@@ -1826,40 +1882,42 @@ Results:
 | 2022-01-07 | 001        | 109      | 120  |
 ```
 
+## Transactions {#sec-sql-trans .unnumbered}
 
-Transactions
+-   Misc
+    -   Also see Terms \>\> Transaction
+    -   When the transaction is successful, COMMIT is applied. When the transaction is aborted, incorrect execution, system failure ROLLBACK occurs.
+-   Only used with INSERT, UPDATE and DELETE
+-   `BEGIN TRANSACTION`: It indicates the start point of an explicit or local transaction.
+    -   Represents a point at which the data referenced by a connection is logically and physically consistent.
+    -   If errors are encountered, all data modifications made after the BEGIN TRANSACTION can be rolled back to return the data to this known state of consistency
+    -   Syntax: `BEGIN TRANSACTION transaction_name ;`
+-   `SET TRANSACTION`: Places a name on a transaction.
+    -   Syntax: `SET TRANSACTION [ READ WRITE | READ ONLY ];`
+-   `COMMIT`: used to permanently save the changes done in the transaction in tables/databases. The database cannot regain its previous state after its execution of commit.
+    -   If everything is in order with all statements within a single transaction, all changes are recorded together in the database is called committed. The COMMIT command saves all the transactions to the database since the last COMMIT or ROLLBACK command
+    -   Example: Delete records
 
-* Misc
-	* Also see Terms >> Transaction
-	* When the transaction is successful, COMMIT is applied. When the transaction is aborted, incorrect execution, system failure ROLLBACK occurs.
-* Only used with INSERT, UPDATE and DELETE
-* `BEGIN TRANSACTION`: It indicates the start point of an explicit or local transaction.
-	* Represents a point at which the data referenced by a connection is logically and physically consistent.
-	* If errors are encountered, all data modifications made after the BEGIN TRANSACTION can be rolled back to return the data to this known state of consistency
-	* Syntax: `BEGIN TRANSACTION transaction_name ;`
-* `SET TRANSACTION`: Places a name on a transaction.
-	* Syntax: `SET TRANSACTION [ READ WRITE | READ ONLY ];`
-* `COMMIT`: used to permanently save the changes done in the transaction in tables/databases. The database cannot regain its previous state after its execution of commit.
-	* If everything is in order with all statements within a single transaction, all changes are recorded together in the database is called committed. The COMMIT command saves all the transactions to the database since the last COMMIT or ROLLBACK command
-	* Example: Delete records
-
-```
+```         
 DELETE FROM Student WHERE AGE = 20;
 COMMIT;
 ```
 
-* Deletes those records from the table which have age = 20 and then commits the changes in the database.
+-   Deletes those records from the table which have age = 20 and then commits the changes in the database.
 
-* `ROLLBACK`: used to undo the transactions that have not been saved in the database. The command is only been used to undo changes since the last commit
-	* If any error occurs with any of the SQL grouped statements, all changes need to be aborted. The process of reversing changes is called rollback. This command can only be used to undo transactions since the last COMMIT or ROLLBACK command was issued.
-	* Syntax: `ROLLBACK;`
-* `SAVEPOINT`: creates points within the groups of transactions in which to ROLLBACK.
-	* Syntax: `SAVEPOINT <savepoint_name>;`
-	* A savepoint is a point in a transaction in which you can roll the transaction back to a certain point without rolling back the entire transaction.
-	* Remove a savepoint: `RELEASE SAVEPOINT <savepoint_name>`
-	* Example: Rollback a deletion
+-   `ROLLBACK`: used to undo the transactions that have not been saved in the database. The command is only been used to undo changes since the last commit
 
-```
+    -   If any error occurs with any of the SQL grouped statements, all changes need to be aborted. The process of reversing changes is called rollback. This command can only be used to undo transactions since the last COMMIT or ROLLBACK command was issued.
+    -   Syntax: `ROLLBACK;`
+
+-   `SAVEPOINT`: creates points within the groups of transactions in which to ROLLBACK.
+
+    -   Syntax: `SAVEPOINT <savepoint_name>;`
+    -   A savepoint is a point in a transaction in which you can roll the transaction back to a certain point without rolling back the entire transaction.
+    -   Remove a savepoint: `RELEASE SAVEPOINT <savepoint_name>`
+    -   Example: Rollback a deletion
+
+```         
 SAVEPOINT SP1;
 //Savepoint created.
 DELETE FROM Student WHERE AGE = 20;
@@ -1870,22 +1928,21 @@ ROLLBACK TO SP1;
 //Rollback completed.
 ```
 
+## Processing Expressions {#sec-sql-procexp .unnumbered}
 
-Processing Expressions
+-   Division and NULLS
+    -   Any division with NULL values with have a result of NULL.
+    -   `isNull` allows to get a different resulting value
 
-* Division and NULLS
-	* Any division with NULL values with have a result of NULL.
-	* `isNull` allows to get a different resulting value
-
-```
+```         
 SELECT IsNull(<column>, 0) / 45
 ```
 
-* All NULL values in the column will replaced with 0s during the division operation.
+-   All NULL values in the column will replaced with 0s during the division operation.
 
-* Use multiple conditions in a WHERE expression
+-   Use multiple conditions in a WHERE expression
 
-```
+```         
 select
     *
 from XXX_table
@@ -1896,13 +1953,12 @@ where 1=1
 ;
 ```
 
-* The "1=1" prevents errors that would occur when the first condition doesn't apply to any rows.
-	* Can also use "true"
+-   The "1=1" prevents errors that would occur when the first condition doesn't apply to any rows.
+    -   Can also use "true"
+-   Select unique rows without using DISTINCT
+    -   Using UNION
 
-* Select unique rows without using DISTINCT
-	* Using UNION
-
-```
+```         
 SELECT employee_id,
       employee_name,
       department
@@ -1914,11 +1970,11 @@ SELECT employee_id,
 FROM Dummy_employees
 ```
 
-* there must be same number and order of columns in both the SELECT statements
+-   there must be same number and order of columns in both the SELECT statements
 
-* Using INTERSECT
+-   Using INTERSECT
 
-```
+```         
 SELECT employee_id,
       employee_name,
       department
@@ -1930,11 +1986,11 @@ SELECT employee_id,
 FROM Dummy_employees
 ```
 
-* there must be same number and order of columns in both the SELECT statements
+-   there must be same number and order of columns in both the SELECT statements
 
-* Using ROW\_NUMBER
+-   Using ROW_NUMBER
 
-```
+```         
 WITH temporary_employees as
 (
 SELECT
@@ -1951,9 +2007,9 @@ FROM temporary_employees
 WHERE row_count = 1
 ```
 
-* Using GROUP BY
+-   Using GROUP BY
 
-```
+```         
 SELECT employee_id,
       employee_name,
       department
@@ -1963,11 +2019,11 @@ GROUP BY employee_id,
         department
 ```
 
-* Just need to group by all the columns. Useful to use in conjunction with aggregate functions.
+-   Just need to group by all the columns. Useful to use in conjunction with aggregate functions.
 
-* CASE WHEN
+-   CASE WHEN
 
-```
+```         
 SELECT OrderID,
       OrderDate,
       Sales_Manager,
@@ -1979,13 +2035,12 @@ SELECT OrderID,
 FROM Dummy_Sales_Data_v1
 ```
 
-* `END AS` specifies the name of the new column, "OrderVolume"
-* `ELSE` specifies the value when none of the conditions are met
-	* If you did not mention ELSE clause and no condition is satisfied, the query will return NULL for that specific record
+-   `END AS` specifies the name of the new column, "OrderVolume"
+-   `ELSE` specifies the value when none of the conditions are met
+    -   If you did not mention ELSE clause and no condition is satisfied, the query will return NULL for that specific record
+-   Pivot Wider![](./_resources/SQL.resources/image.1.png)
 
-* Pivot Wider![](./_resources/SQL.resources/image.1.png)
-
-```
+```         
 SELECT Sales_Manager,
       COUNT(CASE WHEN Shipping_Address = 'Singapore' THEN OrderID
             END) AS Singapore_Orders,
@@ -2002,11 +2057,11 @@ FROM Dummy_Sales_Data_v1
 GROUP BY Sales_Manager
 ```
 
-* Depending on your use-case you can also use different aggregation such as SUM, AVG, MAX, MIN with CASE statement.
+-   Depending on your use-case you can also use different aggregation such as SUM, AVG, MAX, MIN with CASE statement.
 
-* Extract components from date-time columns
+-   Extract components from date-time columns
 
-```
+```         
 /* MySQL */
 EXTRACT(part_of_date FROM date_time_column_name)
 YEAR(date_time_column_name)
@@ -2018,12 +2073,13 @@ DATE_FORMAT(date_time_column_name)
 SELECT strftime('%m', OrderDate) as Month
 ```
 
-* `strftime` codes![](./_resources/SQL.resources/image.2.png)
+-   `strftime` codes![](./_resources/SQL.resources/image.2.png)
 
-* Duplicated Rows
-	* Remove duplicated rows with window function
+-   Duplicated Rows
 
-```
+    -   Remove duplicated rows with window function
+
+```         
 WITH temporary_employees as 
 (SELECT 
   employee_id, 
@@ -2039,9 +2095,9 @@ FROM temporary_employees 
 WHERE row_count = 1
 ```
 
-* Use a hash column as id column, then test for duplicates, remove them or investigate them (BigQuery)![](./_resources/SQL.resources/image.3.png)
+-   Use a hash column as id column, then test for duplicates, remove them or investigate them (BigQuery)![](./_resources/SQL.resources/image.3.png)
 
-```
+```         
 WITH
     inbound_zoo_elephants AS (
         SELECT *
@@ -2060,37 +2116,36 @@ SELECT
 FROM add_row_hash
 ```
 
-* No duplicate records found, since "records" = 9 and "unique\_records" = 9
-	* if records > unique\_records, duplicates exist
-* Can select distinct hex\_row\_hash if you want to remove duplicates
-* Can count hex\_row\_hash then filter where hex\_row\_hash > 1 to find which rows are duplicates
-* Notes from [link](https://towardsdatascience.com/how-to-build-a-unique-md5-row-hash-using-sql-in-bigquery-plus-a-few-related-things-e6f71820f38b)
-* Description
-	* flowfunctions is the project name
-	* examples is a directory (?)
-	* zoo\_elephants is the dataset
-* Steps
-	* TO\_JSON\_STRING - creates column with json string for each row
-	* MD5 hashes that string
-	* TO\_HEX makes it alpha-numeric and gets rid of the symbols in the hash
-		* Easier to deal with in BigQuery
-		* Assume this is still unique (?)
-* Note: By adding "true" value, `TO_JSON_STRING(inbound_zoo_elephants, true)` , TO\_JSON\_STRING adds line breaks to the json string for easier readability.
-* Hashing function options
-	* [MD5](https://cloud.google.com/bigquery/docs/reference/standard-sql/hash_functions#md5) -  shortest one (16 characters), fine for this use case
-		* [cryptographically broken](https://en.wikipedia.org/wiki/MD5), returns 16 characters and suffices for our use-case. Other options are
-	* [FARM_FINGERPRINT](https://cloud.google.com/bigquery/docs/reference/standard-sql/hash_functions#farm_fingerprint) - returns a signed integer of variable length
-	* [SHA1](https://cloud.google.com/bigquery/docs/reference/standard-sql/hash_functions#sha1), [SHA256](https://cloud.google.com/bigquery/docs/reference/standard-sql/hash_functions#sha256) and [SHA512](https://cloud.google.com/bigquery/docs/reference/standard-sql/hash_functions#sha512), which return 20, 32 and 64 bytes respectively and are more secure for cryptographic use cases.
+-   No duplicate records found, since "records" = 9 and "unique_records" = 9
+    -   if records \> unique_records, duplicates exist
+-   Can select distinct hex_row_hash if you want to remove duplicates
+-   Can count hex_row_hash then filter where hex_row_hash \> 1 to find which rows are duplicates
+-   Notes from [link](https://towardsdatascience.com/how-to-build-a-unique-md5-row-hash-using-sql-in-bigquery-plus-a-few-related-things-e6f71820f38b)
+-   Description
+    -   flowfunctions is the project name
+    -   examples is a directory (?)
+    -   zoo_elephants is the dataset
+-   Steps
+    -   TO_JSON_STRING - creates column with json string for each row
+    -   MD5 hashes that string
+    -   TO_HEX makes it alpha-numeric and gets rid of the symbols in the hash
+        -   Easier to deal with in BigQuery
+        -   Assume this is still unique (?)
+-   Note: By adding "true" value, `TO_JSON_STRING(inbound_zoo_elephants, true)` , TO_JSON_STRING adds line breaks to the json string for easier readability.
+-   Hashing function options
+    -   [MD5](https://cloud.google.com/bigquery/docs/reference/standard-sql/hash_functions#md5) -  shortest one (16 characters), fine for this use case
+        -   [cryptographically broken](https://en.wikipedia.org/wiki/MD5), returns 16 characters and suffices for our use-case. Other options are
+    -   [FARM_FINGERPRINT](https://cloud.google.com/bigquery/docs/reference/standard-sql/hash_functions#farm_fingerprint) - returns a signed integer of variable length
+    -   [SHA1](https://cloud.google.com/bigquery/docs/reference/standard-sql/hash_functions#sha1), [SHA256](https://cloud.google.com/bigquery/docs/reference/standard-sql/hash_functions#sha256) and [SHA512](https://cloud.google.com/bigquery/docs/reference/standard-sql/hash_functions#sha512), which return 20, 32 and 64 bytes respectively and are more secure for cryptographic use cases.
+-   Nested Data
+    -   Recursive CTE
+        -   Recursive CTEs are used primarily when you want to query hierarchical data or graphs. This could be a company's organizational structure, a family tree, a restaurant menu, or various routes between cities
+        -   Also see
+            -   [What Is a Recursive CTE in SQL?](https://learnsql.com/blog/sql-recursive-cte/)
+                -   Tutorial, 3 examples, and links to other articles
+        -   Syntax
 
-* Nested Data
-	* Recursive CTE
-		* Recursive CTEs are used primarily when you want to query hierarchical data or graphs. This could be a company’s organizational structure, a family tree, a restaurant menu, or various routes between cities
-		* Also see
-			* [What Is a Recursive CTE in SQL?](https://learnsql.com/blog/sql-recursive-cte/)
-				* Tutorial, 3 examples, and links to other articles
-		* Syntax
-
-```
+```         
 WITH RECURSIVE cte_name AS (
     cte_query_definition (the anchor member)
     UNION ALL
@@ -2100,9 +2155,9 @@ SELECT *
 FROM  cte_name;
 ```
 
-* Example: postgres
+-   Example: postgres
 
-```
+```         
 WITH RECURSIVE category_tree(id, name, parent_id, depth, path) AS (
   SELECT id, name, parent_id, 1, ARRAY[id]
   FROM categories
@@ -2116,25 +2171,24 @@ SELECT id, name, parent_id, depth, path
 FROM category_tree;
 ```
 
-* CTE (`WITH`) + `RECURSIVE` says it's a recursive query.
-* `UNION ALL`combines the results of both statements.
-	* Example is defined by 2 Select statements
-		* Anchor Member: First SELECT statement selects the root nodes of the category tree (nodes with no parent)
-			* Root node is indicated by "parent\_id" = NULL
-		* Recursive member: Second SELECT statement selects the child nodes recursively
-	* Also see Arrays for further examples of the use of `UNION ALL`
-* The "depth" column is used to keep track of the depth of each category node in the tree.
-	* "1" in the first statement
-	* "category\_tree.depth + 1" in the second statement
-		* With every recursion, the CTE will add 1 to the previous depth level, and it will do that until it reaches the end of the hierarchy
-* The "path" column is an array that stores the path from the root to the current node.
-	* "ARRAY\[id\]" in the first statement
-	* "path || categories.id" in the second statement
-		* "||" concatenates "path" and "id" columns (See Strings)
+-   CTE (`WITH`) + `RECURSIVE` says it's a recursive query.
+-   `UNION ALL`combines the results of both statements.
+    -   Example is defined by 2 Select statements
+        -   Anchor Member: First SELECT statement selects the root nodes of the category tree (nodes with no parent)
+            -   Root node is indicated by "parent_id" = NULL
+        -   Recursive member: Second SELECT statement selects the child nodes recursively
+    -   Also see Arrays for further examples of the use of `UNION ALL`
+-   The "depth" column is used to keep track of the depth of each category node in the tree.
+    -   "1" in the first statement
+    -   "category_tree.depth + 1" in the second statement
+        -   With every recursion, the CTE will add 1 to the previous depth level, and it will do that until it reaches the end of the hierarchy
+-   The "path" column is an array that stores the path from the root to the current node.
+    -   "ARRAY\[id\]" in the first statement
+    -   "path \|\| categories.id" in the second statement
+        -   "\|\|" concatenates "path" and "id" columns (See Strings)
+-   Preprocess Time Series with 4 Lags ([article](https://towardsdatascience.com/concurrently-train-multiple-time-series-models-over-spark-with-xgboost-c6d5ec4a6430))
 
-* Preprocess Time Series with 4 Lags ([article](https://towardsdatascience.com/concurrently-train-multiple-time-series-models-over-spark-with-xgboost-c6d5ec4a6430))
-
-```
+```         
 WITH top_customers as (
     --- select the customter ids you want to track
 ),
@@ -2180,25 +2234,22 @@ FROM transactions 
 "Customer-123","2023-01-14 07:00:00.000","6","7","6558","6045","5676","5645","5412",
 ```
 
-* Dataset contains number of transactions made per customer per hour.
-* 2 WITH clauses: the first just extracts a list of customers we are interested in. Here you can add any condition that is supposed to filter in or out specific customers (perhaps you want to filter new customers or only include customers with sufficient traffic). The second WITH clause simply creates the first data set — Dataset A, which pulls a week of data for these customers and selects the customer id, date, hour, and number of transactions.
-* Finally, the last and most important SELECT clause generates Dataset B, by using SQL lag() function on each row in order to capture the number of transactions in each of the hours that preceded the hour in the row.
+-   Dataset contains number of transactions made per customer per hour.
+-   2 WITH clauses: the first just extracts a list of customers we are interested in. Here you can add any condition that is supposed to filter in or out specific customers (perhaps you want to filter new customers or only include customers with sufficient traffic). The second WITH clause simply creates the first data set --- Dataset A, which pulls a week of data for these customers and selects the customer id, date, hour, and number of transactions.
+-   Finally, the last and most important SELECT clause generates Dataset B, by using SQL lag() function on each row in order to capture the number of transactions in each of the hours that preceded the hour in the row.
 
+## Tools {#sec-sql-tools .unnumbered}
 
+-   [{{]{style="color: goldenrod"}[sqlglot](https://pypi.org/project/sqlglot/){style="color: goldenrod"}[}}]{style="color: goldenrod"} - no dependency Python SQL parser, transpiler, optimizer, and engine
+    -   Format SQL or translate between nearly twenty different SQL dialects.
+        -   It doesn't just transpile active SQL code, too. Moves comments from one dialect to another.
+    -   The parser itself can be customized
+    -   Can also help you analyze queries, traverse parsed expression trees, and incrementally (and, programmatically) build SQL queries.
+    -   [support for optimizing SQL queries](https://github.com/tobymao/sqlglot/blob/main/sqlglot/optimizer/optimizer.py), and performing [semantic diffs](https://github.com/tobymao/sqlglot/blob/main/posts/sql_diff.md).
+    -   Can be used to [unit test queries](https://github.com/tobymao/sqlglot#sql-execution) through mocks based on Python dictionaries.
+    -   Example: translate duckdb to hive
 
-
-Tools
-
-* [{{]{style='color: goldenrod'}[sqlglot](https://pypi.org/project/sqlglot/){style='color: goldenrod'}[}}]{style='color: goldenrod'} - no dependency Python SQL parser, transpiler, optimizer, and engine
-	* Format SQL or translate between nearly twenty different SQL dialects.
-		* It doesn't just transpile active SQL code, too. Moves comments from one dialect to another.
-	* The parser itself can be customized
-	* Can also help you analyze queries, traverse parsed expression trees, and incrementally (and, programmatically) build SQL queries.
-	* [support for optimizing SQL queries](https://github.com/tobymao/sqlglot/blob/main/sqlglot/optimizer/optimizer.py), and performing [semantic diffs](https://github.com/tobymao/sqlglot/blob/main/posts/sql_diff.md).
-	* Can be used to [unit test queries](https://github.com/tobymao/sqlglot#sql-execution) through mocks based on Python dictionaries.
-	* Example: translate duckdb to hive
-
-```
+```         
 import sqlglot
 sqlglot.transpile(
   "SELECT EPOCH_MS(1618088028295)", 
@@ -2208,15 +2259,3 @@ sqlglot.transpile(
 ---
 'SELECT FROM_UNIXTIME(1618088028295 / 1000)'
 ```
-
-
-
-
-
-
-
-
-
-
-
-
