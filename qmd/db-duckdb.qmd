@@ -4,9 +4,54 @@
 
 -   High performance embedded database for analytics which provides a few enhancements over SQLite such as increased speed and allowing a larger number of columns
     -   Faster than sqlite for most analytics queries (sums, aggregates etc).
+
         -   Vectorizes query executions (columnar-oriented), while other DBMSs (SQLite, PostgreSQL...) process each row sequentially
-    -   Also has fast JSON extension
+
+    -   Also has fast [JSON extension](https://duckdb.org/docs/extensions/json.html)
+
+        -   [Example](.ribbon-highlight): from hrbrmstr [drop](https://dailyfinds.hrbrmstr.dev/i/125012827/duckdb-json)
+
+            ``` sql
+            INSTALL 'json';
+            LOAD 'json';
+
+            COPY (
+              SELECT * FROM (
+                SELECT DISTINCT
+                  cve_id,
+                  unnest(
+                    regexp_split_to_array(
+                      concat_ws(
+                        ',',
+                        regexp_extract(case when cweId1 IS NOT NULL THEN cweId1 ELSE regexp_replace(json_extract_string(problem1, '$.description'), '[: ].*$', '') END, '^(CWE-[0-9]+)', 0),
+                        regexp_extract(case when cweId2 IS NOT NULL THEN cweId2 ELSE regexp_replace(json_extract_string(problem2, '$.description'), '[: ].*$', '') END, '^(CWE-[0-9]+)', 0)
+                      ),
+                      ','
+                    )
+                  ) AS cwe_id
+                FROM (
+                  SELECT 
+                    json_extract_string(cveMetadata, '$.cveId') AS cve_id, 
+                    json_extract(containers, '$.cna.problemTypes[0].descriptions[0]') AS problem1,
+                    json_extract(containers, '$.cna.problemTypes[0].descriptions[1]') AS problem2,
+                    json_extract_string(containers, '$.cna.problemTypes[0].cweId[0]') AS cweId1,
+                    json_extract_string(containers, '$.cna.problemTypes[0].cweId[1]') AS cweId2
+                  FROM 
+                    read_json_auto("/data/cvelistV5/cves/*/*/*.json", ignore_errors = true) 
+                )
+                WHERE 
+                  (json_extract_string(problem1, '$.type') = 'CWE' OR
+                   json_extract_string(problem2, '$.type') = 'CWE')
+                )
+              WHERE cwe_id LIKE 'CWE-%'
+            ) TO '/data/summaries/cve-to-cwe.csv' (HEADER, DELIMETER ',')
+            ```
+
+            -   Processes a nested json
+            -   Clones the CVE list repo, modify the directory paths and run it. It burns through nearly 220K hideous JSON files in mere seconds, even with some complex JSON operations.
+
     -   Unlike some other big data tools it is entirely self-contained. (aka embedded, in-process)
+
         -   no external dependencies, or server software to install, update, or maintain
 -   Can directly run queries on [Parquet files](https://duckdb.org/docs/data/parquet), [CSV files](https://duckdb.org/docs/data/csv), [SQLite files](https://github.com/duckdblabs/sqlite_scanner), [postgres files](https://duckdb.org/2022/09/30/postgres-scanner.html), [Pandas](https://duckdb.org/docs/guides/python/sql_on_pandas), [R](https://duckdb.org/docs/api/r#efficient-transfer) and [Julia](https://duckdb.org/docs/api/julia#scanning-dataframes) data frames as well as [Apache Arrow sources](https://duckdb.org/docs/guides/python/sql_on_arrow)
 -   VS Code [extension](https://marketplace.visualstudio.com/items?itemName=RandomFractalsInc.duckdb-sql-tools)
