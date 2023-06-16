@@ -10,8 +10,11 @@
         -   Also see RMS
     -   RF: 200 events per candidate feature (Harrell, [link](https://hbiostat.org/rmsc/lrm.html))
 -   Undersampling non-events(0s) is the popular way to balance the target variable in data sets but other ma be worth exploring while building the model.
--   Spline don't bin continuous, baseline, adjustment variables, where "baseline" means the patients measurements before treatment. Lack of fit will then come only from omitted interaction effects.  (Harrell)
+-   Spline --- don't bin continuous, baseline, adjustment variables, where "baseline" means the patients measurements before treatment. Lack of fit will then come only from omitted interaction effects.  (Harrell)
     -   e.g.: if older males are much more likely to receive treatment B than treatment A than what would be expected from the effects of age and sex alone, adjustment for the additive propensity would not adequately balance for age and sex.
+    -   Also see
+        -   [Feature Engineering, General \>\> Continuous \>\> Binning](feature-engineering-general.qmd#sec-feat-eng-gen-cont-bin){style="color: green"}
+        -   [Feature Engineering, General \>\> Continuous \>\> Splines](feature-engineering-general.qmd#sec-feat-eng-gen-cont-tran-spl){style="color: green"}
 -   The best information to present to the patient is the estimated individualized risk of the bad outcome separately under all treatment alternatives. That is because patients tend to think in terms of absolute risk, and differences in risks don't tell the whole story ([Harrell](https://www.fharrell.com/post/rdist/))
     -   A risk difference (RD, also called absolute risk reduction) often means different things to patients depending on whether the base risk is very small, in the middle, or very large.
 -   Recommended metrics to be reported for medical studies ([Harrell](https://www.fharrell.com/post/rdist/)). This is perhaps generalizable to any RCT with a binary outcome.
@@ -31,30 +34,13 @@
 
 ## Class Imbalance {#sec-class-imbal .unnumbered}
 
--   Issues
-
-    -   Using Accuracy as a metric
-        -   If the positivity rate is just 1%, then a naive classifier labeling everything as negative has 99% accuracy by definition
-    -   If you've used subsampling, then the training data is not the same as the data used in production
-    -   Low event rate
-        -   If you only have 10 to 100 positive samples, the model may easily memorize these samples, leading to an overfit model that generalized poorly
-        -   May result in large CIs for your effect estimate (see Gelman [post](https://statmodeling.stat.columbia.edu/2023/04/04/association-between-low-density-lipoprotein-cholesterol-and-all-cause-mortality/))
-
--   Check Imbalance
-
-    ``` r
-    data %>%
-      count(class) %>%
-      mutate(prop = n / sum(n)) %>%
-      pretty_print()
-    ```
-
--   Misc
+-   [Misc]{.underline}
 
     -   Also see
         -   [Model Building, tidymodel \>\> Recipe](model-building-tidymodels.qmd#sec-modbld-tidymod-recipe){style="color: green"} \>\> up/down-sampling
         -   [Surveys, Analysis \>\> Modeling](surveys-analysis.qmd#sec-surveys-anal-modeling){style="color: green"} \>\> Tidymodels \>\> Importance weights
         -   [Paper](https://twitter.com/MaartenvSmeden/status/1495668297630633985): Subsampling without calibration will likely be more harmful than without subsampling
+    -   **Subsampling** can refer to up/oversampling or down/undersampling.
     -   It is perfectly ok to train a model on 1M negatives and 10K positives (i.e. plenty of events), as long as you avoid using accuracy as a metric
         -   1K to 10K events might be enough for the ML algorithm to learn from
         -   For a RF model: 200 events per candidate feature (Harrell, [link](https://hbiostat.org/rmsc/lrm.html))
@@ -65,47 +51,63 @@
         -   "We anticipate that risk miscalibration will remain present regardless of type of model or imbalance correction technique, unless the models are recalibrated. However, class imbalance correction followed by recalibration is only worth the effort if imbalance correction leads to better discrimination of the resulting models."
             -   They used what looked to be Platt Scaling for recalibration
         -   Also see [Model Building, tidymodels \>\> Tune](model-building-tidymodels.qmd#sec-modbld-tidymod-tune){style="color: green"} \>\> Tune Model with Multiple Recipes for an example of how downsampling (w/o calibration) + glmnet affects class prediction and GOF metrics
-    -   SOTA
-        -   TabDDPM: Modeling Tabular Data with Diffusion Models ([Raschka Thread](https://twitter.com/rasbt/status/1579110843081691136))
+
+-   [Issues]{.underline}
+
+    -   Using Accuracy as a metric
+        -   If the positivity rate is just 1%, then a naive classifier labeling everything as negative has 99% accuracy by definition
+    -   If you've used subsampling, then the training data is not the same as the data used in production
+    -   Low event rate
+        -   If you only have 10 to 100 positive samples, the model may easily memorize these samples, leading to an overfit model that generalized poorly
+        -   May result in large CIs for your effect estimate (see Gelman [post](https://statmodeling.stat.columbia.edu/2023/04/04/association-between-low-density-lipoprotein-cholesterol-and-all-cause-mortality/))
+
+-   [Check Imbalance]{.underline}
+
+    ``` r
+    data %>%
+      count(class) %>%
+      mutate(prop = n / sum(n)) %>%
+      pretty_print()
+    ```
+
+-   [Downsampling]{.underline}
+
+    -   Use cases for downsampling the majority class
+        -   when the training data doesn't fit into memory (and your ML training pipeline requires it to be in memory), or
+        -   when model training takes unreasonably long (days to weeks), causing too long iteration cycles, and preventing you from iterating quickly.
+    -   Using a domain knowledge filter for downsampling
+        -   a simple heuristic rule that cuts down most of the majority class, while keeping nearly all of the minority class.
+            -   e.g. if a rule can retain 99% of positives but only 1% of the negatives, this would make a great domain filter
+        -   Examples
+            -   credit card fraud prediction: filter for new credit cards, i.e. those without a purchase history.
+            -   spam detection: filter for Emails from addresses that haven't been seen before.
+            -   e-commerce product classification: filter for products that contain a certain keyword, or combination of keywords.
+            -   ads conversion prediction: filter for a certain demographic segment of the user population.
+
+-   [CV]{.underline}
+
+    -   It is extremely important that subsampling occurs *inside of resampling*. Otherwise, the resampling process can produce poor estimates of model performance.
+        -   data leakage: if you first upsample the data and then split the data into training (aka analysis set) and validation (aka assessment set) folds, your model can simply memorize the positives from the training data and achieve artificially strong performance on the validation data, causing you to think that the model is much better than it actually is.
+        -   The subsampling process should only be applied to the analysis (aka training) set. The assessment (aka validation) set should reflect the event rates seen "in the wild."
+            -   Does [{recipe}]{style="color: #990000"} handle this correctly?
+    -   Process
+        -   Subsample the data only in the analysis set
+        -   Perform CV algorithm selection and tuning using a suitable metric for class imbalance
+        -   Use same metric to get score on the test set
+
+-   [ML Methods]{.underline}
+
+    -   TabDDPM: Modeling Tabular Data with Diffusion Models ([Raschka Thread](https://twitter.com/rasbt/status/1579110843081691136))
     -   Imbalanced Classification via Layered Learning (ICLL)
         -   For code, see [article](https://towardsdatascience.com/how-to-tackle-class-imbalance-without-resampling-47bbeb2180aa)
         -   A hierarchical model composed of two levels:
-            -   Level 1: a model is built to split easy instances from borderline ones.
+            -   Level 1: A model is built to split easy-to-predict instances from difficult-to-predict ones.
                 -   The goal is to predict if an input instance belongs to a cluster with at least one observation from the minority class.
-            -   Level 2: we discard the easy cases. Then, we build a model to solve the original classification task with the remaining data.
-                -   The first level affects the second one by removing easy instances from the training set.
+            -   Level 2: We discard the easy-to-predict cases. Then, we build a model to solve the original classification task with the remaining data.
+                -   The first level affects the second one by removing easy-to-predict instances from the training set.
         -   In both levels, the imbalanced problem is reduced, which makes the modeling task simpler.
 
--   **Subsampling** can refer to up/oversampling or down/undersampling.
-
--   Use cases for downsampling the majority class
-
-    -   when the training data doesn't fit into memory (and your ML training pipeline requires it to be in memory), or
-    -   when model training takes unreasonably long (days to weeks), causing too long iteration cycles, and preventing you from iterating quickly.
-
--   Using a domain knowledge filter for downsampling
-
-    -   a simple heuristic rule that cuts down most of the majority class, while keeping nearly all of the minority class.
-        -   e.g. if a rule can retain 99% of positives but only 1% of the negatives, this would make a great domain filter
-    -   Examples
-        -   credit card fraud prediction: filter for new credit cards, i.e. those without a purchase history.
-        -   spam detection: filter for Emails from addresses that haven't been seen before.
-        -   e-commerce product classification: filter for products that contain a certain keyword, or combination of keywords.
-        -   ads conversion prediction: filter for a certain demographic segment of the user population.
-
--   It is extremely important that subsampling occurs *inside of resampling*. Otherwise, the resampling process can produce poor estimates of model performance.
-
-    -   data leakage: if you first upsample the data and then split the data into training (aka analysis set) and validation (aka assessment set) folds, your model can simply memorize the positives from the training data and achieve artificially strong performance on the validation data, causing you to think that the model is much better than it actually is.
-    -   The subsampling process should only be applied to the analysis (aka training) set. The assessment (aka validation) set should reflect the event rates seen "in the wild."
-        -   Does [{recipe}]{style="color: #990000"} handle this correctly?
-
--   Process
-
-    -   Subsample the data only in the analysis set
-    -   Perform CV algorithm selection and tuning using a suitable metric for class imbalance
-    -   Use same metric to get score on the test set
-
--   Tuning parameter (last resort)
+-   [Tuning parameters]{.underline} (last resort)
 
     -   XGBoost and LightGBM have a parameter called `scale_pos_weight`, which up-weighs positive samples when computing the gradient at each boosting iteration
     -   Unlikely to have a major effect and probably won't generalize well.
@@ -114,10 +116,11 @@
 
 -   [**Calibrated**]{style="color: #14adff"}- When the predicted probabilities from a model match the observed distribution of probabilities for each class.
     -   Calibration Plots visualize this comparison of distributions
-    -   Calibration mesasure are important for validating a predictive model Logistic Regression models are usually well-calibrated, but most ML and DL model predicted probabilities aren't directly produced by the algorithms and aren't usually calibrated
+-   Calibration mesasure are important for validating a predictive model.
+    -   Logistic Regression models are usually well-calibrated, but most ML and DL model predicted probabilities aren't directly produced by the algorithms and aren't usually calibrated
     -   RF models can also benefit from calibration although given enough data, they are already pretty well calibrated
     -   SVM, Naive Bayes, boosted tree algorithms, and DL models benefit most from calibration
-    -   An unintended consequence of applying calibration models can be the worsening of calibration for models that are already well calibrated
+-   An unintended consequence of applying calibration modeling can be the worsening of calibration for models that are already well calibrated
 -   If a model isn't calibrated, then the magnitude of the predicted probability cannot be interpreted as the likelihood of an event
     -   e.g. If 0.66 and 0.67 are two predicted probabilities from an uncalibrated xgboost model, the 0.67 prediction cannot be interpreted as more likely to be an event than the 0.66 prediction.
     -   Miscalibrated predictions don't allow you to have more confidence in a label with a higher probability than a label with a lower probability.
@@ -129,26 +132,7 @@
     -   Since thresholds are based on probabilities, I don't see how a valid, optimized threshold can be established for an uncalibrated model
     -   Wonder how this affects model-agnostic metrics, feature importance, shap, etc.
 
-### Basic Workflow {#sec-class-calib-basflow  .unnumbered}
-
--   Misc
-    -   Ideally you'd want each model (i.e. tuning parameter combination) being scored in a CV or a nested CV to have its own calibration model, but it's not practical. But also, it's unlikely an algorithm with a slightly different parameter value combination with have a substantially different predicted probability distribution, and it's the algorithm itself that's the salient factor. Therefore, for now, I'd go with 1 calibration model per algorithm.
--   Process
-    -   Split data into Training, Calibration, and Test
-    -   For each algorithm, train the algorithm on the *Training* set, and create the calibration model using it and the *Calibration* set.
-        -   Each algorithm with have it's own calibration model
-        -   See below, Example: AdaBoost in Py using CV calibrator
-            -   I like sklearn's ideas for training a calibration model
-    -   Use the *Training* set for CV or Nested CV
-    -   For each split during CV or Nested CV (outer loop)
-        -   Train the algorithm on the training fold, predict on the validation fold, calibrate predictions with calibration model, score the calibrated predictions for that fold
-            -   The calibration model could be used in the tuning process in the inner loop of Nested CV as well
-        -   Scores should include calibration metrics (See [Diagnostics, Classification \>\> Calibration](diagnostics-classification.qmd#diag-class-calib){style="color: green"} \>\> Basic Workflow)
-    -   The rest is normal CV/Nested CV procedure
-        -   i.e. average scores across the splits then select the algorithm with the best score. Predict and score algorithm on the *Test* set
-        -   See [Calibration curves for nested cv](https://discourse.datamethods.org/t/proper-way-to-get-an-averaged-calibration-curve-from-nested-resampling/6207) for details and code on averaging calibration curves
-
-### Misc {#sec-class-calib-misc  .unnumbered}
+### Misc {#sec-class-calib-misc .unnumbered}
 
 -   Also see [Diagnostics, Classification \>\> Calibration](diagnostics-classification.qmd#diag-class-calib){style="color: green"}
 -   Notes from:
@@ -168,7 +152,26 @@
     -   Says how rare a prediction is.
         -   In a rf, really low or high probability predictions aren't rare. So, if the model gives you a 0.93, you shouldn't interpet it the way you normally would such a high probability (i.e. high certainty), because a rf inherently pushes its probabilities towards 0 and 1.
 
-### Methods {#sec-class-calib-meth  .unnumbered}
+### Basic Workflow {.unnumbered}
+
+-   Misc
+    -   Ideally you'd want each model (i.e. tuning parameter combination) being scored in a CV or a nested CV to have its own calibration model, but it's not practical. But also, it's unlikely an algorithm with a slightly different parameter value combination with have a substantially different predicted probability distribution, and it's the algorithm itself that's the salient factor. Therefore, for now, I'd go with 1 calibration model per algorithm.
+-   Process
+    -   Split data into Training, Calibration, and Test
+    -   For each algorithm, train the algorithm on the *Training* set, and create the calibration model using it and the *Calibration* set.
+        -   Each algorithm with have it's own calibration model
+        -   See below, Example: AdaBoost in Py using CV calibrator
+            -   I like sklearn's ideas for training a calibration model
+    -   Use the *Training* set for CV or Nested CV
+    -   For each split during CV or Nested CV (outer loop)
+        -   Train the algorithm on the training fold, predict on the validation fold, calibrate predictions with calibration model, score the calibrated predictions for that fold
+            -   The calibration model could be used in the tuning process in the inner loop of Nested CV as well
+        -   Scores should include calibration metrics (See [Diagnostics, Classification \>\> Calibration](diagnostics-classification.qmd#diag-class-calib){style="color: green"} \>\> Basic Workflow)
+    -   The rest is normal CV/Nested CV procedure
+        -   i.e. average scores across the splits then select the algorithm with the best score. Predict and score algorithm on the *Test* set
+        -   See [Calibration curves for nested cv](https://discourse.datamethods.org/t/proper-way-to-get-an-averaged-calibration-curve-from-nested-resampling/6207) for details and code on averaging calibration curves
+
+### Methods {#sec-class-calib-meth .unnumbered}
 
 ![](./_resources/Classification.resources/image.2.png){width="352"}
 
@@ -235,9 +238,6 @@
         calibrator.fit(clf.predict_proba(X_calib), y_calib)
         y_proba_calib = calibrator.predict_proba(y_proba)
         ```
-
-<!-- -->
-
 -   **Isotonic Regression**
     -   More complex, requires a lot more data (otherwise it may overfit), but can support reliability diagrams with different shapes (is nonparametric).
 
