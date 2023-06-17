@@ -6,8 +6,6 @@
 
     -   [Publicly Available SQL Databases](https://databases.pacha.dev/): Need to email administrator to gain access
 
-    -   [ChatSQL](https://github.com/ademakdogan/ChatSQL): Convert plain text to MySQL query by ChatGPT
-
 -   `dplyr::show_query` can convert a dplyr expression to SQL for db object (e.g. dbplyr,  duckdb, arrow)
 
 -   Queries in examples
@@ -38,6 +36,9 @@
         -   Rank product categories by shipping cost for each shipping address
         -   Daily counts of open jobs (where "open" is an untracked daily status)
         -   Get the latest order from each customer
+        -   Overall median price
+        -   Median price for each product
+        -   Overall median price and quantity
 
 -   Order of Operations\
     ![](./_resources/SQL.resources/1-MCyFDF35OZ3n0dyZqX6_Tw.png){width="370"}
@@ -262,6 +263,35 @@
     -   "timestamp without timezone" is literally that
         -   also available: time with/without timezone, date, interval (see [Docs](https://www.postgresql.org/docs/14/datatype-datetime.html) for details)
 
+-   [Example]{.ribbon-highlight}: MySQL
+
+    ``` sqlmysql
+    CREATE DATABASE products;
+
+    CREATE TABLE `products`.`prices` (
+      `pid` int(11) NOT NULL AUTO_INCREMENT,
+      `category` varchar(100) NOT NULL,
+      `price` float NOT NULL,
+      PRIMARY KEY (`pid`)
+    );
+
+    INSERT INTO products.prices
+        (pid, category, price)
+    VALUES
+        (1, 'A', 2),
+        (2, 'A', 1),
+        (3, 'A', 5),
+        (4, 'A', 4),
+        (5, 'A', 3),
+        (6, 'B', 6),
+        (7, 'B', 4),
+        (8, 'B', 3),
+        (9, 'B', 5),
+        (10, 'B', 2),
+        (11, 'B', 1)
+    ;
+    ```
+
 ### Add Data {#sec-sql-basics-add .unnumbered}
 
 -   [Example]{.ribbon-highlight}: Copy/Paste table values into chatGPT to get the query\
@@ -283,7 +313,7 @@
 
 ### Subqueries {#sec-sql-basics-subq .unnumbered}
 
--   \*\*Better to used CTEs instead of subqueries\*\*
+-   \*\*Using CTEs instead of subqueries make code more readable\*\*
 
     -   Subqueries make it difficult to understand their context in the larger query
     -   The only way to debug a subquery is by turning it into a CTE or pulling it out of the query entirely.
@@ -688,6 +718,8 @@
 
 ## Variables {#sec-sql-vars .unnumbered}
 
+-   Misc
+    -   Also see [Business Queries](sql.qmd#sec-sql-bizq){style="color: green"} \>\> Medians
 -   User-defined
     -   DECLARE and SET
 
@@ -1989,6 +2021,168 @@
     | 2022-01-07 | 001        | 109      | 120  |
     ```
 
+-   Medians
+
+    -   Notes from [How to Calculate Medians with Grouping in MySQL](https://towardsdatascience.com/how-to-calculate-medians-with-grouping-in-mysql-abb22a3e5097)
+
+        -   Variables:
+
+            -   pid: unique id variable
+
+            -   category: A or B
+
+            -   price: random value between 1 and 6
+
+    -   [Example]{.ribbon-highlight}: Overall median price
+
+        ``` sqlpostgresql
+        SELECT AVG(sub.price) AS median
+        FROM ( 
+            SELECT @row_index := @row_index + 1 AS row_index, p.price
+            FROM products.prices p, (SELECT @row_index := -1) r
+            WHERE p.category = 'A'
+            ORDER BY p.price 
+        ) AS sub
+        WHERE sub.row_index IN (FLOOR(@row_index / 2), CEIL(@row_index / 2))
+        ;
+
+        median|
+        ------+
+           3.0|
+        ```
+
+        -   \@row_index is a SQL variable that is initiated in the `FROM` statement and updated for each row in the `SELECT` statement.
+
+        -   The column whose median will be calculated (the price column in this example) should be sorted. It doesn't matter if it's sorted in ascending or descending order.
+
+        -   According to the definition of median, the median is the value of the middle element (total count is odd) or the average value of the two middle elements (total count is even). In this example, category A has 5 rows and thus the median is the value of the third row after sorting. The values of both `FLOOR(@row_index / 2)` and `CEIL(@row_index / 2)` are 2 which is the third row. On the other hand, for category B which has 6 rows, the median is the average value of the third and fourth rows.
+
+    -   [Example]{.ribbon-highlight}: Median price for each product
+
+        ``` sqlmysql
+        SELECT
+            sub2.category,
+            CASE WHEN MOD(sub2.total, 2) = 1 THEN sub2.mid_prices
+                 WHEN MOD(sub2.total, 2) = 0 THEN (SUBSTRING_INDEX(sub2.mid_prices, ',', 1) + SUBSTRING_INDEX(sub2.mid_prices, ',', -1)) / 2
+            END AS median    
+        FROM 
+            (
+                SELECT 
+                    sub1.category,
+                    sub1.total,
+                    CASE WHEN MOD(sub1.total, 2) = 1 THEN SUBSTRING_INDEX(SUBSTRING_INDEX(sub1.prices, ',', CEIL(sub1.total/2)), ',', '-1')
+                         WHEN MOD(sub1.total, 2) = 0 THEN SUBSTRING_INDEX(SUBSTRING_INDEX(sub1.prices, ',', sub1.total/2 + 1), ',', '-2')
+                    END AS mid_prices
+                FROM 
+                    (
+                        SELECT
+                            p.category,
+                            GROUP_CONCAT(p.price ORDER BY p.price) AS prices,
+                            COUNT(*) AS total
+                        FROM products.prices p
+                        GROUP BY p.category
+                    ) sub1
+            ) sub2
+        ;
+
+        category|median|
+        --------+------+
+        A       |3     |
+        B       |3.5   |
+        ```
+
+        -   Breaking down the subqueries
+
+            -   Sort prices per category
+
+                ``` sqlmysql
+                SELECT
+                    category,
+                    GROUP_CONCAT(price ORDER BY p.price) AS prices,
+                    COUNT(*) AS total
+                FROM products.prices p
+                GROUP BY p.category
+                ;
+
+                category|prices     |total|
+                --------+-----------+-----+
+                A       |1,2,3,4,5  |    5|
+                B       |1,2,3,4,5,6|    6|
+                ```
+
+                -   If your table has a lot of data, GROUP_CONCAT would not contain all the data. In this case, you increase the limit for GROUP_CONCAT by: `SET GROUP_CONCAT_MAX_LEN = 100000;`
+
+            -   Get middle prices according to whether the total count is an odd or even number
+
+                ``` sqlmysql
+                SELECT 
+                    sub1.category,
+                    sub1.total,
+                    CASE WHEN MOD(sub1.total, 2) = 1 THEN SUBSTRING_INDEX(SUBSTRING_INDEX(sub1.prices, ',', CEIL(sub1.total/2)), ',', '-1')
+                         WHEN MOD(sub1.total, 2) = 0 THEN SUBSTRING_INDEX(SUBSTRING_INDEX(sub1.prices, ',', sub1.total/2 + 1), ',', '-2')
+                    END AS mid_prices
+                FROM 
+                    (
+                        SELECT
+                            p.category,
+                            GROUP_CONCAT(p.price ORDER BY p.price) AS prices,
+                            COUNT(*) AS total
+                        FROM products.prices p
+                        GROUP BY p.category
+                    ) sub1
+                ;
+
+                category|total|mid_prices|
+                --------+-----+----------+
+                A       |    5|3         |
+                B       |    6|3,4       |
+                ```
+
+                -   We use the `MOD` function (modulo) to check if the total count is an odd or even number.
+
+                -   The `SUBSTRING_INDEX` function is used twice to extract the middle elements.
+
+    -   [Example]{.ribbon-highlight}: Overall median of price and quantity
+
+        ``` sqlmysql
+        SELECT
+            CASE WHEN MOD(sub2.total, 2) = 1 THEN sub2.mid_prices
+                 WHEN MOD(sub2.total, 2) = 0 THEN (SUBSTRING_INDEX(sub2.mid_prices, ',', 1) + SUBSTRING_INDEX(sub2.mid_prices, ',', -1)) / 2
+            END AS median_of_price,
+            CASE WHEN MOD(sub2.total, 2) = 1 THEN sub2.mid_quantities
+                 WHEN MOD(sub2.total, 2) = 0 THEN (SUBSTRING_INDEX(sub2.mid_quantities, ',', 1) + SUBSTRING_INDEX(sub2.mid_prices, ',', -1)) / 2
+            END AS median_of_quantity
+        FROM 
+            (
+                SELECT 
+                    sub1.total,
+                    CASE WHEN MOD(sub1.total, 2) = 1 THEN SUBSTRING_INDEX(SUBSTRING_INDEX(sub1.prices, ',', CEIL(sub1.total/2)), ',', '-1')
+                         WHEN MOD(sub1.total, 2) = 0 THEN SUBSTRING_INDEX(SUBSTRING_INDEX(sub1.prices, ',', sub1.total/2 + 1), ',', '-2')
+                    END AS mid_prices,
+                    CASE WHEN MOD(sub1.total, 2) = 1 THEN SUBSTRING_INDEX(SUBSTRING_INDEX(sub1.quantities, ',', CEIL(sub1.total/2)), ',', '-1')
+                         WHEN MOD(sub1.total, 2) = 0 THEN SUBSTRING_INDEX(SUBSTRING_INDEX(sub1.quantities, ',', sub1.total/2 + 1), ',', '-2')                 
+                    END AS mid_quantities
+                FROM 
+                    (
+                        SELECT
+                            COUNT(*) AS total,
+                            GROUP_CONCAT(o.price ORDER BY o.price) AS prices,
+                            GROUP_CONCAT(o.quantity ORDER BY o.quantity) AS quantities
+                        FROM products.orders o
+                    ) sub1
+            ) sub2
+        ;
+
+
+        median_of_price|median_of_quantity|
+        ---------------+------------------+
+        3              |30                |
+        ```
+
+        -   Similar to previous example
+
+        -   Variables: order_id, price, quantity
+
 ## Transactions {#sec-sql-trans .unnumbered}
 
 -   Misc
@@ -2377,6 +2571,7 @@
 
 ## Tools {#sec-sql-tools .unnumbered}
 
+-   [ChatSQL](https://github.com/ademakdogan/ChatSQL): Convert plain text to MySQL query by ChatGPT
 -   [{{]{style="color: goldenrod"}[sqlglot](https://pypi.org/project/sqlglot/){style="color: goldenrod"}[}}]{style="color: goldenrod"} - no dependency Python SQL parser, transpiler, optimizer, and engine
     -   Format SQL or translate between nearly twenty different SQL dialects.
 
