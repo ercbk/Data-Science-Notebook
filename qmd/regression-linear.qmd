@@ -1,0 +1,216 @@
+# Linear  {#sec-reg-lin .unnumbered}
+
+## Misc  {#sec-reg-lin-misc .unnumbered}
+
+-   Guide for suitable baseline models: [link](https://ludwigstumpp.com/ml-baselines)
+
+-   "For estimation of causal effects, it does typically not suffice to well control for confounders, we also need a sufficiently strong source of exogenous variation for our explanatory variable of interest."
+
+    -   From [Empirical Economics with R: Confounders, Proxies, and Sources of Exogenuous Variations](http://skranz.github.io//r/2021/01/18/EmpEconB.html?utm_source=feedburner&utm_medium=feed&utm_campaign=Feed%3A+skranz_R+%28Economics+and+R+%28R+Posts%29%29)
+    -   Even if you have good proxy variables for the true confounder(s) and use them as controls, estimated effects of explanatory variables with low s.d. (with mean = 0, e.g. low 0.02, high 1) will still be inflated If the regression conditions aren't met - for instance, if heteroskedasticity is present - then the OLS estimator is still unbiased but it is no longer best. Instead, a variation called generalized least squares (GLS) will be Best Linear Unbiased Estimator (BLUE)
+
+    A model is said to be hierarchical if it contains all the lesser degree terms in the hierarchy
+
+    -   Example
+        -   hierarchical: y = x + x2 + x3 + x4
+        -   not hierarchical: y = x + x4
+        -   hierarchical: y = x1 + x2 + x1x2
+        -   not hierarchical: y = x1 + x1x2
+    -   It is expected that all polynomial models should have this property because only hierarchical models are invariant under linear transformation.
+
+-   `RcppArmadillo::fastLmPure` Not sure what this does but it's rcpp so maybe faster than lm for big data.
+
+-   `.lm.fit` is a base R lm function that is 30%-40% faster than lm.
+
+## Assumptions  {#sec-reg-lin-ass .unnumbered}
+
+-   Assumptions
+    -   The true relationship is linear
+        -   i.e. a linear relationship between the independent variable, x, and the dependent variable, y.
+    -   Errors are normally distributed
+        -   i.e. random fluctuations around the true line
+    -   Homoscedasticity of errors (or, equal variance around the line)
+        -   i.e. variability in the response doesn't increase as the value of the predictor increases
+    -   Independence of the observations
+        -   i.e. no autocorrelation
+-   Check residuals
+    -   have a constant variance (Homoscedasticity of errors)
+    -   be approximately normally distributed (with a mean of zero) (Errors are normally distributed)
+    -   be independent of one another (independence, no autocorrelation)
+-   Gelman's order of importance ([post](https://statmodeling.stat.columbia.edu/2013/08/04/19470/))
+    1.  Validity. Most importantly, the data you are analyzing should map to the research question you are trying to answer. This sounds obvious but is often overlooked or ignored because it can be inconvenient 
+    2.  Additivity and linearity. The most important mathematical assumption of the regression model is that its deterministic component is a linear function of the separate predictors
+    3.  Independence of errors
+    4.  Equal variance of errors
+    5.  Normality of errors - "Normality and equal variance are typically minor concerns, unless you're using the model to make predictions for individual data points."
+
+## EDA  {#sec-reg-lin-eda .unnumbered}
+
+-   Preliminary 
+    1.  Set seed
+    2.  Check for missing values
+    3.  See how many predictors you're allowed to use given the sample size. Check bkmk: statistics --\> sample size folder for Harrell articles
+    4.  remove predictors with zero variance recipes::step_zv(all_predictors()).
+-   Check correlation matrix. greybox::assoc()
+-   Check s.d. in predictors
+    -   without enough variation in predictors (with mean = 0, e.g. low sd =  0.02, high  = 1), effects will be inflated even after controlling for potential confounders
+-   Look at series of pairwise plots: see which independent variables are linearly related to your dependent variable as they would be good predictors. Also look for  non-linearity  relations. See which of your independent variables are linearly related to each other as this indicates collinearity. Use greybox::spread w/log = false for linear relationships and log = true for nonlinear 
+-   Collinearity can cause sign flips of coefficients as variables are added or taken away when we create our model. Use vif() and greybox::determ pg 121 
+-   In pairwise for prospective predictors, look for and make note of potential outlier points.
+-   Look at histograms of variables to check for skewness. We want normal distributions but distributions that are all similarly skewed isn't too bad either.
+-   Look at summary statistics and examine the difference between the median and the mean as this indicates skewness.
+-   Skewness metric?
+-   Look at box plots to check for skewness and outliers. Investigate at outliers to see if they can be removed as they can have an outsized effect that causes inaccuracy in your model.
+-   Statistical (Levene) tests for normality: Kolmogorov-Smirnof (KS), Shapiro-Wilk. Want high p-values.
+-   Q-Q plot for normality: points should be on the line. Note outlier pts and investigate
+-   Outcome variable is multi-modal
+    -   [Regression, Other](regression-other.qmd#sec-reg-other-multmod){style='color: green'} 
+    -   Solutions:
+        -   Quantile Regression (See [Regression, Quantile](regression-quantile.qmd#sec-reg-quant){style='color: green'})
+        -   Mixture models
+
+## Transformations  {#sec-reg-lin-tran .unnumbered}
+
+-   Misc
+    -   See [Feature Engineering, General \>\> Numeric \>\> Transformations](feature-engineering-general.qmd#sec-feat-eng-gen-cont-tran){style='color: green'}
+-   Standardization
+    -   Methods
+        -   [{effectsize}]{style='color: #990000}
+            -   Can also be used to standardize coefficients after the model has been fit
+                -   Can also be done by multiplying the coefficient by the sd of the variable
+            -   Good docs - applications, reliability, etc. of the many methods for mixed models, interaction terms are explained.
+        -   Centering and Scaling
+        -   median and MAD
+            -   robust
+        -   Mean and (2 ⨯ std dev)
+            -   Gelman (2008)
+            -   Allows for factor variables to also be compared to numeric variables in terms of importance
+        -   Median and IQR
+        -   Mean and Gini Mean Difference
+-   Scaling
+    -   var/max(var)
+        -   Making the largest value = 1 and the theoretical minimum = 0
+-   Squaring (quadratic)
+    -   Predictors should be standardized.
+        -   Squaring variables can produce some very large numbers and the numerical estimations of the effects can be get screwed up.
+        -   Centering fixes collinearity issues when creating powers and interaction terms ([CV post](https://stats.stackexchange.com/a/29782))
+            -   Collinearity between the created terms and the main effects
+-   Log
+    -   Taking the log of a measure translates the measure into magnitudes. So by using the logarithm of a predictor, we're saying that we suspect that the magnitude of the predictor is related to outcome, in a linear fashion.
+
+## Model Selection  {#sec-reg-lin-modsel .unnumbered}
+
+-   Harrell says use all variables unless number of variables , p  \> (nrow(df) / 15), then use Regularized Regression
+-   See Harrell sample size biostat paper (above). Has overview of approaches (I think).
+-   Use best subsets with Mallow's CP, AIC, and BIC as metrics for choosing best model. See R notebook, pg 121 and bkmk regression --\> multivariable folder for PSU stat 501
+-   Check for partial correlations between predictor variables and outcome variable (see notebook and bookmarks) as a possible avenue of feature reduction and as a way of gauging true strength of the relationship between the predictor variables and outcome variable
+
+## Interpretation  {#sec-reg-lin-interp .unnumbered}
+
+-   [**Marginal Effect**]{style='color: #e67b17'} - The effect of the predictor after taking into account the effects of all the other predictors in the model
+-   [`summary`]{.underline}
+    -   [**Standard Errors**]{style='color: #e67b17'}: An estimate of how much estimates would 'bounce around' from sample to sample, if we were to repeat this process over and over and over again.
+        -   More specifically, it is an estimate of the standard deviation of the sampling distribution of the estimate.
+    -   [**t-score**]{style='color: #e67b17'}: Ratio of parameter estimate and its SE
+        -   used for hypothesis testing, specifically to test whether the parameter estimate is 'significantly' different from 0.
+    -   [**p-value**]{style='color: #e67b17'}: The probability of finding an estimated value that is as far or further from 0, if the null hypothesis were true.
+        -   Note that if the null hypothesis is not true, it is not clear that this value is telling us anything meaningful at all.
+    -   [**F-statistic**]{style='color: #e67b17'}: This "simultaneous" test checks to see if the model as a whole predicts the response variable better than chance alone.
+        -   i.e. whether or not all the estimates should be considered unable to be differentiated from 0
+        -   If this statistic's p-value \< 0.05, then this suggests that at least some of the parameter estimates are not equal to 0
+        -   Unless you only have an intercept model, you have multiple tests (e.g. variables + intercept p-values). There is no protection from the problem of multiple comparisons without this.
+            -   Bear in mind that because p-values are random variables--whether something is significant would vary from experiment to experiment, if the experiment were re-run--it is possible for these to be inconsistent with each other.
+-   [Intercept]{.underline}
+    -   If variables are centered so that the predictors have mean 0, this is the expected value of Yi when the predictor values are set to their means.
+    -   If variables are *not* centered so that the predictors have mean 0, this is the expected value of Yi when the predictors are set to 0.
+        -   may not be a realistic or interpretable situation (e.g. what if the predictors were height and weight?)
+-   [Standardized Predictors]{.underline}
+    -   Dimensions are in common units (standard deviations), and the
+    -   Coefficients
+        -   *Similar* to Pearson Correlation Coefficients (r-scores)
+        -   Can't be compared to other standardized coefficients to determine importance
+            -   Unless the "true" r-score value is zero, the estimate is driven in large part by the range of values of the predictor in the sample
+            -   The best that can ever be said is that variability in one explanatory variable within a specified range is more important to determining the level of the response than variability in another explanatory variable within another specified range
+                -   "variability" makes sense since the units are standard deviations
+                -   Trying to interpret these coefficients in terms of "importance" is probably not practically useful then.
+                    -   Unless the data is large and/or the range of the predictors is representative of the population
+    -   Does one coefficient have a larger effect than the other?
+        -   [Example]{.ribbon-highlight}: does extra hours work have a statistically larger effect on salary than does number_compliments_to_the_boss
+            -   From [Testing The Equality of Regression Coefficients](https://shouldbewriting.netlify.app/posts/2021-02-16-testing-coefficients-equality/)
+       
+            ```r         
+            library(parameters)
+            library(effectsize)
+            data("hardlyworking", package = "effectsize") 
+            hardlyworkingZ <- standardize(hardlyworking)
+            m <- lm(salary ~ xtra_hours + n_comps, data = hardlyworkingZ) 
+            model_parameters(m)
+            #> Parameter  | Coefficient |  SE |        95% CI |    t(497) |      p
+            #> ---------------------------------------------------------------------
+            #> (Intercept) |  -7.19e-17 | 0.02 | [-0.03, 0.03] | -4.14e-15 | > .999
+            #> xtra_hours  |        0.81 | 0.02 | [ 0.78, 0.84] |    46.60 | < .001
+            #> n_comps    |        0.41 | 0.02 | [ 0.37, 0.44] |    23.51 | < .001
+            
+            # method 1
+            # assume both variables have same coeff and test if the models are different
+            m0 <- lm(salary ~ I(xtra_hours + n_comps), data = hardlyworkingZ) 
+            model_parameters(m0)
+            anova(m0, m) # Yes they are different and therefore xtra_hours does have a stronger effect
+            #> Analysis of Variance Table
+            #> 
+            #> Model 1: salary ~ I(xtra_hours + n_comps)
+            #> Model 2: salary ~ xtra_hours + n_comps
+            #>  Res.Df    RSS Df Sum of Sq      F    Pr(>F)   
+            #> 1    498 113.67                                 
+            #> 2    497  74.95  1    38.716 256.73 < 2.2e-16 ***
+            
+            # method 2
+            library(car) 
+            linearHypothesis(m, c("xtra_hours - n_comps"))
+            #> Linear hypothesis test
+            #> 
+            #> Hypothesis:
+            #> xtra_hours - n_comps = 0
+            #> 
+            #> Model 1: restricted model
+            #> Model 2: salary ~ xtra_hours + n_comps
+            #> 
+            #>  Res.Df    RSS Df Sum of Sq      F    Pr(>F)   
+            #> 1    498 113.67                                 
+            #> 2    497  74.95  1    38.716 256.73 < 2.2e-16 ***
+            
+            # method 3
+            library(emmeans) 
+            trends <- rbind(
+              emtrends(m, ~1, "xtra_hours"),
+              emtrends(m, ~1, "n_comps")
+            ) 
+            # clean up so it does not error later
+            trends@grid# Regression, Gaussian
+            
+            1` <- c("xtra_hours", "n_comps")
+            trends@misc$estName <- "trend"
+            
+            trends
+            #>  1          trend    SE  df lower.CL upper.CL
+            #>  xtra_hours 0.811 0.0174 497    0.772    0.850
+            #>  n_comps    0.409 0.0174 497    0.370    0.448
+            #> 
+            #> Confidence level used: 0.95 
+            #> Conf-level adjustment: bonferroni method for 2 estimates
+            
+            pairs(trends)
+            #>  contrast            estimate    SE  df t.ratio p.value
+            #>  xtra_hours - n_comps    0.402 0.0251 497 16.023  <.0001
+            ```
+
+-   [Quadratic]{.underline}
+    -   µ~i~ = α + β~1~x~i~ + β~2~x~i~^2^
+        -   α is the intercept. Tells us the expected value of µ when x is 0
+    -   β~1~ and β~2~ are linear and square components of the regression curve, respectively
+
+## Report {#sec-reg-lin-rep .unnumbered}
+
+-   Outliers
+    -   List any outliers that were removed and reasons why.
+    -   Report results with and without outliers
