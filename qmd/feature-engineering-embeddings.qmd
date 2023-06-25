@@ -1,184 +1,153 @@
-# Feature Engineering, Embeddings
+# Embeddings {#sec-feat-eng-emb .unnumbered}
 
-TOC
+## Misc {#sec-feat-eng-emb-misc .unnumbered}
 
-* Concepts
-* Engineering
-* Augmentation
-* Monitoring
+-   Vector Storage
+    -   Vector databases store embeddings and provide fast similarity searches
+    -   Brands
+        -   Qdrant - open source, free, and easy to use ([example](https://towardsdatascience.com/how-i-turned-my-companys-docs-into-a-searchable-database-with-openai-4f2d34bd8736))
+        -   Chroma - can be used as a local in-memory ([example](https://towardsdatascience.com/implementing-a-sales-support-agent-with-langchain-63c4761193e7))
+        -   [Pinecone](https://www.pinecone.io/) - has a free tier; Data Elixir is using this store for their chatbot
 
+## Concepts {#sec-feat-eng-emb-conc .unnumbered}
 
+-   Embeddings are numerical representations of words or sentences
 
-Misc
+-   Misc
 
-* 
+-   Capture analogies well
 
+    -   Horizontally: Puppy is to Dog as Calf is to Cow
+        -   X-Axis could represent a latent variable like Age
+    -   Vertically: Pupy is to Calf as Dog is to Cow
+        -   Y-Axis could represent a latent variable like Size
 
+-   Each latent variable is a dimension in the embedding
 
-Concepts
+-   Word and Sentence embedding matrices can have lengths in the 1000s
 
-* Embeddings are numerical representations of words or sentences
-* Misc
-* Capture analogies well
-	
-	* Horizontally: Puppy is to Dog as Calf is to Cow
-		* X-Axis could represent a latent variable like Age
-	* Vertically: Pupy is to Calf as Dog is to Cow
-		* Y-Axis could represent a latent variable like Size
-* Each latent variable is a dimension in the embedding
-	
-	
-* Word and Sentence embedding matrices can have lengths in the 1000s
-	
-	
+## Engineering {#sec-feat-eng-emb-eng .unnumbered}
 
+-   Issue: one-hot encoding does not place similar entities closer to one another in vector space.
+-   The [embeddings form the parameters](https://stats.stackexchange.com/questions/182775/what-is-an-embedding-layer-in-a-neural-network) --- weights --- of the network which are adjusted to minimize loss on the task.
+-   Which categories get placed closer to each other in the embedding depends on the outcome variable during the training
+    -   Figuring out how to create the supervised task to produce relevant representations is the toughest part of making embeddings.
+    -   Example: Categorical to be embedded is book titles
+        -   "Whether or not a book was written by Leo Tolstoy"  as the outcome variable will result in embeddings would place books written by Tolstoy closer to each other.
+-   The categorical variable with 100s of levels can be reduced to something like 50 vectors (node weights in the embedding layer of the network)\
+    ![](./_resources/Feature_Engineering,_General.resources/Screenshot%20(359).png){width="400"}
+    -   Sale Price is the outcome (observed values represented by "Sale Price" in orange box)
+    -   Sparse Vector Encoding (I think this is one-hot) for the categorical levels you want embedded
+    -   Other features are included in the embedding model but they only connect to other hidden layers (pink) We can use the same group of predictors and outcome variable in the embedding DL model that we want to use in the tree (or whatever) algorithm
+-   Hyperparameter: Dimension of the embedding layer
+    -   Higher dimension embeddings are a more accurate representation of the relationship
+        -   Downside is a greater risk of overfitting and longer training times
+    -   Should be tuned
+        -   Starting point: dimensions ≈ (possible values)0.25
+            -   "possible values" would be the vocabulary for a text variable embedding
+-   [{]{style="color: #990000"}[text](http://r-text.org/){style="color: #990000"}[}]{style="color: #990000"}
+    -   provides access to hugginface transformers
+-   [{embed}]{style="color: #990000"}
+    -   [Example]{.ribbon-highlight}
 
+        ``` r
+        embed::step_embed(cat_var,
+            num_terms = 4, hidden_units = 16, outcome = vars(binary_outcome_var),
+            options = embed_control(loss = "binary_crossentropy",
+                                    epochs = 10))
+        ```
 
+        -   `num_terms` is the dimension of the embedding layer (i.e. number of output variables)
+        -   `hidden_units` is the layer between the embedding layer and output layer
+        -   Should probably try to`tune()` "num_terms" at least.
 
-Engineering
+    -   \[Example\]{.ribbon-highlight}: Likelihood or Effect Encoding
 
-* Issue: one-hot encoding does not place similar entities closer to one another in vector space.
-* The [embeddings form the parameters](https://stats.stackexchange.com/questions/182775/what-is-an-embedding-layer-in-a-neural-network) — weights — of the network which are adjusted to minimize loss on the task.
-* Also see 
-* Which categories get placed closer to each other in the embedding depends on the outcome variable during the training
-	* Figuring out how to create the supervised task to produce relevant representations is the toughest part of making embeddings.
-	* Example: Categorical to be embedded is book titles
-		* “Whether or not a book was written by Leo Tolstoy”  as the outcome variable will result in embeddings would place books written by Tolstoy closer to each other.
-* The categorical variable with 100s of levels can be reduced to something like 50 vectors (node weights in the embedding layer of the network)
-	* Sale Price is the outcome (observed values represented by "Sale Price" in orange box)
-	* Sparse Vector Encoding (I think this is one-hot) for the categorical levels you want embedded
-	* Other features are included in the embedding model but they only connect to other hidden layers (pink)
-	We can use the same group of predictors and outcome variable in the embedding DL model that we want to use in the tree (or whatever) algorithm
-	
-* Hyperparameter: Dimension of the embedding layer
-	* Higher dimension embeddings are a more accurate representation of the relationship
-		* Downside is a greater risk of overfitting and longer training times
-	* Should be tuned
-		* Starting point: dimensions ≈ (possible values)0.25
-			* "possible values" would be the vocabulary for a text variable embedding
-* [{embed}]{style='color: #990000'}
-	* Example
+        ``` r
+        museum_rec <- 
+          recipe(Accreditation ~ ., data = museum_train) %>%
+          update_role(museum_id, new_role = "id") %>%
+          step_lencode_glm(Subject_Matter, outcome = vars(Accreditation)) %>%
+          step_dummy(all_nominal_predictors())
+        ```
 
-```
-            embed::step_embed(cat_var, 
-                            num_terms = 4, hidden_units = 16, outcome = vars(binary_outcome_var),
-                            options = embed_control(loss = "binary_crossentropy",
-                                                    epochs = 10))
-```
+        -   "Subject_Matter" is the high cardinality cat var
 
-* `num_terms` is the dimension of the embedding layer (i.e. number of output variables)
-* `hidden_units` is the layer between the embedding layer and output layer
-* Should probably try to`tune()` "num\_terms" at least.
+        -   `step_lencode_glm` fits a glm for each? level of the cat var uses its estimated effect as the encoded value
 
-* Example: Likelihood or Effect Encoding
+        -   *mixed* linear model and \_bayes_ian model are also available instead of a glm
 
-```
-museum_rec <- 
-  recipe(Accreditation ~ ., data = museum_train) %>%
-  update_role(museum_id, new_role = "id") %>%
-  step_lencode_glm(Subject_Matter, outcome = vars(Accreditation)) %>%
-  step_dummy(all_nominal_predictors())
-```
+        -   These type of embeddings use the average estimated effect as a value for any new levels that show-up in future data
 
-* "Subject\_Matter" is the high cardinality cat var
-* `step_lencode_glm` fits a glm for each? level of the cat var uses its estimated effect as the encoded value
-* _mixed_ linear model and _bayes_ian model are also available instead of a glm
-* These type of embeddings use the average estimated effect as a value for any new levels that show-up in future data
+            ``` r
+            tidy(grants_glm, number = 1) %>%
+              dplyr::filter(level == "..new") %>%
+              select(-id)
+            ```
 
-```
-tidy(grants_glm, number = 1) %>%
-  dplyr::filter(level == "..new") %>%
-  select(-id)
-```
+    -   View embedding values
 
-* View embedding values
+        ``` r
+        prep(museum_rec) %>%
+          tidy(number = 1)
+        ```
 
-```
-prep(museum_rec) %>%
-  tidy(number = 1)
-```
+        -   Not sure if "number = 1" is the step in the recipe or what
 
-* not sure if "number = 1" is the step in the recipe or what
+## Augmentation {#sec-feat-eng-emb-aug .unnumbered}
 
-* [{]{style='color: #990000'}[text](http://r-text.org/){style='color: #990000'}[}]{style='color: #990000'}
-	* provides access to hugginface transformers
+-   Useful for imbalanced outcomes with text predictors
+    -   Better performance than subsampling
+-   Words are randomly swapped, deleted, as well as replaced or inserted with synonyms using pretrained word embeddings\
+    ![](./_resources/Feature_Engineering,_Embeddings.resources/1-P5z8tXzjoLxh3kUDqeO7zQ.png)
+-   [{{textattack}}]{style="color: goldenrod"}, [article](https://towardsdatascience.com/nlp-project-with-augmentation-attacks-aspect-based-sentiment-analysis-3342510c90e7), [ipynb](https://github.com/misha345a/E-commerce_Reviews_Classifier/blob/main/Create_Balanced_Dataset.ipynb)
+-   Adversarial Text Attack
+    -   Diagnostic to test how a model performs on a test set where data augmentation techniques have been applied
+    -   [{{textattack}}]{style="color: goldenrod"}, [article](https://towardsdatascience.com/nlp-project-with-augmentation-attacks-aspect-based-sentiment-analysis-3342510c90e7), [ipynb](https://github.com/misha345a/E-commerce_Reviews_Classifier/blob/main/LSTM_Models_And_Attack.ipynb)\
+        ![](./_resources/Feature_Engineering,_Embeddings.resources/1-ZD9uA9_XR5iIz-TIer6UlQ.png)
 
+## Monitoring {#sec-feat-eng-emb-mon .unnumbered}
 
-
-Augmentation
-
-* Useful for imbalanced outcomes with text predictors
-	* Better performance than subsampling
-* words are randomly swapped, deleted, as well as replaced or inserted with synonyms using pretrained word embeddings![](./_resources/Feature_Engineering,_Embeddings.resources/1-P5z8tXzjoLxh3kUDqeO7zQ.png)
-* [{{textattack}}]{style='color: goldenrod'}, [article](https://towardsdatascience.com/nlp-project-with-augmentation-attacks-aspect-based-sentiment-analysis-3342510c90e7), [ipynb](https://github.com/misha345a/E-commerce_Reviews_Classifier/blob/main/Create_Balanced_Dataset.ipynb)
-* Adversarial Text Attack
-	* Diagnostic to test how a model performs on a test set where data augmentation techniques have been applied
-	* [{{textattack}}]{style='color: goldenrod'}, [article](https://towardsdatascience.com/nlp-project-with-augmentation-attacks-aspect-based-sentiment-analysis-3342510c90e7), [ipynb](https://github.com/misha345a/E-commerce_Reviews_Classifier/blob/main/LSTM_Models_And_Attack.ipynb)![](./_resources/Feature_Engineering,_Embeddings.resources/1-ZD9uA9_XR5iIz-TIer6UlQ.png)
-	* 
-
-
-
-Monitoring
-
-* Tracking embeddings drift
-* Misc
-	* Notes from
-		* [Measuring Embedding Drift](https://towardsdatascience.com/measuring-embedding-drift-aa9b7ddb84ae)
-* Reasons for drift
-	* Change in your model’s architecture: This is a bigger change than before. Changing your model’s architecture can change the dimensionality of the embedding vectors. If the layers become larger/smaller, your vectors will too.
-	* Use another extraction method: In the event of the model not changing, you can still try several embedding extraction methods and compare between them.
-	* Retraining your model: Once you retrain the model from which you extract the embeddings, the parameters that define it will change. Hence, the values of the components of the vectors will change as well.
-	* Vision
-		* What are the unique situations, events, people or objects that are observed in production data that are missing from the training set?
-			* Example: the training set might include pictures of a single apple but not pictures of multiple apples or other fruit.
-	* Text
-		* When a word, category or language that does not exist in the training data emerges in production
-		* Any changes in terminology in the data or changes to the context or meaning of words or phrases over time can contribute to drift.
-			* [Low-resource languages](https://ai.facebook.com/research/no-language-left-behind/) and cultural gaps in speech can also compound these difficulties
-		* Example: a sentiment classification model trained on apparel product reviews in English but in production, encounters reviews in Spanish for the first time
-			* Or is asked to predict the sentiment of reviews of specialized medical devices.
-* Extraction Methods
-	* Extract embeddings from the current model in production.
-		* Extracting the last fully connected layer before the classification to create an image embedding is advisable.
-			* The latent structure in this layer will contain information about structure in the image such as objects and actions, in addition to general quality information relative to images in the training set
-		* In the case of a vision transformer (ViT), it is recommended that you extract the embedding that the multilayer perceptron (MLP) is acting on to make an image-level decision
-		* Example on how to extract embeddings from a well-known Hugging Face model ([article](https://colab.research.google.com/github/Arize-ai/tutorials_python/blob/main/Arize_Tutorials/Embeddings/CV/Arize_Tutorial_CV_Image_Classification_HuggingFace.ipynb))
-	* Using a model to extract the embedding
-		* e.g. a foundational model like BERT
-		* Advantages
-			* No modification is needed on the production model
-			* Easy option for testing and running on internal data.
-		* Disadvantage: the model is only looking at the data itself and is not looking at the internal model decisions.
-* Metrics
-	* hyperbox IOU, euclidean distance, cosine distance, and clustering-based group purity scores
-	* Euclidean distance
-		* Smaller the distance, the more similar the embeddings
-		* Recommended: more stable, sensitive and scalable compared to the other methods.
-		* Calculate centroid for embedding vectors in the production model (and baseline model)
-			* Note: vertical dots are missing in the vectors
-			* The centroid is calculated by taking the row-wise averages
-		* Compare production centroid to baseline centroid
-	* Cosine Distance (1 - cosine similarity)[image.png](./_resources/Feature_Engineering,_Embeddings.resources/image.png)
-		* Smaller the distance, the more similar the embeddings
-* Use the 2-sample Kolmogorov–Smirnov test (KS)
-	* "Multiple samples from the embedding set can be taken calculating the euclidean distance metric for each sample set separately, and the KS test can be used to determine if drift has or hasn’t occurred."
-	* See [Distributions](Distributions) >> Tests for more details
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
+-   Tracking embeddings drift
+-   Misc
+    -   Notes from
+        -   [Measuring Embedding Drift](https://towardsdatascience.com/measuring-embedding-drift-aa9b7ddb84ae)
+-   Reasons for drift
+    -   Change in your model's architecture: This is a bigger change than before. Changing your model's architecture can change the dimensionality of the embedding vectors. If the layers become larger/smaller, your vectors will too.
+    -   Use another extraction method: In the event of the model not changing, you can still try several embedding extraction methods and compare between them.
+    -   Retraining your model: Once you retrain the model from which you extract the embeddings, the parameters that define it will change. Hence, the values of the components of the vectors will change as well.
+    -   Vision
+        -   What are the unique situations, events, people or objects that are observed in production data that are missing from the training set?
+            -   Example: the training set might include pictures of a single apple but not pictures of multiple apples or other fruit.
+    -   Text
+        -   When a word, category or language that does not exist in the training data emerges in production
+        -   Any changes in terminology in the data or changes to the context or meaning of words or phrases over time can contribute to drift.
+            -   [Low-resource languages](https://ai.facebook.com/research/no-language-left-behind/) and cultural gaps in speech can also compound these difficulties
+        -   Example: a sentiment classification model trained on apparel product reviews in English but in production, encounters reviews in Spanish for the first time
+            -   Or is asked to predict the sentiment of reviews of specialized medical devices.
+-   Extraction Methods
+    -   Extract embeddings from the current model in production.
+        -   Extracting the last fully connected layer before the classification to create an image embedding is advisable.
+            -   The latent structure in this layer will contain information about structure in the image such as objects and actions, in addition to general quality information relative to images in the training set
+        -   In the case of a vision transformer (ViT), it is recommended that you extract the embedding that the multilayer perceptron (MLP) is acting on to make an image-level decision
+        -   Example on how to extract embeddings from a well-known Hugging Face model ([article](https://colab.research.google.com/github/Arize-ai/tutorials_python/blob/main/Arize_Tutorials/Embeddings/CV/Arize_Tutorial_CV_Image_Classification_HuggingFace.ipynb))
+    -   Using a model to extract the embedding
+        -   e.g. a foundational model like BERT
+        -   Advantages
+            -   No modification is needed on the production model
+            -   Easy option for testing and running on internal data.
+        -   Disadvantage: the model is only looking at the data itself and is not looking at the internal model decisions.
+-   Metrics
+    -   hyperbox IOU, euclidean distance, cosine distance, and clustering-based group purity scores
+    -   Euclidean distance
+        -   Smaller the distance, the more similar the embeddings
+        -   Recommended: more stable, sensitive and scalable compared to the other methods.
+        -   Calculate centroid for embedding vectors in the production model (and baseline model)
+            -   Note: vertical dots are missing in the vectors
+            -   The centroid is calculated by taking the row-wise averages
+        -   Compare production centroid to baseline centroid
+    -   Cosine Distance (1 - cosine similarity)[image.png](./_resources/Feature_Engineering,_Embeddings.resources/image.png)
+        -   Smaller the distance, the more similar the embeddings
+-   Use the 2-sample Kolmogorov--Smirnov test (KS)
+    -   "Multiple samples from the embedding set can be taken calculating the euclidean distance metric for each sample set separately, and the KS test can be used to determine if drift has or hasn't occurred."
+    -   See [Distributions](Distributions) \>\> Tests for more details
