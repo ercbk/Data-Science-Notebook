@@ -115,6 +115,12 @@
 -   Misc
     -   Notes from
         -   [Measuring Embedding Drift](https://towardsdatascience.com/measuring-embedding-drift-aa9b7ddb84ae)
+            -   Recommended Euclidean
+        -   [How to Measure Drift in ML Embeddings](https://towardsdatascience.com/how-to-measure-drift-in-ml-embeddings-ee8adfe1e55e)\
+            ![](_resources/Feature_Engineering,_Embeddings.resources/monitor-method-tbl.webp){width="428"}
+            -   Recommended Model-based first and Share of Drifted Components second
+            -   Also has overview and link to paper for Maximum Mean Discrepancy (MMD) which is a more complex method I didn't want to get into at the time.
+            -   Code available; Used [{{evidently}}]{style="color: goldenrod"}
 -   Reasons for drift
     -   Changing your model's architecture can change the dimensionality of the embedding vectors. If the layers become larger/smaller, your vectors will too.
         -   Use another extraction method: In the event of the model not changing, you can still try several embedding extraction methods and compare between them.
@@ -146,11 +152,12 @@
         -   Past period that you consider representative
             -   e.g. this week's data to the previous week and move the reference as you go.
 -   Metrics
-    -   hyperbox IOU, euclidean distance, cosine distance, and clustering-based group purity scores
+    -   Whichever metric you choose, it will need to be tuned. To tune it, you can model your drift detection framework using historical data or, alternatively, start with some sensible default and then adjust it on the go.
     -   Euclidean distance
         -   Smaller the distance, the more similar the embeddings
             -   Range: 0 to ∞
-        -   Recommended: more stable, sensitive and scalable compared to the other methods.
+        -   More stable, sensitive and scalable compared to hyperbox IOU, euclidean distance, cosine distance, and clustering-based group purity scores.
+        -   An absolute measure which makes setting a specific drift alert threshold harder: the definition of \"far\" will vary based on the use case and the embedding model used. You need to tune the threshold individually for different models you monitor.
         -   Calculate centroid for embedding vectors in the production model (and baseline model)
             -   Note: vertical dots are missing in the vectors
             -   The centroid is calculated by taking the row-wise averages
@@ -158,6 +165,23 @@
     -   Cosine Distance (1 - cosine similarity)\
         ![image.png](./_resources/Feature_Engineering,_Embeddings.resources/image.png){width="432"}
         -   Smaller the distance, the more similar the embeddings
+        -   If the two distributions are the same, the Cosine similarity will be 1, and the Cosine distance will be 0. The distance can take values from 0 to 2.
+        -   The threshold might be not very intuitive to tune, since it can take values as low as 0.001 for a change that you already want to detect.
+        -   Another downside is that it does not work if you apply dimensionality reduction methods like PCA, leading to unpredictable results.
+    -   Model-based drift detection
+        -   Train a classification model that tries to identify to which distribution each embedding belongs and use the AUROC as the drift score.
+        -   If the model can confidently predict from which distribution the specific embedding comes, it is likely that the two datasets are sufficiently different.
+            -   i.e. An AUROC score above 0.5 shows at least some predictive power, and an AUROC score of 1 corresponds to "absolute drift" when the model can always identify to which distribution the data belongs.
+        -   Works consistently for different datasets and embedding models we tested, both with and without PCA. It also has an intuitive threshold
+    -   Share of drifted components\
+        ![](_resources/Feature_Engineering,_Embeddings.resources/monitor-sdc.webp){width="428"}
+        -   The individual components of each embedding are treated as "columns" in a structured dataset.
+        -   Compute the drift in each component.
+            -   e.g. [Wasserstein (Earth-Mover) distance](https://www.evidentlyai.com/blog/data-drift-detection-large-datasets#wasserstein-distance-earth-mover-distance) with the 0.1 threshold. The intuition behind this metric is that when you set the threshold to 0.1, you will notice changes in the size of the \"0.1 standard deviations\" of a given value.
+        -   Measure the overall share of drifting components.
+            -   e.g. if your vector length is 400, you can set the threshold to 20%. If over 80 components drift, you will get a drift detection alert.
+        -   Allows you to reuse familiar techniques that you might be using to detect drift on tabular data.
+        -   More tuning parameters than other methods: underlying drift detection method, its threshold, and the share of drifting components to react to.
 -   Use the 2-sample Kolmogorov--Smirnov test (KS)
     -   "Multiple samples from the embedding set can be taken calculating the euclidean distance metric for each sample set separately, and the KS test can be used to determine if drift has or hasn't occurred."
-    -   See [Distributions](Distributions) \>\> Tests for more details
+    -   See [Distributions \>\> Tests](distributions.qmd#sec-distr-tests){style="color: green"} for more details
