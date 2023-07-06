@@ -2380,6 +2380,202 @@
 
     -   Depending on your use-case you can also use different aggregation such as SUM, AVG, MAX, MIN with CASE statement.
 
+### Duplicated Rows
+
+-   Remove duplicated rows with window function
+
+    ``` sql
+    WITH temporary_employees as 
+    (SELECT 
+      employee_id, 
+      employee_name, 
+      department, 
+      ROW_NUMBER() OVER(PARTITION BY employee_name, 
+                                    department, 
+                                    employee_id) as row_count 
+    FROM Dummy_employees)
+
+    SELECT * 
+    FROM temporary_employees 
+    WHERE row_count = 1
+    ```
+
+-   Use a hash column as id column, then test for duplicates, remove them or investigate them (BigQuery)\
+    ![](./_resources/SQL.resources/image.3.png){width="294"}
+
+    ``` sql
+    WITH
+        inbound_zoo_elephants AS (
+            SELECT *
+            FROM flowfunctions.examples.zoo_elephants
+        ),
+        add_row_hash AS (
+            SELECT
+                *,
+                TO_HEX(MD5(TO_JSON_STRING(inbound_zoo_elephants))) AS hex_row_hash
+            FROM inbound_zoo_elephants
+        )
+
+    SELECT
+        COUNT(*) AS records,
+        COUNT(DISTINCT hex_row_hash) AS unique_records
+    FROM add_row_hash
+    ```
+
+    -   No duplicate records found, since "records" = 9 and "unique_records" = 9
+        -   if records \> unique_records, duplicates exist
+    -   Can select distinct hex_row_hash if you want to remove duplicates
+    -   Can count hex_row_hash then filter where hex_row_hash \> 1 to find which rows are duplicates
+    -   Notes from [link](https://towardsdatascience.com/how-to-build-a-unique-md5-row-hash-using-sql-in-bigquery-plus-a-few-related-things-e6f71820f38b)
+    -   Description
+        -   flowfunctions is the project name
+        -   examples is a directory (?)
+        -   zoo_elephants is the dataset
+    -   Steps
+        -   TO_JSON_STRING - creates column with json string for each row
+        -   MD5 hashes that string
+        -   TO_HEX makes it alpha-numeric and gets rid of the symbols in the hash
+            -   Easier to deal with in BigQuery
+            -   Assume this is still unique (?)
+    -   Note: By adding "true" value, `TO_JSON_STRING(inbound_zoo_elephants, true)` , TO_JSON_STRING adds line breaks to the json string for easier readability.
+    -   Hashing function options
+        -   [MD5](https://cloud.google.com/bigquery/docs/reference/standard-sql/hash_functions#md5) -  shortest one (16 characters), fine for this use case
+            -   [cryptographically broken](https://en.wikipedia.org/wiki/MD5), returns 16 characters and suffices for our use-case. Other options are
+        -   [FARM_FINGERPRINT](https://cloud.google.com/bigquery/docs/reference/standard-sql/hash_functions#farm_fingerprint) - returns a signed integer of variable length
+        -   [SHA1](https://cloud.google.com/bigquery/docs/reference/standard-sql/hash_functions#sha1), [SHA256](https://cloud.google.com/bigquery/docs/reference/standard-sql/hash_functions#sha256) and [SHA512](https://cloud.google.com/bigquery/docs/reference/standard-sql/hash_functions#sha512), which return 20, 32 and 64 bytes respectively and are more secure for cryptographic use cases.
+
+### Nested Data
+
+-   Recursive CTE
+    -   Recursive CTEs are used primarily when you want to query hierarchical data or graphs. This could be a company's organizational structure, a family tree, a restaurant menu, or various routes between cities
+
+    -   Also see
+
+        -   [What Is a Recursive CTE in SQL?](https://learnsql.com/blog/sql-recursive-cte/)
+            -   Tutorial, 3 examples, and links to other articles
+
+    -   Syntax
+
+        ``` sql
+        WITH RECURSIVE cte_name AS (
+            cte_query_definition (the anchor member)
+            UNION ALL
+            cte_query_definition (the recursive member)
+        )
+
+        SELECT *
+        FROM  cte_name;
+        ```
+
+    -   [Example]{.ribbon-highlight}: : postgres
+
+        ``` sql
+        WITH RECURSIVE category_tree(id, name, parent_id, depth, path) AS (
+          SELECT id, name, parent_id, 1, ARRAY[id]
+          FROM categories
+          WHERE parent_id IS NULL
+          UNION ALL
+          SELECT categories.id, categories.name, categories.parent_id, category_tree.depth + 1, path || categories.id
+          FROM categories
+          JOIN category_tree ON categories.parent_id = category_tree.id
+        )
+
+        SELECT id, name, parent_id, depth, path
+        FROM category_tree;
+        ```
+
+        -   CTE (`WITH`) + `RECURSIVE` says it's a recursive query.
+        -   `UNION ALL`combines the results of both statements.
+            -   Example is defined by 2 Select statements
+                -   Anchor Member: First SELECT statement selects the root nodes of the category tree (nodes with no parent)
+                    -   Root node is indicated by "parent_id" = NULL
+                -   Recursive member: Second SELECT statement selects the child nodes recursively
+            -   Also see Arrays for further examples of the use of `UNION ALL`
+        -   The "depth" column is used to keep track of the depth of each category node in the tree.
+            -   "1" in the first statement
+            -   "category_tree.depth + 1" in the second statement
+                -   With every recursion, the CTE will add 1 to the previous depth level, and it will do that until it reaches the end of the hierarchy
+        -   The "path" column is an array that stores the path from the root to the current node.
+            -   "ARRAY\[id\]" in the first statement
+            -   "path \|\| categories.id" in the second statement
+                -   "\|\|" concatenates "path" and "id" columns (See Strings)
+
+### Binning
+
+-   `CASE WHEN`
+
+    ![](_resources/SQL.resources/binning-case-when.jpg){width="300"}
+
+    ``` sql
+    SELECT
+     Name, 
+     Grade,
+     CASE
+      WHEN Grade < 10 THEN '0-9'
+      WHEN Grade BETWEEN 10 and 19 THEN '10-19'
+      WHEN Grade BETWEEN 20 and 29 THEN '20-29'
+      WHEN Grade BETWEEN 30 and 39 THEN '30-39'
+      WHEN Grade BETWEEN 40 and 49 THEN '40-49'
+      WHEN Grade BETWEEN 50 and 59 THEN '50-59'
+      WHEN Grade BETWEEN 60 and 69 THEN '60-69'
+      WHEN Grade BETWEEN 70 and 79 THEN '70-79'
+      WHEN Grade BETWEEN 80 and 89 THEN '80-89'
+      WHEN Grade BETWEEN 90 and 99 THEN '90-99'
+      END AS Grade_Bucket
+     FROM students
+    ```
+
+    -   `BETWEEN` is inclusive of the end points
+    -   Flexible for any size of bin you need
+
+-   `FLOOR`
+
+    ``` sql
+    SELECT
+     Name,
+     Grade,
+     FLOOR(Grade / 10) * 10 AS Grade_Bucket
+    FROM students
+    ```
+
+    -   Can easily scale up the number of bins without having to increase the lines of code
+    -   Only useful for evenly spaced bins
+
+-   `LEFT JOIN on preformatted table`
+
+    ``` sql
+    CREATE OR REPLACE TABLE bins (
+    	Lower_Bound INT64,
+    	Upper_Bound INT64,
+    	Grade_Bucket STRING
+    );
+
+    INSERT bins (Lower_Bound, Upper_Bound, Grade_Bucket)
+    VALUES
+     (0, 9, '0-9')
+     (10, 19, '10-19')
+     (20, 29, '20-29')
+     (30, 39, '30-39')
+     (40, 49, '40-49')
+     (50, 59, '50-59')
+     (60, 69, '60-69')
+     (70, 79, '70-79')
+     (80, 89, '80-89')
+     (90, 99, '90-99');
+
+    SELECT
+     A.Name, 
+     A.Grade,
+     B.Grade_Bucket
+    FROM students AS A
+    LEFT JOIN bins AS B
+    ON A.Grade BETWEEN B.Lower_Bound AND B.Upper_Bound
+    ```
+
+    -   "bins" table acts a template that funnels the values from your table into the correct bins
+
+### Time Series
+
 -   [Extract components from date-time columns]{.underline}
 
     ``` sql
@@ -2396,126 +2592,6 @@
 
     -   `strftime` codes\
         ![](./_resources/SQL.resources/image.2.png){width="480"}
-
--   [Duplicated Rows]{.underline}
-
-    -   Remove duplicated rows with window function
-
-        ``` sql
-        WITH temporary_employees as 
-        (SELECT 
-          employee_id, 
-          employee_name, 
-          department, 
-          ROW_NUMBER() OVER(PARTITION BY employee_name, 
-                                        department, 
-                                        employee_id) as row_count 
-        FROM Dummy_employees)
-
-        SELECT * 
-        FROM temporary_employees 
-        WHERE row_count = 1
-        ```
-
-    -   Use a hash column as id column, then test for duplicates, remove them or investigate them (BigQuery)\
-        ![](./_resources/SQL.resources/image.3.png){width="294"}
-
-        ``` sql
-        WITH
-            inbound_zoo_elephants AS (
-                SELECT *
-                FROM flowfunctions.examples.zoo_elephants
-            ),
-            add_row_hash AS (
-                SELECT
-                    *,
-                    TO_HEX(MD5(TO_JSON_STRING(inbound_zoo_elephants))) AS hex_row_hash
-                FROM inbound_zoo_elephants
-            )
-
-        SELECT
-            COUNT(*) AS records,
-            COUNT(DISTINCT hex_row_hash) AS unique_records
-        FROM add_row_hash
-        ```
-
-        -   No duplicate records found, since "records" = 9 and "unique_records" = 9
-            -   if records \> unique_records, duplicates exist
-        -   Can select distinct hex_row_hash if you want to remove duplicates
-        -   Can count hex_row_hash then filter where hex_row_hash \> 1 to find which rows are duplicates
-        -   Notes from [link](https://towardsdatascience.com/how-to-build-a-unique-md5-row-hash-using-sql-in-bigquery-plus-a-few-related-things-e6f71820f38b)
-        -   Description
-            -   flowfunctions is the project name
-            -   examples is a directory (?)
-            -   zoo_elephants is the dataset
-        -   Steps
-            -   TO_JSON_STRING - creates column with json string for each row
-            -   MD5 hashes that string
-            -   TO_HEX makes it alpha-numeric and gets rid of the symbols in the hash
-                -   Easier to deal with in BigQuery
-                -   Assume this is still unique (?)
-        -   Note: By adding "true" value, `TO_JSON_STRING(inbound_zoo_elephants, true)` , TO_JSON_STRING adds line breaks to the json string for easier readability.
-        -   Hashing function options
-            -   [MD5](https://cloud.google.com/bigquery/docs/reference/standard-sql/hash_functions#md5) -  shortest one (16 characters), fine for this use case
-                -   [cryptographically broken](https://en.wikipedia.org/wiki/MD5), returns 16 characters and suffices for our use-case. Other options are
-            -   [FARM_FINGERPRINT](https://cloud.google.com/bigquery/docs/reference/standard-sql/hash_functions#farm_fingerprint) - returns a signed integer of variable length
-            -   [SHA1](https://cloud.google.com/bigquery/docs/reference/standard-sql/hash_functions#sha1), [SHA256](https://cloud.google.com/bigquery/docs/reference/standard-sql/hash_functions#sha256) and [SHA512](https://cloud.google.com/bigquery/docs/reference/standard-sql/hash_functions#sha512), which return 20, 32 and 64 bytes respectively and are more secure for cryptographic use cases.
-
--   [Nested Data]{.underline}
-
-    -   Recursive CTE
-        -   Recursive CTEs are used primarily when you want to query hierarchical data or graphs. This could be a company's organizational structure, a family tree, a restaurant menu, or various routes between cities
-
-        -   Also see
-
-            -   [What Is a Recursive CTE in SQL?](https://learnsql.com/blog/sql-recursive-cte/)
-                -   Tutorial, 3 examples, and links to other articles
-
-        -   Syntax
-
-            ``` sql
-            WITH RECURSIVE cte_name AS (
-                cte_query_definition (the anchor member)
-                UNION ALL
-                cte_query_definition (the recursive member)
-            )
-
-            SELECT *
-            FROM  cte_name;
-            ```
-
-        -   [Example]{.ribbon-highlight}: : postgres
-
-            ``` sql
-            WITH RECURSIVE category_tree(id, name, parent_id, depth, path) AS (
-              SELECT id, name, parent_id, 1, ARRAY[id]
-              FROM categories
-              WHERE parent_id IS NULL
-              UNION ALL
-              SELECT categories.id, categories.name, categories.parent_id, category_tree.depth + 1, path || categories.id
-              FROM categories
-              JOIN category_tree ON categories.parent_id = category_tree.id
-            )
-
-            SELECT id, name, parent_id, depth, path
-            FROM category_tree;
-            ```
-
-            -   CTE (`WITH`) + `RECURSIVE` says it's a recursive query.
-            -   `UNION ALL`combines the results of both statements.
-                -   Example is defined by 2 Select statements
-                    -   Anchor Member: First SELECT statement selects the root nodes of the category tree (nodes with no parent)
-                        -   Root node is indicated by "parent_id" = NULL
-                    -   Recursive member: Second SELECT statement selects the child nodes recursively
-                -   Also see Arrays for further examples of the use of `UNION ALL`
-            -   The "depth" column is used to keep track of the depth of each category node in the tree.
-                -   "1" in the first statement
-                -   "category_tree.depth + 1" in the second statement
-                    -   With every recursion, the CTE will add 1 to the previous depth level, and it will do that until it reaches the end of the hierarchy
-            -   The "path" column is an array that stores the path from the root to the current node.
-                -   "ARRAY\[id\]" in the first statement
-                -   "path \|\| categories.id" in the second statement
-                    -   "\|\|" concatenates "path" and "id" columns (See Strings)
 
 -   Preprocess Time Series with 4 Lags ([article](https://towardsdatascience.com/concurrently-train-multiple-time-series-models-over-spark-with-xgboost-c6d5ec4a6430))
 
