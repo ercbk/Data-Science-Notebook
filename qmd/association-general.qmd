@@ -1,0 +1,236 @@
+# General {#sec-assoc-gen .unnumbered}
+
+## Misc {#sec-assoc-gen-misc .unnumbered}
+
+-   Also see
+
+    -   [EDA \>\> Correlation](eda-general.qmd#sec-eda-gen-corr){style="color: green"}
+    -   Notebook \>\> Statistical Inference \>\> Correlation
+
+-   E(υ\|x)=0 is equivalent to Cov(x,υ)=0 or Cor(x,υ)=0
+
+-   A **negative correlation** between variables is also called **anticorrelation** or **inverse correlation**
+
+-   **Independence** - Two random variables are independent if the product of their individual probability density functions equals the joint probability density function
+
+-   **Partial Correlation**
+
+    $$
+    \frac{\mbox{Cov}(X, Y) - \mbox{Cov}(X, Z) \cdot \mbox{Cov}(Y, Z)}{\sqrt{\mbox{Var}(X) - \mbox{Cov}(X, Z)^2}\cdot \sqrt{\mbox{Var}(Y) - \mbox{Cov}(Y, Z)^2}}
+    $$
+
+    -   Measures the association (or correlation) between two variables when the effects of one or more other variables are removed from such a relationship.
+        -   In the above equation, I think it's the partial correlation between x and y given z.
+    -   `psych::partial.r(y ~ x - z, data)`
+    -   Resources
+        -   [Dealing with correlation in designed field experiments: part I](https://www.statforbiology.com/2019/stat_general_correlationindependence1/)
+            -   Excellent tutorial on partial, joint correlations in block design
+        -   [ppcor pkg: An R Package for a Fast Calculation to Semi-partial Correlation Coefficients](https://www.ncbi.nlm.nih.gov/pmc/articles/PMC4681537/)
+            -   Explainer for semi-partial, partial correlation
+    -   Also see notebook for a method using regression models
+
+## Continuous {#sec-assoc-gen-cont .unnumbered}
+
+-   [Spearman's Rank]{.underline}
+
+    $$
+    \rho = 1 - \frac{6\sum_i d_i^2}{n(n^2-1)}
+    $$
+
+    -   $d_i$: The difference in ranks for the ith observation
+    -   Measures how well the relationship between the two variables can be described by a monotonic function
+    -   Rank correlation measures the similarity of the order of two sets of data, relative to each other (recall that PCC did not directly measure the relative rank).
+        -   Values range from -1 to 1 where 0 is no association and 1 is perfect association
+        -   **Negative values don't mean anything in ranked correlation, so just remove the negative**
+    -   Linear relationship is a specific type of monotonic relationship where the rate of increase remains constant --- in other words, unlike a linear relationship, the amount of change (increase or decrease) in a monotonic relationship can vary.
+    -   See bkmks for CIs
+    -   Packages
+        -   [{]{style="color: #990000"}[stats::cor.test(method = "spearman")](https://stat.ethz.ch/R-manual/R-patched/library/stats/html/cor.test.html){style="color: #990000"}[}]{style="color: #990000"}
+        -   [{]{style="color: #990000"}[DescTools::SpearmanRho](https://andrisignorell.github.io/DescTools/reference/SpearmanRho.html){style="color: #990000"}[}]{style="color: #990000"}
+        -   [{]{style="color: #990000"}[wCorr](https://american-institutes-for-research.github.io/wCorr/){style="color: #990000"}[}]{style="color: #990000"} - Pearson, Spearman, polyserial, and polychoric correlations, in weighted or unweighted form
+
+-   [Kendall's Tau]{.underline}
+
+    -   Non-parametric rank correlation
+        -   Non-parametric because it only measures the rank correlation based on the relative ordering of the data (and not the specific values of the data).
+    -   Should be pretty close to Sspearman's Rank but a potentially faster calculation
+    -   Flavors: a, b (makes adjustment for ties), c (for different sample sizes for each variable)
+        -   Use Tau-b if the underlying scale of both variables has the same number of possible values (before ranking) and Tau-c if they differ.
+        -   e.g. One variable might be scored on a 5-point scale (very good, good, average, bad, very bad), whereas the other might be based on a finer 10-point scale. In this case, Tau-c would be recommended.
+    -   Packages
+        -   [{]{style="color: #990000"}[stats::cor.test(method = "kendall")](https://stat.ethz.ch/R-manual/R-patched/library/stats/html/cor.test.html){style="color: #990000"}[}]{style="color: #990000"} - Doesn't state specifically but I think it calculates a and b depending on whether ties are present or not
+        -   [{]{style="color: #990000"}[DescTools](https://andrisignorell.github.io/DescTools/){style="color: #990000"}[}]{style="color: #990000"} - has all 3 flavors
+
+-   [Bayesian]{.underline}
+
+    -   Steps: [{brms}]{style="color: #990000"}
+        -   List the variables you'd like correlations for within `mvbind()`.
+        -   Place the `mvbind()` function within the left side of the model formula.
+        -   On the right side of the model formula, indicate you only want intercepts (i.e., \~ 1).
+        -   Wrap that whole formula within `bf()`.
+        -   Then use the + operator to append `set_rescor(TRUE)`, which will ensure brms fits a model with residual correlations.
+        -   Use non-default priors and the resp argument to specify which prior is associated with which criterion variable
+    -   [Gaussian]{.underline}
+        -   [Example]{.ribbon-highlight}: multiple variables
+
+            ``` r
+            f9 <- 
+               brm(data = d,
+                family = gaussian,
+                bf(mvbind(x_s, y_s, z_s) ~ 0,
+                   sigma ~ 0) +
+                set_rescor(TRUE),
+                prior(lkj(2), class = rescor),
+                chains = 4, cores = 4,
+                seed = 1)
+
+            ## Residual Correlations: 
+            ##              Estimate Est.Error l-95% CI u-95% CI Rhat Bulk_ESS Tail_ESS
+            ## rescor(xs,ys)    0.90      0.02    0.87    0.93 1.00    3719    3031
+            ## rescor(xs,zs)    0.57      0.07    0.42    0.69 1.00    3047    2773
+            ## rescor(ys,zs)    0.29      0.09    0.11    0.46 1.00    2839    2615
+            ```
+
+        -   Standardized data is used here but isn't required
+
+            -   Will need to set priors though (see article for further details)
+
+        -   Since the data is standardized, the sd can be fixed at 1
+
+            -   brms models log of sd by default, hence `sigma ~ 0` since log 1 = 0
+
+        -   Correlations are the estimates for `rescor(xs,ys)`, `rescor(xs,zs)` `rescor(ys,zs)`
+    -   [Student t-distribution]{.underline}
+        -   If the data has any outliers, pearson's coefficient is substantially biased.
+
+        -   Example: correlation between x and y\
+            ![](./_resources/Correlation,_Association,_and_Distance.resources/unnamed-chunk-5-1.png){width="332"}\\
+
+            ``` r
+            f2 <- 
+                brm(data = x.noisy, 
+                family = student,
+                bf(mvbind(x, y) ~ 1) + set_rescor(TRUE),
+                prior = c(prior(gamma(2, .1), class = nu),
+                          prior(normal(0, 100), class = Intercept, resp = x),
+                          prior(normal(0, 100), class = Intercept, resp = y),
+                          prior(normal(0, 100), class = sigma, resp = x),
+                          prior(normal(0, 100), class = sigma, resp = y),
+                          prior(lkj(1), class = rescor)),
+                iter = 2000, warmup = 500, chains = 4, cores = 4, 
+                seed = 210191)
+
+            ## Population-Level Effects: 
+            ##            Estimate Est.Error l-95% CI u-95% CI Rhat Bulk_ESS Tail_ESS
+            ## x_Intercept    -2.07      3.59    -9.49    4.72 1.00    2412    2651
+            ## y_Intercept    1.93      7.20  -11.31    16.81 1.00    2454    2815
+            ## 
+            ## Family Specific Parameters: 
+            ##        Estimate Est.Error l-95% CI u-95% CI Rhat Bulk_ESS Tail_ESS
+            ## sigma_x    18.35      2.99    13.12    24.76 1.00    2313    2816
+            ## sigma_y    36.52      5.90    26.13    49.49 1.00    2216    3225
+            ## nu          2.65      0.99    1.36    4.99 1.00    3500    2710
+            ## nu_x        1.00      0.00    1.00    1.00 1.00    6000    6000
+            ## nu_y        1.00      0.00    1.00    1.00 1.00    6000    6000
+            ## 
+            ## Residual Correlations: 
+            ##            Estimate Est.Error l-95% CI u-95% CI Rhat Bulk_ESS Tail_ESS
+            ## rescor(x,y)    -0.93      0.03    -0.97    -0.85 1.00    2974    3366
+            ```
+
+            -   N = 40 simulated from a multivariate normal with 3 outliers
+            -   Correlation is the `rescor(x,y)` estimate -0.93; true value is -0.96
+                -   Using a pearson coefficient, cor = -0.6365649
+                -   Using brms::brm with family = gaussian, `rescor(x,y)` estimate -0.61
+
+## Discrete {#sec-assoc-gen-disc .unnumbered}
+
+-   [Misc]{.underline}
+    -   Also see Multiple Correspondence Analysis (MCA) (see bkmks \>\> Features \>\> Reduction)
+    -   Binary vs Binary Similarity measures ([paper](https://cedar.buffalo.edu/papers/articles/CVPRIP03_propbina.pdf))
+        -   Note that a pearson correlation between binaries can be useful (see [EDA \>\> Misc \>\> [{correlationfunnel}]{style="color: #990000"}](eda-general.qmd#sec-eda-gen-corr))
+        -   Types:
+            -   Jaccard-Needham
+            -   Dice
+            -   Yule
+            -   Russell-Rao
+            -   Sokal-Michener
+            -   Rogers-Tanimoto
+            -   Kulzinsky
+        -   Packages
+            -   [{{]{style="color: goldenrod"}[scipy](https://docs.scipy.org/doc/scipy/reference/spatial.distance.html){style="color: goldenrod"}[}}]{style="color: goldenrod"} - Also has other similarity measures
+-   [Phi Coefficient]{.underline} - Used for binary variables when the categories are truly binary and not crudely measuring some underlying continuous variable (i.e. dichotomization of a continuous variable)
+    -   "A Pearson correlation coefficient estimated for two binary variables will return the phi coefficient" ([Phi coefficient wiki](https://en.wikipedia.org/wiki/Phi_coefficient))
+    -   (Contingency Table) Two binary variables are considered positively associated if most of the data falls along the diagonal cells. In contrast, two binary variables are considered negatively associated if most of the data falls off the diagonal
+    -   Also see StackExchange [discussion](https://stats.stackexchange.com/questions/3086/differences-between-tetrachoric-and-pearson-correlation/3135#3135) on the difference between Phi Coefficient and Tetrachoric correlation
+    -   [{]{style="color: #990000"}[DescTools::Phi](https://andrisignorell.github.io/DescTools/reference/CramerV.html){style="color: #990000"}[}]{style="color: #990000"}
+-   [Cramer's V]{.underline} - Association between two nominal variables
+    -   See Discrete Analysis notebook
+    -   [{]{style="color: #990000"}[DescTools::CramerV](https://andrisignorell.github.io/DescTools/reference/CramerV.html){style="color: #990000"}[}]{style="color: #990000"}
+-   [Polychoric]{.underline} - Suppose each of the ordinal variables was obtained by *categorizing a normally distributed underlying variable*, and those two unobserved variables follow a bivariate normal distribution. Then the (maximum likelihood) estimate of that correlation is the polychoric correlation.
+    -   [{]{style="color: #990000"}[polycor](https://cran.r-project.org/web/packages/polycor/polycor.pdf){style="color: #990000"}[}]{style="color: #990000"}
+    -   [{]{style="color: #990000"}[psych::polychoric](https://rdrr.io/cran/psych/man/tetrachor.html){style="color: #990000"}[}]{style="color: #990000"}
+        -   For correct=FALSE, the results agree perfectly with [{polycor}]{style="color: #990000"}
+        -   For very small data sets, the correction for continuity for the polychoric correlations can lead to difficulties, particularly if using the global=FALSE option, or if doing just one correlation at a time. Setting a smaller correction value (i.e., correct =.1) seems to help.
+    -   [{]{style="color: #990000"}[DescTools::CorPolychor](https://andrisignorell.github.io/DescTools/reference/CorPolychor.html){style="color: #990000"}[}]{style="color: #990000"}
+    -   [{]{style="color: #990000"}[wCorr](https://american-institutes-for-research.github.io/wCorr/){style="color: #990000"}[}]{style="color: #990000"} - Pearson, Spearman, polyserial, and polychoric correlations, in weighted or unweighted form
+-   [Tetrachoric]{.underline} - Used for binary variables when those variables are a sort of crude measure of an underlying continuous variable
+    -   Also see StackExchange [discussion](https://stats.stackexchange.com/questions/3086/differences-between-tetrachoric-and-pearson-correlation/3135#3135) on the difference between Phi Coefficient and Tetrachoric correlation
+    -   Example of appropriate use case: Suppose there are two judges who judge cakes, say, on some continuous scale, then based on a fixed, perhaps unknown, cutoff, pronounce the cakes as "bad" or "good". Suppose the latent continuous metric of the two judges has correlation coefficient ρ.
+    -   "the contingency tables are 'balanced' row-wise and col-wise, you get good correlation between the two metrics, but the tetrachoric tends to be a bit larger than the phi coefficient. When the cutoffs are somewhat imbalanced, you get slightly worse correlation between the metrics, and the phi appears to 'shink' towards zero."
+    -   The estimation procedure is two stage ML.
+        -   Cell frequencies for each pair of items are found. Cells with zero counts are replaced with .5 as a correction for continuity (correct=TRUE).
+        -   The marginal frequencies are converted to normal theory thresholds and the resulting table for each item pair is converted to the (inferred) latent Pearson correlation that would produce the observed cell frequencies with the observed marginals
+    -   [{]{style="color: #990000"}[psych::tetrachoric](https://rdrr.io/cran/psych/man/tetrachor.html){style="color: #990000"}[}]{style="color: #990000"}
+        -   The correlation matrix gets printed, but the correlations can also be extracted with `$rho`
+        -   Can be sped up considerably by using multiple cores and using the parallel package. The number of cores to use when doing polychoric or tetrachoric may be specified using the options command. (e.g `options("mc.cores"=4);`)
+        -   `smooth = TRUE` - For sets of data with missing data, the matrix will sometimes not be positive definite. Uses a procedure to transform the negative eigenvalues.
+        -   For relatively small samples with dichotomous data if some cells are empty, or if the resampled matrices are not positive semi-definite, warnings are issued. this leads to serious problems if using multi.cores. The solution seems to be to not use multi.cores (e.g., options(mc.cores =1)
+
+## Mixed {#sec-assoc-gen-mix .unnumbered}
+
+-   Misc
+    -   [{psych::mixedCor}](https://rdrr.io/cran/psych/man/mixed.cor.html) - finds Pearson correlations for the continous variables, polychorics for the polytomous items, tetrachorics for the dichotomous items, and the polyserial or biserial correlations for the various mixed variables (no polydi?)
+-   [Biserial]{.underline} - correlation between a continuous variable and binary variable, which is *assumed to have resulted from a dichotomized normal variable*
+    -   [{]{style="color: #990000"}[psych::biserial](https://rdrr.io/cran/psych/man/tetrachor.html){style="color: #990000"}[}]{style="color: #990000"}
+-   [Polydi]{.underline} - correlation between multinomial variable and binary variable
+    -   [{]{style="color: #990000"}[psych::polydi](https://rdrr.io/cran/psych/man/tetrachor.html){style="color: #990000"}[}]{style="color: #990000"}
+-   [Polyserial]{.underline} - polychoric correlation between a continuous variable and ordinal variable
+    -   Based on the assumption that the joint distribution of the quantitative variable and a latent continuous variable underlying the ordinal variable is bivariate normal
+    -   [{polycor}]{style="color: #990000"}
+    -   [{]{style="color: #990000"}[psych::polyserial](https://rdrr.io/cran/psych/man/tetrachor.html){style="color: #990000"}[}]{style="color: #990000"}
+    -   [{]{style="color: #990000"}[wCorr](https://american-institutes-for-research.github.io/wCorr/){style="color: #990000"}[}]{style="color: #990000"} - Pearson, Spearman, polyserial, and polychoric correlations, in weighted or unweighted form
+-   [X2Y]{.underline}
+    -   Handles types: continuous-continuous, continuous-categorical, categorical-continuous and categorical-categorical
+    -   Calculates the % difference in prediction error after fitting a decision tree between two variables of interest and the mean (numeric) or most frequent (categorical)
+    -   Function is available through a script (Code \>\> statistical-testing \>\> correlation)
+        -   article with documentation and usage, https://rviews.rstudio.com/2021/04/15/an-alternative-to-the-correlation-coefficient-that-works-for-numeric-and-categorical-variables/
+    -   All x2y values where the y variable is continuous will be measuring a % reduction in MAE. All x2y values where the y variable is categorical will be measuring a % reduction in Misclassification Error. Is a 30% reduction in MAE equal to a 30% reduction in Misclassification Error? It is problem dependent, there's no universal right answer.
+        -   On the other hand, since (1) all x2y values are on the same 0-100% scale (2) are conceptually measuring the same thing, i.e., reduction in prediction error and (3) our objective is to quickly scan and identify strongly-related pairs (rather than conduct an in-depth investigation), the x2y approach may be adequate.
+    -   Not symmetric, but can average both scores to get a pseudo-symmetric value
+    -   Bootstrap CIs available
+-   Copulas
+    -   [latentcor PKG](https://joss.theoj.org/papers/10.21105/joss.03634): semi-parametric latent Gaussian copula models
+
+## Non-linear {#sec-assoc-gen-nonlin .unnumbered}
+
+-   Misc
+
+    -   Also see [General Additive Models \>\> Diagnostics](generalized-additive-models-(gam).qmd#sec-gam-diag){style="color: green"} for a method of determining a nonlinear relationship for either continuous or categorical outcomes.
+
+-   [ξ (xi) coefficient]{.underline}
+
+    -   Paper: [A New Coefficient of Correlation](https://arxiv.org/abs/1909.10140)
+    -   Article: [Exploring the XI Correlation Coefficient](https://win-vector.com/2021/12/29/exploring-the-xi-correlation-coefficient/)
+    -   Excels at oscillatory and highly non-monotonic dependencies
+    -   `XICOR::xicor` - calculates ξ and performs a significance test (H0: independent)
+        -   `XICOR::calculateXI` just calculates the ξ coefficient
+    -   Properties (value ranges; interpretation)
+        -   If y is a function of x, then ξ goes to 1 asymptotically as n (the number of data points, or the length of the vectors x and y) goes to Infinity.
+        -   If y and x are independent, then ξ goes to 0 asymptotically as n goes to Infinity.
+    -   Values can be negative, but this negativity does not have any innate significance other than being close to zero
+    -   n \> 20 necessary
+        -   n larger than about 250 probably sufficient to get a *good* estimate
+    -   Fairly efficient (O(nlogn), compared to some more powerful methods, which are O(n2))
+    -   It measures dependency in one direction only (is y dependent on x not vice versa)
+    -   Doesn't tell you if the relationship is direct or inverse
