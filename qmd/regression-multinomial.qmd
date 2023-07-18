@@ -15,8 +15,9 @@
     -   The essential idea is to construct a model for the polytomous response composed of m−1 logit comparisons among the response categories in a manner analogous to the treatment of factors in the predictor variables (i.e. creating dummy variables for the m-1 categories).
 -   Notes from [ResEcon 703 Video Course](https://www.youtube.com/@ResEcon703UMassAmherst/playlists)
     -   Weeks 3, 4, 9, 10, 12, and 13
-    -   Video lectures talk through mathematics (interpretations, motivations, benefits, limitations, etc.) of the approaches. Almost all sections end with an R code script illustrating the approach.
-    -   [github](https://github.com/woerman/ResEcon703) with lecture code scripts and problem sets/solutions with R code. Lecture scripts have calculations of many useful econometric values. Problem set solutions have written out interpretations. {mlogit} used throughout.
+    -   Video lectures talk through mathematics (interpretations, motivations, benefits, limitations, etc.) of the approaches. Each week ends with a coding session illustrating the approaches that's not included in the videos but is included in the slides.
+        -   The slides are updated with new material while the videos have not.
+    -   [github](https://github.com/woerman/ResEcon703) with slides and problem sets/solutions with R code. Slides provide a deeper introduction to the application the algorithms and the econometrics. Problem set solutions have similar material but written out more clearly. {mlogit} used throughout.
 -   Also see:
     -   [Econometrics, Discrete Choice Models](http://localhost:6279/qmd/econometrics-discrete-choice-models.qmd#sec-econ-dcm){style="color: green"}
     -   [Diagnostics, Classification \>\> Multinomial](diagnostics-classification.qmd#sec-diag-class-multinom){style="color: green"}
@@ -162,6 +163,149 @@
 
         -   Order of variables doesn't seem to matter for the "idx" arg in order to specify index types
         -   The primary dplyr verbs can be applied to dfidx objects
+
+### {mlogit}
+
+-   Formula Syntax: `y ~ a | b | c | d`
+
+    -   a: Variables with common parameters
+    -   b: Individual-specific variables with alternative-specific parameters
+    -   c: Alternative-specific variables with alternative-specific parameters
+    -   d: Individual-specific variables that affect the scale parameter
+
+-   `dfidx` Args
+
+    -   `data`: data frame you wanted to be converted
+    -   `shape`: 'wide' or 'long' for the format of the original data frame
+    -   `choice`:
+        -   For `shape = "wide"`: categorical variable that contains the all alternative categories
+        -   For `shape = "long"`: Indicator variable where TRUE is for 1 category and FALSE for everything else
+    -   The fourth argument depends on the format of the original data frame
+        -   `shape = "wide"` - `varying`: numeric vector defining which variables by column index which contain alternative-specific data
+        -   `shape = "long"`- `idx`: two-element character vector defining which which variables contain identifiers for the choice situation and alternative
+
+-   [Example]{.ribbon-highlight}: Convert data to {dfidx} format
+
+    -   `data(Heating, package = "mlogit")`
+
+    -   Raw Data (wide)
+
+        -   depvar: Choice set
+            -   gc: gas central
+            -   gr: gas room
+            -   ec: electric central
+            -   er: electric room
+            -   hp: heat pump
+        -   Alternative-specific data (Each variable has 1 column for each alternative)
+            -   ic: installation cost
+            -   oc: annual operating cost
+        -   Household demographic data
+            -   income: annual income
+            -   agehed: age of household head
+            -   rooms: number of rooms
+            -   region: home location
+        -   Others
+            -   idcase: id variable (1 to 1)
+
+    -   Convert Wide to Long using {dplyr}
+
+        ``` r
+        heating_long <- heating %>%
+          pivot_longer(contains('.')) %>%
+          separate(name, c('name', 'alt')) %>%
+          pivot_wider() %>%
+          mutate(choice = (depvar == alt)) %>%
+          select(-depvar)
+        ```
+
+        -   Choice: logical; TRUE if alternative (alt) == gc, otherwise FALSE
+        -   alt: categorical with all alternatives
+        -   demographic variables
+        -   ic and oc: all wide variables pivoted into 2 variables
+            -   As there were 5 variables for each, the id var now has 5 of each id
+
+    -   Convert **Wide**
+
+        ``` r
+        heating_dfidx <- 
+          dfidx(heating, 
+                shape = 'wide',
+                choice = 'depvar', 
+                varying = 3:12)
+
+        heating_dfidx
+        #>    idcase depvar income agehed rooms region      ic     oc  idx
+        #> 1       1  FALSE      7     25     6 ncostl  859.90 553.34 1:ec
+        #> 2       1  FALSE      7     25     6 ncostl  995.76 505.60 1:er
+        #> 3       1   TRUE      7     25     6 ncostl  866.00 199.69 1:gc
+        #> 4       1  FALSE      7     25     6 ncostl  962.64 151.72 1:gr
+        #> 5       1  FALSE      7     25     6 ncostl 1135.50 237.88 1:hp
+
+        #> ~~~ indexes ~~~~
+        #>    id1 id2
+        #> 1    1  ec
+        #> 2    1  er
+        #> 3    1  gc
+        #> 4    1  gr
+        #> 5    1  hp
+        #> indexes:  1, 2 
+
+        print(tibble(heating_dfidx), n = 10)
+        #> # A tibble: 4,500 × 9
+        #>    idcase depvar income agehed rooms region    ic    oc idx$id1 $id2 
+        #>     <dbl> <lgl>   <dbl>  <dbl> <dbl> <fct>  <dbl> <dbl>   <int> <fct>
+        #>  1      1 FALSE       7     25     6 ncostl  860.  553.       1 ec   
+        #>  2      1 FALSE       7     25     6 ncostl  996.  506.       1 er   
+        #>  3      1 TRUE        7     25     6 ncostl  866   200.       1 gc   
+        #>  4      1 FALSE       7     25     6 ncostl  963.  152.       1 gr   
+        #>  5      1 FALSE       7     25     6 ncostl 1136.  238.       1 hp 
+        ```
+
+        -   "depvar" is a column with all the choice categories (i.e. alternatives)
+            -   It's a factor type but I'm not sure if that's necessary. Character type might be sufficient.
+        -   Columns 3:12 are the "wide variable" columns. There's a column for each alternative category
+            -   Essentially 2 variables and there's 5 alternatives, therefore, 5 $\times$ 2 = 10 columns
+
+    -   Convert **Long**
+
+        ``` r
+        heating_long_dfidx <- 
+          dfidx(heating_long, 
+                shape = 'long',
+                choice = 'choice', 
+                idx = c('idcase', 'alt'))
+
+        heating_long_dfidx
+        #> # A tibble: 4,500 × 8
+        #>    income agehed rooms region    ic    oc choice idx$idcase $alt 
+        #>  *  <dbl>  <dbl> <dbl> <fct>  <dbl> <dbl> <lgl>       <dbl> <fct>
+        #>  1      7     25     6 ncostl  860.  553. FALSE           1 ec   
+        #>  2      7     25     6 ncostl  996.  506. FALSE           1 er   
+        #>  3      7     25     6 ncostl  866   200. TRUE            1 gc   
+        #>  4      7     25     6 ncostl  963.  152. FALSE           1 gr   
+        #>  5      7     25     6 ncostl 1136.  238. FALSE           1 hp   
+
+        #> ~~~ indexes ~~~~
+        #>    idcase alt
+        #> 1       1  ec
+        #> 2       1  er
+        #> 3       1  gc
+        #> 4       1  gr
+        #> 5       1  hp
+        #> indexes:  1, 2 
+
+        print(tibble(heating_long_dfidx), n = 5)
+        #> # A tibble: 4,500 × 8
+        #>    income agehed rooms region    ic    oc choice idx$idcase $alt 
+        #>     <dbl>  <dbl> <dbl> <fct>  <dbl> <dbl> <lgl>       <dbl> <fct>
+        #>  1      7     25     6 ncostl  860.  553. FALSE           1 ec   
+        #>  2      7     25     6 ncostl  996.  506. FALSE           1 er   
+        #>  3      7     25     6 ncostl  866   200. TRUE            1 gc   
+        #>  4      7     25     6 ncostl  963.  152. FALSE           1 gr   
+        #>  5      7     25     6 ncostl 1136.  238. FALSE           1 hp   
+        ```
+
+        -   `idx`: Since the df is already in long format, the id variabler ("idcase") has multiple observations for each id. Therefore, there needs be more than 1 variable to create a unique identifier.
 
 ## Nested Logit {#sec-reg-multin-nestlog .unnumbered}
 
