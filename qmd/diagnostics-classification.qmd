@@ -450,12 +450,12 @@ PseudoR2(model, which = c("CoxSnell", "Nagelkerke", "Tjur"))
 
 ### Basic Workflow {#sec-diag-class-calib-wkflw .unnumbered}
 
--   Compute Tests using 2 vectors
+1.  Compute Tests for Miscalibration using 2 vectors
     -   Classifier's predicted probabilities
     -   Numeric (0/1) observed outcome
--   Compute Mean, Weak, and Moderate levels of Calibration
--   Create Calibration Plots
--   Interpret
+2.  Compute Mean, Weak, and Moderate levels of Calibration
+3.  Create Calibration Plots
+4.  Interpret
     -   If model isn't well-calibrated, then
         -   Which region of the probability range is being over/under-predicted?
             -   Are these regions important to the use case?
@@ -474,7 +474,7 @@ PseudoR2(model, which = c("CoxSnell", "Nagelkerke", "Tjur"))
 -   The ROC curve value might not show diminished performance.
     -   However, the J index would be lower for models with pathological distributions for the class probabilities.
 -   The Hosmer-Lemeshow (H-L) test is popular but has major shortcomings. Not a good test to trust by itself
-    -   based on artificially grouping patients into risk strata, p-value that is uninformative with respect to the type and extent of miscalibration, and low statistical power
+    -   Based on artificially grouping patients into risk strata, p-value that is uninformative with respect to the type and extent of miscalibration, and low statistical power
     -   See Spiegelhalter z statistic \>\> Manually \>\> paper for more details
     -   Also see RMS [Ch 10.5](https://hbiostat.org/rmsc/lrm.html#assessment-of-model-fit) (end of section, listen to audio)
 
@@ -597,7 +597,7 @@ $$
 
 -   [E50]{.underline} - denotes the median absolute difference between observed and predicted probabilities
 
-    -   i.e. same as ICI (aka Eavg)except uses the median instead of the mean
+    -   i.e. same as ICI (aka Eavg) except uses the median instead of the mean
     -   Less influenced by a small minority of subjects/observations for whom there is a large discrepancy between observed and predicted probabilities (i.e. outliers)
 
 -   [E90]{.underline} - denotes the 90th percentile of the absolute difference between observed and predicted probabilities.
@@ -623,6 +623,29 @@ $$
         -   e.g. the endpoints of the estimated 95% confidence interval were the empirical 2.5th and 97.5th percentiles of the distribution of the given calibration metric across the 2000 bootstrap replicates.
     -   To calculate CIs for the difference in calibration metrics between models, I think each type of classifier would participate for each replicate and the differences would be calculated in step 5. (glossed over in the paper)
         -   If the difference CI contains 0, then it can be said that the calibration for both models is comparable.
+
+#### Expected Calibration Error (ECE) {#sec-diag-class-calib-tfmis-ece .unnumbered}
+
+-   See [Evaluation of Calibration Levels \>\> Binning Method](diagnostics-classification.qmd#sec-diag-class-calib-eocl-calpl-bin){style="color: green"} for details on what's happening here. Almost all the calculations mentioned in that section are included in this metric.
+
+-   [Binary]{.underline}
+
+    $$
+    \begin{align}
+    ECE = \sum_{m=1}^M \frac{|B_m|}{n}|\mbox{acc}(B_m) -  \mbox{conf}(B_m)|
+    \\
+    \\
+    \begin{split}
+    \mbox{where}\;\; &\mbox{acc}(B_m) = \frac{1}{|B_m|} \sum_{i\in B_m} \mathbb{1} (\hat y_i = y_i)   \;\; \mbox{and} \\
+    &\mbox{conf}(B_m) = \frac{1}{|B_m|} \sum_{i \in B_m} \hat p_i
+    \end{split}
+    \end{align}
+    $$
+
+    -   $|B_m|$ - The number of observations in bin $m$
+    -   $\mbox{acc}(B_m)$ - The average accuracy of the predictions in bin $m$
+        -   A prediction is the label determined by the predicted probability and the threshold.
+    -   $\mbox{conf}(B_m)$ - The average predicted probability of the predictions in bin $m$
 
 ### Evaluation of Calibration Levels {#sec-diag-class-calib-eocl .unnumbered}
 
@@ -660,7 +683,7 @@ $$
     -   Calibration Curve:\
         ![](./_resources/Diagnostics,_Classification.resources/image.7.png){width="304"}
 
-        ```r
+        ``` r
         preds <- tibble(
                     truth = data$class,
                     truth_int = as.integer(data$class) - 1,
@@ -690,7 +713,7 @@ $$
 
 -   [x-axis]{.underline}
 
-    -   the predicted probabilities are divided up into a fixed number of bins along the x-axis.
+    -   The predicted probabilities are divided up into a fixed number of bins along the x-axis.
         -   too few bins and we won't have enough points on the curve, too many bins and we will have too few observations in each bin leading to more noise. It is common to select 10 bins.
     -   The number of events (class=1) are then counted for each bin (e.g. the relative observed frequency).
     -   Finally, the counts are normalized.
@@ -707,22 +730,24 @@ $$
     ``` r
     GetCalibrationCurve <- function(y, y_pred, bins = 10) {
         data.frame(y = y, y_pred = y_pred) %>%
-        arrange(y_pred) %>%
-        mutate(pos = row_number() / n(),
-              bin = ceiling(pos * bins)) %>%
-        group_by(bin) %>%
-        summarize(estimated_prob = mean(y_pred),
-                  actual_prob = mean(y))
+            arrange(y_pred) %>%
+            mutate(pos = row_number() / n(),
+                   bin = ceiling(pos * bins)) %>%
+            group_by(bin) %>%
+            summarize(pred_prob = mean(y_pred),
+                      obs_prob = mean(y))
     }
+
     df <- GetCalibrationCurve(y, y_pred, bins = 10)
-    ggplot(df, aes(estimated_prob, actual_prob)) +
+
+    ggplot(df, aes(x = pred_prob, y = obs_prob)) +
       geom_point() +
       geom_line() +
       geom_abline(slope = 1, intercept = 0, linetype = 2) +
       coord_cartesian(xlim = c(0, 1), ylim = c(0, 1)) +
       theme_bw() +
-      labs(title = "Calibration curve", x = "Estimated probability",
-          y = "Actual probability")
+      labs(title = "Calibration Curve", x = "Predicted Probability",
+           y = "Observed Probability")
     ```
 
 -   Also see [Evaluating a logistic regression based prediction tool in R](https://darrendahly.github.io/post/homr/)
