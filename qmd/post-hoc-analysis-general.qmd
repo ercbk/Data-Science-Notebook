@@ -1,498 +1,472 @@
-# Post-Hoc Analysis, General
-
-
-
-TOC
-
-* Misc
-* EDA
-	* Charts
-	* Tests for equal variances
-* Frequentist Difference-in-Means
-	* T-test
-		* Welch's T-Test
-	* Hotelling's T2
-	* Non-Parametric Difference in Means Tests
-		* Wilcoxon Rank Sum and Signed Rank
-		* Kruskal-Wallis
-	* Kolomogorov-Smirnov
-	* Post-ANOVA tests
-		* Duncan’s new multiple range test (MRT)
-		* Fisher’s Least Significant Difference (LSD)
-		* Newman-Keuls
-		* Rodger’s Method
-		* Scheffé’s Method
-		* Tukey’s Test
-		* Dunnett’s correction
-		* Benjamin-Hochberg (BH) procedure
-	* Bootstrap
-* Bayesian Difference-in-Means
-	* Regression (equal variances)
-	* Regression (unequal variances)
-	* Bayesian Estimation Supersedes the t Test (BEST)
-		* Cohen's D
-			* Strictly Standardized Mean Difference (SSMD)
-		* Common language effect size (CLES)
-* Dichotomous Data
-	* Mean (probability-of-event) and CI Estimation
-	* Paired Data Tests
-* Categorical Data
-	* Difference in Proportions
-
-
-Misc
-
-* Also see [Statistical Concepts](Statistical Concepts) >> Fundamentals >> Understanding CI, sd, and sem Bars
-* Notes from https://www.andrewheiss.com/blog/2019/01/29/diff-means-half-dozen-ways/
-* [{dabestr}]{style='color: #990000'} for visualization
-* Visualization for differences ([Thread](https://fediscience.org/@andrew/110351837749015538))![](./_resources/Post-Hoc_Analysis,_General.resources/9cd26fe67d0220f5.png)
-
-
-
-
-EDA
-
-* \*\* In code examples,  movies\_clean is the data; rating is the numeric; and genre (action vs comedy) is the group variable \*\*
-* box, histogram, density for two groups (factor(genre))
-
-```
-pacman::p_load(ggplot2movies,ggplot2, ggridges, patchwork)
-
-# Make a custom theme
-# I'm using Asap Condensed; download from 
-# https://fonts.google.com/specimen/Asap+Condensed
-theme_fancy <- function() {
-  theme_minimal(base_family = "Asap Condensed") +
-    theme(panel.grid.minor = element_blank())
-}
-eda_boxplot <- ggplot(movies_clean, aes(x = genre, y = rating, fill = genre)) +
-  geom_boxplot() +
-  scale_fill_manual(values = c("#0288b7", "#a90010"), guide = FALSE) + 
-  scale_y_continuous(breaks = seq(1, 10, 1)) +
-  labs(x = NULL, y = "Rating") +
-  theme_fancy()
-eda_histogram <- ggplot(movies_clean, aes(x = rating, fill = genre)) +
-  geom_histogram(binwidth = 1, color = "white") +
-  scale_fill_manual(values = c("#0288b7", "#a90010"), guide = FALSE) + 
-  scale_x_continuous(breaks = seq(1, 10, 1)) +
-  labs(y = "Count", x = "Rating") +
-  facet_wrap(~ genre, nrow = 2) +
-  theme_fancy() +
-  theme(panel.grid.major.x = element_blank())
-eda_ridges <- ggplot(movies_clean, aes(x = rating, y = fct_rev(genre), fill = genre)) +
-  stat_density_ridges(quantile_lines = TRUE, quantiles = 2, scale = 3, color = "white") + 
-  scale_fill_manual(values = c("#0288b7", "#a90010"), guide = FALSE) + 
-  scale_x_continuous(breaks = seq(0, 10, 2)) +
-  labs(x = "Rating", y = NULL,
-      subtitle = "White line shows median rating") +
-  theme_fancy()
-(eda_boxplot | eda_histogram) / 
-    eda_ridges + 
-  plot_annotation(title = "Do comedies get higher ratings than action movies?",
-                  subtitle = "Sample of 400 movies from IMDB",
-                  theme = theme(text = element_text(family = "Asap Condensed"),
-                                plot.title = element_text(face = "bold",
-                                                          size = rel(1.5))))
-```
-
-* Test for Equal Variances
-	* Misc
-		* "Glass and Hopkins (1996 p. 436) state that the Levene and B-F tests are “fatally flawed”; It isn’t clear how robust they are when there is significant differences in variances and unequal sample sizes. "
-	* Bartlett test: Check homogeneity of variances based on the mean
-
-```
-bartlett.test(rating ~ genre, data = movies_clean)
-```
-
-* Levene test: Check homogeneity of variances based on the median, so it’s more robust to outliers
-
-```
-car::leveneTest(rating ~ genre, data = movies_clean)
-```
-
-* Also [{]{style='color: #990000'}[DescTools](https://andrisignorell.github.io/DescTools/){style='color: #990000'}[}]{style='color: #990000'}
-* Other tests are better
-
-* Fligner-Killeen test: Check homogeneity of variances based on the median, so it’s more robust to outliers
-
-```
-fligner.test(rating ~ genre, data = movies_clean)
-```
-
-* Brown-Forsythe (B-F) Test ([link](https://www.statisticshowto.com/brown-forsythe-test/))
-	* Attempts to correct for the skewness of the Levene Test transformation by using deviations from group medians.
-		* Less likely than the Levene test to incorrectly declare that the assumption of equal variances has been violated.
-	* Thought to perform as well as or better than other available tests for equal variances
-
-```
-onewaytests::bf.test(weight_loss ~ program, data = data)
-```
-
-* p-value < 0.05 means the difference in variances is statistically significant
-
-
-
-Frequentist
-
-* T-test
-	* Test whether the difference between means is statistically different from 0
-	* Default is for non-equal variances
-
-```
-t_test_eq <- t.test(rating ~ genre, data = movies_clean, var.equal = TRUE)
-t_test_eq_tidy <- tidy(t_test_eq) %>%
-  # Calculate difference in means, since t.test() doesn't actually do that
-  mutate(estimate_difference = estimate1 - estimate2) %>%
-  # Rearrange columns
-  select(starts_with("estimate"), everything())
-```
-
-* For unequal variances, Welch's T-Test:
-	* `var.equal = FALSE`
-	* Recommended for large datasets
-
-* Hotelling's T2
-	* Multivariate generalization of Welch's T-Test
-	* [{]{style='color: #990000'}[DescTools::HotellingsT2Test](https://andrisignorell.github.io/DescTools/reference/HotellingsT.html){style='color: #990000'}[}]{style='color: #990000'}
-	* [{ICSNP}]{style='color: #990000'}
-* Non-Parametric Difference-in-Means Tests
-	* Wilcoxon Rank Sum and Signed Rank: `wilcox.test`
-		* 1 or 2 variables/"samples"
-		* 2 variable aka "Mann-Whitney"
-		* `coin::wilcox_test`
-			* for exact, asymptotic and Monte Carlo conditional p-values, including in the presence of ties
-	* Kruskal-Wallis: `kruskal.test(rating ~ genre, data = movies_clean)`
-		* More than 2 variables/"samples"
-* Kolomogorov-Smirnov: `ks.test`
-	* Calculates the difference in cdf of each sample
-	* 2 variables/"samples"
-	* For mixed or discrete, see [{KSgeneral}]{style='color: #990000'}
-* Post-ANOVA tests
-	* Assume approximately Normal distributions
-	* For links to more details about each test, https://www.statisticshowto.com/probability-and-statistics/statistics-definitions/post-hoc/
-	* Duncan’s new multiple range test (MRT)
-		* When you run Analysis of Variance (ANOVA), the results will tell you if there is a difference in means. However, it won’t pinpoint the pairs of means that are different. Duncan’s Multiple Range Test will identify the pairs of means (from at least three) that differ. The MRT is similar to the LSD, but instead of a t-value, a Q Value is used.
-	* Fisher’s Least Significant Difference (LSD)
-		* A tool to identify which pairs of means are statistically different. Essentially the same as Duncan’s MRT, but with t-values instead of Q values.
-	* Newman-Keuls
-		* Like Tukey’s, this post-hoc test identifies sample means that are different from each other. Newman-Keuls uses different critical values for comparing pairs of means. Therefore, it is more likely to find significant differences.
-	* Rodger’s Method
-		* Considered by some to be the most powerful post-hoc test for detecting differences among groups. This test protects against loss of statistical power as the degrees of freedom increase.
-	* Scheffé’s Method
-		* Used when you want to look at post-hoc comparisons in general (as opposed to just pairwise comparisons). Scheffe’s controls for the overall confidence level. It is customarily used with unequal sample sizes.
-	* Tukey’s Test
-		* The purpose of Tukey’s test is to figure out which groups in your sample differ. It uses the “Honest Significant Difference,” a number that represents the distance between groups, to compare every mean with every other mean. (see [ANOVA note](ANOVA note))
-	* Dunnett’s correction
-		* Like Tukey’s this post-hoc test is used to compare means. Unlike Tukey’s, it compares every mean to a control mean.
-		* {DescTools::DunnettTest} (see [ANOVA note](ANOVA note))
-	* Benjamin-Hochberg (BH) procedure
-		* If you perform a very large amount of tests, one or more of the tests will have a significant result purely by chance alone. This post-hoc test accounts for that false discovery rate.
-* Bootstrap
-	* Also see [Statistical Concepts](Statistical Concepts) >> Bootstrapping
-	* Steps
-		1. Calculate a sample statistic, or δ: This is the main measure you care about: the difference in means, the average, the median, the proportion, the difference in proportions, the chi-squared value, etc.
-		2. Use simulation to invent a world where δ is null: Simulate what the world would look like if there was no difference between two groups, or if there was no difference in proportions, or where the average value is a specific number.
-		3. Look at δ in the null world: Put the sample statistic in the null world and see if it fits well.
-		4. Calculate the probability that δ could exist in null world: This is the p-value, or the probability that you’d see a δ at least that high in a world where there’s no difference.
-		5. Decide if δ is statistically significant: Choose some evidentiary standard or threshold (like 0.05) for deciding if there’s sufficient proof for rejecting the null world.
-
-```
-library(infer)
-
-# Calculate the difference in means
-diff_means <- movies_clean %>% 
-  specify(rating ~ genre) %>%
-  # Order here means we subtract comedy from action (Action - Comedy)
-  calculate("diff in means", order = c("Action", "Comedy"))
-
-boot_means <- movies_clean %>% 
-  specify(rating ~ genre) %>% 
-  generate(reps = 1000, type = "bootstrap") %>% 
-  calculate("diff in means", order = c("Action", "Comedy"))
-boostrapped_confint <- boot_means %>% get_confidence_interval()
-boot_means %>% 
-  visualize() + 
-  shade_confidence_interval(boostrapped_confint,
-                            color = "#8bc5ed", fill = "#85d9d2") +
-  geom_vline(xintercept = diff_means$stat, size = 1, color = "#77002c") +
-  labs(title = "Bootstrapped distribution of differences in means",
-      x = "Action − Comedy", y = "Count",
-      subtitle = "Red line shows observed difference; shaded area shows 95% confidence interval") +
-  theme_fancy()
-```
-
-* Downey's Process:  generate a world where there’s no difference by shuffling all the action/comedy labels through permutation
-
-```
-# Step 1: δ = diff_means (see above)
-
-# Step 2: Invent a world where δ is null
-genre_diffs_null <- movies_clean %>% 
-  specify(rating ~ genre) %>% 
-  hypothesize(null = "independence") %>% 
-  generate(reps = 5000, type = "permute") %>% 
-  calculate("diff in means", order = c("Action", "Comedy"))
-# Step 3: Put actual observed δ in the null world and see if it fits
-genre_diffs_null %>% 
-  visualize() + 
-  geom_vline(xintercept = diff_means$stat, size = 1, color = "#77002c") +
-  scale_y_continuous(labels = comma) +
-  labs(x = "Simulated difference in average ratings (Action − Comedy)", y = "Count",
-      title = "Simulation-based null distribution of differences in means",
-      subtitle = "Red line shows observed difference") +
-  theme_fancy()
-```
-
-* If line is outside null distribution, then the difference value doesn't fit in a world where the null hypothesis is the truth
-
-* pvalue
-
-```
-# Step 4: Calculate probability that observed δ could exist in null world
-genre_diffs_null %>% 
-  get_p_value(obs_stat = diff_means, direction = "both") %>% 
-  mutate(p_value_clean = pvalue(p_value))
-```
-
-
-Bayesian
-
-* Misc
-	* Notes from
-		* [Half a dozen frequentist and Bayesian ways to measure the difference in means in two groups | Andrew Heiss](https://www.andrewheiss.com/blog/2019/01/29/diff-means-half-dozen-ways/)
-* Frequentist null hypothesis significance testing (NHST) determines the _probability of the data given a null hypothesis_ (i.e. P(data|H), yielding results that are often unwieldy, phrased as the probability of rejecting the null if it is true (hence all that talk of “null worlds”). In contrast, Bayesian analysis determines the _probability of a hypothesis given the data_ (i.e.P(H|data)), resulting in probabilities that are directly interpretable.
-* Regression (equal variances)
-
-```
-brms_eq <- brm(
-  # bf() is an alias for brmsformula() and lets you specify model formulas
-  bf(rating ~ genre), 
-  # Reverse the levels of genre so that comedy is the base case
-  data = mutate(movies_clean, genre = fct_rev(genre)),
-  prior = c(set_prior("normal(0, 5)", class = "Intercept"),
-            set_prior("normal(0, 1)", class = "b")),
-  chains = 4, iter = 2000, warmup = 1000, seed = 1234,
-  file = "cache/brms_eq"
-)
-# median of posterior and CIs
-brms_eq_tidy <- 
-  broom::tidyMCMC(brms_eq, conf.int = TRUE, conf.level = 0.95, 
-          estimate.method = "median", conf.method = "HPDinterval")
-```
-
-* family = gaussian (default)
-* b\_intercept: mean comedy score while the
-* b\_genreAction: difference from mean comedy score (i.e. difference in means)
-	* says "We’re 95% confident that the true population-level difference in rating is between -0.968 and -0.374, with a median of -0.666."
-
-* Regression (unequal variances)
-
-```
-brms_uneq <- brm(
-  bf(rating ~ genre, sigma ~ genre), 
-  data = mutate(movies_clean, genre = fct_rev(genre)),
-  prior = c(set_prior("normal(0, 5)", class = "Intercept"),
-            set_prior("normal(0, 1)", class = "b"),
-            # models the variance for each group (e.g. comedy and action)
-            set_prior("cauchy(0, 1)", class = "b", dpar = "sigma")),
-  chains = CHAINS, iter = ITER, warmup = WARMUP, seed = BAYES_SEED,
-  file = "cache/brms_uneq"
-)
-
-# median of posterior and CIs
-brms_uneq_tidy <- 
-  tidyMCMC(brms_uneq, conf.int = TRUE, conf.level = 0.95, 
-          estimate.method = "median", conf.method = "HPDinterval") %>% 
-  # sigma terms on log-scale so exponentiate them to get them back to original scale
-  mutate_at(vars(estimate, std.error, conf.low, conf.high),
-            funs(ifelse(str_detect(term, "sigma"), exp(.), .)))
-```
-
-* Interpretation for intercept and main effect estimates same as before
-* b\_sigma\_intercept and b\_sigma\_genreAction are the std.devs for those posteriors
-
-* Bayesian Estimation Supersedes the T-test (BEST) (unequal variances, student-t distribution)
-	* Same as before but with a coefficient for ν, the degrees of freedom, for the student-t distribution.
-	* models each group distribution (by removing intercept w/ 0 + formula notation), then calculates difference in means by hand
-
-```
-brms_uneq_robust_groups <- brm(
-  bf(rating ~ 0 + genre,
-    sigma ~ 0 + genre), 
-  family = student,
-  data = mutate(movies_clean, genre = fct_rev(genre)),
-  prior = c(
-    # Set group mean prior
-    set_prior("normal(6, 2)", class = "b", lb = 1, ub = 10),
-    # Ser group variance priors. We keep the less informative cauchy(0, 1).
-    set_prior("cauchy(0, 1)", class = "b", dpar = "sigma"),
-    set_prior("exponential(1.0/29)", class = "nu")),
-  chains = CHAINS, iter = ITER, warmup = WARMUP, seed = BAYES_SEED,
-  file = "cache/brms_uneq_robust_groups"
-)
-
-brms_uneq_robust_groups_tidy <- 
-  tidyMCMC(brms_uneq_robust_groups, conf.int = TRUE, conf.level = 0.95, 
-          estimate.method = "median", conf.method = "HPDinterval") %>% 
-  # Rescale sigmas
-  mutate_at(vars(estimate, std.error, conf.low, conf.high),
-            funs(ifelse(str_detect(term, "sigma"), exp(.), .))
-
-brms_uneq_robust_groups_post <- posterior_samples(brms_uneq_robust_groups) %>% 
-  # We can exponentiate here!
-  mutate_at(vars(contains("sigma")), funs(exp)) %>% 
-  # For whatever reason, we need to log nu?
-  mutate(nu = log10(nu)) %>% 
-  mutate(diff_means = b_genreAction - b_genreComedy,
-        diff_sigma = b_sigma_genreAction - b_sigma_genreComedy) %>% 
-  # Calculate effect sizes, just for fun
-  mutate(cohen_d = diff_means / sqrt((b_sigma_genreAction + b_sigma_genreComedy)/2),
-        cles = dnorm(diff_means / sqrt((b_sigma_genreAction + b_sigma_genreComedy)), 0, 1))
-
-brms_uneq_robust_groups_tidy_fixed <- 
-  tidyMCMC(brms_uneq_robust_groups_post, conf.int = TRUE, conf.level = 0.95, 
-          estimate.method = "median", conf.method = "HPDinterval")
-## # A tibble: 9 x 5
-##  term                estimate std.error conf.low conf.high
-##  <chr>                  <dbl>    <dbl>    <dbl>    <dbl>
-## 1 b_genreComedy        5.99      0.109    5.77      6.19 
-## 2 b_genreAction        5.30      0.107    5.09      5.50 
-## 3 b_sigma_genreComedy  1.47      0.0882    1.30      1.64 
-## 4 b_sigma_genreAction  1.47      0.0826    1.31      1.62 
-## 5 nu                  1.48      0.287    0.963    2.04 
-## 6 diff_means          -0.690      0.151    -1.01    -0.415
-## 7 diff_sigma          0.00100    0.111    -0.212    0.217
-## 8 cohen_d            -0.571      0.126    -0.818    -0.327
-## 9 cles                0.368      0.0132    0.341    0.391
-```
-
-* Cohen’s d:  standardized difference in means (also see [Post-Hoc Analysis, Mixed Effects](Post-Hoc Analysis, Mixed Effects) >> Cohen's D)![](./_resources/Post-Hoc_Analysis,_General.resources/image.png)
-	* medium effect size
-	* The denominator in this calculation is the square root of the average std.dev, but it doesn't look like any of the ones used in the wiki [article](https://en.wikipedia.org/wiki/Effect_size#Cohen's_d)
-		* Looks closer to the Strictly Standardized Mean Difference (SSMD) ([wiki](https://en.wikipedia.org/wiki/Strictly_standardized_mean_difference))
-* Common language effect size (CLES): probability that a rating sampled at random from one group will be greater than a rating sampled from the other group.
-	* 36.8% chance that we could randomly select an action rating from the comedy distribution
-
-
-Dichotomous Data
-
-* Mean (probability-of-event) +  CI Estimation
-	* large population![](./_resources/Post-Hoc_Analysis,_General.resources/Screenshot (224).png)
-
-```
-binom::binom.asymp(x=x, n=n, conf.level=0.95)
-##      method  x  n      mean      lower    upper
-## 1 asymptotic 52 420 0.1238095 0.09231031 0.1553087
-```
-
-* small/finite population![](./_resources/Post-Hoc_Analysis,_General.resources/Screenshot (226).png)
-
-```
-see ?binom::binom.confint for options on methods
-```
-
-* Bayesian
-
-```
-# Mean proportion estimated with prior that mean lies between 0.05 and 0.15
-
-##Function to determine beta parameters s.t. the 2.5% and 97.5% quantile match the specified values
-target <- function(theta, prior_interval, alpha=0.05) {
-  sum( (qbeta(c(alpha/2, 1-alpha/2), theta[1], theta[2]) - prior_interval)^2)
-}
-## Find the prior parameters
-prior_params <- optim(c(10,10),target, prior_interval=c(0.05, 0.15))$par
-## [1]  12.04737 116.06022
-# not really sure how this works. Guessing theta1,2 is c(10,10) but then there doesn't seem to be an unknown to optimize for.
-
-## Compute credibile interval from a beta-binomial conjugate prior-posterior approach
-binom::binom.bayes(x=x, n=n, type="central", prior.shape1=prior_params[1], prior.shape2=prior_params[2])
-##  method  x  n  shape1  shape2      mean      lower    upper  sig
-## 1  bayes 52 420 64.04737 484.0602 0.1168518 0.09134069 0.1450096 0.05
-
-##Plot of the beta-posterior
-p <- binom::binom.bayes.densityplot(ci_bayes)
-##Add plot of the beta-prior
-df <- data.frame(x=seq(0,1,length=1000)) %>% mutate(pdf=dbeta(x, prior_params[1], prior_params[2]))
-p + geom_line(data=df, aes(x=x, y=pdf), col="darkgray",lty=2) +
-  coord_cartesian(xlim=c(0,0.25)) + scale_x_continuous(labels=scales::percent)
-
-# Estimated with a flat prior (essentially equivalent to the frequentist approach)
-binom::binom.bayes(x=x, n=n, type="central", prior.shape1=1, prior.shape2=1))
-##  method  x  n shape1 shape2      mean      lower    upper  sig
-## 1  bayes 52 420    53    369 0.1255924 0.09574062 0.158803 0.05
-```
-
-* from https://staff.math.su.se/hoehle/blog/2017/06/22/interpretcis.html
-* Interpretation
-	* technical: "95% equi-tailed credible interval resulting from a beta-binomial conjugate Bayesian approach obtained when using a prior beta with parameters such that the similar 95% equi-tailed prior credible interval has limits 0.05 and 0.15. Given these assumptions the interval 9.1%- 14.5% contains 95% of your subjective posterior density for the parameter."
-	* nontechnical: the true value is in that interval with 95% probability or just this 95% Bayesian confidence interval is 9.1%- 14.5%.
-
-* Paired data tests
-	* Also see Exact Tests on pg 30 in Discrete Analysis notebook
-	* McNemar’s test
-		* mainly useful when the measurements are on the nominal or ordinal scale
-		* tests for significant difference in frequencies of paired samples when it has **binary responses**
-			H0: There is no significant change in individuals after the treatment
-			
-			H1: There is a significant change in individuals after the treatment
-			
-
-```
-    # data is unaggregated (i.e. paired measurements from individuals)
-    test <- mcnemar.test(table(data$pretreatment, data$posttreatment))
-    ## McNemar's Chi-squared test with continuity correction
-    ##  data:  table(data$before, data$after)
-    ##  McNemar's chi-squared = 0.5625, df = 1, p-value = 0.4533
-```
-
-	correct = TRUE (default) - Continuity  correction (increases "usefulness and accuracy of the test" so probably better to leave it as TRUE)
-	
-	x & y are factor vectors
-	
-	x can be a matrix of aggregated counts
-	* If the 1st row, 2nd cell or 2nd row, 1st cell have counts < 50, then use the Exact Tests to get accurate p-values (For details see above for page in notebook)
-	 Interpretation: p-value is 0.45, above the 5% significance level and therefore the null hypothesis cannot be rejected
-	
-
-
-
-Categorical Data
-
-	Difference in Proportions
-		Example: 3 level Categorical Variable
-			Data and Model
-			![](./_resources/Post-Hoc_Analysis,_General.resources/image.1.png)
-		* Calculate Differences![](./_resources/Post-Hoc_Analysis,_General.resources/image.2.png)
-		* Visualize (Code in previous chunk)![](./_resources/Post-Hoc_Analysis,_General.resources/image.3.png)
+# General {#sec-phoc-gen .unnumbered}
+
+## Misc {#sec-phoc-gen- .unnumbered}
 
+-   Also see [Statistical Concepts](Statistical%20Concepts) \>\> Fundamentals \>\> Understanding CI, sd, and sem Bars
+-   Notes from https://www.andrewheiss.com/blog/2019/01/29/diff-means-half-dozen-ways/
+-   [{dabestr}]{style="color: #990000"} for visualization
+-   Visualization for differences ([Thread](https://fediscience.org/@andrew/110351837749015538))\
+    ![](./_resources/Post-Hoc_Analysis,_General.resources/9cd26fe67d0220f5.png){width="432"}
 
+## EDA {#sec-phoc-gen-eda .unnumbered}
 
+### Misc {#sec-phoc-gen-eda-misc .unnumbered}
 
+-   In code examples, movies_clean is the data; rating is the numeric; and genre (action vs comedy) is the group variable
 
+### Charts {#sec-phoc-gen-eda-charts .unnumbered}
 
+-   Box, Histogram, Density for two groups (factor(genre))
 
+    ``` r
+    pacman::p_load(ggplot2movies,ggplot2, ggridges, patchwork)
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
+    # Make a custom theme
+    # I'm using Asap Condensed; download from 
+    # https://fonts.google.com/specimen/Asap+Condensed
+    theme_fancy <- function() {
+      theme_minimal(base_family = "Asap Condensed") +
+        theme(panel.grid.minor = element_blank())
+    }
+    eda_boxplot <- ggplot(movies_clean, aes(x = genre, y = rating, fill = genre)) +
+      geom_boxplot() +
+      scale_fill_manual(values = c("#0288b7", "#a90010"), guide = FALSE) + 
+      scale_y_continuous(breaks = seq(1, 10, 1)) +
+      labs(x = NULL, y = "Rating") +
+      theme_fancy()
+    eda_histogram <- ggplot(movies_clean, aes(x = rating, fill = genre)) +
+      geom_histogram(binwidth = 1, color = "white") +
+      scale_fill_manual(values = c("#0288b7", "#a90010"), guide = FALSE) + 
+      scale_x_continuous(breaks = seq(1, 10, 1)) +
+      labs(y = "Count", x = "Rating") +
+      facet_wrap(~ genre, nrow = 2) +
+      theme_fancy() +
+      theme(panel.grid.major.x = element_blank())
+    eda_ridges <- ggplot(movies_clean, aes(x = rating, y = fct_rev(genre), fill = genre)) +
+      stat_density_ridges(quantile_lines = TRUE, quantiles = 2, scale = 3, color = "white") + 
+      scale_fill_manual(values = c("#0288b7", "#a90010"), guide = FALSE) + 
+      scale_x_continuous(breaks = seq(0, 10, 2)) +
+      labs(x = "Rating", y = NULL,
+          subtitle = "White line shows median rating") +
+      theme_fancy()
+    (eda_boxplot | eda_histogram) / 
+        eda_ridges + 
+      plot_annotation(title = "Do comedies get higher ratings than action movies?",
+                      subtitle = "Sample of 400 movies from IMDB",
+                      theme = theme(text = element_text(family = "Asap Condensed"),
+                                    plot.title = element_text(face = "bold",
+                                                              size = rel(1.5))))
+    ```
+
+### Test for Equal Variances {#sec-phoc-gen-eda-tfev .unnumbered}
+
+-   Misc
+
+    -   "Glass and Hopkins (1996 p. 436) state that the Levene and B-F tests are"fatally flawed"; It isn't clear how robust they are when there is significant differences in variances and unequal sample sizes. "
+
+-   **Bartlett test**: Check homogeneity of variances based on the mean
+
+    ``` r
+    bartlett.test(rating ~ genre, data = movies_clean)
+    ```
+
+-   Levene test: Check homogeneity of variances based on the median, so it's more robust to outliers
+
+    ``` r
+    car::leveneTest(rating ~ genre, data = movies_clean)
+    ```
+
+    -   Also [{]{style="color: #990000"}[DescTools](https://andrisignorell.github.io/DescTools/){style="color: #990000"}[}]{style="color: #990000"}
+
+    -   Other tests are better
+
+-   **Fligner-Killeen test**: Check homogeneity of variances based on the median, so it's more robust to outliers
+
+    ``` r
+    fligner.test(rating ~ genre, data = movies_clean)
+    ```
+
+-   **Brown-Forsythe (B-F) Test** ([link](https://www.statisticshowto.com/brown-forsythe-test/))
+
+    -   Attempts to correct for the skewness of the Levene Test transformation by using deviations from group medians.
+        -   Less likely than the Levene test to incorrectly declare that the assumption of equal variances has been violated.
+    -   Thought to perform as well as or better than other available tests for equal variances
+
+    ``` r
+    onewaytests::bf.test(weight_loss ~ program, data = data)
+    ```
+
+    -   p-value \< 0.05 means the difference in variances is statistically significant
+
+## Frequentist Difference-in-Means {#sec-phoc-gen-fdim .unnumbered}
+
+### T-test {#sec-phoc-gen-fdim-ttest .unnumbered}
+
+-   Test whether the difference between means is statistically different from 0
+
+-   Default is for non-equal variances
+
+    ``` r
+    t_test_eq <- t.test(rating ~ genre, data = movies_clean, var.equal = TRUE)
+    t_test_eq_tidy <- tidy(t_test_eq) %>%
+      # Calculate difference in means, since t.test() doesn't actually do that
+      mutate(estimate_difference = estimate1 - estimate2) %>%
+      # Rearrange columns
+      select(starts_with("estimate"), everything())
+    ```
+
+-   For unequal variances, **Welch's T-Test**:
+
+    -   `var.equal = FALSE`
+    -   Recommended for large datasets
+
+### Hotelling's T^2^ {#sec-phoc-gen-fdim-htel .unnumbered}
+
+-   Multivariate generalization of Welch's T-Test
+-   [{]{style="color: #990000"}[DescTools::HotellingsT2Test](https://andrisignorell.github.io/DescTools/reference/HotellingsT.html){style="color: #990000"}[}]{style="color: #990000"}
+-   [{ICSNP}]{style="color: #990000"}
+
+### Non-Parametric Difference-in-Means Tests {#sec-phoc-gen-fdim-npara .unnumbered}
+
+-   **Wilcoxon Rank Sum and Signed Rank**: `wilcox.test`
+    -   1 or 2 variables/"samples"
+    -   2 variable aka "Mann-Whitney"
+    -   `coin::wilcox_test`
+        -   for exact, asymptotic and Monte Carlo conditional p-values, including in the presence of ties
+-   **Kruskal-Wallis**: `kruskal.test(rating ~ genre, data = movies_clean)`
+    -   More than 2 variables/"samples"
+
+### Kolomogorov-Smirnov {#sec-phoc-gen-fdim-ks .unnumbered}
+
+-   `ks.test`
+-   Calculates the difference in cdf of each sample
+-   2 variables/"samples"
+-   For mixed or discrete, see [{KSgeneral}]{style="color: #990000"}
+
+### Post-ANOVA tests {#sec-phoc-gen-fdim-panov .unnumbered}
+
+-   Assume approximately Normal distributions
+-   For links to more details about each test, https://www.statisticshowto.com/probability-and-statistics/statistics-definitions/post-hoc/
+-   **Duncan's new multiple range test (MRT)**
+    -   When you run Analysis of Variance (ANOVA), the results will tell you if there is a difference in means. However, it won't pinpoint the pairs of means that are different. Duncan's Multiple Range Test will identify the pairs of means (from at least three) that differ. The MRT is similar to the LSD, but instead of a t-value, a Q Value is used.
+-   **Fisher's Least Significant Difference (LSD)**
+    -   A tool to identify which pairs of means are statistically different. Essentially the same as Duncan's MRT, but with t-values instead of Q values.
+-   **Newman-Keuls**
+    -   Like Tukey's, this post-hoc test identifies sample means that are different from each other. Newman-Keuls uses different critical values for comparing pairs of means. Therefore, it is more likely to find significant differences.
+-   **Rodger's Method**
+    -   Considered by some to be the most powerful post-hoc test for detecting differences among groups. This test protects against loss of statistical power as the degrees of freedom increase.
+-   **Scheffé's Method**
+    -   Used when you want to look at post-hoc comparisons in general (as opposed to just pairwise comparisons). Scheffe's controls for the overall confidence level. It is customarily used with unequal sample sizes.
+-   **Tukey's Test**
+    -   The purpose of Tukey's test is to figure out which groups in your sample differ. It uses the "Honest Significant Difference," a number that represents the distance between groups, to compare every mean with every other mean. (see [ANOVA note](ANOVA%20note))
+-   **Dunnett's Correction**
+    -   Like Tukey's this post-hoc test is used to compare means. Unlike Tukey's, it compares every mean to a control mean.
+    -   {DescTools::DunnettTest} (see [ANOVA note](ANOVA%20note))
+-   **Benjamin-Hochberg (BH) Procedure**
+    -   If you perform a very large amount of tests, one or more of the tests will have a significant result purely by chance alone. This post-hoc test accounts for that false discovery rate.
+
+### Bootstrap {#sec-phoc-gen-fdim-boot .unnumbered}
+
+-   Also see [Statistical Concepts](Statistical%20Concepts) \>\> Bootstrapping
+
+-   Steps
+
+    1.  Calculate a sample statistic, or δ: This is the main measure you care about: the difference in means, the average, the median, the proportion, the difference in proportions, the chi-squared value, etc.
+    2.  Use simulation to invent a world where δ is null: Simulate what the world would look like if there was no difference between two groups, or if there was no difference in proportions, or where the average value is a specific number.
+    3.  Look at δ in the null world: Put the sample statistic in the null world and see if it fits well.
+    4.  Calculate the probability that δ could exist in null world: This is the p-value, or the probability that you'd see a δ at least that high in a world where there's no difference.
+    5.  Decide if δ is statistically significant: Choose some evidentiary standard or threshold (like 0.05) for deciding if there's sufficient proof for rejecting the null world.
+
+-   [Standard Method]{.underline}
+
+    ``` r
+    library(infer)
+
+    # Calculate the difference in means
+    diff_means <- movies_clean %>% 
+      specify(rating ~ genre) %>%
+      # Order here means we subtract comedy from action (Action - Comedy)
+      calculate("diff in means", order = c("Action", "Comedy"))
+
+    boot_means <- movies_clean %>% 
+      specify(rating ~ genre) %>% 
+      generate(reps = 1000, type = "bootstrap") %>% 
+      calculate("diff in means", order = c("Action", "Comedy"))
+
+    boostrapped_confint <- boot_means %>% get_confidence_interval()
+
+    boot_means %>% 
+      visualize() + 
+      shade_confidence_interval(boostrapped_confint,
+                                color = "#8bc5ed", fill = "#85d9d2") +
+      geom_vline(xintercept = diff_means$stat, size = 1, color = "#77002c") +
+      labs(title = "Bootstrapped distribution of differences in means",
+          x = "Action − Comedy", y = "Count",
+          subtitle = "Red line shows observed difference; shaded area shows 95% confidence interval") +
+      theme_fancy()
+    ```
+
+-   [Downey's Process]{.underline}: Generate a world where there's no difference by shuffling all the action/comedy labels through permutation
+
+    ``` r
+    # Step 1: δ = diff_means (see above)
+
+    # Step 2: Invent a world where δ is null
+    genre_diffs_null <- movies_clean %>% 
+      specify(rating ~ genre) %>% 
+      hypothesize(null = "independence") %>% 
+      generate(reps = 5000, type = "permute") %>% 
+      calculate("diff in means", order = c("Action", "Comedy"))
+
+    # Step 3: Put actual observed δ in the null world and see if it fits
+    genre_diffs_null %>% 
+      visualize() + 
+      geom_vline(xintercept = diff_means$stat, size = 1, color = "#77002c") +
+      scale_y_continuous(labels = comma) +
+      labs(x = "Simulated difference in average ratings (Action − Comedy)", y = "Count",
+          title = "Simulation-based null distribution of differences in means",
+          subtitle = "Red line shows observed difference") +
+      theme_fancy()
+    ```
+
+    -   If line is outside null distribution, then the difference value doesn't fit in a world where the null hypothesis is the truth
+
+-   Generate a p-value
+
+    ``` r
+    # Step 4: Calculate probability that observed δ could exist in null world
+    genre_diffs_null %>% 
+      get_p_value(obs_stat = diff_means, direction = "both") %>% 
+      mutate(p_value_clean = pvalue(p_value))
+    ```
+
+## Bayesian Difference-in-Means {#sec-phoc-gen-bdim .unnumbered}
+
+### Misc {#sec-phoc-gen-bdim-misc .unnumbered}
+
+-   Notes from
+    -   [Half a dozen frequentist and Bayesian ways to measure the difference in means in two groups \| Andrew Heiss](https://www.andrewheiss.com/blog/2019/01/29/diff-means-half-dozen-ways/)
+-   Frequentist null hypothesis significance testing (NHST) determines the *probability of the data given a null hypothesis* (i.e. $P(data|H)$, yielding results that are often unwieldy, phrased as the probability of rejecting the null if it is true (hence all that talk of "null worlds"). In contrast, Bayesian analysis determines the *probability of a hypothesis given the data* (i.e.P(H\|data)), resulting in probabilities that are directly interpretable.
+
+### Regression (Equal Variances) {#sec-phoc-gen-bdim-regev .unnumbered}
+
+-   With {brms}
+
+    ``` r
+    brms_eq <- brm(
+      # bf() is an alias for brmsformula() and lets you specify model formulas
+      bf(rating ~ genre), 
+      # Reverse the levels of genre so that comedy is the base case
+      data = mutate(movies_clean, genre = fct_rev(genre)),
+      prior = c(set_prior("normal(0, 5)", class = "Intercept"),
+                set_prior("normal(0, 1)", class = "b")),
+      chains = 4, iter = 2000, warmup = 1000, seed = 1234,
+      file = "cache/brms_eq"
+    )
+    # median of posterior and CIs
+    brms_eq_tidy <- 
+      broom::tidyMCMC(brms_eq, conf.int = TRUE, conf.level = 0.95, 
+              estimate.method = "median", conf.method = "HPDinterval")
+    ```
+
+    -   family = gaussian (default)
+    -   b_intercept: mean comedy score while the
+    -   b_genreAction: difference from mean comedy score (i.e. difference in means)
+        -   sSays "We're 95% confident that the true population-level difference in rating is between -0.968 and -0.374, with a median of -0.666."
+
+### Regression (unequal variances) {#sec-phoc-gen-bdim-reguv .unnumbered}
+
+-   With {brms}
+
+    ``` r
+    brms_uneq <- brm(
+      bf(rating ~ genre, sigma ~ genre), 
+      data = mutate(movies_clean, genre = fct_rev(genre)),
+      prior = c(set_prior("normal(0, 5)", class = "Intercept"),
+                set_prior("normal(0, 1)", class = "b"),
+                # models the variance for each group (e.g. comedy and action)
+                set_prior("cauchy(0, 1)", class = "b", dpar = "sigma")),
+      chains = CHAINS, iter = ITER, warmup = WARMUP, seed = BAYES_SEED,
+      file = "cache/brms_uneq"
+    )
+
+    # median of posterior and CIs
+    brms_uneq_tidy <- 
+      tidyMCMC(brms_uneq, conf.int = TRUE, conf.level = 0.95, 
+              estimate.method = "median", conf.method = "HPDinterval") %>% 
+      # sigma terms on log-scale so exponentiate them to get them back to original scale
+      mutate_at(vars(estimate, std.error, conf.low, conf.high),
+                funs(ifelse(str_detect(term, "sigma"), exp(.), .)))
+    ```
+
+    -   Interpretation for intercept and main effect estimates same as before
+    -   b_sigma_intercept and b_sigma_genreAction are the std.devs for those posteriors
+
+### Bayesian Estimation Supersedes the T-test (BEST) {#sec-phoc-gen-bdim-best .unnumbered}
+
+-   Unequal Variances, student-t distribution
+
+-   Same as before but with a coefficient for ν, the degrees of freedom, for the student-t distribution.
+
+-   Models each group distribution (by removing intercept w/ 0 + formula notation), then calculates difference in means by hand
+
+    ``` r
+    brms_uneq_robust_groups <- brm(
+      bf(rating ~ 0 + genre,
+        sigma ~ 0 + genre), 
+      family = student,
+      data = mutate(movies_clean, genre = fct_rev(genre)),
+      prior = c(
+        # Set group mean prior
+        set_prior("normal(6, 2)", class = "b", lb = 1, ub = 10),
+        # Ser group variance priors. We keep the less informative cauchy(0, 1).
+        set_prior("cauchy(0, 1)", class = "b", dpar = "sigma"),
+        set_prior("exponential(1.0/29)", class = "nu")),
+      chains = CHAINS, iter = ITER, warmup = WARMUP, seed = BAYES_SEED,
+      file = "cache/brms_uneq_robust_groups"
+    )
+
+    brms_uneq_robust_groups_tidy <- 
+      tidyMCMC(brms_uneq_robust_groups, conf.int = TRUE, conf.level = 0.95, 
+              estimate.method = "median", conf.method = "HPDinterval") %>% 
+      # Rescale sigmas
+      mutate_at(vars(estimate, std.error, conf.low, conf.high),
+                funs(ifelse(str_detect(term, "sigma"), exp(.), .))
+
+    brms_uneq_robust_groups_post <- posterior_samples(brms_uneq_robust_groups) %>% 
+      # We can exponentiate here!
+      mutate_at(vars(contains("sigma")), funs(exp)) %>% 
+      # For whatever reason, we need to log nu?
+      mutate(nu = log10(nu)) %>% 
+      mutate(diff_means = b_genreAction - b_genreComedy,
+            diff_sigma = b_sigma_genreAction - b_sigma_genreComedy) %>% 
+      # Calculate effect sizes, just for fun
+      mutate(cohen_d = diff_means / sqrt((b_sigma_genreAction + b_sigma_genreComedy)/2),
+            cles = dnorm(diff_means / sqrt((b_sigma_genreAction + b_sigma_genreComedy)), 0, 1))
+
+    brms_uneq_robust_groups_tidy_fixed <- 
+      tidyMCMC(brms_uneq_robust_groups_post, conf.int = TRUE, conf.level = 0.95, 
+              estimate.method = "median", conf.method = "HPDinterval")
+    ## # A tibble: 9 x 5
+    ##  term                estimate std.error conf.low conf.high
+    ##  <chr>                  <dbl>    <dbl>    <dbl>    <dbl>
+    ## 1 b_genreComedy        5.99      0.109    5.77      6.19 
+    ## 2 b_genreAction        5.30      0.107    5.09      5.50 
+    ## 3 b_sigma_genreComedy  1.47      0.0882    1.30      1.64 
+    ## 4 b_sigma_genreAction  1.47      0.0826    1.31      1.62 
+    ## 5 nu                  1.48      0.287    0.963    2.04 
+    ## 6 diff_means          -0.690      0.151    -1.01    -0.415
+    ## 7 diff_sigma          0.00100    0.111    -0.212    0.217
+    ## 8 cohen_d            -0.571      0.126    -0.818    -0.327
+    ## 9 cles                0.368      0.0132    0.341    0.391
+    ```
+
+-   [Cohen's d]{.underline}:  standardized difference in means (Also see [Post-Hoc Analysis, Mixed Effects \>\> Cohen's D](post-hoc-analysis-mixed-effects#sec-phoc-mixeff-cohensd){style="color: green"})\
+    ![](./_resources/Post-Hoc_Analysis,_General.resources/image.png)
+
+    -   Medium effect size in the example above
+    -   The denominator in this calculation is the square root of the average std.dev, but it doesn't look like any of the ones used in the wiki [article](https://en.wikipedia.org/wiki/Effect_size#Cohen's_d)
+        -   Looks closer to the Strictly Standardized Mean Difference (SSMD) ([wiki](https://en.wikipedia.org/wiki/Strictly_standardized_mean_difference))
+
+-   [Common language effect size (CLES)]{.underline}: Probability that a rating sampled at random from one group will be greater than a rating sampled from the other group.
+
+    -   36.8% chance that we could randomly select an action rating from the comedy distribution
+
+## Dichotomous Data {#sec-phoc-gen-dd .unnumbered}
+
+### Mean (probability-of-event) + CI Estimation {#sec-phoc-gen-dd-poe .unnumbered}
+
+-   [Large Population]{.underline}
+
+    $$
+    \hat p \pm z_{\alpha/2} \sqrt {\frac{\hat p(1-\hat p)}{n}}
+    $$
+
+    ``` r
+    binom::binom.asymp(x=x, n=n, conf.level=0.95)
+    ##      method  x  n      mean      lower    upper
+    ## 1 asymptotic 52 420 0.1238095 0.09231031 0.1553087
+    ```
+
+-   [Small/Finite Population]{.underline}
+
+    $$
+    \hat p \pm z_{\alpha/2} \sqrt {\frac{\hat p(1-\hat p)}{n} \cdot \frac{N-n}{N-1}}
+    $$
+
+    ``` r
+    see ?binom::binom.confint for options on methods
+    ```
+
+-   [Bayesian]{.underline}
+
+    ``` r
+    # Mean proportion estimated with prior that mean lies between 0.05 and 0.15
+
+    ##Function to determine beta parameters s.t. the 2.5% and 97.5% quantile match the specified values
+    target <- function(theta, prior_interval, alpha=0.05) {
+      sum( (qbeta(c(alpha/2, 1-alpha/2), theta[1], theta[2]) - prior_interval)^2)
+    }
+    ## Find the prior parameters
+    prior_params <- optim(c(10,10),target, prior_interval=c(0.05, 0.15))$par
+    ## [1]  12.04737 116.06022
+    # not really sure how this works. Guessing theta1,2 is c(10,10) but then there doesn't seem to be an unknown to optimize for.
+
+    ## Compute credibile interval from a beta-binomial conjugate prior-posterior approach
+    binom::binom.bayes(x=x, n=n, type="central", prior.shape1=prior_params[1], prior.shape2=prior_params[2])
+    ##  method  x  n  shape1  shape2      mean      lower    upper  sig
+    ## 1  bayes 52 420 64.04737 484.0602 0.1168518 0.09134069 0.1450096 0.05
+
+    ##Plot of the beta-posterior
+    p <- binom::binom.bayes.densityplot(ci_bayes)
+    ##Add plot of the beta-prior
+    df <- data.frame(x=seq(0,1,length=1000)) %>% mutate(pdf=dbeta(x, prior_params[1], prior_params[2]))
+    p + geom_line(data=df, aes(x=x, y=pdf), col="darkgray",lty=2) +
+      coord_cartesian(xlim=c(0,0.25)) + scale_x_continuous(labels=scales::percent)
+
+    # Estimated with a flat prior (essentially equivalent to the frequentist approach)
+    binom::binom.bayes(x=x, n=n, type="central", prior.shape1=1, prior.shape2=1))
+    ##  method  x  n shape1 shape2      mean      lower    upper  sig
+    ## 1  bayes 52 420    53    369 0.1255924 0.09574062 0.158803 0.05
+    ```
+
+    -   From <https://staff.math.su.se/hoehle/blog/2017/06/22/interpretcis.html>
+    -   Interpretation
+        -   Technical: "95% equi-tailed credible interval resulting from a beta-binomial conjugate Bayesian approach obtained when using a prior beta with parameters such that the similar 95% equi-tailed prior credible interval has limits 0.05 and 0.15. Given these assumptions the interval 9.1%- 14.5% contains 95% of your subjective posterior density for the parameter."
+        -   Nontechnical: the true value is in that interval with 95% probability or just this 95% Bayesian confidence interval is 9.1%- 14.5%.
+
+### Paired data tests {#sec-phoc-gen-dd-pdt .unnumbered}
+
+-   Also see Exact Tests on pg 30 in Discrete Analysis notebook
+
+-   [McNemar's test]{.underline}
+
+    -   Mainly useful when the measurements are on the nominal or ordinal scale
+    -   Tests for significant difference in frequencies of paired samples when it has **binary responses**
+        -   H0: There is no significant change in individuals after the treatment
+        -   H1: There is a significant change in individuals after the treatment
+
+    ``` r
+    # data is unaggregated (i.e. paired measurements from individuals)
+    test <- mcnemar.test(table(data$pretreatment, data$posttreatment))
+    #> McNemar's Chi-squared test with continuity correction
+    #> data:  table(data$before, data$after)
+    #>  McNemar's chi-squared = 0.5625, df = 1, p-value = 0.4533
+    ```
+
+    -   correct = TRUE (default) - Continuity  correction (increases "usefulness and accuracy of the test" so probably better to leave it as TRUE)
+    -   x & y are factor vectors
+    -   x can be a matrix of aggregated counts
+        -   If the 1st row, 2nd cell or 2nd row, 1st cell have counts \< 50, then use the Exact Tests to get accurate p-values (For details see above for page in notebook)
+    -   Interpretation: p-value is 0.45, above the 5% significance level and therefore the null hypothesis cannot be rejected
+
+## Categorical Data {#sec-phoc-gen-catdat .unnumbered}
+
+-   Difference in Proportions
+    -   Example: 3 level Categorical Variable
+        -   Data and Model\
+            ![](./_resources/Post-Hoc_Analysis,_General.resources/image.1.png){width="432"}
+        -   Calculate Differences\
+            ![](./_resources/Post-Hoc_Analysis,_General.resources/image.2.png){width="432"}
+        -   Visualize (Code in previous chunk)\
+            ![](./_resources/Post-Hoc_Analysis,_General.resources/image.3.png){width="432"}
