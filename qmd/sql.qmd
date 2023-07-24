@@ -39,6 +39,9 @@
         -   Overall median price
         -   Median price for each product
         -   Overall median price and quantity
+    -   Processing Expressions
+        -   Provide subtotals for a hierarchical group of fields (e.g. family, category, subcategory)
+            -   See NULLs \>\> COALESCE
 
 -   Order of Operations\
     ![](./_resources/SQL.resources/1-MCyFDF35OZ3n0dyZqX6_Tw.png){width="370"}
@@ -1435,6 +1438,8 @@
 
 -   Concatenate
 
+    -   Also see [Processing Expressions \>\> NULLs](sql.qmd#sec-sql-procexp-nulls){style="color: green"}
+
     -   "\|\|"
 
         ``` sql
@@ -2245,18 +2250,6 @@
 
 ## Processing Expressions {#sec-sql-procexp .unnumbered}
 
--   [Division and NULLS]{.underline}
-
-    -   Any division with NULL values with have a result of NULL.
-
-    -   `isNull` allows to get a different resulting value
-
-        ``` sql
-        SELECT IsNull(<column>, 0) / 45
-        ```
-
-        -   All NULL values in the column will replaced with 0s during the division operation.
-
 -   [Use multiple conditions in a WHERE expression]{.underline}
 
     ``` sql
@@ -2380,7 +2373,101 @@
 
     -   Depending on your use-case you can also use different aggregation such as SUM, AVG, MAX, MIN with CASE statement.
 
-### Duplicated Rows
+### NULLs {#sec-sql-procexp-nulls .unnumbered}
+
+-   Division and NULLS
+
+    -   Any division with NULL values with have a result of NULL.
+
+    -   `isNull` allows to get a different resulting value
+
+        ``` sql
+        SELECT IsNull(<column>, 0) / 45
+        ```
+
+        -   All NULL values in the column will replaced with 0s during the division operation.
+
+-   `COALESCE`
+
+    -   Substitute a default value in place of NULLs
+
+        ``` sql
+        SELECT COALESCE(column_name, 'Default Value') AS processed_column
+        FROM table_name;
+
+        SELECT COALESCE(order_date, current_date) AS processed_date
+        FROM orders;
+
+        SELECT
+          product ||' - '||
+          COALESCE(subcategory, category, family, 'no product description ')
+            AS product_and_subcategory
+        FROM stock
+        ```
+
+        -   3rd Expression: If there is a NULL in subcategory, then it looks in category, then into family, and finally if all those fields have NULLs, it uses "no product description" as the value.
+
+    -   Concantenating Strings where NULLs are present
+
+        ``` sql
+        SELECT COALESCE(first_name, '') || ' ' || COALESCE(last_name, '') AS full_name
+        FROM employees;
+        ```
+
+        -   NULLs are replaced with an empty string so transformation doesn't break
+
+    -   Performing calculations involving numeric columns where there are NULLs
+
+        ``` sql
+        SELECT COALESCE(quantity, 0) * COALESCE(unit_price, 0) AS total_cost
+        FROM products;
+
+        SELECT product,
+          quantity_available,
+          minimum_to_have,
+          COALESCE(minimum_to_have, quantity_available * 0.5) AS threshold
+        FROM stock
+        ```
+
+        -   NULLs are substituted with 0s so the calcuation doesn't break
+
+    -   As part of a join in case keys have missing values
+
+        ``` sql
+        SELECT *
+        FROM employees e
+        LEFT JOIN departments d ON COALESCE(e.department_id, 0) = COALESCE(d.id, 0);
+        ```
+
+    -   With Aggregate Functions
+
+        ``` sql
+        SELECT department_id, COALESCE(SUM(salary), 0) AS total_salary
+        FROM employees
+        GROUP BY department_id;
+        ```
+
+    -   Make hierarchical subtotals output more readable
+
+        ![](_resources/SQL.resources/coalesce-rollup.png){width="432"}
+
+        ``` sql
+        SELECT COALESCE(family,'All Families') AS family,
+         COALESCE(category,'All Categories') AS category,
+         COALESCE(subcategory,'All Subcategories') AS subcategory,
+         SUM(quantity_available) as quantity_in_stock
+        FROM stock
+        GROUP BY ROLLUP(family, category, subcategory)
+        ORDER BY family, category, subcategory
+        ```
+
+        -   `ROLLUP` clause assumes a hierarchy among the columns `family`, `category`, and `subcategory`. Thus, it generates all the grouping sets that make sense considering the hierarchy: `GROUP BY family`, `GROUP BY family, category` and `GROUP BY family, category, subcategory`.
+
+            -   This is the reason why `ROLLUP` is often used to generate subtotals and grand totals for reports.
+
+        -   Without `COALESCE` , the text in the unused columns for the subtotals would be NULLs.
+
+### Duplicated Rows {#sec-sql-procexp-dups .unnumbered}
 
 -   Remove duplicated rows with window function
 
@@ -2444,7 +2531,7 @@
         -   [FARM_FINGERPRINT](https://cloud.google.com/bigquery/docs/reference/standard-sql/hash_functions#farm_fingerprint) - returns a signed integer of variable length
         -   [SHA1](https://cloud.google.com/bigquery/docs/reference/standard-sql/hash_functions#sha1), [SHA256](https://cloud.google.com/bigquery/docs/reference/standard-sql/hash_functions#sha256) and [SHA512](https://cloud.google.com/bigquery/docs/reference/standard-sql/hash_functions#sha512), which return 20, 32 and 64 bytes respectively and are more secure for cryptographic use cases.
 
-### Nested Data
+### Nested Data {#sec-sql-procexp-nest .unnumbered}
 
 -   Recursive CTE
     -   Recursive CTEs are used primarily when you want to query hierarchical data or graphs. This could be a company's organizational structure, a family tree, a restaurant menu, or various routes between cities
@@ -2500,7 +2587,7 @@
             -   "path \|\| categories.id" in the second statement
                 -   "\|\|" concatenates "path" and "id" columns (See Strings)
 
-### Binning
+### Binning {#sec-sql-procexp-bin .unnumbered}
 
 -   `CASE WHEN`
 
@@ -2545,9 +2632,9 @@
 
     ``` sql
     CREATE OR REPLACE TABLE bins (
-    	Lower_Bound INT64,
-    	Upper_Bound INT64,
-    	Grade_Bucket STRING
+        Lower_Bound INT64,
+        Upper_Bound INT64,
+        Grade_Bucket STRING
     );
 
     INSERT bins (Lower_Bound, Upper_Bound, Grade_Bucket)
@@ -2574,7 +2661,7 @@
 
     -   "bins" table acts a template that funnels the values from your table into the correct bins
 
-### Time Series
+### Time Series {#sec-sql-procexp-ts .unnumbered}
 
 -   [Extract components from date-time columns]{.underline}
 
