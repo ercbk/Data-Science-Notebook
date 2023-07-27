@@ -1,18 +1,116 @@
 # JSON {#sec-json .unnumbered}
 
-## Misc  {#sec-json-misc .unnumbered}
+## Misc {#sec-json-misc .unnumbered}
 
 -   Also see
 
     -   [Big Data \>\> Larger than Memory](big-data.qmd#sec-bgdat-lgmem){style="color: green"}
-
     -   [SQL \>\> Processing Expressions](sql.qmd#sec-sql-procexp){style="color: green"} \>\> Nested Data
-    
-    -   [Databases >> DuckDB >> Misc](db-duckdb.qmd#sec-db-duckdb-misc){style="color: green"}
+    -   [Databases \>\> DuckDB \>\> Misc](db-duckdb.qmd#sec-db-duckdb-misc){style="color: green"}
         -   hrbmstr recommends trying duckdb before using the cli tools in "Big Data"
 
 ## [{jsonlite}]{style="color: #990000"} {#sec-json-jsonlite .unnumbered}
 
--   Read  
+-   Read\
     ![](./_resources/JSON.resources/image.1.png){width="501"}
 
+## Python {#sec-json-py .unnumbered}
+
+-   [Example]{.ribbon-highlight}: Parse Nested JSON into a dataframe ([article](https://pybit.es/articles/case-study-how-to-parse-nested-json/))
+    -   Raw JSON
+
+        ![](_resources/JSON.resources/py-raw-json-ex1.png){width="193"}
+
+        -   "entry" has the data we want
+        -   "..." at the end indicates there are multiple objectss inside the element, "entry"
+            -   Probably other root elements other than "feed" as well
+
+    -   Read a json file from a URL using [{{requests}}]{style="color: goldenrod"} and convert to list
+
+        ![](_resources/JSON.resources/py-list-json-ex1.png){width="632"}
+
+        ``` python
+        import requests
+
+        url = "https://itunes.apple.com/gb/rss/customerreviews/id=1500780518/sortBy=mostRecent/json"
+
+        r = requests.get(url)
+
+        data = r.json()
+        entries = data["feed"]["entry"]
+        ```
+
+        -   It looks like the list conversion also ordered the elements alphabetically
+        -   The output list is subsetted by the root element "feed" and the child element "entry"
+
+    -   Get a feel for the final structure you want by hardcoding elements into a df
+
+        ``` python
+        parsed_data = defaultdict(list)
+
+        for entry in entries:
+            parsed_data["author_uri"].append(entry["author"]["uri"]["label"])
+            parsed_data["author_name"].append(entry["author"]["name"]["label"])
+            parsed_data["author_label"].append(entry["author"]["label"])
+            parsed_data["content_label"].append(entry["content"]["label"])
+            parsed_data["content_attributes_type"].append(entry["content"]["attributes"]["type"])
+            ... 
+        ```
+
+    -   Generalize extracting the properties of each object in "entry" with a nested loop
+
+        ``` python
+        parsed_data = defaultdict(list)
+
+        for entry in entries:
+            for key, val in entry.items():
+                for subkey, subval in val.items():
+                    if not isinstance(subval, dict):
+                        parsed_data[f"{key}_{subkey}"].append(subval)
+                    else:
+                        for att_key, att_val in subval.items():
+                            parsed_data[f"{key}_{subkey}_{att_key}"].append(att_val)
+        ```
+
+        -   `defaultdict` creates a *key* from a list element (e.g. "author") and groups the properties into a list of *values* where the value may also be a dict.
+            -   See [Python, General \>\> Types](python-general.qmd#sec-py-gen-dattyp){style="color: green"} \>\> Dictionaries
+        -   For each item in "entry", it looks at the first key-value pair knowing that value is always a dictionary (object in JSON)
+        -   Then handles two different cases
+            -   First Case: The value dictionary is flat and does not contain another dictionary, only key-value pairs.
+                -   Combine the outer key with the inner key to a column name and take the value as column value for each pair.
+            -   Second Case: Dictionary contains a key-value pair where the value is again a dictionary.
+                -   **Assumes at most two levels of nested dictionaries**
+                -   Iterates over the key-value pairs of the inner dictionary and again combines the outer key and the most inner key to a column name and take the inner value as column value.
+
+    -   Recursive function that handles json elements with deeper structures
+
+        ![](_resources/JSON.resources/py-df-json-ex1.png){width="425"}
+
+        ``` python
+        def recursive_parser(entry: dict, data_dict: dict, col_name: str = "") -> dict:
+            """Recursive parser for a list of nested JSON objects
+            
+            Args:
+                entry (dict): A dictionary representing a single entry (row) of the final data frame.
+                data_dict (dict): Accumulator holding the current parsed data.
+                col_name (str): Accumulator holding the current column name. Defaults to empty string.
+            """
+            for key, val in entry.items():
+                extended_col_name = f"{col_name}_{key}" if col_name else key
+                if isinstance(val, dict):
+                    recursive_parser(entry[key], data_dict, extended_col_name)
+                else:
+                    data_dict[extended_col_name].append(val)
+
+        parsed_data = defaultdict(list)
+
+        for entry in entries:
+            recursive_parser(entry, parsed_data, "")
+
+        df = pd.DataFrame(parsed_data)
+        ```
+
+        -   Notice the check for a deeper structure with `isinstance`. If there is one, then the function is called again.
+        -   Function outputs a dict which is coerced into dataframe
+        -   To get rid of "label" in column names: `df.columns = [col if not "label" in col else "_".join(col.split("_")[:-1]) for col in df.columns]`
+        -   `object` types can be cast into more efficient types: `df["im:rating"] = df["im:rating"].astype(int)`
