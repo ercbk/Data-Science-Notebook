@@ -1,29 +1,17 @@
 # Geospatial, General
 
-TOC
+## Misc
 
-* Misc
-* Terms
-* Optimization
-* Grid Systems
-* Features
-* Interactions
-* Interpolation
+-   QGIS - free and open source
+-   ArcGIS - expensive and industry-standard
+-   spatiotemporal data --- data *cubes* with spatial and regular temporal dimensions --- such as
+    -   e.g. gridded temperature values (raster time series) and vector data with temporal records at regular temporal instances (e.g. election results in states).
+        -   [{stars}]{style="color: #990000"} - regular intervals
+        -   [{sftime}]{style="color: #990000"} - irregular intervals
+-   Spatial Resampling
+    -   Creates cross-validation folds by k-means clustering coordinate variables
 
-
-
-Misc
-
-* QGIS - free and open source
-* ArcGIS - expensive and industry-standard
-* spatiotemporal data — data _cubes_ with spatial and regular temporal dimensions — such as
-	* e.g. gridded temperature values (raster time series) and vector data with temporal records at regular temporal instances (e.g. election results in states).
-		* [{stars}]{style='color: #990000'} - regular intervals
-		* [{sftime}]{style='color: #990000'} - irregular intervals
-* Spatial Resampling
-	* Creates cross-validation folds by k-means clustering coordinate variables
-
-```
+```         
 library(tidymodels)
 library(spatialsample)
 set.seed(123)
@@ -37,70 +25,70 @@ doParallel::registerDoParallel() 
 regular_rs <- fit_resamples(lsl_wf, bad_folds)
 ```
 
+## Terms
 
-Terms
+-   **Census Block Groups** - \~600--3,000 population; the smallest geography reported; [Wiki](https://en.wikipedia.org/wiki/Census_block_group)
+-   **Census Tract** - \~4,000 average population; [Docs](https://www2.census.gov/geo/pdfs/education/CensusTracts.pdf)
+    -   Also see [Survey, Census Data](Survey,%20Census%20Data) \>\> Geographies
+-   **Graticules** - a network of lines on a map that delineate the geographic coordinates (degrees of latitude and longitude.)
+    -   Use of graticules is not advised, unless the graphical output will be used for measurement or navigation, or the direction of North is important for the interpretation of the content, or the content is intended to display distortions and artifacts created by projection. Unnecessary use of graticules only adds visual clutter but little relevant information. Use of coastlines, administrative boundaries or place names permits most viewers of the output to orient themselves better than a graticule
+    -   {sf::st_graticule}
+-   **VRT** - File format that allows a virtual GDAL dataset to be composed from other GDAL datasets with repositioning, and algorithms potentially applied as well as various kinds of metadata altered or added. VRT descriptions of datasets can be saved in an XML format normally given the extension .vrt.
+    -   Basically a metadata XML file describing various properties of the actual raster file, like pixel dimensions, geolocation, etc..
 
-* **Census Block Groups** - ~600–3,000 population; the smallest geography reported; [Wiki](https://en.wikipedia.org/wiki/Census_block_group)
-* **Census Tract** - ~4,000 average population; [Docs](https://www2.census.gov/geo/pdfs/education/CensusTracts.pdf)
-	* Also see [Survey, Census Data](Survey, Census Data) >> Geographies
-* **Graticules** - a network of lines on a map that delineate the geographic coordinates (degrees of latitude and longitude.)
-	* Use of graticules is not advised, unless the graphical output will be used for measurement or navigation, or the direction of North is important for the interpretation of the content, or the content is intended to display distortions and artifacts created by projection. Unnecessary use of graticules only adds visual clutter but little relevant information. Use of coastlines, administrative boundaries or place names permits most viewers of the output to orient themselves better than a graticule
-	* {sf::st\_graticule}
+## Optimization
 
-
-
-
-Optimization
-
-	Misc
-		
-		
-	Vector Tiles
-	* Misc
-		* Notes from [Push the limits of interactive mapping in R with vector tiles](https://www.milesmcbain.com/posts/vector-tiles/)
-			* McBain goes through a complete example with plenty of tips on simplification strategies and hosting mbtiles files
-		Issues (solution: Vector Tiles)
-			Limited number of features with DOM canvas
-				There’s a limit to how many features leaflet maps can handle, because at some point the DOM gets too full and your browser stops being able to parse it.
-				
-			Limited number of maps on same webpage
-				Once you start rendering spatial data on WebGL canvasses instead of the DOM you’ll find there is a low number of WebGL contexts that can co-exist on any one web page, typically limiting you to only around 8 maps.
-				
-			File sizes blow up to hundreds of MB
-				Trying to reuse WebGL maps by toggling on and off different layers of data for the user at opportune times. This is an improvement, but data for all those layers piles up, and your toolchain wants to embed this in your page as reams of base64 encoded text. Page file sizes are completely blowing out.
-				
-	* Use Cases
-		* Simplification of geometry is not desirable, e.g. because of alignment issues
-			* e.g. The zoomed-in road network has to align with the road network on the basemap, so that viewers can see features that lie along sections of road.
-		* Simplification of geometry doesn’t really help, you still have too many features
-		* Cumulatively your datasets are too large to handle.
-	* **Vector Tiles**  - contain arrays of annotated spatial coordinate data which is combined with a separately transmitted stylesheet to produce the tile image.
-		* i.e. The edges of the roads, the boundaries of buildings etc. Not an image, but the building blocks for one
-		* Different stylesheets can use the same vector data to produce radically different looking maps that either highlight or omit data with certain attributes
-		* Mapbox Vector Tiles (MVT) - [specification](https://docs.mapbox.com/data/tilesets/guides/vector-tiles-standards/); the de-facto standard for vector tile files
-			* stored as a Google protocol buffer - a tightly packed binary format.
-	* **MBTiles** - by Mapbox; describe a method of storing an entire MVT tileset inside a single file.
-		* Internally .mbtiles files are SQLlite databases containing two tables: _metadata_ and _tiles_.
-			* tiles table
-				* indexed by z,x,y
-				* contains a tile\_data column for the vector tile protocol buffers, which are compressed using gzip
-		* SQLite format and gzip compression help with efficient retrieval and transmission
-	* Using vector tiles we can have unlimited reference layers. Each one contributes nothing to the report file size since it is only streamed on demand when required.
-	* Workflow to convert data to .tbtiles
-		* In R, read source data as an sf, and wrangle
-			* Tippecanoe expects by epsg 4326 by default
-		* Write data out to geojson
-		* On the command line, convert geojson to .mbtiles using the tippecanoe command line utility.
-			* Tippecanoe sources
-				* Mapbox version - [repo](https://github.com/mapbox/tippecanoe)
-					* McBain says, he uses this version and hasn't had any problems
-					* README has helpful cookbook section
-				* Actively maintained community forked version - [repo](https://github.com/protomaps/tippecanoe)
-				* May be a headache to get dependencies if using Windows
-			* Alternatively it can output a folder structure full of protocol buffer files.
-		* Example
-
+```         
+Misc
+    
+    
+Vector Tiles
+* Misc
+    * Notes from [Push the limits of interactive mapping in R with vector tiles](https://www.milesmcbain.com/posts/vector-tiles/)
+        * McBain goes through a complete example with plenty of tips on simplification strategies and hosting mbtiles files
+    Issues (solution: Vector Tiles)
+        Limited number of features with DOM canvas
+            There’s a limit to how many features leaflet maps can handle, because at some point the DOM gets too full and your browser stops being able to parse it.
+            
+        Limited number of maps on same webpage
+            Once you start rendering spatial data on WebGL canvasses instead of the DOM you’ll find there is a low number of WebGL contexts that can co-exist on any one web page, typically limiting you to only around 8 maps.
+            
+        File sizes blow up to hundreds of MB
+            Trying to reuse WebGL maps by toggling on and off different layers of data for the user at opportune times. This is an improvement, but data for all those layers piles up, and your toolchain wants to embed this in your page as reams of base64 encoded text. Page file sizes are completely blowing out.
+            
+* Use Cases
+    * Simplification of geometry is not desirable, e.g. because of alignment issues
+        * e.g. The zoomed-in road network has to align with the road network on the basemap, so that viewers can see features that lie along sections of road.
+    * Simplification of geometry doesn’t really help, you still have too many features
+    * Cumulatively your datasets are too large to handle.
+* **Vector Tiles**  - contain arrays of annotated spatial coordinate data which is combined with a separately transmitted stylesheet to produce the tile image.
+    * i.e. The edges of the roads, the boundaries of buildings etc. Not an image, but the building blocks for one
+    * Different stylesheets can use the same vector data to produce radically different looking maps that either highlight or omit data with certain attributes
+    * Mapbox Vector Tiles (MVT) - [specification](https://docs.mapbox.com/data/tilesets/guides/vector-tiles-standards/); the de-facto standard for vector tile files
+        * stored as a Google protocol buffer - a tightly packed binary format.
+* **MBTiles** - by Mapbox; describe a method of storing an entire MVT tileset inside a single file.
+    * Internally .mbtiles files are SQLlite databases containing two tables: _metadata_ and _tiles_.
+        * tiles table
+            * indexed by z,x,y
+            * contains a tile\_data column for the vector tile protocol buffers, which are compressed using gzip
+    * SQLite format and gzip compression help with efficient retrieval and transmission
+* Using vector tiles we can have unlimited reference layers. Each one contributes nothing to the report file size since it is only streamed on demand when required.
+* Workflow to convert data to .tbtiles
+    * In R, read source data as an sf, and wrangle
+        * Tippecanoe expects by epsg 4326 by default
+    * Write data out to geojson
+    * On the command line, convert geojson to .mbtiles using the tippecanoe command line utility.
+        * Tippecanoe sources
+            * Mapbox version - [repo](https://github.com/mapbox/tippecanoe)
+                * McBain says, he uses this version and hasn't had any problems
+                * README has helpful cookbook section
+            * Actively maintained community forked version - [repo](https://github.com/protomaps/tippecanoe)
+            * May be a headache to get dependencies if using Windows
+        * Alternatively it can output a folder structure full of protocol buffer files.
+    * Example
 ```
+
+```         
 tippecanoe -zg \
           -o abs_mesh_blocks.mbtiles \
           --coalesce-densest-as-needed \
@@ -108,10 +96,10 @@ tippecanoe -zg \
           mb_shapes.geojson
 ```
 
-* Mapping
-	* Example
+-   Mapping
+    -   Example
 
-```
+```         
 library(mvtview)
 library(rdeck)
 
@@ -135,153 +123,116 @@ rdeck(
   )
 ```
 
-* See McBain article for options on hosting .mbtiles files
-* Regarding "abs\_mesh\_blocks": [{mvtview}]{style='color: #990000'} provides a way to fetch the metadata table from .mbtiles as json by querying a json file with the same name as the .mbitles file.
-* The structure of ‘tilejson’ is yet another specification created by Mapbox, and is supported in deck.gl (and therefore [{rdeck}]{style='color: #990000'}) to describe tile endpoints.
+-   See McBain article for options on hosting .mbtiles files
+-   Regarding "abs_mesh_blocks": [{mvtview}]{style="color: #990000"} provides a way to fetch the metadata table from .mbtiles as json by querying a json file with the same name as the .mbitles file.
+-   The structure of 'tilejson' is yet another specification created by Mapbox, and is supported in deck.gl (and therefore [{rdeck}]{style="color: #990000"}) to describe tile endpoints.
 
+## Grid Systems
 
-Grid Systems
+-   Misc
+    -   [Explainer](https://www.abc.net.au/news/2022-05-20/federal-election-map-lying/101076016#top): Why using hexbins to visualize Australian electoral map is better than a typical provincial map.
+        -   tl;dr: Geographical size distorts what the value is trying to measure. The value is the party that wins the parliamentary seat![](./_resources/Geospatial,_General.resources/Screenshot%20(1160).png)![](./_resources/Geospatial,_General.resources/Screenshot%20(1159).png)![](./_resources/Geospatial,_General.resources/Screenshot%20(1162).png)
+            -   The bar graph shows the values the map is trying to visualize geographically. The hexabins better represent the close race by removing the distorting element which is the geographical size of the provinces.
+            -   Each voting district (hexabin) is voting for 1 representative and has the same number of voters, but districts can have vastly different areas depending on population density.
+        -   Keep unit at constant size (like hexabins) but alter hex shape to keep state shape.![](./_resources/Geospatial,_General.resources/Screenshot%20(1176).png)
+            -   [A better U.S. house election results map?](https://observablehq.com/@karimdouieb/us-house-election-2022)
+            -   Results
+                -   state size depends on number of districts which depends on population and therefore correctly conveys voting results visually across the whole country
+                -   Districts get distorted but the states retain their shape and so distortion of the overall visualization is minimized
+-   Uber's H3 grid system -
+    -   Misc
+        -   packages: h3r, h3-r
+        -   [docs](https://eng.uber.com/h3/)
+        -   Add census data to H3 hexagons, calculate overlaps ([article](https://towardsdatascience.com/creating-consistent-spatial-calculations-with-ubers-h3-hexagons-1af032802a77))
+        -   For large areas, you can reduce the number of hexagons by merging some hexagons into larger hexagons.
+            -   Reduces storage size
+            -   Issue: leaves small gaps between hexagons
+                -   might not matter for your use case
+            -   Solution: use Microsoft's Quadkeys approach (see [article](https://towardsdatascience.com/geofencing-with-quadkeys-7c5b9866ff98))
+    -   Each hexagon has a series of smaller hexagons that sit (mostly) inside of another, which creates a hierarchy that can be used for consistent referencing and analysis, all the way down to lengths of 2 feet for the edges.
+    -   "Hexagons were an important choice because people in a city are often in motion, and hexagons minimize the quantization error introduced when users move through a city. Hexagons also allow us to approximate radiuses easily."
+    -   Re other shapes: "We could use postal code areas, but such areas have unusual shapes and sizes which are not helpful for analysis, and are subject to change for reasons entirely unrelated to what we would use them for. Zones could also be drawn by Uber operations teams based on their knowledge of the city, but such zones require frequent updating as cities change and often define the edges of areas arbitrarily"
+    -   Grid systems can have comparable shapes and sizes across the cities that Uber operates in and are not subject to arbitrary changes. While grid systems do not align to streets and neighborhoods in cities, they can be used to efficiently represent neighborhoods by clustering grid cells. Clustering can be done using objective functions, producing shapes much more useful for analysis. Determining membership of a cluster is as efficient as a set lookup operation.
+    -   16 Resolutions
+        -   0 - 15 (0 being coarsest and 15 being finest)
+        -   Each finer resolution has cells with one seventh the area of the coarser resolution. Hexagons cannot be perfectly subdivided into seven hexagons, so the finer cells are only approximately contained within a parent cell.
+        -   The identifiers for these child cells can be easily truncated to find their ancestor cell at a coarser resolution, enabling efficient indexing. Because the children cells are only approximately contained, the truncation process produces a fixed amount of shape distortion. This distortion is only present when performing truncation of a cell identifier; when indexing locations at a specific resolution, the cell boundaries are exact.
+        -   Want a resolution granular enough to introduce variability and wide enough to capture the effects of an area
+        -   Example of resolution 6 in Iowa![](./_resources/Geospatial,_General.resources/Screenshot%20(105).png)
 
-* Misc
-	* [Explainer](https://www.abc.net.au/news/2022-05-20/federal-election-map-lying/101076016#top): Why using hexbins to visualize Australian electoral map is better than a typical provincial map.
-		* tl;dr: Geographical size distorts what the value is trying to measure. The value is the party that wins the parliamentary seat![](./_resources/Geospatial,_General.resources/Screenshot (1160).png)![](./_resources/Geospatial,_General.resources/Screenshot (1159).png)![](./_resources/Geospatial,_General.resources/Screenshot (1162).png)
-			* The bar graph shows the values the map is trying to visualize geographically. The hexabins better represent the close race by removing the distorting element which is the geographical size of the provinces.
-			* Each voting district (hexabin) is voting for 1 representative and has the same number of voters, but districts can have vastly different areas depending on population density.
-		* Keep unit at constant size (like hexabins) but alter hex shape to keep state shape.![](./_resources/Geospatial,_General.resources/Screenshot (1176).png)
-			* [A better U.S. house election results map?](https://observablehq.com/@karimdouieb/us-house-election-2022)
-			* Results
-				* state size depends on number of districts which depends on population and therefore correctly conveys voting results visually across the whole country
-				* Districts get distorted but the states retain their shape and so distortion of the overall visualization is minimized
-* Uber's H3 grid system - 
-	* Misc
-		* packages: h3r, h3-r
-		* [docs](https://eng.uber.com/h3/)
-		* Add census data to H3 hexagons, calculate overlaps ([article](https://towardsdatascience.com/creating-consistent-spatial-calculations-with-ubers-h3-hexagons-1af032802a77))
-		* For large areas, you can reduce the number of hexagons by merging some hexagons into larger hexagons.
-			* Reduces storage size
-			* Issue: leaves small gaps between hexagons
-				* might not matter for your use case
-			* Solution: use Microsoft's Quadkeys approach (see [article](https://towardsdatascience.com/geofencing-with-quadkeys-7c5b9866ff98))
-	* Each hexagon has a series of smaller hexagons that sit (mostly) inside of another, which creates a hierarchy that can be used for consistent referencing and analysis, all the way down to lengths of 2 feet for the edges.
-	* "Hexagons were an important choice because people in a city are often in motion, and hexagons minimize the quantization error introduced when users move through a city. Hexagons also allow us to approximate radiuses easily."
-	* Re other shapes: "We could use postal code areas, but such areas have unusual shapes and sizes which are not helpful for analysis, and are subject to change for reasons entirely unrelated to what we would use them for. Zones could also be drawn by Uber operations teams based on their knowledge of the city, but such zones require frequent updating as cities change and often define the edges of areas arbitrarily"
-	* Grid systems can have comparable shapes and sizes across the cities that Uber operates in and are not subject to arbitrary changes. While grid systems do not align to streets and neighborhoods in cities, they can be used to efficiently represent neighborhoods by clustering grid cells. Clustering can be done using objective functions, producing shapes much more useful for analysis. Determining membership of a cluster is as efficient as a set lookup operation.
-	* 16 Resolutions
-		* 0 - 15 (0 being coarsest and 15 being finest)
-		* Each finer resolution has cells with one seventh the area of the coarser resolution. Hexagons cannot be perfectly subdivided into seven hexagons, so the finer cells are only approximately contained within a parent cell.
-		* The identifiers for these child cells can be easily truncated to find their ancestor cell at a coarser resolution, enabling efficient indexing. Because the children cells are only approximately contained, the truncation process produces a fixed amount of shape distortion. This distortion is only present when performing truncation of a cell identifier; when indexing locations at a specific resolution, the cell boundaries are exact.
-		* Want a resolution granular enough to introduce variability and wide enough to capture the effects of an area
-		* Example of resolution 6 in Iowa![](./_resources/Geospatial,_General.resources/Screenshot (105).png)
+## Features
 
+-   Carto Spatial Features dataset (\$) - https://carto.com/spatial-data-catalog/browser/?country=usa&category=derived&provider=carto
+    -   Resolution: Quadgrid level 15 (with cells of approximately 1x1km) and Quadgrid level 18 (with cells of approximately 100x100m).
+        -   Guessing if the areas you're interested in have high population density, then maybe 100 x 100 m cells would be more useful
+    -   Features
+        -   Total population
+        -   Population by gender
+        -   Population by age and gender (e.g. female_0_to_19)
+        -   POIs by category
+            -   retail stores
+            -   education
+                -   Number of education related POIs, incuding schools, universities, academies, etc.
+            -   financial
+                -   Number of financial sector POIs, including ATMs and banks.
+            -   food, drink
+                -   Number of sustenance related POIs, including restaurants, bars, cafes and pubs.
+            -   healthcare
+                -   Number of healthcare related POIs, including hospitals
+            -   leisure
+                -   Number of POIs related to leisure activities, such as theaters, stadiums and sport centers.
+            -   tourism
+                -   Number of POIs related to tourism attractions
+            -   transportation
+                -   Number of transportation related POIs, including parking lots, car rentals, train stations and public transport stations.
+-   Carto Data Observatory (\$) - https://carto.com/spatial-data-catalog/browser/dataset/mc_geographic\_\_4a11e98c/
+    -   Features
+        -   geo id
+        -   region id
+        -   Industry
+        -   Total Transactions Amount Index
+        -   Transaction Count Index
+        -   Account Count Index
+        -   Average Ticket Size Index
+        -   Average Frequency of Transaction per Card Index
+        -   Average Spend Amount by Account Index
 
+## Interactions
 
-Features
+-   Similar to interpolation but keeps the original spatial units as interpretive framework. Hence, the map reader can still rely on a known territorial division to develop its analyses
+    -   they produce understandable maps by smoothing complex spatial patterns
+    -   they enrich variables with contextual spatial information.
+-   Misc
+    -   Resources
+        -   [Getting Started with Potential](https://riatelab.github.io/potential/articles/potential.html) - nice little mathematical summary, some background
+    -   Packages
+        -   [{]{style="color: #990000"}[potential](https://riatelab.github.io/potential/){style="color: #990000"}[}]{style="color: #990000"}: spatial interaction modeling via Stewart Potentials. Also capable of interpolation
+-   There are two main ways of modeling spatial interactions: the first one focuses on links between places (flows), the second one focuses on places and their influence at a distance (potentials).
+-   Comparisons ([[{potential}](https://riatelab.github.io/potential/articles/web_only/exemple.html)]{style="color: #990000"}[ article](https://riatelab.github.io/potential/articles/web_only/exemple.html))
+    -   GDP per capita (cloropleth)![](./_resources/Geospatial,_General.resources/image.png)
+        -   Typical cloropleth at the municipality level
+        -   Values have been binned
+    -   Potential GDP per Capita (interaction)![](./_resources/Geospatial,_General.resources/image.1.png)
+        -   Stewart Potentials have smoothed the values
+        -   Municipality boundaries still intact, so you could perform an analysis based on these GDP regions
+    -   Smoothed GDP per Capita (interpolation)![](./_resources/Geospatial,_General.resources/image.2.png)
+        -   Similar results as the interaction model except there are no boundaries
 
-* Carto Spatial Features dataset ($) - https://carto.com/spatial-data-catalog/browser/?country=usa&category=derived&provider=carto
-	*  Resolution: Quadgrid level 15 (with cells of approximately 1x1km) and Quadgrid level 18 (with cells of approximately 100x100m).
-		* Guessing if the areas you're interested in have high population density, then maybe 100 x 100 m cells would be more useful
-	* Features
-		* Total population
-		* Population by gender
-		* Population by age and gender (e.g. female\_0\_to\_19)
-		* POIs by category
-			* retail stores
-			* education
-				* Number of education related POIs, incuding schools, universities, academies, etc.
-			* financial
-				* Number of financial sector POIs, including ATMs and banks.
-			* food, drink
-				* Number of sustenance related POIs, including restaurants, bars, cafes and pubs.
-			* healthcare
-				* Number of healthcare related POIs, including hospitals
-			* leisure
-				* Number of POIs related to leisure activities, such as theaters, stadiums and sport centers.
-			* tourism
-				* Number of POIs related to tourism attractions
-			* transportation
-				* Number of transportation related POIs, including parking lots, car rentals, train stations and public transport stations.
-* Carto Data Observatory ($) - https://carto.com/spatial-data-catalog/browser/dataset/mc_geographic__4a11e98c/
-	* Features
-		* geo id
-		* region id
-		* Industry
-		* Total Transactions Amount Index
-		* Transaction Count Index
-		* Account Count Index
-		* Average Ticket Size Index
-		* Average Frequency of Transaction per Card Index
-		* Average Spend Amount by Account Index
+## Interpolation
 
-
-
-Interactions
-
-* Similar to interpolation but keeps the original spatial units as interpretive framework. Hence, the map reader can still rely on a known territorial division to develop its analyses
-	* they produce understandable maps by smoothing complex spatial patterns
-	* they enrich variables with contextual spatial information.
-* Misc
-	* Resources
-		* [Getting Started with Potential](https://riatelab.github.io/potential/articles/potential.html) - nice little mathematical summary, some background
-	* Packages
-		* [{]{style='color: #990000'}[potential](https://riatelab.github.io/potential/){style='color: #990000'}[}]{style='color: #990000'}: spatial interaction modeling via Stewart Potentials. Also capable of interpolation
-* There are two main ways of modeling spatial interactions: the first one focuses on links between places (flows), the second one focuses on places and their influence at a distance (potentials).
-* Comparisons ([[{potential}]{style='color: #990000'} article](https://riatelab.github.io/potential/articles/web_only/exemple.html))
-	* GDP per capita (cloropleth)![](./_resources/Geospatial,_General.resources/image.png)
-		* Typical cloropleth at the municipality level
-		* Values have been binned
-	* Potential GDP per Capita (interaction)![](./_resources/Geospatial,_General.resources/image.1.png)
-		* Stewart Potentials have smoothed the values
-		* Municipality boundaries still intact, so you could perform an analysis based on these GDP regions
-	* Smoothed GDP per Capita (interpolation)![](./_resources/Geospatial,_General.resources/image.2.png)
-		* Similar results as the interaction model except there are no boundaries
-
-
-
-Interpolation
-
-* The process of using points with known values to estimate values at other points. In GIS applications, spatial interpolation is typically applied to a raster with estimates made for all cells. Spatial interpolation is therefore a means of creating surface data from sample points.
-* Kriging![](./_resources/Geospatial,_General.resources/1-9BQ6w68VCYLqBrPLkggWSg.png)
-	* Misc
-		* [{gstat}]{style='color: #990000'}
-	* Uses a correlated Gaussian process to guess at values between data points![](./_resources/Geospatial,_General.resources/1-LLa0n6goR2q_eqbfHnLbXQ.png)
-		* Uncorrelated - white noise
-		* Correlated - smooth
-			* The closer in distance two points are to each other, the more likely they are to have a similar value (i.e. geospatially correlated)
-			* Example: temperature
-	* Fewer known points means greater unceretainty![](./_resources/Geospatial,_General.resources/1-QPOryrEMh61jUAjKOfpMdA.png)
-		Inputs:
-		* the measured values at the sampling points,
-		* the geometric coordinates of the sampling points,
-		* the geometric coordinates of the target points to interpolate,
-		* the “calibrated” probabilistic model, with the spatial correlation obtained by data
-		outputs:
-		* the estimated values at the target points,
-		* the estimated uncertainty (variance) at the target points.
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
+-   The process of using points with known values to estimate values at other points. In GIS applications, spatial interpolation is typically applied to a raster with estimates made for all cells. Spatial interpolation is therefore a means of creating surface data from sample points.
+-   Kriging![](./_resources/Geospatial,_General.resources/1-9BQ6w68VCYLqBrPLkggWSg.png)
+    -   Misc
+        -   [{gstat}]{style="color: #990000"}
+    -   Uses a correlated Gaussian process to guess at values between data points![](./_resources/Geospatial,_General.resources/1-LLa0n6goR2q_eqbfHnLbXQ.png)
+        -   Uncorrelated - white noise
+        -   Correlated - smooth
+            -   The closer in distance two points are to each other, the more likely they are to have a similar value (i.e. geospatially correlated)
+            -   Example: temperature
+    -   Fewer known points means greater unceretainty![](./_resources/Geospatial,_General.resources/1-QPOryrEMh61jUAjKOfpMdA.png) Inputs:
+        -   the measured values at the sampling points,
+        -   the geometric coordinates of the sampling points,
+        -   the geometric coordinates of the target points to interpolate,
+        -   the "calibrated" probabilistic model, with the spatial correlation obtained by data outputs:
+        -   the estimated values at the target points,
+        -   the estimated uncertainty (variance) at the target points.
