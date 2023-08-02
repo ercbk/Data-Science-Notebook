@@ -1,186 +1,216 @@
-# GNU Make
+# GNU Make {#sec-make .unnumbered}
 
-TOC
+## Misc {#sec-make-misc .unnumbered}
 
-* Misc
-* Syntax
-* Basic Rule
-* See command used to generate a target
-* Update a specific target
-* Execute a script
-* Abstraction
+-   Notes from
+    -   [article](https://easter.ai/post/make-life-easy/)
+    -   [project](https://github.com/SeanEaster/make_life_easy)
+        -   Good example of an advanced makefile for a practical data science project
+    -   [Video](https://pybit.es/articles/add-makefile-to-python-project/)
+        -   Goes through the differect components of executing a python project with make (e.g. testing, clean-up, defining variables, setting up the virtual environment, etc.)
+-   Resources
+    -   Nice little [tutorial](https://riptutorial.com/makefile)
+    -   Another [tutorial](https://makefiletutorial.com/#top)
+        -   Haven't read it, but looks pretty thorough
+    -   [Docs](http://www.gnu.org/software/make/manual/make.html#Flavors) for variable types
+    -   [Docs](https://www.gnu.org/software/make/manual/html_node/Functions.html) for functions
+-   Project orchestration system that only builds steps that have changed
+    -   {drake}/{targets} are based on this system
+-   Assuming that you've named the file "makefile" or "Makefile" or something like that, simply typing `make` at the command line while inside your project's directory will execute the build process.
+    -   `make -B --recon` shows all the commands used to build the project (i.e. kind of like a DAG)
+    -   `make -B` rebuilds the entire project even if no targets have changed
 
+## General {#sec-make-gen .unnumbered}
 
+-   Syntax
 
-Misc
+    ``` makefile
+    targets: prerequisites
+    command
+    command
+    command
+    ```
 
-* Notes from
-	* [article](https://easter.ai/post/make-life-easy/)
-	* [project](https://github.com/SeanEaster/make_life_easy)
-		* Good example of an advanced makefile for a practical data science project
-* Resources
-	* Nice little [tutorial](https://riptutorial.com/makefile)
-	* Another [tutorial](https://makefiletutorial.com/#top)
-		* Haven't read it, but looks pretty thorough
-	* [Docs](http://www.gnu.org/software/make/manual/make.html#Flavors) for variable types
-	* [Docs](https://www.gnu.org/software/make/manual/html_node/Functions.html) for functions
-* Project orchestration system that only builds steps that have changed
-	* {drake}/{targets} are based on this system
-* Assuming that you've named the file "makefile" or "Makefile" or something like that, simply typing `make` at the command line while inside your project's directory will execute the build process.
-	* `make -B --recon` shows all the commands used to build the project (i.e. kind of like a DAG)
-	* `make -B` rebuilds the entire project even if no targets have changed
+-   The **prerequisites** are also file names, separated by spaces. These files need to exist before the commands for the target are run. These are also called **dependencies**.
 
+-   `.PHONY` - Helpful to avoid conflicts between target names and file names
 
+    -   Considered best practice to use
 
-Syntax
-```
-targets: prerequisites
-command
-command
-command
-```
+    -   Example
 
-* Makefiles are made-up of **rules**. Each rule is a code chunk like above.
-* The **targets** are file names, separated by spaces. Typically, there is only one per rule.
-* The **commands** are a series of steps typically used to make the target(s). These need to start with a tab character, not spaces.
-* The **prerequisites** are also file names, separated by spaces. These files need to exist before the commands for the target are run. These are also called **dependencies**.
-* Types of Variables ("**expanded**" (i.e. values are accessed) using $(x) or $[{x}]{style='color: #990000'})
-	* "Recursively Expanded" Variables are defined using `=` operator
-		* Any functions referenced in the definition will be executed every time the variable is expanded
-		* Can cause infitinite loops
+        ``` makefile
+        .PHONY: install
+        install:
+                python3.9 -m venv venv && source venv/bin/activat && pip install -r requirements-dev.txt
 
-```
-x = hello
-y = $(x)
-# Both $(x) and $(y) will now yield "hello"
-x = world
-# Both $(x) and $(y) will now yield "world"
-```
+        .PHONY: dbsetup
+        dbsetup:
+                source venv/bin/activate && python -m youtube.db
 
-* "Simply Expanded" Variables are defined using the `:=` or `::=` operator
+        .PHONY: lint
+        lint:
+                flake8 emojisearcher tests
+        ```
 
-```
-x := hello
-y := $(x)
-# Both $(x) and $(y) will now yield "hello"
-x := world
-# $(x) will now yield "world", and $(y) will yield "hello"
-```
+## Rules {#sec-make-rul .unnumbered}
 
-* "Automatic" Variables
-	* `$@` is a Make variable that "expands" into the (first?) target name
-	* `$^` is a Make variable that "expands" into all of the prerequisites
-	* `$<` is a Make variable that "expands" into the first prerequisite
-	* `$?` is a Make variable that "expands" into any prerequisites which have a time stamp more recent than the target
-	* `%` is a wildcard; looks for any targets in the makefile that matches it's pattern or files in the project directory (also see abstraction section below)
+-   Makefiles are made-up of **rules**. Each rule is a code chunk.
 
-```
-foo%.o: %.c
-    $(CC) $(CFLAGS) -c $< -o $@
-```
+-   Example
 
-* Will match target lib/foobar.o, with:
-	* Stem ($\*): lib/bar
-	* Target name ($@): lib/foobar.o
-	* Prerequisites ($<, $^): lib/foobar.c
+    ``` makefile
+    # Inside Makefile
+    data/raw/NIPS_1987-2015.csv:
+    curl -o $@ https://archive.ics.uci.edu/ml/machine-learning-databases/00371/NIPS_1987-2015.csv
+    ```
 
-* `$*`is a Make variable that "expands" the "stem" (i.e. value) of wildcard
+    -   Downloads a file
+    -   "data/raw/NIPS_1987-2015.csv" is the file path and *target* for this *rule*.
+    -   `$@`  is a Make automatic variable that fills in the target name for the file name arg in the curl command.
+    -   There is no *prerequisite* required for this *command*. So, this syntax is just *target : command*.
 
-* **Dummy Targets** - A  target with no commands directly associated with it (it is sort of a meta-target).
-	* Useful if you want to only rebuild part of the project
-	* Example: if you have a couple of scripts that involve data acquisition and cleaning, another few that involve data analysis, and a few that involve the presentation of results (paper, plot), then you might define a dummy for each of them.
+## Targets {#sec-make-tar .unnumbered}
 
-```
-all: data model paper
-data: raw.csv
-model: model.rds
-paper: plot.png paper.pdf
-```
+-   The **targets** are file names, separated by spaces. Typically, there is only one per rule.
+-   **Dummy Targets** - A target with no commands directly associated with it (it is sort of a meta-target).
+    -   Useful if you want to only rebuild part of the project
 
-* Executing `make paper` in the CLI and in the project directory will call the commands that built "plot.png" and "paper.pdf"
+    -   Example: if you have a couple of scripts that involve data acquisition and cleaning, another few that involve data analysis, and a few that involve the presentation of results (paper, plot), then you might define a dummy for each of them.
 
+        ``` makefile
+        all: data model paper
+        data: raw.csv
+        model: model.rds
+        paper: plot.png paper.pdf
+        ```
 
-Basic rule
-```
-# Inside Makefile
-data/raw/NIPS_1987-2015.csv:
-curl -o $@ https://archive.ics.uci.edu/ml/machine-learning-databases/00371/NIPS_1987-2015.csv
-```
+        -   Executing `make paper` in the CLI and in the project directory will call the commands that built "plot.png" and "paper.pdf"
 
-* Downloads a file
-* "data/raw/NIPS\_1987-2015.csv" is the file path and _target_ for this _rule_.
-* `$@`  is a Make automatic variable that fills in the target name for the file name arg in the curl command.
-* There is no _prerequisite_ required for this _command_. So, this syntax is just _target : command_.
+## Variables {#sec-make-var .unnumbered}
 
+-   [Expanded Variables]{.underline}
+    -   Values are accessed using \$(x) or \${x})
 
-See command used to generate a target
-```
-# CLI
->> make --recon <target>
-```
+    -   "Recursively Expanded" Variables are defined using `=` operator
 
-Update a specific target
-```
-# CLI
->> make data/raw/NIPS_1987-2015.csv
-```
+        ``` makefile
+        x = hello
+        y = $(x)
+        # Both $(x) and $(y) will now yield "hello"
+        x = world
+        # Both $(x) and $(y) will now yield "world"
+        ```
 
-* This will re-run the rule that created the file. In this case, it's the `curl` command in the "Download a file" section
-* If you run this command again, you'll receive this message: \`make: `data/raw/NIPS_1987-2015.csv' is up to date.`
+        -   Any functions referenced in the definition will be executed every time the variable is expanded
+        -   Can cause infitinite loops
 
+    -   "Simply Expanded" Variables are defined using the `:=` or `::=` operator
 
-Execute a script
-```
-# Make file
-data/processed/NIPS_1987-2015.csv : src/data/transpose.py data/raw/NIPS_1987-2015.csv
-    $(PYTHON_INTERPRETER) $^ $@
+        ``` makefile
+        x := hello
+        y := $(x)
+        # Both $(x) and $(y) will now yield "hello"
+        x := world
+        # $(x) will now yield "world", and $(y) will yield "hello"
+        ```
+-   [Automatic Variables]{.underline}
+    -   `$@` is a Make variable that "expands" into the (first?) target name
 
-# CLI
->> make --recon data/processed/NIPS_1987-2015.csv
-python3 src/data/transpose.py data/raw/NIPS_1987-2015.csv data/processed/NIPS_1987-2015.csv
-```
+    -   `$^` is a Make variable that "expands" into all of the prerequisites
 
-* "$(PYTHON\_INTERPRETER)" is an environment variable set in the Make file for python3 interpreter
-* `make --recon` shows us the translation of command line in the Make file
-* Basic format for executing a python script in the cli is "python3 <script> <arg1> <arg2> ...  <argn>"
-	* The function in this example has 2 args: input file path and output file path
-	* `$^` fills in the prerequisites which takes care of  <script> <arg1>
-	* `$@` fills in the target name for <arg2>
+    -   `$<` is a Make variable that "expands" into the first prerequisite
 
+    -   `$?` is a Make variable that "expands" into any prerequisites which have a time stamp more recent than the target
 
-Abstraction
-```
-all: models/10_topics.png models/20_topics.png
+    -   `%` is a wildcard; looks for any targets in the makefile that matches it's pattern or files in the project directory (also see abstraction section below)
 
-models/%_topics.png : src/models/fit_lda.py data/processed/NIPS_1987-2015.csv src/models/prodlda.py
-    $(PYTHON_INTERPRETER) $< $(word 2, $^) $@ --topics $*
-```
+        ``` makefile
+        foo%.o: %.c
+            $(CC) $(CFLAGS) -c $< -o $@
+        ```
 
-* `%` matches both targets in the dummy target, "all" and takes the stem 10 and 20
-	* So this rule runs twice: once with the value 10 then with the value 20.
-* `$<` is an autmatic variable that expands into "src/models/fit\_lda.py"
-* Built-in Make text function, `$(word n,text)` , returns the nth word of text. (see Misc >> Resources for function docs)
-	* The legitimate values of n start from 1. If n is bigger than the number of words in text, the value is empty
-	* In this example, it's used to return the 2nd prerequisite to become the 1st argument of the fit\_lda.py script
-		* 1st arg is the input file path
-* `$@` is an automatic variable that expands into the target name which becomes the 2nd argument of the fit\_lda.py script
-	* 2nd arg is the output file path
-* `--topics` is a function option for fit\_ldy.py which is defined in the script using decorators from [{{click}}]{style='color: goldenrod'}
-	* `$*` is the stem of the wildcard which is a numeric in this case and provides the value the topics flag
-* Example: Clean text files in data directory
+        -   Will match target lib/foobar.o, with:
+            -   Stem (\$\*): lib/bar
+            -   Target name (\$\@): lib/foobar.o
+            -   Prerequisites (\$\<, \$\^): lib/foobar.c
 
-```
-data/processed/%.txt: data/raw/%.txt
-sed 1,20d $^ > $@
-```
+    -   `$*`is a Make variable that "expands" the "stem" (i.e. value) of wildcard
 
-* Takes all text files in the raw directory, removes some rows (sed 1,20d), outputs (>) the processed file into target with the same file name ($@)
+## Commands {#sec-make-com .unnumbered}
 
+-   The **commands** are a series of steps typically used to make the target(s). These need to start with a tab character, not spaces.
 
+-   See command used to generate a target
 
+    ``` bash
+    # CLI
+    >> make --recon <target>
+    ```
 
+-   Update a specific target
 
+    ``` bash
+    # CLI
+    >> make data/raw/NIPS_1987-2015.csv
+    ```
 
+    -   This will re-run the rule that created the file. In this case, it's the `curl` command in the "Download a file" section
+    -   If you run this command again, you'll receive this message: `make:`data/raw/NIPS_1987-2015.csv' is up to date.\`
 
+## Execute a script {#sec-make-exe .unnumbered}
 
+-   Example
+    -   Makefile
 
+        ``` makefile
+        data/processed/NIPS_1987-2015.csv : src/data/transpose.py data/raw/NIPS_1987-2015.csv
+            $(PYTHON_INTERPRETER) $^ $@
+        ```
+
+        -   "\$(PYTHON_INTERPRETER)" is an environment variable set in the Make file for python3 interpreter
+        -   The function in this example has 2 args: input file path and output file path
+        -   `$^` fills in the prerequisites which takes care of `<script> <arg1>`
+        -   `$@` fills in the target name for `<arg2>`
+
+    -   CLI
+
+        ``` bash
+        >> make --recon data/processed/NIPS_1987-2015.csv
+        python3 src/data/transpose.py data/raw/NIPS_1987-2015.csv data/processed/NIPS_1987-2015.csv
+        ```
+
+        -   `make --recon` shows us the translation of command line in the Make file
+        -   Basic format for executing a python script in the cli is `python3 <script> <arg1> <arg2> ... <argn>`
+
+## Abstraction {#sec-make-abs .unnumbered}
+
+-   Example
+
+    ``` makefile
+    all: models/10_topics.png models/20_topics.png
+
+    models/%_topics.png : src/models/fit_lda.py data/processed/NIPS_1987-2015.csv src/models/prodlda.py
+        $(PYTHON_INTERPRETER) $< $(word 2, $^) $@ --topics $*
+    ```
+
+    -   `%` matches both targets in the dummy target, "all" and takes the stem 10 and 20
+        -   So this rule runs twice: once with the value 10 then with the value 20.
+    -   `$<` is an autmatic variable that expands into "src/models/fit_lda.py"
+    -   Built-in Make text function, `$(word n,text)` , returns the nth word of text. (see Misc \>\> Resources for function docs)
+        -   The legitimate values of n start from 1. If n is bigger than the number of words in text, the value is empty
+        -   In this example, it's used to return the 2nd prerequisite to become the 1st argument of the fit_lda.py script
+            -   1st arg is the input file path
+    -   `$@` is an automatic variable that expands into the target name which becomes the 2nd argument of the fit_lda.py script
+        -   2nd arg is the output file path
+    -   `--topics` is a function option for fit_ldy.py which is defined in the script using decorators from [{{click}}]{style="color: goldenrod"}
+        -   `$*` is the stem of the wildcard which is a numeric in this case and provides the value the topics flag
+
+-   Example Clean text files in data directory
+
+    ``` makefile
+    data/processed/%.txt: data/raw/%.txt
+    sed 1,20d $^ > $@
+    ```
+
+    -   Takes all text files in the raw directory, removes some rows (sed 1,20d), outputs (\>) the processed file into target with the same file name (\$\@)
