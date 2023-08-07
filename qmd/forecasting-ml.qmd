@@ -1,230 +1,217 @@
-# Forecasting, ML
+# ML {#sec-fcast-ml}
 
-TOC
+## Misc {#sec-fcast-ml-misc}
 
-* Misc
-* Terms
-* Multi-Step Forecasting
-* Preprocessing
-* Feature Engineering
+-   Notes from
+    -   [Learnings from Kaggle Forecasting Competitions: The Walmart Competition](https://cbojer.github.io/post/kaggle-part-2/)
+-   Deep networks suffer from the problem of instability for recursive forecasting, and it's recommended to use direct forecasting
+-   Tree based models can only predict within the range of training data.
+-   Models seen used
+    -   Ensemble combination: KNN, random forest and principal components regression together with ARIMA, Unobserved Components Model and linear regression
+-   Conditions in which these models perform poorly
+    -   under 500 obs (need to reread the paper to get this more exact). Think at around this number, the ML models start to catch the statistical models
+    -   additional explanatory variables have poor predictive power
+    -   ts has high seasonality
+-   Always fit a statistical model for comparison
+-   Algorithm Specifications
+    -   From Hyndman paper on Local vs Global modeling, [Principles and Algorithms for Forecasting Groups of Time Series:Locality and Globality](https://www.monash.edu/business/ebs/research/publications/ebs/wp45-2020.pdf)
+        -   XGboost,
+            -   subsampling=0.5
+            -   col_sampling=0.5
+            -   Early stopping on a cross-validation set at 15% of the dataset.
+            -   Loss function is RMSE
+            -   Validation error is MAE
+    -   LightGBM
+        -   arg: linear_tree fits a piecewise linear model for each leaf. Helps to extrapolate linear trends in forecasting
+            -   Seems to act like a basic distribution forest
 
+## Terms {#sec-fcast-ml-terms}
 
+-   [**Short-Term Lags**]{style="color: #009499"}: Lags \< Forecast Horizon.
+-   [**Direct Forecasting**]{style="color: #009499"}: Modeling each horizon separately
 
+## Preprocessing {#sec-fcast-ml-preproc}
 
-Misc
+-   Difference until stationary
+    -   Since tree models can't predict outside the range of the their training data, trend must be removed.
+    -   In addition to the deterministic trend, this approach also removes [stochastic trends](https://stats.stackexchange.com/questions/241144/explain-what-is-meant-by-a-deterministic-and-stochastic-trend-in-relation-to-the).
+    -   Forecasts will need to be back-transformed![](./_resources/Forecasting,_ML.resources/image.png)
+        -   forecast = differenced forecast + previous value
+        -   Then recursively for the next forecasts in the horizon\
+            ![](./_resources/Forecasting,_ML.resources/image.1.png)
+-   Log transform
+    -   forecasts need to be back-transformed
+-   Target encode cat feature then lag
+-   Scale series
+-   Remove time stamp after creating date features
+    -   Date features will help keep track of time
+        -   These will need to be one-hot encoded or some other discrete/categorical transformation
 
-* Notes from
-	* [Learnings from Kaggle Forecasting Competitions: The Walmart Competition](https://cbojer.github.io/post/kaggle-part-2/)
-* Deep networks suffer from the problem of instability for recursive forecasting, and it's recommended to use direct forecasting
-* Tree based models can only predict within the range of training data.
-* Models seen used
-	* Ensemble combination: KNN, random forest and principal components regression together with ARIMA, Unobserved Components Model and linear regression
-* Conditions in which these models perform poorly
-	* under 500 obs (need to reread the paper to get this more exact). Think at around this number, the ML models start to catch the statistical models
-	* additional explanatory variables have poor predictive power
-	* ts has high seasonality
-* Always fit a statistical model for comparison
-* Algorithm Specifications
-	* From Hyndman paper on Local vs Global modeling, [Principles and Algorithms for Forecasting Groups of Time Series:Locality and Globality](https://www.monash.edu/business/ebs/research/publications/ebs/wp45-2020.pdf)
-		* XGboost,
-			* subsampling=0.5
-			* col\_sampling=0.5
-			* Early stopping on a cross-validation set at 15% of the dataset.
-			* Loss function is RMSE
-			* Validation error is MAE
-	* LightGBM
-		* arg: linear\_tree fits a piecewise linear model for each leaf. Helps to extrapolate linear trends in forecasting
-			* Seems to act like a basic distribution forest
+## Multi-Step Forecasting {#sec-fcast-ml-mstep}
 
+-   Misc
 
+    -   Notes from: [6 Methods for Multi-step Forecasting](https://towardsdatascience.com/6-methods-for-multi-step-forecasting-823cbde4127a)
+        -   Example dataset\
+            ![](./_resources/Forecasting,_ML.resources/Screenshot%20(1091).png){width="532"}
+            -   t-3 through t-0 are the predictors
+            -   t+1 through t+4 are potential outcome variables
 
-Terms
+-   [Recursive]{.underline} (aka [Iterative]{.underline}) - Training a single model for one-step ahead forecasting. Then, the model's one-step ahead forecast is used as data to get the 2nd-step ahead forecast.
 
-* **short-term lags**: lags < forecast horizon.
-* **direct forecasting**: modeling each horizon separately
+    -   The one-step ahead forecast is NOT *added* to the training data and the model refitted. It *replaces* the 0th lag value in the training data, and the previous 0th lag data becomes the 1st lag data, etc. The final lag (e.g t-3 in the example data) that was used in training the model is discarded. Therefore, the same number of lags that was used in training the model remains the same. This *updated* dataset becomes "new data" and along with the original model are used as input for `predict`
+    -   This process is iterated using previous forecasts to get predictions for multiple steps ahead
+    -   Method leads to propagation of errors
 
+-   [Direct]{.underline} - Builds one model for each horizon
 
+    -   Each model trains on a lead of the outcome variable that matches the horizon step
 
-Multi-Step Forecasting
+        -   e.g. the model forecasting the 2nd step-ahead value will train with an outcome variable that is t+2
 
-* Misc
-	* Notes from: [6 Methods for Multi-step Forecasting](https://towardsdatascience.com/6-methods-for-multi-step-forecasting-823cbde4127a)
-		* Example dataset![](./_resources/Forecasting,_ML.resources/Screenshot (1091).png)
-			* t-3 through t-0 are the predictors
-			* t+1 through t+4 are potential outcome variables
-* Recursive (aka iterative) - training a single model for one-step ahead forecasting. Then, the model's one-step ahead forecast is used as data to get the 2nd-step ahead forecast.
-	* The one-step ahead forecast is NOT _added_ to the training data and the model refitted. It _replaces_ the 0th lag value in the training data, and the previous 0th lag data becomes the 1st lag data, etc. The final lag (e.g t-3 in the example data) that was used in training the model is discarded. Therefore, the same number of lags that was used in training the model remains the same. This _updated_ dataset becomes "new data" and along with the original model are used as input for `predict`
-	* This process is iterated using previous forecasts to get predictions for multiple steps ahead
-	* Method leads to propagation of errors
-* Direct - builds one model for each horizon
-	* Each model trains on a lead of the outcome variable that matches the horizon step
-		* e.g. the model forecasting the 2nd step-ahead value will train with an outcome variable that is t+2
-	* No previous forecast is used to predict a forecast ahead of it.
-	* Assumes that each horizon is independent which is usually false
-	* [Example]{.ribbon-highlight}
+    -   No previous forecast is used to predict a forecast ahead of it.
 
-```
-from sklearn.multioutput import MultiOutputRegressor
-direct = MultiOutputRegressor(LinearRegression())
-direct.fit(X_tr, Y_tr)
-direct.predict(X_ts)
-```
+    -   Assumes that each horizon is independent which is usually false
 
-* "Y\_tr" contains lead variables for each step in the forecast horizon
+    -   [Example]{.ribbon-highlight}
 
-* [Example]{.ribbon-highlight}: [Multi-step time series forecasting with XGBoost](https://towardsdatascience.com/multi-step-time-series-forecasting-with-xgboost-65d6820bec39)
-	* Codes a sliding-window (don't think it's a cv approach though) and forecasts each window with the model
-	* Not exactly sure how this works. No helpful figs in the article or the paper if follows, so would need to examine the code
-* [Example]{.ribbon-highlight}: Preprocessing training data for 1 then 2 steps ahead and forecasting ([post](https://github.com/WinVector/Examples/blob/main/TS/TS_example.md),  Code >> Time Series >> direct-multistep-forecasting-regression.R)
-	* The FIRST 9 rows and the LAST 4 rows of the training data before preprocessing are shown
-	* "y\_observed" is the original outcome column
-	* "y\_f" is y\_observed but stepped forward
-	* "x\_0" is a copy of y\_observed
-	* "x\_1" to "x\_5" are lags of y\_observed
-	* 1-Step Ahead Training Data
-		* Before Preprocessing![](./_resources/Forecasting,_ML.resources/1aheadorig.1.png)
-			* "y\_f" has been stepped forward 1-step
-			* "y\_observed" and rows with NAs are deleted
-			* Even though 6 rows are deleted from the training data, all values are used for training
-		* After Preprocessing![](./_resources/Forecasting,_ML.resources/1ahead.png)
-			* The model is fit using this data
-	* 2-Step Ahead Training Data
-		* Before Preprocessing![](./_resources/Forecasting,_ML.resources/2aheadorig.1.png)
-			* "y\_f" has been stepped forward 2-steps
-			* "y\_observed" and rows with NAs are deleted
-			* Even though 7 rows are deleted from the training data, all values are used for training
-		* After Preprocessing![](./_resources/Forecasting,_ML.resources/2ahead.1.png)
-			* The model is fit using this data
-	* Forecast![](./_resources/Forecasting,_ML.resources/pred.png)
-		* Each step-ahead model predicts on this same row of data which is the final row of the training data (row 110)
-			* Note that this row wasn't used to train the model.
+        ``` python
+        from sklearn.multioutput import MultiOutputRegressor
+        direct = MultiOutputRegressor(LinearRegression())
+        direct.fit(X_tr, Y_tr)
+        direct.predict(X_ts)
+        ```
 
-* Direct-Recursive (aka chaining) - Combo of Recursive and Direct
-	* Recursive - previous forecasts are used as data to get the next step-ahead forecast
-	* Direct - The previous forecasts are _added_ to the training data and the model is retrained for each horizon.
-	* More computationally intensive since there's more data and a model has to trained for each horizon step.
-		* Can't be parallelized since the process is sequential.
-* Data as Demonstrator (DaD) - error correction method for the Recursive method
-	* Use the training set to correct errors that occurs during multi-step prediction to mitigate the propagation of errors that occurs in recursive forecasting.
-	* Iteratively enriches the training set with these corrections after each recursive forecast.
-	* [github](https://github.com/arunvenk/DaD)
-* Dynamic Factor Machine Learning (DFML) - a feature reduction method is applied to a multivariate or multistep time series and the model trains on the components as outcome variables. Then, the forecasts are backtransformed.
-	* Article uses the direct method
-		* See article for code. Not sure how effective it is but the code is pretty simple
-* Multi-Output - a single model which learns all the forecasting horizon jointly
-	* Goal is to capture the dependencies between forecasts better.
-	* Output is a multi-step output all at once
-		* Example uses KNN but the article mentions regularized regression, rf, DL algorithms can be used
-	* Preprocessing should include removing the seasonality.
-	* See article for paper reference
+        -   "Y_tr" contains lead variables for each step in the forecast horizon
 
+-   [Example]{.ribbon-highlight}: [Multi-step time series forecasting with XGBoost](https://towardsdatascience.com/multi-step-time-series-forecasting-with-xgboost-65d6820bec39)
 
+    -   Codes a sliding-window (don't think it's a cv approach though) and forecasts each window with the model
+    -   Not exactly sure how this works. No helpful figs in the article or the paper if follows, so would need to examine the code
 
-Preprocessing
+-   [Example]{.ribbon-highlight}: Preprocessing training data for 1 then 2 steps ahead and forecasting ([post](https://github.com/WinVector/Examples/blob/main/TS/TS_example.md),  Code \>\> Time Series \>\> direct-multistep-forecasting-regression.R)
 
-* Difference until stationary
-	* Since tree models can't predict outside the range of the their training data, trend must be removed.
-	* In addition to the deterministic trend, this approach also removes [stochastic trends](https://stats.stackexchange.com/questions/241144/explain-what-is-meant-by-a-deterministic-and-stochastic-trend-in-relation-to-the).
-	* Forecasts will need to be back-transformed![](./_resources/Forecasting,_ML.resources/image.png)
-		* forecast = differenced forecast + previous value
-		* Then recursively for the next forecasts in the horizon![](./_resources/Forecasting,_ML.resources/image.1.png)
-* log transform
-	* forecasts need to be back-transformed
-* target encode cat feature then lag
-* scale series
-* remove time stamp after creating date features
-	* date features will help keep track of time
-		* These will need to be one-hot encoded or some other discrete/categorical transformation
+    -   The FIRST 9 rows and the LAST 4 rows of the training data before preprocessing are shown
+    -   "y_observed" is the original outcome column
+    -   "y_f" is y_observed but stepped forward
+    -   "x_0" is a copy of y_observed
+    -   "x_1" to "x_5" are lags of y_observed
+    -   1-Step Ahead Training Data
+        -   Before Preprocessing\
+            ![](./_resources/Forecasting,_ML.resources/1aheadorig.1.png){width="532"}
+            -   "y_f" has been stepped forward 1-step
+            -   "y_observed" and rows with NAs are deleted
+            -   Even though 6 rows are deleted from the training data, all values are used for training
+        -   After Preprocessing\
+            ![](./_resources/Forecasting,_ML.resources/1ahead.png){width="532"}
+            -   The model is fit using this data
+    -   2-Step Ahead Training Data
+        -   Before Preprocessing\
+            ![](./_resources/Forecasting,_ML.resources/2aheadorig.1.png){width="532"}
+            -   "y_f" has been stepped forward 2-steps
+            -   "y_observed" and rows with NAs are deleted
+            -   Even though 7 rows are deleted from the training data, all values are used for training
+        -   After Preprocessing\
+            ![](./_resources/Forecasting,_ML.resources/2ahead.1.png){width="532"}
+            -   The model is fit using this data
+    -   Forecast\
+        ![](./_resources/Forecasting,_ML.resources/pred.png){width="432"}
+        -   Each step-ahead model predicts on this same row of data which is the final row of the training data (row 110)
+            -   Note that this row wasn't used to train the model.
 
+-   [Direct-Recursive]{.underline} (aka [Chaining]{.underline}) - Combo of Recursive and Direct
 
+    -   Recursive - previous forecasts are used as data to get the next step-ahead forecast
+    -   Direct - The previous forecasts are *added* to the training data and the model is retrained for each horizon.
+    -   More computationally intensive since there's more data and a model has to trained for each horizon step.
+        -   Can't be parallelized since the process is sequential.
 
-Feature Engineering
+-   [Data as Demonstrator (DaD)]{.underline} - Error correction method for the Recursive method
 
-* Date time features
-	* Minutes in a day
-	* Quarter of the year
-	* Hour of day
-	* week of the year
-	* Season of the year
-	* Weekend or not
-	* Daylight savings or not
-	* Public holiday or not
-	* Before or After business hours
-	* Example: py
+    -   Use the training set to correct errors that occurs during multi-step prediction to mitigate the propagation of errors that occurs in recursive forecasting.
+    -   Iteratively enriches the training set with these corrections after each recursive forecast.
+    -   [github](https://github.com/arunvenk/DaD)
 
-```
-ts_data['hour'] = [ts_data.index[i].hour for i in range(len(ts_data))]
-ts_data['month'] = [ts_data.index[i].month for i in range(len(ts_data))]
-ts_data['dayofweek'] = [ts_data.index[i].day for i in range(len(ts_data))]
-```
+-   [Dynamic Factor Machine Learning (DFML)]{.underline} - a feature reduction method is applied to a multivariate or multistep time series and the model trains on the components as outcome variables. Then, the forecasts are backtransformed.
 
-* Lags - lags of the target variable
-	* [{{pandas}}]{style='color: goldenrod'} has a `shift` function
-* Window Statistics (See [Python, Pandas](Python, Pandas) >> Time Series >> Aggregation)
-	* Sliding window features - at each time point, a summary of values over a fixed window of _prior_ timesteps
-	* Rolling window statistics - a range of values that includes the time point itself as well as some specified number of data points _before and after_ (?) the time point used
-		* [{{pandas}}]{style='color: goldenrod'} has a `rolling` function
-	* Expanding window statistics
-		* [{{pandas}}]{style='color: goldenrod'} has an `expanding` function
-		* Example: minimum, mean, and maximum
+    -   Article uses the direct method
+        -   See article for code. Not sure how effective it is but the code is pretty simple
 
-```
-# create expanding window features 
-from pandas import concat
-load_val = ts_data[['load']] window = load_val.expanding() 
-new_dataframe = concat([window.min(),  window.mean(), window.max(), load_val. shift(-1)], axis=1) new_dataframe.columns = ['min', 'mean', 'max', 'load+1']
-print(new_dataframe.head(10))
+-   [Multi-Output]{.underline} - a single model which learns all the forecasting horizon jointly
 
-                    min      mean    max      load+1 
-2012-01-01 00:00:00 2,698.00 2,698.00 2,698.00 2,558.00 
-2012-01-01 01:00:00 2,558.00 2,628.00 2,698.00 2,444.00 
-2012-01-01 02:00:00 2,444.00 2,566.67 2,698.00 2,402.00 
-2012-01-01 03:00:00 2,402.00 2,525.50 2,698.00 2,403.00 
-2012-01-01 04:00:00 2,402.00 2,501.00 2,698.00 2,453.00 
-2012-01-01 05:00:00 2,402.00 2,493.00 2,698.00 2,560.00 
-2012-01-01 06:00:00 2,402.00 2,502.57 2,698.00 2,719.00 
-2012-01-01 07:00:00 2,402.00 2,529.62 2,719.00 2,916.00 
-2012-01-01 08:00:00 2,402.00 2,572.56 2,916.00 3,105.00 
-2012-01-01 09:00:00 2,402.00 2,625.80 3,105.00 3,174.00
-```
+    -   Goal is to capture the dependencies between forecasts better.
+    -   Output is a multi-step output all at once
+        -   Example uses KNN but the article mentions regularized regression, rf, DL algorithms can be used
+    -   Preprocessing should include removing the seasonality.
+    -   See article for paper reference
 
-* Use of singular value decomposition to learn specific patterns across a grouping variable (e.g. department specific patterns across stores)
-	* Perform holiday adjustments to the data
-	* Get the training data for a specific department into a matrix with weeks as rows and stores as columns.
-	* Use SVD to produce a low-rank approximation of the sales matrix. The winner reduced the rank from 45 (# stores) to between 10-15.
-	* Reconstruct the training matrix using the low-rank approximation.
-	* Forecast the reconstructed matrix using an STL decomposition followed by exponential smoothing of the seasonality adjusted series. This was conducted in R using the stlf function of the forecast package.
-* External Features
-	* average weekly temperature by region,
-	* the fuel price by region,
-	* the consumer price index (CPI)
-	* unemployment rate.
-* From Hyndman local vs global models paper (see Algorithm Specifications section)
-	* Used
-		* 12 lags (length of shortest series in M4)
-		* frequency features (fourier series?)
-		* other features (tsfeatures PKG)
-			* tsfeatures measure a bunch of ts characteristics.
-			* These would be just 1 number per series. I'm not sure how you use them as a predictors
-	* Data was a matrix stack of all the time series in the M4 competition
-		* maybe since it's a ts stack, the tsfeatures stuff has enough variance to useful in prediction
+## Feature Engineering {#sec-fcast-ml-feateng}
 
+-   Also see [Feature Engineering, Time Series](feature-engineering-time-series.qmd#sec-feat-eng-ts){style="color: green"}
+-   [Date time Features]{.underline}
+    -   Minutes in a Day
+    -   Quarter of the Year
+    -   Hour of Day
+    -   Week of the Year
+    -   Season of the Year
+    -   Weekend or Not
+    -   Daylight Savings or Not
+    -   Public Holiday or Not
+    -   Before or After Business Hours
+    -   [Example]{.ribbon-highlight}: py
 
+        ``` python
+        ts_data['hour'] = [ts_data.index[i].hour for i in range(len(ts_data))]
+        ts_data['month'] = [ts_data.index[i].month for i in range(len(ts_data))]
+        ts_data['dayofweek'] = [ts_data.index[i].day for i in range(len(ts_data))]
+        ```
+-   [Lags]{.underline} - Lags of the target variable
+    -   [{{pandas}}]{style="color: goldenrod"} has a `shift` function
+-   [Window Statistics]{.underline} (See [Python, Pandas \>\> Time Series \>\> Calculations](python-pandas.qmd#sec-py-pandas-ts-calcs){style="color: green"} \>\> Aggregation)
+    -   Sliding window features - at each time point, a summary of values over a fixed window of *prior* timesteps
+    -   Rolling window statistics - a range of values that includes the time point itself as well as some specified number of data points *before and after* (?) the time point used
+        -   [{{pandas}}]{style="color: goldenrod"} has a `rolling` function
+    -   Expanding window statistics
+        -   [{{pandas}}]{style="color: goldenrod"} has an `expanding` function
 
+        -   [Example]{.ribbon-highlight}: minimum, mean, and maximum
 
+            ``` python
+            # create expanding window features 
+            from pandas import concat
+            load_val = ts_data[['load']] window = load_val.expanding() 
+            new_dataframe = concat([window.min(),  window.mean(), window.max(), load_val. shift(-1)], axis=1) new_dataframe.columns = ['min', 'mean', 'max', 'load+1']
+            print(new_dataframe.head(10))
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
+                                min      mean    max      load+1 
+            2012-01-01 00:00:00 2,698.00 2,698.00 2,698.00 2,558.00 
+            2012-01-01 01:00:00 2,558.00 2,628.00 2,698.00 2,444.00 
+            2012-01-01 02:00:00 2,444.00 2,566.67 2,698.00 2,402.00 
+            2012-01-01 03:00:00 2,402.00 2,525.50 2,698.00 2,403.00 
+            2012-01-01 04:00:00 2,402.00 2,501.00 2,698.00 2,453.00 
+            2012-01-01 05:00:00 2,402.00 2,493.00 2,698.00 2,560.00 
+            2012-01-01 06:00:00 2,402.00 2,502.57 2,698.00 2,719.00 
+            2012-01-01 07:00:00 2,402.00 2,529.62 2,719.00 2,916.00 
+            2012-01-01 08:00:00 2,402.00 2,572.56 2,916.00 3,105.00 
+            2012-01-01 09:00:00 2,402.00 2,625.80 3,105.00 3,174.00
+            ```
+-   Use of [singular value decomposition]{.underline} to learn specific patterns across a grouping variable (e.g. department specific patterns across stores)
+    -   Perform holiday adjustments to the data
+    -   Get the training data for a specific department into a matrix with weeks as rows and stores as columns.
+    -   Use SVD to produce a low-rank approximation of the sales matrix. The winner reduced the rank from 45 (# stores) to between 10-15.
+    -   Reconstruct the training matrix using the low-rank approximation.
+    -   Forecast the reconstructed matrix using an STL decomposition followed by exponential smoothing of the seasonality adjusted series. This was conducted in R using the stlf function of the forecast package.
+-   [External Features]{.underline}
+    -   average weekly temperature by region,
+    -   the fuel price by region,
+    -   the consumer price index (CPI)
+    -   unemployment rate.
+-   [Example]{.ribbon-highlight}: From Hyndman local vs global models paper (See Algorithm Specifications section)
+    -   Used
+        -   12 lags (length of shortest series in M4)
+        -   frequency features (fourier series?)
+        -   other features (tsfeatures PKG)
+            -   tsfeatures measure a bunch of ts characteristics.
+            -   These would be just 1 number per series. I'm not sure how you use them as a predictors
+    -   Data was a matrix stack of all the time series in the M4 competition
+        -   maybe since it's a ts stack, the tsfeatures stuff has enough variance to useful in prediction
