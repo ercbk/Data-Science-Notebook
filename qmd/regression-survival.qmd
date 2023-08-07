@@ -1,324 +1,289 @@
-# Regression, Survival
+# Survival
 
-TOC
+## Misc
 
-* Misc
-* Components
-* Kaplan-Meir
-* Exponential
-* Weibull
-* Cox's Proportional Hazards
-* ML
-* Diagnostics
+-   Model for estimating the time until a particular event occurs
+    -   e.g. death of a patient being treated for a disease, failure of an engine part in a vehicle
+-   Prediction models for survival outcomes are important for clinicians who wish to estimate a patient's risk (i.e. probability) of experiencing a future outcome. The term 'survival' outcome is used to indicate any prognostic or time-to-event outcome, such as death, progression, or recurrence of disease. Such risk estimates for future events can support shared decision making for interventions in high-risk patients, help manage the expectations of patients, or stratify patients by disease severity for inclusion in trials.1 For example, a prediction model for persistent pain after breast cancer surgery might be used to identify high risk patients for intervention studies
+-   Outcome variable: Time until event occurs
+-   packages
+    -   [{survival}]{style="color: #990000"}
+    -   [{]{style="color: #990000"}[censored](https://censored.tidymodels.org/){style="color: #990000"}[}]{style="color: #990000"} - tidymodels package for censored and survival modelling
+    -   [{]{style="color: #990000"}[quantreg](https://cran.r-project.org/web/packages/quantreg/index.html){style="color: #990000"}[}]{style="color: #990000"} - quantile survival regression
+    -   [{]{style="color: #990000"}[msm](https://github.com/chjackson/msm){style="color: #990000"}[}]{style="color: #990000"} - multi-state models
+        -   [Vignette](https://cran.r-project.org/web/packages/msm/vignettes/msm-manual.pdf) for [{]{style="color: #990000"}[msm](https://github.com/chjackson/msm){style="color: #990000"}[}]{style="color: #990000"}
+        -   See [Multistate Models for Medical Applications](https://www.r-bloggers.com/2023/04/multistate-models-for-medical-applications/)
+            -   Tutorial using a heart transplant dataset
+        -   Standard survival models only directly model two states: alive and dead. Multi-state models enable directly modeling disease progression where patients are observed to be in various states of health or disease at random intervals, but for which, except for death, the times of entering or leaving states are unknown.
+        -   Multi-state models easily accommodate [interval censored](https://www.ncbi.nlm.nih.gov/pmc/articles/PMC3684949/#:~:text=In%20statistical%20literature%2C%20interval%20censoring,instead%20of%20being%20observed%20exactly.) intermediate states while making the usual assumption that death times are known but may be right censored.
+    -   [{]{style="color: #990000"}[grf](https://grf-labs.github.io/grf/articles/survival.html){style="color: #990000"}[}]{style="color: #990000"} - generalized random forest; causal forest with time-to-event data
+    -   [{]{style="color: #990000"}[partykit](https://cran.r-project.org/web/packages/partykit/index.html){style="color: #990000"}[}]{style="color: #990000"} - conditional inference trees; model-based recursive partitioning trees; can be used with [{survival}]{style="color: #990000"} to create random survival forests
+        -   [{]{style="color: #990000"}[bonsai](https://bonsai.tidymodels.org/){style="color: #990000"}[}]{style="color: #990000"}: tidymodels partykit conditional trees, forests; successor to treesnip - Model Wrappers for Tree-Based Models
+    -   [{]{style="color: #990000"}[aorsf](https://bcjaeger.github.io/aorsf/){style="color: #990000"}[}]{style="color: #990000"} - optimized software to fit, interpret, and make predictions with oblique random survival forests (ORSFs) [{{]{style="color: goldenrod"}[sklearn](https://scikit-survival.readthedocs.io/en/stable/api/generated/sksurv.ensemble.RandomSurvivalForest.html){style="color: goldenrod"}[}}]{style="color: goldenrod"} - Random Survival Forests, Survival Support Vector Machine
+-   Notes from
+    -   [What is Cox's proportional hazards model?](https://rss.onlinelibrary.wiley.com/doi/epdf/10.1111/1740-9713.01633)
+-   Why not use a standard regression model?
+    -   Units that "survive" until the end of the study will have a censored survival time.
+        -   i.e. we won't have an observed survival time for these units because they survive for an unknown time after the study is completed.
+        -   We don't want to discard these units though, as they still have useful information.
+-   Sample Size
+-   Models
+    -   Kaplan Meier model (i.e. K-M survival curve)
+        -   Often used as a baseline in survival analysis
+        -   Can not be used to compare risk between groups and compute metrics like the hazard ratio
+    -   Exponential model, the Weibull model, Cox Proportional-Hazards, Log-logistic and the Accelerated Failure Time (AFT)
+    -   Multi-State Models
+    -   Hazard rates and Cumulative Hazard rates are typical quantities of interest
+-   Log-Rank Test (aka Mantel-Cox test) - tests if two groups survival curves are different
+    -   non-parametric; a special case with one binary X
 
+    -   The intuition behind the test is that if the two groups have different hazard rates, the two survival curves (so their slopes) will differ.
 
+    -   Compares the observed number of events in each group to what would be expected if the survival curves were identical (i.e., if the null hypothesis were true).
 
+    -   [Example]{.ribbon-highlight}
 
-Misc
+        ``` r
+        library(survival)
+        dat <- data.frame(
+          group = c(rep(1, 6), rep(2, 6)),
+          time = c(4.1, 7.8, 10, 10, 12.3, 17.2, 9.7, 10, 11.1, 13.1, 19.7, 24.1),
+          event = c(1, 0, 1, 1, 0, 1, 1, 1, 0, 0, 1, 0)
+        )
+        dat
+        ##    group time event
+        ## 1      1  4.1    1
+        ## 2      1  7.8    0
+        ## 3      1 10.0    1
+        ## 4      1 10.0    1
+        ## 5      1 12.3    0
+        ## 6      1 17.2    1
+        ## 7      2  9.7    1
+        ## 8      2 10.0    1
+        ## 9      2 11.1    0
+        ## 10    2 13.1    0
+        ## 11    2 19.7    1
+        ## 12    2 24.1    0
+        survdiff(Surv(time, event) ~ group,
+          data = dat
+        )
+        ##        N Observed Expected (O-E)^2/E (O-E)^2/V
+        ## group=1 6        4    2.57    0.800      1.62
+        ## group=2 6        3    4.43    0.463      1.62
+        ## 
+        ##  Chisq= 1.6  on 1 degrees of freedom, p= 0.2
 
-* Model for estimating the time until a particular event occurs
-	* e.g. death of a patient being treated for a disease, failure of an engine part in a vehicle
-* Prediction models for survival outcomes are important for clinicians who wish to estimate a patient’s risk (i.e. probability) of experiencing a future outcome. The term ‘survival’ outcome is used to indicate any prognostic or time-to-event outcome, such as death, progression, or recurrence of disease. Such risk estimates for future events can support shared decision making for interventions in high-risk patients, help manage the expectations of patients, or stratify patients by disease severity for inclusion in trials.1 For example, a prediction model for persistent pain after breast cancer surgery might be used to identify high risk patients for intervention studies
-* Outcome variable: Time until event occurs
-* packages
-	* [{survival}]{style='color: #990000'}
-	* [{]{style='color: #990000'}[censored](https://censored.tidymodels.org/){style='color: #990000'}[}]{style='color: #990000'} \- tidymodels package for censored and survival modelling
-	* [{]{style='color: #990000'}[quantreg](https://cran.r-project.org/web/packages/quantreg/index.html){style='color: #990000'}[}]{style='color: #990000'} - quantile survival regression
-	* [{]{style='color: #990000'}[msm](https://github.com/chjackson/msm){style='color: #990000'}[}]{style='color: #990000'} - multi-state models
-		* [Vignette](https://cran.r-project.org/web/packages/msm/vignettes/msm-manual.pdf) for [{]{style='color: #990000'}[msm](https://github.com/chjackson/msm){style='color: #990000'}[}]{style='color: #990000'}
-		* See [Multistate Models for Medical Applications](https://www.r-bloggers.com/2023/04/multistate-models-for-medical-applications/)
-			* Tutorial using a heart transplant dataset
-		* Standard survival models only directly model two states: alive and dead. Multi-state models enable directly modeling disease progression where patients are observed to be in various states of health or disease at random intervals, but for which, except for death, the times of entering or leaving states are unknown.
-		* Multi-state models easily accommodate [interval censored](https://www.ncbi.nlm.nih.gov/pmc/articles/PMC3684949/#:~:text=In%20statistical%20literature%2C%20interval%20censoring,instead%20of%20being%20observed%20exactly.) intermediate states while making the usual assumption that death times are known but may be right censored.
-	* [{]{style='color: #990000'}[grf](https://grf-labs.github.io/grf/articles/survival.html){style='color: #990000'}[}]{style='color: #990000'} - generalized random forest; causal forest with time-to-event data
-	* [{]{style='color: #990000'}[partykit](https://cran.r-project.org/web/packages/partykit/index.html){style='color: #990000'}[}]{style='color: #990000'} - conditional inference trees; model-based recursive partitioning trees; can be used with [{survival}]{style='color: #990000'} to create random survival forests
-		* [{]{style='color: #990000'}[bonsai](https://bonsai.tidymodels.org/){style='color: #990000'}[}]{style='color: #990000'}: tidymodels partykit conditional trees, forests; successor to treesnip - Model Wrappers for Tree-Based Models
-	* [{]{style='color: #990000'}[aorsf](https://bcjaeger.github.io/aorsf/){style='color: #990000'}[}]{style='color: #990000'} \- optimized software to fit, interpret, and make predictions with oblique random survival forests (ORSFs)
-		[{{]{style='color: goldenrod'}[sklearn](https://scikit-survival.readthedocs.io/en/stable/api/generated/sksurv.ensemble.RandomSurvivalForest.html){style='color: goldenrod'}[}}]{style='color: goldenrod'} - Random Survival Forests, Survival Support Vector Machine
-		
-* Notes from
-	* [What is Cox's proportional hazards model?](https://rss.onlinelibrary.wiley.com/doi/epdf/10.1111/1740-9713.01633)
-* Why not use a standard regression model?
-	* Units that "survive" until the end of the study will have a censored survival time.
-		* i.e. we won't have an observed survival time for these units because they survive for an unknown time after the study is completed.
-		* We don't want to discard these units though, as they still have useful information.
-* Sample Size
-* Models
-	* Kaplan Meier model (i.e. K-M survival curve)
-		* Often used as a baseline in survival analysis
-		* Can not be used to compare risk between groups and compute metrics like the hazard ratio
-	* Exponential model, the Weibull model, Cox Proportional-Hazards, Log-logistic and the Accelerated Failure Time (AFT)
-	* Multi-State Models
-	* Hazard rates and Cumulative Hazard rates are typical quantities of interest
-* Log-Rank Test (aka Mantel-Cox test) - tests if two groups survival curves are different
-	* non-parametric; a special case with one binary X
-	* The intuition behind the test is that if the two groups have different hazard rates, the two survival curves (so their slopes) will differ.
-	* Compares the observed number of events in each group to what would be expected if the survival curves were identical (i.e., if the null hypothesis were true).
+        # plot curves with pval from test
+        fit <- survfit(Surv(time, event) ~ group, data = dat)
+        ggsurvplot(fit,
+          pval = TRUE,
+          pval.method = TRUE
+        )
+        ```
 
-```
-library(survival)
-dat <- data.frame(
-  group = c(rep(1, 6), rep(2, 6)),
-  time = c(4.1, 7.8, 10, 10, 12.3, 17.2, 9.7, 10, 11.1, 13.1, 19.7, 24.1),
-  event = c(1, 0, 1, 1, 0, 1, 1, 1, 0, 0, 1, 0)
-)
-dat
-##    group time event
-## 1      1  4.1    1
-## 2      1  7.8    0
-## 3      1 10.0    1
-## 4      1 10.0    1
-## 5      1 12.3    0
-## 6      1 17.2    1
-## 7      2  9.7    1
-## 8      2 10.0    1
-## 9      2 11.1    0
-## 10    2 13.1    0
-## 11    2 19.7    1
-## 12    2 24.1    0
-survdiff(Surv(time, event) ~ group,
-  data = dat
-)
-##        N Observed Expected (O-E)^2/E (O-E)^2/V
-## group=1 6        4    2.57    0.800      1.62
-## group=2 6        3    4.43    0.463      1.62
-## 
-##  Chisq= 1.6  on 1 degrees of freedom, p= 0.2
+        -   pval \> 0.05, so there isn't enough evidence to that they're different.
 
-# plot curves with pval from test
-fit <- survfit(Surv(time, event) ~ group, data = dat)
-ggsurvplot(fit,
-  pval = TRUE,
-  pval.method = TRUE
-)
-```
+## Components
 
-* pval > 0.05, so there isn't enough evidence to that they're different.
+-   **Survival Time** (T) (aka death, failure time, event time): time at which the event occurs
+-   **Censoring Time** (C): time at which censoring occurs
+    -   For each unit, we observe T or C.
+        -   Y = min(T, C)
+    -   **right censoring:** occurs when the event has happened after the enrollment (but the time is unknown).
+        -   The patient does not experience the event for the whole duration of the study.
+        -   The patient withdraws from the study.
+        -   The patient is lost to follow-up.
+    -   **left censoring**: occurs when the event has happened before the enrollment (but the time is unknown).
+-   **Cumulative hazard function** (aka **Cumulative Hazard Rates**)
+    -   Shows the total accumulated risk of an event occurring at time t
+    -   The area under the hazard function
+-   **Hazard Rate** (aka **Risk Score**), h(t \| X)
+    -   The hazard rate is the probability that a unit with predictors, X, will experience an event at time, t, given that the unit has survived just before time, t.
+    -   The formula for the Hazard Rate is the **Hazard function.**
+-   **Hazard Ratio (**aka **Relative Risk** of an event): Risk of an event given category / risk of an event given by reference category
+    -   The ratio of two instantaneous event rates
+    -   Coefficient of the Cox Proportional Hazards model (e.g. [paper](https://twitter.com/EricTopol/status/1612485677509382144))![](./_resources/Regression,_Survival.resources/image.3.png){width="632"}
+        -   eβ \> 1 (or β \> 0) for an increased risk of event (e.g. death).
+        -   eβ \< 1 (or β \< 0) for a reduced risk of event.
+        -   HR of 2 is equivalent to raising the entire survival curve for a control subject to the second power to get the survival curve for an exposed subject
+            -   Example: if a control subject has 5y survival probability of 0.7 and the exposed:control HR is 2, the exposed subject has a 5y survival probability of 0.49
+            -   If the HR is 1/2, the exposed subject has a survival curve that is the square root of the control, so S(5) would be √0.7 = 0.837
+-   **Status indicator**, δ
+    -   δ = 1, if T ≤ C (e.g. unit fails before study ends)
+        -   True survival time is observed
+    -   δ = 0, if T \> C (e.g. unit survives until end of study or has dropped out)
+        -   Censoring time is observed
+-   **Survival function** (aka **Survival Rate**), S(T \> t):
+    -   Outputs the probability of a subject surviving (i.e., not experiencing the event) beyond time t
+    -   Monotonically decreasing (i.e. level or decreasing)
+    -   Baseline survival curve illustrates the survival function when all the covariates are set to their median value
 
+## Kaplan-Meir
 
+-   Misc
+    -   Useful for validation of Proportional Hazards assumption. When lines cross the assumption, hazards are found to be non-proportional.
+    -   Harrell RMS ([Ch. 20.3](http://hbiostat.org/rmsc/cox.html#sec-cox-samsize)):
+        -   For external validation: at least 200 events
+        -   Need 184 subjects with an event, or censored late, to estimate  to within a margin of error of 0.1 everywhere, at the 0.95 confidence level
+-   Order event times (T) of units from smallest to largest, t1 \< .... \< tk
+-   Calculate probability that a unit survives past event time, ti, *given* that they survived up until event time, ti (i.e. past ti-1) (conditional probability)
+    -   e.g. for t1, it's (n1 - d1) / n1
+        -   n1 is the number of units that have survived at t1
+        -   d1 is the number of units that have experienced the event (e.g. died) at t1
+        -   Similar for other t values
+    -   Median survival time is where the survival probability equals 0.5
+-   Survival function\[\](./\_resources/Regression,\_Survival.resources/1-bp-FZyIs1WlqYgQMWn9Obw.gif\]\]
+    -   The survival  function computes the products of these probabilities resulting in the **K-M survival curve**
+    -   The product of these conditional probabilities reflects the fact that to survive past event time, t, a unit must have survived all previous event times and the current event time.
+-   [Example]{.ribbon-highlight}: 50 patients\
+    ![](./_resources/Regression,_Survival.resources/Screenshot%20(803).png){width="432"}
+    -   Dotted lines represent 95% CI
+    -   Red dots indicate time when patients died (aka event times)
+    -   Median survival time is \~ 13yrs
 
-Components
+## Exponential
 
-* **Survival Time** (T) (aka death, failure time, event time): time at which the event occurs
-* **Censoring Time** (C): time at which censoring occurs
-	* For each unit, we observe T or C.
-		* Y = min(T, C)
-	* **right censoring:** occurs when the event has happened after the enrollment (but the time is unknown).
-		* The patient does not experience the event for the whole duration of the study.
-		* The patient withdraws from the study.
-		* The patient is lost to follow-up.
-	* **left censoring**: occurs when the event has happened before the enrollment (but the time is unknown).
-* **Cumulative hazard function** (aka **Cumulative Hazard Rates**)
-	* Shows the total accumulated risk of an event occurring at time t
-	* The area under the hazard function
-* **Hazard Rate** (aka **Risk Score**), h(t | X)
-	* The hazard rate is the probability that a unit with predictors, X, will experience an event at time, t, given that the unit has survived just before time, t.
-	* The formula for the Hazard Rate is the **Hazard function.**
-* **Hazard Ratio (**aka **Relative Risk** of an event): Risk of an event given category / risk of an event given by reference category
-	* The ratio of two instantaneous event rates
-	* Coefficient of the Cox Proportional Hazards model (e.g. [paper](https://twitter.com/EricTopol/status/1612485677509382144))![](./_resources/Regression,_Survival.resources/image.3.png)
-		* eβ > 1 (or β > 0) for an increased risk of event (e.g. death).
-		* eβ < 1 (or β < 0) for a reduced risk of event.
-		* HR of 2 is equivalent to raising the entire survival curve for a control subject to the second power to get the survival curve for an exposed subject
-			* Example: if a control subject has 5y survival probability of 0.7 and the exposed:control HR is 2, the exposed subject has a 5y survival probability of 0.49
-			* If the HR is 1/2, the exposed subject has a survival curve that is the square root of the control, so S(5) would be √0.7 = 0.837
-* **Status indicator**, δ
-	* δ = 1, if T ≤ C (e.g. unit fails before study ends)
-		* True survival time is observed
-	* δ = 0, if T > C (e.g. unit survives until end of study or has dropped out)
-		* Censoring time is observed
-* **Survival function** (aka **Survival Rate**), S(T > t):
-	* Outputs the probability of a subject surviving (i.e., not experiencing the event) beyond time t
-	* Monotonically decreasing (i.e. level or decreasing)
-	* Baseline survival curve illustrates the survival function when all the covariates are set to their median value
+-   Assumes that the hazard rate is constant
+    -   i.e. risk of the event of interest occurring remains the same throughout the period of observation
+-   Survival function\
+    ![](./_resources/Regression,_Survival.resources/1-2ntIkKasAy0brpQVQn5G-w.gif)
+-   Hazard function\
+    ![](./_resources/Regression,_Survival.resources/1-IrMPAxcARRv3jXtg396ibg.gif)
+    -   h(t) is the constand hazard rate
+-   Estimated parameter: λ
 
+## Weibull
 
+-   Assumes the change in hazard rate is linear.
+-   Survival function\
+    ![](./_resources/Regression,_Survival.resources/1-xF_27mSbJgJzIvMId4doAQ.gif)
+-   Hazard function\
+    ![](./_resources/Regression,_Survival.resources/1-dcSj1tJC1TEzo_xsdSNHIA.gif)
+-   Estimated parameters: λ and ρ
+    -   λ parameter indicates how long it takes for 63.2% of the subjects to experience the event.
+    -   ρ parameter indicates whether the hazard rate is increasing, decreasing, or constant.
+        -   If ρ is greater than 1, the hazard rate is constantly increasing.
+        -   If ρ is less than 1, the hazard rate is constantly decreasing.
 
-Kaplan-Meir
+## Cox's Proportional Hazards
 
-* Misc
-	* Useful for validation of Proportional Hazards assumption. When lines cross the assumption, hazards are found to be non-proportional.
-	* Harrell RMS ([Ch. 20.3](http://hbiostat.org/rmsc/cox.html#sec-cox-samsize)):
-		* For external validation: at least 200 events
-		* Need 184 subjects with an event, or censored late, to estimate  to within a margin of error of 0.1 everywhere, at the 0.95 confidence level
-* Order event times (T) of units from smallest to largest, t1 < .... < tk
-* Calculate probability that a unit survives past event time, ti, _given_ that they survived up until event time, ti (i.e. past ti-1) (conditional probability)
-	* e.g. for t1, it's (n1 - d1) / n1
-		* n1 is the number of units that have survived at t1
-		* d1 is the number of units that have experienced the event (e.g. died) at t1
-		* Similar for other t values
-	* Median survival time is where the survival probability equals 0.5
-* Survival function![](./_resources/Regression,_Survival.resources/1-bp-FZyIs1WlqYgQMWn9Obw.gif]]
-	* The survival  function computes the products of these probabilities resulting in the **K-M survival curve**
-	* The product of these conditional probabilities reflects the fact that to survive past event time, t, a unit must have survived all previous event times and the current event time.
-* Example: 50 patients![](./_resources/Regression,_Survival.resources/Screenshot (803).png)
-	* Dotted lines represent 95% CI
-	* Red dots indicate time when patients died (aka event times)
-	* Median survival time is ~ 13yrs
+-   Multivariable regression model
+-   Allows the hazard rate to fluctuate
+-   Harrell: "under PH \[assumption\] and absence of covariate interactions, HR is a good overall effect estimate for binary \[treatment\]"
+-   Misc
+    -   packages
+        -   [{]{style="color: #990000"}[glmnet](https://glmnet.stanford.edu/articles/Coxnet.html){style="color: #990000"}[}]{style="color: #990000"} - Regularized Cox Regression
+    -   Sample Size
+        -   Harrell RMS ([Ch. 20.3](http://hbiostat.org/rmsc/cox.html#sec-cox-samsize)):
+            -   To achieve a Multiplicative Margin of Error (MMOE ) of 1.2 (?) in estimating eβ\^ with equal numbers of events in the two groups (balanced, binary treatment variable) and α = 0.05 → requires a total of 462 events
+-   Assumes
+    -   Hazard ratios (ratio of hazard rates or exp(β) between groups/units remain constant
+        -   i.e. no matter how the hazard rates of the subjects change during the period of observation, the hazard rate of one group relative to the other will always stay the same
+    -   Hazard Ratios are independent of time
+    -   Example: Immunotherapy typically violates PH assumptions ([post](https://statmodeling.stat.columbia.edu/2023/03/23/bad-stuff-going-down-in-biostat-land-declaring-null-effect-just-cos-p-value-is-more-than-0-05-assuming-proportional-hazards-where-it-makes-no-sense/))![](./_resources/Regression,_Survival.resources/image.4.png){width="632"}
+        -   The survival probabilities between the treatment (blue) and the chemo (red) cross at around the 4.2 months
+            -   The distance between the lines should remain somewhat constant throughout the trial in order to adhere to the PH assumptions (1st assumption)
+            -   Also think the lines should be somewhat straight. (2nd assumption)
+        -   Patients in immunotherapy drug trials often experience a period of toxicity, but if they survive this period, they have a much better outcome down the road.
+    -   Tests
+        -   Grambsch and Therneau (G&T)
+        -   See Harrell RMS ([Ch. 20.6.2](http://hbiostat.org/rmsc/cox.html#sec-cox-ph))
+    -   If assumptions are violated,
+        -   Gelman says to try and "expand the model, at the very least by adding an interaction." ([post](https://statmodeling.stat.columbia.edu/2023/03/23/bad-stuff-going-down-in-biostat-land-declaring-null-effect-just-cos-p-value-is-more-than-0-05-assuming-proportional-hazards-where-it-makes-no-sense/))
+        -   See Harrell RMS ([Ch. 20.7](http://hbiostat.org/rmsc/cox.html#what-to-do-when-ph-fails))
+        -   Use a different model
+            -   Accelerated Failure Time (AFT) model (See ML \>\> Gradient Boosting Survival Trees)
+            -   Adjusted Cox PH model with Time-Varying Coefficients
+                -   Must choose a functional form describing how the effect of the treatment changes over time
+                    -   Recommended to use AIC criteria to guide one's choice among a large number of candidates
+-   Models **event time (T)** outcome variable and outputs parameter estimates for **treatment (X)** effects
+    -   Provides a way to have time-dependent (i.e. repeated measures) explanatory variables (e.g. age, health status, biomarkers)
+    -   Can handle other types of censoring such as left or interval censoring.
+    -   Has extensions such as lasso to handle high dimensional data
+    -   DL and ML models also have versions of this method
+-   Hazard function
+    -   h(t \|X) = h0(t)exβ
+    -   The hazard rate for a unit with predictors, X, is the product of a baseline hazard, h0(t) (corresponding to X = 0) and a factor that depends on X and the regression parameters, β
+    -   Optimized to yield partial maximum likelihood estimates, β\^.
+        -   Doesn't require the specification of h0(t) which makes the method flexible and robust
+-   Hazard Ratio (aka relative risk) for a binary covariate (e.g. treatment)  = eᶜᵒᵉᶠ
+-   Interpretation:
+    -   Hazard Rate (risk of the event): Moving from the reference category to the other category changes the hazard rate by a factor of eᶜᵒᵉᶠ
+        -   e.g. eᶜᵒᵉᶠ = 0.68 means the change in category results in a (1 - 0.68) = 0.32 = 32% decrease in the hazard rate on average.
+    -   Relative Risk (of an event): Risk of an event given category / risk of an event given by reference category
+    -   [Example]{.ribbon-highlight}: Treatment = Smoking
+        -   Risk Score (aka hazard rate) given by smoking: (xᵢ=1): h₀(t)exp(β⋅xᵢ) = h₀(t)exp(β\*1) = **h₀(t)exp(β)**
 
+        -   Risk Score (aka base hazard rate) given by not smoking: (xᵢ=0): h₀(t)exp(β⋅xᵢ) = h₀(t)exp(β\*0) = **h₀(t)**
 
+        -   Relative risk (aka hazard ratio) = risk given by smoking / risk given by not smoking: h₀(t)exp(β) / h₀(t) = **exp(β)**
 
-Exponential
+## ML
 
-* Assumes that the hazard rate is constant
-	* i.e. risk of the event of interest occurring remains the same throughout the period of observation
-* Survival function![](./_resources/Regression,_Survival.resources/1-2ntIkKasAy0brpQVQn5G-w.gif]]
-* Hazard function![](./_resources/Regression,_Survival.resources/1-IrMPAxcARRv3jXtg396ibg.gif]]
-	* h(t) is the constand hazard rate
-* Estimated parameter: λ
+-   Misc
+    -   Split data so partitions have the same censoring distribution.
 
+        -   The censoring distribution might be obtained from a Kaplan-Meier estimator applied to the data.
 
+    -   Dynamic AUC is a recommended metric Random Survival Forests The main difference from a standard RF lies in the metric used to assess the quality of a split: [log-rank](https://en.wikipedia.org/wiki/Logrank_test) (see Misc) which is typically used when comparing survival curves among two or more groups.
 
-Weibull
+        Packages
 
-* Assumes the change in hazard rate is linear.
-* Survival function![](./_resources/Regression,_Survival.resources/1-xF_27mSbJgJzIvMId4doAQ.gif]]
-* Hazard function![](./_resources/Regression,_Survival.resources/1-dcSj1tJC1TEzo_xsdSNHIA.gif]]
-* Estimated parameters: λ and ρ
-	* λ parameter indicates how long it takes for 63.2% of the subjects to experience the event.
-	* ρ parameter indicates whether the hazard rate is increasing, decreasing, or constant.
-		* If ρ is greater than 1, the hazard rate is constantly increasing.
-		* If ρ is less than 1, the hazard rate is constantly decreasing.
+        -   [{]{style="color: #990000"}[aorsf](https://bcjaeger.github.io/aorsf/){style="color: #990000"}[}]{style="color: #990000"} - optimized software to fit, interpret, and make predictions with oblique random survival forests (ORSFs) [{{]{style="color: goldenrod"}[sklearn](https://scikit-survival.readthedocs.io/en/stable/api/generated/sksurv.ensemble.RandomSurvivalForest.html){style="color: goldenrod"}[}}]{style="color: goldenrod"}
+-   Gradient Boosting Survival Trees
+    -   Loss Functions
+        -   Partial likelihood loss of Cox's proportional hazards model
+        -   Squared regression loss
+        -   Inverse probability of censoring weighted least squares error.
+            -   Allows the model to accelerate or decelerate the time to an event by a constant factor. It is known as the Accelerated Failure Time (AFT). It contrasts with the Cox proportional hazards model where only the features influence the hazard function.
+    -   Packages
+        -   [{{]{style="color: goldenrod"}[sklearn](https://scikit-survival.readthedocs.io/en/stable/api/generated/sksurv.ensemble.GradientBoostingSurvivalAnalysis.html){style="color: goldenrod"}[}}]{style="color: goldenrod"}
+-   Survival Support Vector Machine
+    -   Predictions cannot be easily related to the standard quantities of survival analysis, that is, the survival function and the cumulative hazard function.
+    -   Packages
+        -   [{{]{style="color: goldenrod"}[sklearn](https://scikit-survival.readthedocs.io/en/stable/api/generated/sksurv.svm.FastKernelSurvivalSVM.html){style="color: goldenrod"}[}}]{style="color: goldenrod"}
 
+## Diagnostics
 
-
-Cox's Proportional Hazards
-
-* Multivariable regression model
-* Allows the hazard rate to fluctuate
-* Harrell: "under PH \[assumption\] and absence of covariate interactions, HR is a good overall effect estimate for binary \[treatment\]"
-* Misc
-	* packages
-		* [{]{style='color: #990000'}[glmnet](https://glmnet.stanford.edu/articles/Coxnet.html){style='color: #990000'}[}]{style='color: #990000'} - Regularized Cox Regression
-	* Sample Size
-		* Harrell RMS ([Ch. 20.3](http://hbiostat.org/rmsc/cox.html#sec-cox-samsize)):
-			* To achieve a Multiplicative Margin of Error (MMOE ) of 1.2 (?) in estimating eβ^ with equal numbers of events in the two groups (balanced, binary treatment variable) and α = 0.05 → requires a total of 462 events
-* Assumes
-	* Hazard ratios (ratio of hazard rates or exp(β) between groups/units remain constant
-		* i.e. no matter how the hazard rates of the subjects change during the period of observation, the hazard rate of one group relative to the other will always stay the same
-	* Hazard Ratios are independent of time
-	* Example: Immunotherapy typically violates PH assumptions ([post](https://statmodeling.stat.columbia.edu/2023/03/23/bad-stuff-going-down-in-biostat-land-declaring-null-effect-just-cos-p-value-is-more-than-0-05-assuming-proportional-hazards-where-it-makes-no-sense/))![](./_resources/Regression,_Survival.resources/image.4.png)
-		* The survival probabilities between the treatment (blue) and the chemo (red) cross at around the 4.2 months
-			* The distance between the lines should remain somewhat constant throughout the trial in order to adhere to the PH assumptions (1st assumption)
-			* Also think the lines should be somewhat straight. (2nd assumption)
-		* Patients in immunotherapy drug trials often experience a period of toxicity, but if they survive this period, they have a much better outcome down the road.
-	* Tests
-		* Grambsch and Therneau (G&T)
-		* See Harrell RMS ([Ch. 20.6.2](http://hbiostat.org/rmsc/cox.html#sec-cox-ph))
-	* If assumptions are violated,
-		* Gelman says to try and "expand the model, at the very least by adding an interaction." ([post](https://statmodeling.stat.columbia.edu/2023/03/23/bad-stuff-going-down-in-biostat-land-declaring-null-effect-just-cos-p-value-is-more-than-0-05-assuming-proportional-hazards-where-it-makes-no-sense/))
-		* See Harrell RMS ([Ch. 20.7](http://hbiostat.org/rmsc/cox.html#what-to-do-when-ph-fails))
-		* Use a different model
-			* Accelerated Failure Time (AFT) model (See ML >> Gradient Boosting Survival Trees)
-			* Adjusted Cox PH model with Time-Varying Coefficients
-				* Must choose a functional form describing how the effect of the treatment changes over time
-					* Recommended to use AIC criteria to guide one’s choice among a large number of candidates
-* Models **event time (T)** outcome variable and outputs parameter estimates for **treatment (X)** effects
-	* Provides a way to have time-dependent (i.e. repeated measures) explanatory variables (e.g. age, health status, biomarkers)
-	* Can handle other types of censoring such as left or interval censoring.
-	* Has extensions such as lasso to handle high dimensional data
-	* DL and ML models also have versions of this method
-* Hazard function
-	* h(t |X) = h0(t)exβ
-	* The hazard rate for a unit with predictors, X, is the product of a baseline hazard, h0(t) (corresponding to X = 0) and a factor that depends on X and the regression parameters, β
-	* Optimized to yield partial maximum likelihood estimates, β^.
-		* Doesn't require the specification of h0(t) which makes the method flexible and robust
-* Hazard Ratio (aka relative risk) for a binary covariate (e.g. treatment)  = eᶜᵒᵉᶠ
-* Interpretation:
-	* Hazard Rate (risk of the event): Moving from the reference category to the other category changes the hazard rate by a factor of eᶜᵒᵉᶠ
-		* e.g. eᶜᵒᵉᶠ = 0.68 means the change in category results in a (1 - 0.68) = 0.32 = 32% decrease in the hazard rate on average.
-	* Relative Risk (of an event): Risk of an event given category / risk of an event given by reference category
-	* [Example]{.ribbon-highlight}: Treatment = Smoking
-		* Risk Score (aka hazard rate) given by smoking:
-			(xᵢ=1): h₀(t)exp(β⋅xᵢ) = h₀(t)exp(β\*1) = **h₀(t)exp(β)**
-			
-		* Risk Score (aka base hazard rate) given by not smoking:
-			(xᵢ=0): h₀(t)exp(β⋅xᵢ) = h₀(t)exp(β\*0) = **h₀(t)**
-			
-		* Relative risk (aka hazard ratio) = risk given by smoking / risk given by not smoking:
-			h₀(t)exp(β) / h₀(t) = **exp(β)**
-			
-
-
-
-ML
-
-* Misc
-	* Split data so partitions have the same censoring distribution.
-		* The censoring distribution might be obtained from a Kaplan-Meier estimator applied to the data.
-	* Dynamic AUC is a recommended metric
-	Random Survival Forests
-		The main difference from a standard RF lies in the metric used to assess the quality of a split: [log-rank](https://en.wikipedia.org/wiki/Logrank_test) (see Misc) which is typically used when comparing survival curves among two or more groups.
-		
-		Packages
-		* [{]{style='color: #990000'}[aorsf](https://bcjaeger.github.io/aorsf/){style='color: #990000'}[}]{style='color: #990000'} \- optimized software to fit, interpret, and make predictions with oblique random survival forests (ORSFs)
-			[{{]{style='color: goldenrod'}[sklearn](https://scikit-survival.readthedocs.io/en/stable/api/generated/sksurv.ensemble.RandomSurvivalForest.html){style='color: goldenrod'}[}}]{style='color: goldenrod'}
-			
-* Gradient Boosting Survival Trees
-	* Loss Functions
-		* Partial likelihood loss of Cox’s proportional hazards model
-		* Squared regression loss
-		* Inverse probability of censoring weighted least squares error.
-			* Allows the model to accelerate or decelerate the time to an event by a constant factor. It is known as the Accelerated Failure Time (AFT). It contrasts with the Cox proportional hazards model where only the features influence the hazard function.
-	* Packages
-		* [{{]{style='color: goldenrod'}[sklearn](https://scikit-survival.readthedocs.io/en/stable/api/generated/sksurv.ensemble.GradientBoostingSurvivalAnalysis.html){style='color: goldenrod'}[}}]{style='color: goldenrod'}
-* Survival Support Vector Machine
-	* Predictions cannot be easily related to the standard quantities of survival analysis, that is, the survival function and the cumulative hazard function.
-	* Packages
-		* [{{]{style='color: goldenrod'}[sklearn](https://scikit-survival.readthedocs.io/en/stable/api/generated/sksurv.svm.FastKernelSurvivalSVM.html){style='color: goldenrod'}[}}]{style='color: goldenrod'}
-
-
-
-Diagnostics
-
-* Notes from [How to Evaluate Survival Analysis Models](https://towardsdatascience.com/how-to-evaluate-survival-analysis-models-dd67bc10caae)
-* **Concordance Index (C-Index, Harrell's C)**
-	* Consider a pair of patients (i, j). Intuitively, a _higher risk_ should result in a _shorter time to the adverse event_. Therefore, if a model predicts a higher risk score for the first patient (ηᵢ > ηⱼ), we also expect a shorter survival time in comparison with the other patient (Tᵢ < Tⱼ).
-	* Each pair (i, j) that fulfills this expectation (ηᵢ > ηⱼ : Tᵢ < Tj or ηᵢ < ηⱼ : Tᵢ > Tⱼ) as concordant pair, and discordant otherwise.
-		* A high number of concordant pairs is an evidence of the quality of the model, as the predicted higher risks correspond to an effectively shorter survival time compared to lower risks
-	* Formula![](./_resources/Regression,_Survival.resources/image.png)
-		* If both patients i and j are censored, we have no information on Tᵢ and Tⱼ, hence the pair is discarded.
-		* If only one patient is censored, we keep the pair only if the other patient experienced the event prior to the censoring time. Otherwise, we have no information on which patient might have experienced the event first, and the pair is discarded
-	* Programmatic Formula![](./_resources/Regression,_Survival.resources/image.1.png)
-		* Where the variable Δⱼ indicates whether Tⱼ has been fully observed (Δⱼ = 1) or not (Δⱼ = 0). Therefore, the multiplication by Δⱼ allows to discard noncomparable pairs because the smaller survival time is censored (Δⱼ = 0).
-	* Guidelines
-		* C = 1: perfect concordance between risks and event times.
-		* C = 0: perfect anti-concordance between risks and event times.
-		* C = 0.5: random assignment. The model predicts the relationship between risk and survival time as well as a coin toss.
-		* Desirable values range between 0.5 and 1.
-			* The closer to 1, the more the model differentiates between early events (higher risk) and later occurrences (lower risk).
-	* Issues
-		* The C-index maintains an implicit dependency on time.
-		* The C-index becomes more biased (upwards) the more the amount of censoring (see Uno's C below)
-* **Uno’s C**
-	* \*\* Preferable to Harrell’s C in the presence of a higher amount of censoring. \*\*
-	* Variation of Harrell’s C that includes the inverse probability of censoring weighting
-		* Weights based on the estimated censoring cumulative distribution
-		* Uses the Kaplan-Meier estimator for the censoring distribution
-			* So the disribution of censored units should be independent of the covariate variables
-				* In the paper, Uno showed through simulation this measure is still pretty robust even when the censoring is dependent on the covariates
-* **Dynamic AUC**
-	* AUC where the False Positive Rates (FPR) and True Positive Rates (TPR) are time-dependent
-		* Since a unit is a True Negative until the event then becomes a True Positive
-		* Recommended for tasks when you want to measure performance over a specific period of time (e.g. predicting churn in the first year of subscription).
-	* Formula![](./_resources/Regression,_Survival.resources/image.2.png)
-		* f^s are predicted risk scores
-		* ώ is the inverse probability of censoring weight (see Uno's C)
-			* disregard the freaking dash above the omega, microsoft deleted the regular one for some reason
-		* I(yi,j > t) indicates whether the unit pair's, i and j, event time is greater or less the time, t. (I think)
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
+-   Misc
+    -   Notes from [How to Evaluate Survival Analysis Models](https://towardsdatascience.com/how-to-evaluate-survival-analysis-models-dd67bc10caae)
+    -   Packages
+        -   [{]{style="color: #990000"}[survex](https://github.com/ModelOriented/survex){style="color: #990000"}[}]{style="color: #990000"} - Explainable Machine Learning in Survival Analysis
+            -   From Dalex group
+-   **Concordance Index (C-Index, Harrell's C)**
+    -   Consider a pair of patients (i, j). Intuitively, a *higher risk* should result in a *shorter time to the adverse event*. Therefore, if a model predicts a higher risk score for the first patient (ηᵢ \> ηⱼ), we also expect a shorter survival time in comparison with the other patient (Tᵢ \< Tⱼ).
+    -   Each pair (i, j) that fulfills this expectation (ηᵢ \> ηⱼ : Tᵢ \< Tj or ηᵢ \< ηⱼ : Tᵢ \> Tⱼ) as concordant pair, and discordant otherwise.
+        -   A high number of concordant pairs is an evidence of the quality of the model, as the predicted higher risks correspond to an effectively shorter survival time compared to lower risks
+    -   Formula\
+        ![](./_resources/Regression,_Survival.resources/image.png){width="332"}
+        -   If both patients i and j are censored, we have no information on Tᵢ and Tⱼ, hence the pair is discarded.
+        -   If only one patient is censored, we keep the pair only if the other patient experienced the event prior to the censoring time. Otherwise, we have no information on which patient might have experienced the event first, and the pair is discarded
+    -   Programmatic Formula\
+        ![](./_resources/Regression,_Survival.resources/image.1.png){width="332"}
+        -   Where the variable Δⱼ indicates whether Tⱼ has been fully observed (Δⱼ = 1) or not (Δⱼ = 0). Therefore, the multiplication by Δⱼ allows to discard noncomparable pairs because the smaller survival time is censored (Δⱼ = 0).
+    -   Guidelines
+        -   C = 1: perfect concordance between risks and event times.
+        -   C = 0: perfect anti-concordance between risks and event times.
+        -   C = 0.5: random assignment. The model predicts the relationship between risk and survival time as well as a coin toss.
+        -   Desirable values range between 0.5 and 1.
+            -   The closer to 1, the more the model differentiates between early events (higher risk) and later occurrences (lower risk).
+    -   Issues
+        -   The C-index maintains an implicit dependency on time.
+        -   The C-index becomes more biased (upwards) the more the amount of censoring (see Uno's C below)
+-   **Uno's C**
+    -   \*\* Preferable to Harrell's C in the presence of a higher amount of censoring. \*\*
+    -   Variation of Harrell's C that includes the inverse probability of censoring weighting
+        -   Weights based on the estimated censoring cumulative distribution
+        -   Uses the Kaplan-Meier estimator for the censoring distribution
+            -   So the disribution of censored units should be independent of the covariate variables
+                -   In the paper, Uno showed through simulation this measure is still pretty robust even when the censoring is dependent on the covariates
+-   **Dynamic AUC**
+    -   AUC where the False Positive Rates (FPR) and True Positive Rates (TPR) are time-dependent
+        -   Since a unit is a True Negative until the event then becomes a True Positive
+        -   Recommended for tasks when you want to measure performance over a specific period of time (e.g. predicting churn in the first year of subscription).
+    -   Formula\
+        ![](./_resources/Regression,_Survival.resources/image.2.png){width="332" height="51"}
+        -   f\^s are predicted risk scores
+        -   ώ is the inverse probability of censoring weight (see Uno's C)
+            -   disregard the freaking dash above the omega, microsoft deleted the regular one for some reason
+        -   I(yi,j \> t) indicates whether the unit pair's, i and j, event time is greater or less the time, t. (I think)
