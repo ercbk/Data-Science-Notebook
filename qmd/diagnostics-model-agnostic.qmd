@@ -69,7 +69,7 @@ plot(diag_ranger, variable = "y", yvariable = "y_hat") +
 
 -   [Misc]{.underline}
 
-    -   For ML models, can help in detecting groups of observations for which a model's predictions are biased and, hence, require inspection.
+    -   For ML models, can help in detecting groups of observations for which a model's predictions are biased.
 
     -   From [Chapter 19](https://ema.drwhy.ai/residualDiagnostic.html)
 
@@ -135,7 +135,9 @@ plot(diag_ranger, variable = "y", yvariable = "y_hat") +
 
 -   From [Chapter 16](https://ema.drwhy.ai/featureImportance.html)
 
--   Model-agnostic method used allows comparing an explanatory-variable's importance between models with different structures.
+-   Model-agnostic method used allows comparing an explanatory-variable's importance between models with different structures to check for agreement.
+
+    -   If variables are ranked in importance differently in different models, then compare in pdp, factor, or ale plots. See if one of the models that has the variable ranked higher captures a different (e.g. non-linear) relationship with response better than the other models
 
 -   The permutation step means there some randomness involved, so it should be repeated many times. This will give you a distribution of importance values for each variable. Then, you can calculate a an interval based on a chosen quantile to represent the uncertainty.
 
@@ -177,24 +179,122 @@ plot(diag_ranger, variable = "y", yvariable = "y_hat") +
 
     -   Box-plot represents the distribution of importance values for that variable
 
-#### Partial Dependence
+#### Partial Dependence Profiles (PDPs)
 
--   The PDP curve represents the average prediction across all observations while holding a predictor, x, at a constant value
-    -   Keep a new data pt constant and calculate a prediction for each observed value of the other predictors then take the average of the predictions
--   Partial Dependence profiles are averages of Ceteris-Paribus profiles. Therefore, they inherit the limitations of the latter. In particular, as CP profiles are problematic for correlated explanatory variables may offer a crude and potentially misleading summarization
-    -   See Accumulated Local Profies
--   Steps for a selected predictor, x:
-    1.  Determine grid space of j evenly spaced values across distribution of x
+-   [Misc]{.underline}
+
+    -   From [Chapter 17](https://ema.drwhy.ai/partialDependenceProfiles.html)
+    -   The PDP curve represents the average prediction across all observations while holding a predictor, x, at a constant value
+        -   Keep a new data pt constant and calculate a prediction for each observed value of the other predictors then take the average of the predictions
+        -   Partial Dependence profiles are averages of Ceteris-Paribus profiles
+    -   When comparing PDPs between Regression and Tree models, expect to see flatter areas for tree models as they tend to shrink predictions towards the average and they are not very good for extrapolation outside the range of values observed in the training dataset.
+    -   For additive models, CP profiles are parallel. For models with interactions, CP profiles may not be parallel.
+
+-   [Use Cases]{.underline}
+
+    -   Agreement between profiles for different models is reassuring. Some models are more flexible than others. If PD profiles for models, which differ with respect to flexibility, are similar, we can treat it as a piece of evidence that the more flexible model is not overfitting and that the models capture the same relationship.
+    -   Disagreement between profiles may suggest a way to improve a model. If a PD profile of a simpler, more interpretable model disagrees with a profile of a flexible model, this may suggest a variable transformation that can be used to improve the interpretable model. For example, if a random forest model indicates a non-linear relationship between the dependent variable and an explanatory variable, then a suitable transformation of the explanatory variable may improve the fit or performance of a linear-regression model.
+        -   Example:
+
+            ![](_resources/Diagnostics,_Model_Agnostic.resources/dalex-pdp-mod-comp-1.png){width="502"}
+
+            ``` r
+            pdp_lmr <- 
+              model_profile(explainer = explainer_lmr, 
+                                     variables = "age")
+            pdp_rf <- 
+              model_profile(explainer = explainer_rf, 
+                                    variables = "age")
+            plot(pdp_rf, pdp_lmr) +
+                ggtitle("Partial-dependence profiles for age for two models") 
+            ```
+
+            -   Left: Indicates that the linear regression isn't capturing u-shape relationship
+            -   Right: Indicates that the RF may be underestimating the effect
+    -   Evaluation of model performance at boundaries. Models are known to have different behaviour at the boundaries of the possible range of a dependent variable, i.e., for the largest or the lowest values. For instance, random forest models are known to shrink predictions towards the average, whereas support-vector machines are known for a larger variance at edges. Comparison of PD profiles may help to understand the differences in models' behaviour at boundaries.
+
+-   [Checks]{.underline}
+
+    -   Highly Correlated Variables
+        -   PD profiles inherit the limitations of the CP profiles. In particular, as CP profiles are problematic for correlated explanatory variables may offer a crude and potentially misleading summarization
+        -   If highly correlated, use Accumulated Local Profies
+    -   Check CP profile for consistent behavior
+        -   PD profiles are estimated by the mean of the CP profiles for all instances (observations) from a dataset (i.e. CP profiles are instance-level PD profiles).
+
+        -   The mean (i.e. PD) may not be representative of the relationship of the variable and the response
+
+        -   If the CP prole lines are parallel, then the PD profile is representative
+
+        -   Solutions (If not parallel):
+
+            -   Cluster CP profiles - Cluster the CP profiles (e.g. k-means) and the entroids will be the PD lines
+                -   [Example]{.ribbon-highlight}
+
+                    ![](_resources/Diagnostics,_Model_Agnostic.resources/dalex-pdp-cluster-1.png){width="332"}
+
+                    ``` r
+                    pdp_rf_clust <- 
+                      model_profile(explainer = explainer_rf, 
+                                    variables = "age", 
+                                    k = 3)
+                    plot(pdp_rf_clust, 
+                         geom = "profiles") + 
+                        ggtitle("Clustered partial-dependence profiles for age") 
+                    ```
+            -   Grouped-by CP profiles - Group CP profiles by a moderator variable
+                -   Distinctive PD lines can indicate an interaction
+
+                -   [Example]{.ribbon-highlight}
+
+                    ![](_resources/Diagnostics,_Model_Agnostic.resources/dalex-pdp-groupby-1.png){width="332"}
+
+                    ``` r
+                    pdp_rf_gender <- 
+                      model_profile(explainer = explainer_rf, 
+                                    variables = "age", 
+                                    groups = "gender")
+                    plot(pdp_rf_gender, 
+                         geom = "profiles") + 
+                        ggtitle("Partial-dependence profiles for age, grouped by gender") 
+                    ```
+
+                    -   Gender looks like a good candidate for an interaction
+
+        -   [Example]{.ribbon-highlight}: RF survival model
+
+            ![](_resources/Diagnostics,_Model_Agnostic.resources/dalex-pdp-check-1.png){width="432"}
+
+            -   The shape of the PD profile does not capture, for instance, the shape of the group of five CP profiles shown at the top of the panel.
+            -   It does seem to reflect the fact that the majority of CP profiles (predicted probabilities below 0.75) suggest a substantial drop in the predicted probability of survival for the ages between 2 and 18.
+
+-   [Steps]{.underline}
+
+    1.  Determine grid space of j evenly spaced values across distribution of selected predictor, x
     2.  For value i in {1,...,j} of grid space
         1.  set x == i for all n observations (x is a constant variable)
         2.  apply given ML model
         3.  estimate n predicted values
         4.  calculate the average predicted value
     3.  graph y_hat vs x
--   Args
--   numeric preds- variable_response(, type = "pdp"), with highly corr preds, type ="ale"
--   cat preds - type = "factor", hierarchically clusters cat levels showing which levels are most similar to each other. Also a boxplot for each level with predictions on x axis , number next to level is the median
--   If vars ranked in importance differently in different models --\> compare in pdp, factor, or ale plots. See if model that has var ranked higher captures a different (eg non-linear) rel with response than another model
+
+-   [Code]{.underline}
+
+    ``` r
+    pdp_rf <- model_profile(explainer = explainer_rf, variables = "age")
+    library("ggplot2")
+    plot(pdp_rf) +  ggtitle("Partial-dependence profile for age") 
+    ```
+
+    -   Other Args
+        -   **`N`** - The number of (randomly sampled) observations that are to be used for the calculation of the PD profiles (N = 100 by default); N = NULL implies the use of the entire dataset included in the explainer-object.
+
+        -   **variable_type** - A character string indicating whether calculations should be performed only for "numerical" (continuous) explanatory variables (default) or only for "categorical" variables.
+
+        -   **groups** - The name of the explanatory variable that will be used to group profiles, with groups = NULL by default (in which case no grouping of profiles is applied).
+
+        -   **k** - The number of clusters to be created with the help of the `hclust()` function, with k = NULL used by default and implying no clustering.
+
+        -   **geom = "profiles"** in the `plot` function, we add the CP profiles to the plot of the PD profile.
 
 #### Break-Down
 
@@ -208,32 +308,24 @@ plot(diag_ranger, variable = "y", yvariable = "y_hat") +
 
 -   (Need numeric pred vars and outcome or prob outcome) Sect 5.1 Ceteris Paribus profiles for 1 obs - similar to PDPs in sect 3.3, eg resp vs var line chart, but here resps are calcd instead of using fits from original model. Also like interpreting a regression coefficient except there it's assumed a linear relationship so one unit increase in var equals <coef> increase in the response. This can show a nonlinear relationship between the variable and the response.
 
+#### Ceteris Paribus (CP)
+
+-   From Chapter 10
+-   A CP profile shows the dependence of an instance-level prediction on an explanatory variable.
 -   ceteris_paribus(), supply single obs with values of your choice, 1 numeric var varies while others held constant and responses calcd. Repeated for other numeric vars. Plot. Can supply a cat var but it'll just be a constant throughout process.
-
 -   Sect 5.2 Ceteris Paribus profile for local area around obs. Supply obs, select_neighbors, ceteris_paribus, plot
-
 -   Neighbors chosen from calcd distance metric using all vars, default is gower distance, whatever that is.
-
 -   Profile lines: parallel suggests rel bt var and response is additive (linear?). Small distance bt lines suggests model preds are stable for values of that var around the supplied value.
-
 -   Add residuals to plot: small residuals suggest good fit for values of var in that neighborhood
-
 -   Add layers: add and bold profile line for supplied value. Add mean neighborhood profile line
-
 -   Sects 5.3, 5.4 - shows facetted plots for sect 5.2, rug added, only neighborhood mean value cp profile, nbhd mean prof for multiple models, faceted for mult vars and mult models
-
 -   Sect 5.5 multi-class classification model example. Same but a line for each resp class
-
 -   Sect 5.6 shows using 4 obs instead of one and coloring by a cat var
-
 -   Champion-Challenger analysis (DALEXtra PKG)
-
     -   Lets us compare two or more Machine-Learning models, determinate which one is better and improve both of them.
     -   Funnel Plot of performance measures as an innovative approach to measure comparison.
     -   Automatic HTML report.
-
 -   Cross langauge comaprison (DALEXtra PKG)
-
     -   Creating explainers for models created in different languges so they can be explained using R tools like DrWhy.AI family.
     -   Currently supported are Python scikit-learn and keras, Java h2o, R xgboost, mlr, mlr3 and tidymodels
 
