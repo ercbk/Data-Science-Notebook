@@ -1,377 +1,411 @@
-# Algorithms, Recommendation
+# Recommendation {#sec-alg-recom .unnumbered}
 
-TOC
+## Misc {#sec-alg-recom-misc .unnumbered}
 
-* Resources
-* Misc
-* Metrics
-* Collaborative Filtering
-	* Non-Negative Matrix Factorization (NMF)
-	* LightFM
-* Content Based
-* Company Recommenders
-* RecSys 2020 — Takeaways and Notable Papers
+-   Resources
+    -   see this series of posts, <https://towardsdatascience.com/recsys-series-part-8-the-14-properties-to-take-into-account-when-evaluating-real-world-recsys-f71cc6e1f195>
+-   Packages
+    -   [{{]{style="color: goldenrod"}[cornac](https://github.com/PreferredAI/cornac){style="color: goldenrod"}[}}]{style="color: goldenrod"} - focuses on making it convenient to work with models leveraging auxiliary data (e.g., item descriptive text and image, social network, etc). Cornac enables fast experiments and straightforward implementations of new models. It is highly compatible with existing machine learning libraries (e.g., TensorFlow, PyTorch).
+    -   [{{]{style="color: goldenrod"}[lightfm](https://making.lyst.com/lightfm/docs/home.html){style="color: goldenrod"}[}}]{style="color: goldenrod"} - Python implementation of a number of popular recommendation algorithms for both implicit and explicit feedback.
+    -   [{{]{style="color: goldenrod"}[merlin](https://github.com/NVIDIA-Merlin/Merlin){style="color: goldenrod"}[}}]{style="color: goldenrod"} - open source library providing end-to-end GPU-accelerated recommender systems, from feature engineering and preprocessing to training deep learning models and running inference in production.
+-   Model Evaluation
+    -   A temporal split is used, so you have the same users in train as in test. (See article in LightFM)
+    -   Sort by rating in descending order for each user. Otherwise, the metrics will be bad.
+    -   From the model predictions, items already "seen" by the user should be removed from the predictions
+    -   If you have low metrics, for [Example]{.ribbon-highlight} PrecisionK below 0.1, and you don't know what the reason is --- the data or the model, or maybe the metric calculation
+        -   Check the sparsity index of your user/item matrix (see Metrics \>\> Misc)
+        -   Use the [MovieLens](https://files.grouplens.org/datasets/movielens/ml-latest-small.zip) (.zip) dataset and train your model on it.
+            -   If its metrics are low on MovieLens too, then the cause is in the model
+            -   if the metrics are good, then the likely cause lies in the preprocessing and postprocessing stages.
+    -   If Random model and Most popular model (baseline models) metrics are close to ML models, it is worth checking the data --- maybe the number of unique items is too low.
+        -   This can also happen if we have very little data, or maybe there is a bug in the training code.
+    -   If values higher than 0.5 for Precision\@k look too high and it is worth checking if there is a bug in the script or if we are lowering the sparsity index too much.
+    -   Always compare how many users and items you have left after lowering the sparsity index. Sometimes in the pursuit of quality you can lose almost all users, so you should look for a compromise.
+    -   If you already have a model in production, select the most promising candidates for online AB testing on KPIs. For testing recommender models, also see [Experiments, A/B Testing \>\> Interleaving Experiments](experiments-a_b-testing.qmd#sec-exp-ab-interlv){style="color: green"}
+-   Baseline models
+    -   Most Popular
 
+        ``` python
+        df[item_col].value_counts()[:top_n]
+        ```
 
+        -   This model may produce suprisingly good results but it will have low coverage.
+            -   If your company decides to expand the number of items it offers in the future, coverage for this model will be even lower.
 
+    -   Random Model
 
+        -   Outputs random item ids
+-   "Rich get Richer" problem
+    -   The most popular items get more and more recommendations which creates a feedback loop. This prevents new items or new vendors from getting exposure.
+    -   Solution: Initially make the probability of a recommended item uniform (with some regard to category, etc.) and collect ratings. After enough ratings have been collected include rating as a feature in the ML model
+-   Ethics
+    -   Yglesias [post](https://www.slowboring.com/p/the-case-against-meta) on Facebook's (and all social media) only recommending to drive engagement. Makes me think there could be a score based on hate-speech or radicalism using sentiment analysis that could be included into the ranking algorithm that would make more ethical recommendations
+-   Complimentary item recommendation
+    -   Recommender that's similar to market basket analysis in that it recommends items that are often bought together with item being purchased.
+    -   Resources
+        -   [How to provide complementary item recommendations in e-commerce marketplaces](https://medium.com/adevinta-tech-blog/complementary-item-recommendations-at-e-commerce-marketplaces-3a5d9fc5ff9f)
+-   Filtering Features Based on Contextual Dimensions
+    -   e.g. When the movie is watched or if the user is watching the movie with family or friends (which room it's watched in might hint at this?)
+    -   Notes from [Engineering Features for Contextual Recommendation Engines](https://towardsdatascience.com/engineering-features-for-contextual-recommendation-engines-bb80bf0e0453)
+    -   Traditional embedding techniques grows exponentially with the number of contextual dimensions (i.e. see [multiverse](https://dl.acm.org/doi/10.1145/1864708.1864727#:~:text=In%20the%20proposed%20model%2C%20called,to%20provide%20context%2Daware%20recommendations.) as an [Example]{.ribbon-highlight}), alternative approaches like [factorization machines](https://towardsdatascience.com/an-intuitive-explanation-of-field-aware-factorization-machines-a8fee92ce29f) can be employed to preserve tractability.
+    -   Using multi-layer perceptrons vs. matrix factorization, there is more flexibility in how embeddings are derived and used to find the most similar items to users. For [Example]{.ribbon-highlight}, embeddings can be learned whereby different dimensions have different weights in determining the users location in space.
+    -   An outcome could be explicit feedback like a rating, implicit feedback like watch time, or a non-feedback quantity like price.
+    -   Scenario: Outcome = F(I,C)
+        -   Items (I) and context (C) play a dominant role in the recommender, whereas the user takes a backseat.
+            -   e.g. New users with limited user-item history
+        -   Categoricals are 1-hot encoded and aggregation calculations of numerics per category. Then, the category and the new numeric are combined.
+            -   [Example]{.ribbon-highlight}\
+                ![](./_resources/Algorithms,_Recommendation.resources/image.9.png){width="532"}
+                -   e.g.
+                    -   avg_rating_work_photography = photography (1-hot) x AVG Rating (for photography work) = 2.92 for this prospective employee
+            -   Therefore, each unit/subject has only 1 row.
+        -   To avoid unnecessary complexity and large dimension spaces, features are filtered based on the user's context
+            -   [Example]{.ribbon-highlight}: Filling a medium scope, medium budget photography job using a jobs website (see above table)
+                -   If prospective employee has other skills besides those pertaining to photography, then those are filtered out
+                -   So, in the above table, variables with "work_photography", "adobe_photoshop", "scope_medium", "budget_medium", and all the experience variables would be included in the dimension space and the rest would be discarded
+            -   Interactions like AVG Ratings when both the Budget == medium and the experience level == expert are not considered.
+            -   Non-linearities can still be derived by the training algorithm, or additional contextual dimensions can be created as the the product of existing ones.
+        -   A tree model (e.g. XGBoost) is trained using this dataset with the outcome being some kind of feedback column (e.g. from employers that hired the person for a job).
+            -   This model's predictions are used to produce recommendations with this particular context but I'm not sure how that's supposed to work.
+    -   Scenario: Outcome = F(U, C)
+        -   The recommendation isn't for a discrete item, but rather a continuous value.
+            -   e.g. a platform recommending the price a property rental company should charge for a property on a weekend.
+    -   Questions
+        -   "We can rebuild this representation now considering each past job as the current job, stacking each past job as a set of additional rows. For past jobs, we can create an additional column to capture explicit feedback received by the freelancer such as being hired, or implicit feedback like being messaged."
+        -   No idea what "talent" is
 
-* Resources
-	* see this series of posts, https://towardsdatascience.com/recsys-series-part-8-the-14-properties-to-take-into-account-when-evaluating-real-world-recsys-f71cc6e1f195
-* Misc
-	* Packages
-		* [{{]{style='color: goldenrod'}[cornac](https://github.com/PreferredAI/cornac){style='color: goldenrod'}[}}]{style='color: goldenrod'} - focuses on making it convenient to work with models leveraging auxiliary data (e.g., item descriptive text and image, social network, etc). Cornac enables fast experiments and straightforward implementations of new models. It is highly compatible with existing machine learning libraries (e.g., TensorFlow, PyTorch).
-		* [{{]{style='color: goldenrod'}[lightfm](https://making.lyst.com/lightfm/docs/home.html){style='color: goldenrod'}[}}]{style='color: goldenrod'} - Python implementation of a number of popular recommendation algorithms for both implicit and explicit feedback.
-		* [{{]{style='color: goldenrod'}[merlin](https://github.com/NVIDIA-Merlin/Merlin){style='color: goldenrod'}[}}]{style='color: goldenrod'} - open source library providing end-to-end GPU-accelerated recommender systems, from feature engineering and preprocessing to training deep learning models and running inference in production.
-	* Model Evaluation
-		* A temporal split is used, so you have the same users in train as in test. (See article in LightFM)
-		* Sort by rating in descending order for each user. Otherwise, the metrics will be bad.
-		* From the model predictions, items already "seen" by the user should be removed from the predictions
-		* If you have low metrics, for example PrecisionK below 0.1, and you don’t know what the reason is — the data or the model, or maybe the metric calculation
-			* Check the sparsity index of your user/item matrix (see Metrics >> Misc)
-			* Use the [MovieLens](https://files.grouplens.org/datasets/movielens/ml-latest-small.zip) (.zip) dataset and train your model on it.
-				* If its metrics are low on MovieLens too, then the cause is in the model
-				* if the metrics are good, then the likely cause lies in the preprocessing and postprocessing stages.
-		* If Random model and Most popular model (baseline models) metrics are close to ML models, it is worth checking the data — maybe the number of unique items is too low.
-			* This can also happen if we have very little data, or maybe there is a bug in the training code.
-		* If values higher than 0.5 for Precision@k look too high and it is worth checking if there is a bug in the script or if we are lowering the sparsity index too much.
-		* Always compare how many users and items you have left after lowering the sparsity index. Sometimes in the pursuit of quality you can lose almost all users, so you should look for a compromise.
-		* If you already have a model in production, select the most promising candidates for online AB testing on KPIs.
-				For testing recommender models, also see [Experiments, A/B Testing](Experiments, A_B Testing) >> Interleaving Experiments
-				
-	* Baseline models
-		* Most Popular
+## Metrics {#sec-alg-recom-metrics .unnumbered}
 
-```
-df[item_col].value_counts()[:top_n]
-```
+-   Misc
 
-* This model may produce suprisingly good results but it will have low coverage.
-	* If your company decides to expand the number of items it offers in the future, coverage for this model will be even lower.
+    -   Also see
+        -   [Algorithms, Learn-to-Rank \>\> Diagnostics](algorithms-learn-to-rank.qmd#sec-alg-ltr-diag){style="color: green"}
+        -   Similarity Scoring bkmk folder
+            -   Jaccard Index, Map\@k
+    -   Compare your recommender click-through rates of your recommender to those of the baseline.
+    -   If your model is producing extremely low metrics, then you could have a sparsity issue
+        -   Sparsity Index
 
-* Random Model
-	* Outputs random item ids
+            $$
+            \mbox{index} = 1 - \frac{\mbox{interactions} \times \mbox{items}}{\mbox{users}}
+            $$
 
-* "Rich get Richer" problem
-	* The most popular items get more and more recommendations which creates a feedback loop. This prevents new items or new vendors from getting exposure.
-		Solution: Initially make the probability of a recommended item uniform (with some regard to category, etc.) and collect ratings. After enough ratings have been collected include rating as a feature in the ML model
-		
-	Ethics
-		Yglesias [post](https://www.slowboring.com/p/the-case-against-meta) on Facebook's (and all social media) only recommending to drive engagement. Makes me think there could be a score based on hate-speech or radicalism using sentiment analysis that could be included into the ranking algorithm that would make more ethical recommendations
-		
-	Complimentary item recommendation
-		Recommender that's similar to market basket analysis in that it recommends items that are often bought together with item being purchased.
-		
-		Misc
-		
-		Resources
-		* [How to provide complementary item recommendations in e-commerce marketplaces](https://medium.com/adevinta-tech-blog/complementary-item-recommendations-at-e-commerce-marketplaces-3a5d9fc5ff9f)
-* Filtering Features Based on Contextual Dimensions
-	* e.g. when the movie is watched or if the user is watching the movie with family or friends (which room it's watched in might hint at this?)
-	* Notes from [Engineering Features for Contextual Recommendation Engines](https://towardsdatascience.com/engineering-features-for-contextual-recommendation-engines-bb80bf0e0453)
-	* traditional embedding techniques grows exponentially with the number of contextual dimensions (i.e. see [multiverse](https://dl.acm.org/doi/10.1145/1864708.1864727#:~:text=In%20the%20proposed%20model%2C%20called,to%20provide%20context%2Daware%20recommendations.) as an example), alternative approaches like [factorization machines](https://towardsdatascience.com/an-intuitive-explanation-of-field-aware-factorization-machines-a8fee92ce29f) can be employed to preserve tractability.
-	* Using multi-layer perceptrons vs. matrix factorization, there is more flexibility in how embeddings are derived and used to find the most similar items to users. For example, embeddings can be learned whereby different dimensions have different weights in determining the users location in space.
-	* An outcome could be explicit feedback like a rating, implicit feedback like watch time, or a non-feedback quantity like price.
-	* Scenario: Outcome = F(I,C)
-		* Items (I) and context (C) play a dominant role in the recommender, whereas the user takes a backseat.
-			* e.g. new users with limited user-item history
-		* Categoricals are 1-hot encoded and aggregation calculations of numerics per category. Then, the category and the new numeric are combined.
-			* Example![](./_resources/Algorithms,_Recommendation.resources/image.9.png)
-				* e.g.
-					* avg\_rating\_work\_photography = photography (1-hot) x AVG Rating (for photography work) = 2.92 for this prospective employee
-			* Therefore, each unit/subject has only 1 row.
-		* To avoid unnecessary complexity and large dimension spaces, features are filtered based on the user's context
-			* Example: Filling a medium scope, medium budget photography job using a jobs website (see above table)
-				* If prospective employee has other skills besides those pertaining to photography, then those are filtered out
-				* So, in the above table, variables with "work\_photography", "adobe\_photoshop", "scope\_medium", "budget\_medium", and all the experience variables would be included in the dimension space and the rest would be discarded
-			* Interactions like AVG Ratings when both the Budget == medium and the experience level == expert are not considered.
-			* Non-linearities can still be derived by the training algorithm, or additional contextual dimensions can be created as the the product of existing ones.
-		* A tree model (e.g. XGBoost) is trained using this dataset with the outcome being some kind of feedback column (e.g. from employers that hired the person for a job).
-			* This model's predictions are used to produce recommendations with this particular context but I'm not sure how that's supposed to work.
-	* Scenario: Outcome = F(U, C)
-		* The recommendation isn’t for a discrete item, but rather a continuous value.
-			* e.g. a platform recommending the price a property rental company should charge for a property on a weekend.
-	* Questions
-		* "We can rebuild this representation now considering each past job as the current job, stacking each past job as a set of additional rows. For past jobs, we can create an additional column to capture explicit feedback received by the freelancer such as being hired, or implicit feedback like being messaged."
-		* No idea what "talent" is
+            -   Guessing "interactions" are the number of 1s in your user/item matrix
+                -   "Users" and "Items" are the sizes of those two dims in your user-item matrix, so users\*items would be the number of entries in your matrix
+                -   Therefore interactions / (users\*items) would be the proportion of 1s in your matrix and subtracting 1 makes it the proportion of 0s
+            -   Higher values = sparser user/item matrix
+            -   Typically, a sparsity-index of about 98% is sufficient for training
 
-* Metrics
-	* Misc
-		* Also see
-			* [Algorithms, Learn-to-Rank](Algorithms, Learn-to-Rank) >> Diagnostics
-			* similarity scoring bkmk folder
-				* jaccard index, map@k
-		* Compare your recommender click-through rates of your recommender to those of the baseline.
-		* If your model is producing extremely low metrics, then you could have a sparsity issue
-			* Sparsity Index![](./_resources/Algorithms,_Recommendation.resources/image.5.png)
-				* Guessing "interactions" are the number of 1s in your user/item matrix
-					* "users" and "items" are the sizes of those two dims in your user-item matrix, so users\*items would be the number of entries in your matrix
-					* Therefore interactions / (users\*items) would be the proportion of 1s in your matrix and subtracting 1 makes it the proportion of 0s
-				* Higher values = sparser user/item matrix
-				* Typically, a sparsity-index of about 98% is sufficient for training
-			* Reducing overly-sparse user/item matrices can have major effects on metric scores![](./_resources/Algorithms,_Recommendation.resources/image.6.png)
-			* Check user/item distribution![](./_resources/Algorithms,_Recommendation.resources/image.7.png)
-	* **Coverage**
-		* The metric allows you to see percentage of items used by the recommendation system.
-		* Usually very important for businesses to make sure that the content (e.g. movies) they have on their site is used to its full potential.
-		* Coverage = num of uniq items in recommendations / all uniq items
-	* **Diversity**
-		* High diversity values mean that users have an opportunity to discover new genres, diversify their experience, and spend more time on the site. As a rule, it increases the retention rate and has a positive impact on revenue.
-		* Can be measured in many different ways
-			* average similarity for top\_n.
-			* median value of the number of unique genres (e.g. movies, books) or another category in hierarchy of product categories.
-	* **Mean Reciprocal Rank** ([Wiki](https://en.wikipedia.org/wiki/Mean_reciprocal_rank)) - Scores based the rank the recommender model gave the "correct" recommendation when it supplied it's list of recommendations. (i.e. the second recommendation is the recomendation the model felt was 2nd most likely to be correct)
-		* scorei = 1/ranki
-		* The average score is calculated across all recommendations to represent the score of the model.
-		* Example: 3 queries![](./_resources/Algorithms,_Recommendation.resources/Screenshot (991).png)
-	* **Normalized Discounted Cumulative Gain (NDCG)** (Mhaskar, 2015)![](./_resources/Algorithms,_Recommendation.resources/image.1.png)
-		* Where![](./_resources/Algorithms,_Recommendation.resources/image.2.png)
-			* Relevant documents appearing lower in the recommendation list are penalized as the graded relevance value is reduced logarithmically proportional to the position of the result
-		* Notes
-			* Very relevant results are more useful than somewhat relevant results which are more useful than irrelevant results (cumulative gain)
-			* Relevant results are more useful when they appear earlier in the set of results (discounting).
-			* The result of the ranking should be irrelevant to the query performed (normalization).
-	* **MAP@k** - mean average precision within the top k highest-ranked impressions
-		* Example: if a user watched movie recommendations ranked 1,2,3 and 5 but not 4th ranked recommendation, then the average score for that user would be (1/1 + 2/2 + 3/3 + 3/4 + 4/5)/5 = 0.91
-	* **Precision/Recall@k** ([article](https://medium.com/@m_n_malaeb/recall-and-precision-at-k-for-recommender-systems-618483226c54))
-		* Precision@k
-			* _The proportion of recommended items in the top-k set that are relevant_
-			* Precision@k = (# out of k recommended items that match the observed relevant scores) / k
-			* k is a user definable integer that is set by the user to match the top-n recommendations objective (i.e. k = n)
-			* Example: 80% precision means on average that 80% of the top-n recommendations predicted by the model are relevant to the user.
-			* Issue: If there are no items recommended. i.e. number of recommended items at k is zero, we cannot compute precision at k since we cannot divide by zero.
-				* In that case we set precision@k to 1. This makes sense because in that case we do not have any recommended item that is not relevant.
-		* Recall@k
-			* _The proportion of relevant items found in the top-k recommendations_
-			* Recall@k = (# of k recommended items that match the observed relevant scores) / (total # of true relevant items)
-			* k is a user definable integer that is set by the user to match the top-n recommendations objective (i.e. k = n)
-			* Example: 40% recall means on average 40% of the total number of the (observed) relevant items appear in the top-n results.
-			* Issue:  If there are no items recommended. i.e. number of recommended items at k is zero, we cannot compute precision at k since we cannot divide by zero.
-				* In that case we set recall@k to be 1. This makes sense because we do not have any relevant items that are not identified in our top-k results.
-		* _Relevance_ - A relevant item for a specific user-item pair means that this item is a good recommendation for the user in question.
-			* Example: User/Movie![](./_resources/Algorithms,_Recommendation.resources/image.8.png)
-				* Assume that any true (i.e. observed) rating above 3.0 corresponds to a relevant item and any true rating below 3.0 is irrelevant.
-					* The threshold is subjective. There are multiple ways to set this threshold value such as taking into consideration the history of ratings given by the user.
-				* Under the above definition, the movies in the first 2 rows are "relevant" to those users, and the last three movies would be "irrelevant" to those users
-		* _Recommended_ - items are generated by recommendation algorithm with a predicted rating greater than the relevance threshold
-		* In calculations, ignore all the ratings where the actual value is not known
-	* **RecList** ([article](https://towardsdatascience.com/ndcg-is-not-all-you-need-24eb6d2f1227)) - Behavior tests; black-box-ish py library that takes a sort of sentiment analysis approach to grading recommenders
-		* "Checklist" for recommender systems (see [DL, NLP](DL, NLP) >> Metrics)
-		* Principles
-			* Complementary and similar items satisfy different logical relations
-				* While similar items are interchangeable, complementary ones may have a natural ordering
-				* e.g. recommend hdmi cable if a tv is bought, but not a tv if a hdmi cable is bought.
-			* Not all mistakes are equally bad
-				* Example: Truth: When Harry Met Sally
-					* Recommending Terminator is a worse miss than You've Got Mail
-			* Some groups are more important than others
-				* tolerate a small decrease in overall accuracy if a subset of users we care about is happier
-				* Example: Promoting Nike products so if the recommender results in substantial increased Nike Sales, for Italian users on iphones it becomes terrible, then that's an acceptable trade-off
-	* **RGRecSys** (Salesforce)
-		* Evaluation toolkit that encompasses multiple dimensions - robustness with respect to sub-populations, transformations, distributional disparity, attack, and data sparsity
-		* [Github](https://www.github.com/salesforce/RGRecSys)
-		* [Paper](https://paperswithcode.com/paper/rgrecsys-a-toolkit-for-robustness-evaluation?utm_source=Data_Elixir&utm_medium=social)
-* Collaborative Filtering - focuses on the relationship of users and items in question (ideal when the data contains ratings for the various items offered).
-	* example person A and B listen to Song X
-		* If person B listens often to song Y, then A is very likely to like song Y as well.
-	* Differences in embeddings can be used to find analagous product relationships
-		* I think for this to work, you'd have some sort of product description (e.g. ingredients, materials, comments, consumers describing taste, feel, look, etc.) embedding and not just product name embeddings.
-		* Example: Find the closest diet soft drink to a brand that doesn' t offer a diet version of their soft drink
-			* Calculate the difference between the diet coke embedding and coke embedding
-			* Find a diet soft drink embedding that has a similar delta with the soft drink embedding that doesn't offer a diet version.
-	* Also read about applying regularization after SVD to control for overfitting(?)
-	* Instead of K-NN, a correlation matrix can be used to find similar items after an item has been inputted.
-	* Clustering embeddings
-		* kNN is has O(N\*K) complexity, where N is the number of items and K is the size of each embedding.
-			* Approximate nearest neighbor (ANN) algorithms typically drop the complexity of a lookup to O(log(n))
-				* see [Clustering](Clustering)
-	* **Non-Negative Matrix Factorization** (NMF)
-		* Misc
-			* packages:
-				* [{NMF}]{style='color: #990000'}
-			* Methods
-				* Alternating Least Squares (ALS)
-					* Spark has recommendation model that uses this algorithm
-				* Hierarchical Alternating Least Squares (HALS)
-		* Decomposes the sparse user-item matrix (N\_users ⨯ N\_items) to 2 lower dimensional matrices (W & H)
-			* The original matrix must have all non-negative entries (I think)
-				The product of W and H is an _approximation_ of the original user-item matrix.
-					Being an approximation is how it's different from SVD
-						This is because the 2 resulting matrices are constrained to be non-negative (every elt is non-negative) instead of orthogonal
-						
+        -   Reducing overly-sparse user/item matrices can have major effects on metric scores\
+            ![](./_resources/Algorithms,_Recommendation.resources/image.6.png){width="332"}
 
-|     |     |     |     |
-| --- | --- | --- | --- |
-| __ | _SKU1_ | _SKU2_ | _SKU3_ |
-| _CUST1_ | _0_ | _1_ | _1_ |
-| _CUST2_ | _0_ | _0_ | _1_ |
-| _CUST3_ | _1_ | _0_ | _0_ |
+        -   Check user/item distribution\
+            ![](./_resources/Algorithms,_Recommendation.resources/image.7.png){width="432"}
 
-* I don't _think_ these are indicator columns. I think they're quantities, so each cell can have any positive integer value (or zero).
+-   **Coverage**
 
-* Customer Segment Matrix, W: N\_users ⨯ N\_latent\_factors
-	* Each column is a "segment" or "basis"
-	* Each cell is the customer's score for that segment
-* Product Segment Matrix, H: N\_latent\_factors ⨯ N\_items
-	* Each row is a "segment" or "basis"
-	* Each cell is the product's score for that segment
-* The dimension of "N\_latent\_factors" is a tuning parameter![](./_resources/Algorithms,_Recommendation.resources/0-i3i677_vOgdg174y.png)
+    -   The metric allows you to see percentage of items used by the recommendation system.
+    -   Usually very important for businesses to make sure that the content (e.g. movies) they have on their site is used to its full potential.
+    -   Coverage = number of unique items in recommendations / all unique items
 
-* If a customer and product have high scores for the same segments, then our factorization is implying that this cell in the customer-by-product matrix has a high value.
-	* A customer's predicted rating for an item is calculated by multiplying the customer vector by the item vector
-	* In general, by multiplying both W and H matrices, we end up with an estimate of the original matrix, but more densely filled with all of our predicted ratings
-* The resulting latent dimensions will capture the most relevant information or characteristics about each customer and item and therefore improve the performance of the downstream clustering task
-* Results can be visualized with a heatmap
-	* Example had 2 heatmaps (customer segment matrix, product segment matrix)
-	* A dark cell for customer i and segment j says that the customer prefers products with high scores in segment j (dark cells in the product heatmap)
-		* I think the scores are normalized, so closer to 1 means a stronger association
-* Issues
-	* Cold Start Problem - when you have new users or items that you want to make predictions for since the model had no possibility to learn anything for them, leaving you with basically random recommendations for them
-		* See LightFM for potential solution
-	* User-Item matrices can be _too_ sparse
-		* See Metrics >> Misc >> Sparsity Index
-		* Solutions:
-			* Remove some users or items that have low interaction counts (i.e. 1s in user/item matrix)
-			* Develop a hierarchy of information about the product—from brand, to style, to size (or SKU), and choose the appropriate level of the hierarchy to use
-	* Factorization parameters
-		* Determine the starting state of the matrix in the estimation process (i.e. which product information to use? see 1st issue)
-		* loss function
-			* Frobenius norm and the Kullback-Leibler divergence commonly used (at least in NLP) to minimize the distance between the user-item matrix and its approximation (W x H)
-		* k - number of segments
-			* Too many segments, and the information is hard to digest; too few, and you are not explaining the data well
-		* alpha - a regularization parameter for learning W and H
-			* regularization is an optional technique that can be used to have more control over how outliers can influence the algorithm
-		* tolerance - stopping condition for the NMF algorithm. i.e. how close is the approximation X ≈ W x H.
-			* Lower tolerance means more training iterations
-* Use Cases
-	* Developing product-based customer segments to build need-based personas
-	* Deciding which products should be offered together as a bundle
-	* Building a product recommendation engine that uses a customer’s segment to determine which products should be merchandised
-		* Similar items beget similar ratings from similar users
-	* Topic Analysis
-		* Also see [NLP, Topic](NLP, Topic) >> Algorithms >> NMF
-		* Pick a couple columns of a df (e.g. movie titles, plot descriptions)
-		* tf-idf the plot descriptions and remove stopwords, names, etc.
-		* Apply NMF
-			* For each segment (rows) in H, find the k most important words (columns) (i.e. words with top k scores)
-		* Each segment is a genre. Use the words to label the genres for the movies.
-			* Adjusting the number of segments might produce more coherent results if necessary.
+-   **Diversity**
 
-* [Example]{.ribbon-highlight} (word2vec, GMM, HDBSCAN)
-	* Notes from https://towardsdatascience.com/using-gaussian-mixture-models-to-transform-user-item-embedding-and-generate-better-user-clusters-a46e1062d621
-	* Music playlist data: Users hash ids (users), Artist names (items)
-	* Steps
-		1. items are characters so apply word2vec to get embeddings
-			* each unique item will have a numeric vector (item\_vec) associated with it.
-		2. For each user's playlist, compute average vector of all the item vectors associated with it.
-			* (item1\_vec  + item2\_vec  + ...)/n
-			* each user is represented by a (averaged) vector
-		3. We have item\_df which has each item and its word2vec numeric representation, and we have a user\_df which has each user and their playlists represented by a mean embedding numeric vector
-		4. Fit a gaussian mixture model, gmm\_mod, with the item\_df
-		5. For each user, get vector of probabilities of that user belonging to each cluster by user\_probs <-- predict(gmm\_mod, data = user\_df)
-			* By increasing the number user\_df features by creating gmm cluster probabilities, it helps other clustering algorithms separate users more easily.
-		6. cluster user\_probs using HDBSCAN
-			* where user\_probs should look like col1 = users, col2 = gmmclust1\_probs, col3 = gmmcluster2\_probs, etc.
-	* Optional processing that can improve results
-		* logging and standardizing before clustering
-		* removing outliers (e.g. very popular artists) at the start
-* LightFM
-	* Creates embeddings for additional features of the user and the product. Then, adds all the user embeddings together and adds all the product embeddings together and proceeds as normal
-	* In the cold start case, the new user gets a default embedding for "user\_id" and "product\_id", but by using the additional feature embeddings, you get an informative rating.
-	* Misc
-		* Notes from [A Performant Recommender System Without Cold Start Problem](https://towardsdatascience.com/a-performant-recommender-system-without-cold-start-problem-69bf2f0f0b9b)
-		* [Paper](https://arxiv.org/abs/1507.08439) (2015)([code](https://github.com/lyst/lightfm))
-			* Results (only tested on 2 datasets w/binary labels)
-				* “In both cold-start and low-density scenarios, LightFM performs at least as well as pure content-based models, substantially outperforming them when either (1) collaborative information is available in the training set or (2) user features are included in the model.”
-				* “When collaborative data is abundant (warm-start, dense user-item matrix), LightFM performs at least as well as the MF model.”
-				* “Embeddings produced by LightFM encode important semantic information about features and can be used for related recommendation tasks such as tag recommendations.”
-	* Method Comparison
-		* Typical collaborative filtering (e.g. user ids, movie ids)![](./_resources/Algorithms,_Recommendation.resources/image.3.png)
-		* LightFM![](./_resources/Algorithms,_Recommendation.resources/image.4.png)
+    -   High diversity values mean that users have an opportunity to discover new genres, diversify their experience, and spend more time on the site. As a rule, it increases the retention rate and has a positive impact on revenue.
+    -   Can be measured in many different ways
+        -   Average similarity for top_n.
+        -   Median value of the number of unique genres (e.g. movies, books) or another category in hierarchy of product categories.
 
-* Content-based
-	* measure similarities in product characteristics and matching based on the strength of the measures.
-	* various similarity scoring algorithms
-		* density adjusting
-		* vector embedding
-		* co-occurrence
-	* Collaborative Topic Modeling/Regression (CTM/CTR)
-			for text-based items with enhanced accuracy and out-of-matrix prediction capabilities.
-			* out-of-matrix capability: able to generalize the recommendations for new, completely unrated items: since no ratings are observed for item j, a model without this capability cannot derive its latent vector of qualities. 
-		* built on top of Latent Dirchlet Allocation (LDA) and Probabilistic Matrix Factorization (PMF)
-* Company Recommenders
-	* **Spotify** - Truncated SVD of user-item matrix then K-NN to find similar groupings
-	* **Youtube**![](./_resources/Algorithms,_Recommendation.resources/6127dfb0e2efbd15a4d0370a_dkmsReLpa7AGAu_HBk05iyoMn.png)
-		* [Paper](https://static.googleusercontent.com/media/research.google.com/en//pubs/archive/45530.pdf)
-		* Similar to GMM example (above) except:
-			* a DL model takes the embeddings and outputs class probabilities instead of a GMM
-			* approx-kNN is used instead of HDBSCAN to cluster users
-		* Combines two different deep neural networks, a first to select good candidate videos that you’d like if you watched, and a second to pick the best candidates that you are most likely to watch the longest. (Think the candidate NN is the one shown in the figure)
-	* **TikTok**![](./_resources/Algorithms,_Recommendation.resources/image.png)
-		* Notes from:
-			* [The Batch](https://read.deeplearning.ai/the-batch/issue-122/)
-				* Summarizes a nytimes article of a leaked internal document
-			* [TikTok’s Secret Sauce](https://knightcolumbia.org/blog/tiktoks-secret-sauce)
-		* Flow chart starts with the primary goal on the left (increase Daily Active Use). From left to right, it breaks down variables into other variables that are probably predictive of the variable preceding it. Therefore maximizing the right-most variables will increase the primary KPI (daily active use)
-		* For each user, videos are ranked according to an expected value equation (i.e sum of probabilities and values): Plike x Vlike + Pcomment x Vcomment + Eplaytime x Vplaytime + Pplay x Vplay
-			* Ps are likely predicted values that the user will do the action (e.g. like, comment, play) for a particular video.
-			* Vs are values that the tiktok has determined for that particular action
-				* Maybe determined by a regression standardized coefficient (daily\_active\_use ~ comment + ...) or variable importance value
-			* E may be "estimated." Might be a descriptive statistic for a user. e.g. avg playtime given var1, var2, etc.
-				* maybe the vars are the "Other features" or Creative quality variables, etc.
-		* The Batch article discusses ways to penalize videos
-		* UI design: Swiping instead of scrolling
-		* Treats each video more or less independently to assess its viral potential, caring relatively little about how many followers the creator has
-		* More exploration, less exploitation
-			* There is a tradeoff between safe but somewhat boring recommendations that are similar to recommendations that worked well in the past (“exploitation”), and risky recommendations that are unlikely to be good but have a high payoff if they do turn out to be good (“exploration”).
-			* Places a relatively high emphasis on exploration compared to other platforms
-			* TikTok is able to take risks because all it takes is a swipe (see UI design and article for details)
-	* **Netflix**
-		* Uses a [Embarrassingly Shallow Autoencoders (EASE)](https://arxiv.org/pdf/1905.03375.pdf) for embeddings
-		* Uses Propensity Correction ([Paper](https://arxiv.org/pdf/1812.02353.pdf)) to prevent feedback loops which can bias the recommender
-	* **Instagram**
-		* [How Instagram suggests new content](https://engineering.fb.com/2020/12/10/web/how-instagram-suggests-new-content/?utm_source=Data_Elixir&utm_medium=social)
-* [RecSys 2020 — Takeaways and Notable Papers](https://towardsdatascience.com/recsys2020-777590f51b44)
-	* Inverse propensity scoring was a popular approach taken to debias recommendations
-	* increased shift towards sequence models (with SASRec (2018) and BERT4Rec (2019) being common benchmarks) and bandit and reinforcement learning for recommender systems
-	* three sources of recommendation complexity, namely:
-		* Placement: Where is the recommendation located on the user interface?
-		* Person: Who is seeing the recommendation? What are her past experiences with the recommendation placement?
-		* Context: What is going on at that moment? What are the user’s needs?
-			* There are many contexts where similarity is not required or can worsen recommendations. For example, users might want a change of pace or mood from that horror movie they just watched. Also, does the user stick to a specific genre (e.g., Korean dramas) or hop around diverse genres? A better understanding will help improve the user experience.
-	* different data splitting strategies (for train and validation) can affect the relative performance of recommendation systems in offline evaluation
-		* Splitting strategies
-			* Leave-one-last: Leave one last item, leave one last basket/session
-			* Temporal: Temporal split within each user, temporal split (on same date) globally
-			* Random: For each user, split interactions into train and test data
-			* User: Split some users into train, the rest into test
-		* relative performance of recommenders changed often across splitting strategies (indicated by the rank swaps)![](./_resources/Algorithms,_Recommendation.resources/0-NgJtaIUIWeCsIRTU.jpg)
-	* Model evaluation
-		* SR-GNN: Best hit rate, mean reciprocal rank, and nDCG
-		* V-STAN: Best precision, recall, and mean average precision
-		* V-SKNN, GRU4Rec: Best coverage and popularity
-		* STAMP: Satisfactory in all metrics
-		* Using human experts to evaluate recommendations
-			* In contrast to the offline evaluation metrics, human experts found GRU4Rec to have very relevant recommendations. However, because its recommendations did not match the IDs of products added to cart, GRU4Rec did not perform as well on offline evaluation metrics.
-			* STAMP and GRU4Rec performed best in the second step and STAMP was put through an A/B test. This led to a 15.6% increase in CTR and an 18.5% increase in revenue per session.
-	* Similarity
-		* matrix factorization faster w/sufficient regularization outperformed and was faster than DL approaches
-	* Adding unexpectedness to recommendations to add freshness
-		* Two kinds
-			* Personalized: Some users are variety seekers and thus more open to new videos
-			* Session-based: If a user finishes the first episode of a series, it’s better to recommend the next episode. If the user binged on multiple episodes, it’s better to recommend something different.
-	* bad idea to use default parameters for Word2vec-based recommendations
+-   **Mean Reciprocal Rank**
 
+    $$
+    \mbox{score}_i = \frac{1}{\mbox{rank}_i}
+    $$
 
+    -   ([Wiki](https://en.wikipedia.org/wiki/Mean_reciprocal_rank))
+    -   Scores based the rank the recommender model gave the "correct" recommendation when it supplied it's list of recommendations. (i.e. The second recommendation is the recomendation the model felt was 2nd most likely to be correct)
+    -   The average score is calculated across all recommendations to represent the score of the model.
+    -   [Example]{.ribbon-highlight}: 3 queries\
+        ![](./_resources/Algorithms,_Recommendation.resources/Screenshot%20(991).png)
 
+-   **Normalized Discounted Cumulative Gain (NDCG)** (Mhaskar, 2015)
 
+    $$
+    \begin{align}
+    &\mbox{NDCG}_{\mbox{pos}} = \frac{\mbox{DCG}_{\mbox{pos}}}{\mbox{iDCG}} \\
+    &\mbox{where}\;\; \mbox{DCG} = \sum_{\mbox{pos}=1}^n \frac{\mbox{relevance}_{\mbox{pos}}}{\ln(\mbox{pos}+1)}
+    \end{align}
+    $$
 
+    -   Relevant documents appearing lower in the recommendation list are penalized as the graded relevance value is reduced logarithmically proportional to the position of the result
 
+    -   Notes
 
+        -   Very relevant results are more useful than somewhat relevant results which are more useful than irrelevant results (cumulative gain)
+        -   Relevant results are more useful when they appear earlier in the set of results (discounting).
+        -   The result of the ranking should be irrelevant to the query performed (normalization).
 
+-   **MAP\@k** - Mean average precision within the top k highest-ranked impressions
 
+    -   [Example]{.ribbon-highlight}: If a user watched movie recommendations ranked 1,2,3 and 5 but not 4th ranked recommendation, then the average score for that user would be (1/1 + 2/2 + 3/3 + 3/4 + 4/5)/5 = 0.91
 
+-   **Precision/Recall\@k** ([article](https://medium.com/@m_n_malaeb/recall-and-precision-at-k-for-recommender-systems-618483226c54))
 
+    -   Precision\@k
+        -   *The proportion of recommended items in the top-k set that are relevant*
+        -   Precision\@k = (# out of k recommended items that match the observed relevant scores) / k
+        -   k is a user definable integer that is set by the user to match the top-n recommendations objective (i.e. k = n)
+        -   [Example]{.ribbon-highlight}: 80% precision means on average that 80% of the top-n recommendations predicted by the model are relevant to the user.
+        -   Issue: If there are no items recommended. i.e. number of recommended items at k is zero, we cannot compute precision at k since we cannot divide by zero.
+            -   In that case we set precision\@k to 1. This makes sense because in that case we do not have any recommended item that is not relevant.
+    -   Recall\@k
+        -   *The proportion of relevant items found in the top-k recommendations*
+        -   Recall\@k = (# of k recommended items that match the observed relevant scores) / (total \# of true relevant items)
+        -   k is a user definable integer that is set by the user to match the top-n recommendations objective (i.e. k = n)
+        -   [Example]{.ribbon-highlight}: 40% recall means on average 40% of the total number of the (observed) relevant items appear in the top-n results.
+        -   Issue: If there are no items recommended. i.e. number of recommended items at k is zero, we cannot compute precision at k since we cannot divide by zero.
+            -   In that case we set recall\@k to be 1. This makes sense because we do not have any relevant items that are not identified in our top-k results.
+    -   *Relevance* - A relevant item for a specific user-item pair means that this item is a good recommendation for the user in question.
+        -   [Example]{.ribbon-highlight}: User/Movie\
+            ![](./_resources/Algorithms,_Recommendation.resources/image.8.png){width="332"}
+            -   Assume that any true (i.e. observed) rating above 3.0 corresponds to a relevant item and any true rating below 3.0 is irrelevant.
+                -   The threshold is subjective. There are multiple ways to set this threshold value such as taking into consideration the history of ratings given by the user.
+            -   Under the above definition, the movies in the first 2 rows are "relevant" to those users, and the last three movies would be "irrelevant" to those users
+    -   *Recommended* - Items are generated by recommendation algorithm with a predicted rating greater than the relevance threshold
+    -   In calculations, ignore all the ratings where the actual value is not known
 
+-   **RecList** ([article](https://towardsdatascience.com/ndcg-is-not-all-you-need-24eb6d2f1227)) - Behavior tests; black-box-ish py library that takes a sort of sentiment analysis approach to grading recommenders
 
+    -   "Checklist" for recommender systems (see [Diagnostics, NLP](diagnostics-nlp.qmd#sec-diag-nlp){style="color: green"})
+    -   Principles
+        -   Complementary and similar items satisfy different logical relations
+            -   While similar items are interchangeable, complementary ones may have a natural ordering
+            -   e.g. Recommend hdmi cable if a tv is bought, but not a tv if a hdmi cable is bought.
+        -   Not all mistakes are equally bad
+            -   [Example]{.ribbon-highlight}: Truth: When Harry Met Sally
+                -   Recommending Terminator is a worse miss than You've Got Mail
+        -   Some groups are more important than others
+            -   Tolerate a small decrease in overall accuracy if a subset of users we care about is happier
+            -   [Example]{.ribbon-highlight}: Promoting Nike products so if the recommender results in substantial increased Nike Sales, for Italian users on iphones it becomes terrible, then that's an acceptable trade-off
 
+-   **RGRecSys** (Salesforce)
+
+    -   Evaluation toolkit that encompasses multiple dimensions - robustness with respect to sub-populations, transformations, distributional disparity, attack, and data sparsity
+    -   [Github](https://www.github.com/salesforce/RGRecSys)
+    -   [Paper](https://paperswithcode.com/paper/rgrecsys-a-toolkit-for-robustness-evaluation?utm_source=Data_Elixir&utm_medium=social)
+
+## Collaborative Filtering {#sec-alg-recom-colfil .unnumbered}
+
+-   Focuses on the relationship of users and items in question (ideal when the data contains ratings for the various items offered).
+-   [Example]{.ribbon-highlight} person A and B listen to Song X
+    -   If person B listens often to song Y, then A is very likely to like song Y as well.
+-   Differences in embeddings can be used to find analagous product relationships
+    -   I think for this to work, you'd have some sort of product description (e.g. ingredients, materials, comments, consumers describing taste, feel, look, etc.) embedding and not just product name embeddings.
+    -   [Example]{.ribbon-highlight}: Find the closest diet soft drink to a brand that doesn' t offer a diet version of their soft drink
+        -   Calculate the difference between the diet coke embedding and coke embedding
+        -   Find a diet soft drink embedding that has a similar delta with the soft drink embedding that doesn't offer a diet version.
+-   Also read about applying regularization after SVD to control for overfitting(?)
+-   Instead of K-NN, a correlation matrix can be used to find similar items after an item has been inputted.
+-   Clustering embeddings
+    -   kNN is has O(N\*K) complexity, where N is the number of items and K is the size of each embedding.
+        -   Approximate nearest neighbor (ANN) algorithms typically drop the complexity of a lookup to O(log(n))
+            -   See [Clustering, General](clustering-general.qmd#sec-clust-gen){style="color: green"}
+
+### Non-Negative Matrix Factorization (NMF) {#sec-alg-recom-colfil-nmf .unnumbered}
+
+-   Misc
+    -   Packages:
+        -   [{NMF}]{style="color: #990000"}
+    -   Methods
+        -   Alternating Least Squares (ALS)
+            -   Spark has recommendation model that uses this algorithm
+        -   Hierarchical Alternating Least Squares (HALS)
+-   Decomposes the sparse user-item matrix (N_users ⨯ N_items) to 2 lower dimensional matrices (W & H)
+    -   The original matrix must have all non-negative entries (I think) The product of W and H is an *approximation* of the original user-item matrix. Being an approximation is how it's different from SVD This is because the 2 resulting matrices are constrained to be non-negative (every elt is non-negative) instead of orthogonal
+
+|         |        |        |        |
+|---------|--------|--------|--------|
+| \_\_    | *SKU1* | *SKU2* | *SKU3* |
+| *CUST1* | *0*    | *1*    | *1*    |
+| *CUST2* | *0*    | *0*    | *1*    |
+| *CUST3* | *1*    | *0*    | *0*    |
+
+-   I don't *think* these are indicator columns. I think they're quantities, so each cell can have any positive integer value (or zero).
+
+-   Customer Segment Matrix, W: N_users ⨯ N_latent_factors
+
+    -   Each column is a "segment" or "basis"
+    -   Each cell is the customer's score for that segment
+
+-   Product Segment Matrix, H: N_latent_factors ⨯ N_items
+
+    -   Each row is a "segment" or "basis"
+    -   Each cell is the product's score for that segment
+
+-   The dimension of "N_latent_factors" is a tuning parameter\
+    ![](./_resources/Algorithms,_Recommendation.resources/0-i3i677_vOgdg174y.png){width="432"}
+
+-   If a customer and product have high scores for the same segments, then our factorization is implying that this cell in the customer-by-product matrix has a high value.
+
+    -   A customer's predicted rating for an item is calculated by multiplying the customer vector by the item vector
+    -   In general, by multiplying both W and H matrices, we end up with an estimate of the original matrix, but more densely filled with all of our predicted ratings
+
+-   The resulting latent dimensions will capture the most relevant information or characteristics about each customer and item and therefore improve the performance of the downstream clustering task
+
+-   Results can be visualized with a heatmap
+
+    -   Example had 2 heatmaps (customer segment matrix, product segment matrix)
+    -   A dark cell for customer i and segment j says that the customer prefers products with high scores in segment j (dark cells in the product heatmap)
+        -   I think the scores are normalized, so closer to 1 means a stronger association
+
+-   Issues
+
+    -   Cold Start Problem - When you have new users or items that you want to make predictions for since the model had no possibility to learn anything for them, leaving you with basically random recommendations for them
+        -   See LightFM for potential solution
+    -   User-Item matrices can be *too* sparse
+        -   See [Metrics](algorithms-recommendation.qmd#sec-alg-recom-metrics){style="color: green"} \>\> Misc \>\> Sparsity Index
+        -   Solutions:
+            -   Remove some users or items that have low interaction counts (i.e. 1s in user/item matrix)
+            -   Develop a hierarchy of information about the product---from brand, to style, to size (or SKU), and choose the appropriate level of the hierarchy to use
+    -   Factorization parameters
+        -   Determine the starting state of the matrix in the estimation process (i.e. which product information to use? see 1st issue)
+        -   loss function
+            -   Frobenius norm and the Kullback-Leibler divergence commonly used (at least in NLP) to minimize the distance between the user-item matrix and its approximation (W x H)
+        -   $k$ - Number of segments
+            -   Too many segments, and the information is hard to digest; too few, and you are not explaining the data well
+        -   $\alpha$ - A regularization parameter for learning W and H
+            -   Regularization is an optional technique that can be used to have more control over how outliers can influence the algorithm
+        -   $\mbox{tolerance}$ - Stopping condition for the NMF algorithm. i.e. how close is the approximation X ≈ W x H.
+            -   Lower tolerance means more training iterations
+
+-   Use Cases
+
+    -   Developing product-based customer segments to build need-based personas
+    -   Deciding which products should be offered together as a bundle
+    -   Building a product recommendation engine that uses a customer's segment to determine which products should be merchandised
+        -   Similar items beget similar ratings from similar users
+    -   Topic Analysis
+        -   Also see [NLP, Topic \>\> NMF](nlp-topic.qmd#sec-nlp-top-nmf){style="color: green"}
+        -   Pick a couple columns of a df (e.g. movie titles, plot descriptions)
+        -   tf-idf the plot descriptions and remove stopwords, names, etc.
+        -   Apply NMF
+            -   For each segment (rows) in H, find the k most important words (columns) (i.e. words with top k scores)
+        -   Each segment is a genre. Use the words to label the genres for the movies.
+            -   Adjusting the number of segments might produce more coherent results if necessary.
+
+-   [Example]{.ribbon-highlight} (word2vec, GMM, HDBSCAN)
+
+    -   Notes from <https://towardsdatascience.com/using-gaussian-mixture-models-to-transform-user-item-embedding-and-generate-better-user-clusters-a46e1062d621>
+    -   Music playlist data: Users hash ids (users), Artist names (items)
+    -   Steps
+        1.  Items are characters so apply word2vec to get embeddings
+            -   Each unique item will have a numeric vector (item_vec) associated with it.
+        2.  For each user's playlist, compute average vector of all the item vectors associated with it.
+            -   (item1_vec + item2_vec + ...)/n
+            -   Each user is represented by a (averaged) vector
+        3.  We have item_df which has each item and its word2vec numeric representation, and we have a user_df which has each user and their playlists represented by a mean embedding numeric vector
+        4.  Fit a gaussian mixture model, gmm_mod, with the item_df
+        5.  For each user, get vector of probabilities of that user belonging to each cluster by user_probs \<-- predict(gmm_mod, data = user_df)
+            -   By increasing the number user_df features by creating gmm cluster probabilities, it helps other clustering algorithms separate users more easily.
+        6.  Cluster user_probs using HDBSCAN
+            -   Where user_probs should look like col1 = users, col2 = gmmclust1_probs, col3 = gmmcluster2_probs, etc.
+    -   Optional processing that can improve results
+        -   Logging and standardizing before clustering
+        -   Removing outliers (e.g. very popular artists) at the start
+
+### LightFM {#sec-alg-recom-colfil-lfm .unnumbered}
+
+-   Creates embeddings for additional features of the user and the product. Then, adds all the user embeddings together and adds all the product embeddings together and proceeds as normal
+-   In the cold start case, the new user gets a default embedding for "user_id" and "product_id", but by using the additional feature embeddings, you get an informative rating.
+-   Misc
+    -   Notes from [A Performant Recommender System Without Cold Start Problem](https://towardsdatascience.com/a-performant-recommender-system-without-cold-start-problem-69bf2f0f0b9b)
+    -   [Paper](https://arxiv.org/abs/1507.08439) (2015)([code](https://github.com/lyst/lightfm))
+        -   Results (only tested on 2 datasets w/binary labels)
+            -   "In both cold-start and low-density scenarios, LightFM performs at least as well as pure content-based models, substantially outperforming them when either (1) collaborative information is available in the training set or (2) user features are included in the model."
+            -   "When collaborative data is abundant (warm-start, dense user-item matrix), LightFM performs at least as well as the MF model."
+            -   "Embeddings produced by LightFM encode important semantic information about features and can be used for related recommendation tasks such as tag recommendations."
+-   Method Comparison
+    -   Typical collaborative filtering (e.g. user ids, movie ids)\
+        ![](./_resources/Algorithms,_Recommendation.resources/image.3.png){width="300"}
+    -   LightFM\
+        ![](./_resources/Algorithms,_Recommendation.resources/image.4.png){width="332"}
+
+## Content-based {#sec-alg-recom-contb .unnumbered}
+
+-   Measure similarities in product characteristics and matching based on the strength of the measures.
+-   Various similarity scoring algorithms
+    -   Density Adjusting
+    -   Vector Embedding
+    -   Co-Occurrence
+-   Collaborative Topic Modeling/Regression (CTM/CTR) for text-based items with enhanced accuracy and out-of-matrix prediction capabilities. \* out-of-matrix capability: able to generalize the recommendations for new, completely unrated items: since no ratings are observed for item j, a model without this capability cannot derive its latent vector of qualities.
+    -   Built on top of Latent Dirchlet Allocation (LDA) and Probabilistic Matrix Factorization (PMF)
+
+## Company Recommenders {#sec-alg-recom-comprec .unnumbered}
+
+-   **Spotify** - Truncated SVD of user-item matrix then K-NN to find similar groupings
+-   **Youtube**\
+    ![](./_resources/Algorithms,_Recommendation.resources/6127dfb0e2efbd15a4d0370a_dkmsReLpa7AGAu_HBk05iyoMn.png){width="532"}
+    -   [Paper](https://static.googleusercontent.com/media/research.google.com/en//pubs/archive/45530.pdf)
+    -   Similar to GMM example (above) except:
+        -   a DL model takes the embeddings and outputs class probabilities instead of a GMM
+        -   approx-kNN is used instead of HDBSCAN to cluster users
+    -   Combines two different deep neural networks, a first to select good candidate videos that you'd like if you watched, and a second to pick the best candidates that you are most likely to watch the longest. (Think the candidate NN is the one shown in the figure)
+-   **TikTok**\
+    ![](./_resources/Algorithms,_Recommendation.resources/image.png){width="532"}
+    -   Notes from:
+        -   [The Batch](https://read.deeplearning.ai/the-batch/issue-122/)
+            -   Summarizes a nytimes article of a leaked internal document
+        -   [TikTok's Secret Sauce](https://knightcolumbia.org/blog/tiktoks-secret-sauce)
+    -   Flow chart starts with the primary goal on the left (increase Daily Active Use). From left to right, it breaks down variables into other variables that are probably predictive of the variable preceding it. Therefore maximizing the right-most variables will increase the primary KPI (daily active use)
+    -   For each user, videos are ranked according to an expected value equation (i.e sum of probabilities and values): Plike x Vlike + Pcomment x Vcomment + Eplaytime x Vplaytime + Pplay x Vplay
+        -   Ps are likely predicted values that the user will do the action (e.g. like, comment, play) for a particular video.
+        -   Vs are values that the tiktok has determined for that particular action
+            -   Maybe determined by a regression standardized coefficient (daily_active_use \~ comment + ...) or variable importance value
+        -   E may be "estimated." Might be a descriptive statistic for a user. e.g. avg playtime given var1, var2, etc.
+            -   maybe the vars are the "Other features" or Creative quality variables, etc.
+    -   The Batch article discusses ways to penalize videos
+    -   UI design: Swiping instead of scrolling
+    -   Treats each video more or less independently to assess its viral potential, caring relatively little about how many followers the creator has
+    -   More exploration, less exploitation
+        -   There is a tradeoff between safe but somewhat boring recommendations that are similar to recommendations that worked well in the past ("exploitation"), and risky recommendations that are unlikely to be good but have a high payoff if they do turn out to be good ("exploration").
+        -   Places a relatively high emphasis on exploration compared to other platforms
+        -   TikTok is able to take risks because all it takes is a swipe (see UI design and article for details)
+-   **Netflix**
+    -   Uses a [Embarrassingly Shallow Autoencoders (EASE)](https://arxiv.org/pdf/1905.03375.pdf) for embeddings
+    -   Uses Propensity Correction ([Paper](https://arxiv.org/pdf/1812.02353.pdf)) to prevent feedback loops which can bias the recommender
+-   **Instagram**
+    -   [How Instagram suggests new content](https://engineering.fb.com/2020/12/10/web/how-instagram-suggests-new-content/?utm_source=Data_Elixir&utm_medium=social)
+
+## Other Notes {#sec-alg-recom-otnot .unnumbered}
+
+-   [RecSys 2020 --- Takeaways and Notable Papers](https://towardsdatascience.com/recsys2020-777590f51b44)
+
+    -   Inverse propensity scoring was a popular approach taken to debias recommendations
+    -   Increased shift towards sequence models (with SASRec (2018) and BERT4Rec (2019) being common benchmarks) and bandit and reinforcement learning for recommender systems
+    -   Three sources of recommendation complexity, namely:
+        -   Placement: Where is the recommendation located on the user interface?
+        -   Person: Who is seeing the recommendation? What are her past experiences with the recommendation placement?
+        -   Context: What is going on at that moment? What are the user's needs?
+            -   There are many contexts where similarity is not required or can worsen recommendations. For example, users might want a change of pace or mood from that horror movie they just watched. Also, does the user stick to a specific genre (e.g., Korean dramas) or hop around diverse genres? A better understanding will help improve the user experience.
+    -   Different data splitting strategies (for train and validation) can affect the relative performance of recommendation systems in offline evaluation
+        -   Splitting strategies
+            -   Leave-one-last: Leave one last item, leave one last basket/session
+            -   Temporal: Temporal split within each user, temporal split (on same date) globally
+            -   Random: For each user, split interactions into train and test data
+            -   User: Split some users into train, the rest into test
+        -   Relative performance of recommenders changed often across splitting strategies (indicated by the rank swaps)\
+            ![](./_resources/Algorithms,_Recommendation.resources/0-NgJtaIUIWeCsIRTU.jpg){width="632"}
+    -   Model Evaluation
+        -   SR-GNN: Best hit rate, mean reciprocal rank, and nDCG
+        -   V-STAN: Best precision, recall, and mean average precision
+        -   V-SKNN, GRU4Rec: Best coverage and popularity
+        -   STAMP: Satisfactory in all metrics
+        -   Using human experts to evaluate recommendations
+            -   In contrast to the offline evaluation metrics, human experts found GRU4Rec to have very relevant recommendations. However, because its recommendations did not match the IDs of products added to cart, GRU4Rec did not perform as well on offline evaluation metrics.
+            -   STAMP and GRU4Rec performed best in the second step and STAMP was put through an A/B test. This led to a 15.6% increase in CTR and an 18.5% increase in revenue per session.
+    -   Similarity
+        -   Matrix factorization faster w/sufficient regularization outperformed and was faster than DL approaches
+    -   Adding unexpectedness to recommendations to add freshness
+        -   Two kinds
+            -   Personalized: Some users are variety seekers and thus more open to new videos
+            -   Session-based: If a user finishes the first episode of a series, it's better to recommend the next episode. If the user binged on multiple episodes, it's better to recommend something different.
+    -   Bad idea to use default parameters for Word2vec-based recommendations
