@@ -1,3 +1,7 @@
+---
+fig-cap-location: top
+---
+
 # Survival
 
 ## Misc
@@ -174,7 +178,7 @@
     -   Packages
         -   [{]{style="color: #990000"}[glmnet](https://glmnet.stanford.edu/articles/Coxnet.html){style="color: #990000"}[}]{style="color: #990000"} - Regularized Cox Regression
         -   [{]{style="color: #990000"}[coxphf](https://cran.r-project.org/web/packages/coxphf/index.html){style="color: #990000"}[}]{style="color: #990000"} - Cox Regression with Firth's Penalized Likelihood
-            -   See [Regression, Regularized >> Firth's Estimator](regression-regularized.qmd#sec-reg-reg-firth){style="color: green"}
+            -   See [Regression, Regularized \>\> Firth's Estimator](regression-regularized.qmd#sec-reg-reg-firth){style="color: green"}
     -   Sample Size
         -   Harrell RMS ([Ch. 20.3](http://hbiostat.org/rmsc/cox.html#sec-cox-samsize)):
             -   To achieve a Multiplicative Margin of Error (MMOE ) of 1.2 (?) in estimating eβ\^ with equal numbers of events in the two groups (balanced, binary treatment variable) and α = 0.05 → requires a total of 462 events
@@ -227,11 +231,90 @@
 
         -   The censoring distribution might be obtained from a Kaplan-Meier estimator applied to the data.
 
-    -   Dynamic AUC is a recommended metric Random Survival Forests The main difference from a standard RF lies in the metric used to assess the quality of a split: [log-rank](https://en.wikipedia.org/wiki/Logrank_test) (see Misc) which is typically used when comparing survival curves among two or more groups.
+    -   Dynamic AUC is a recommended metric
+-   Random Survival Forests
+    -   The main difference from a standard RF lies in the metric used to assess the quality of a split: [log-rank](https://en.wikipedia.org/wiki/Logrank_test) (see Misc) which is typically used when comparing survival curves among two or more groups.
+    -   Packages
+        -   [{]{style="color: #990000"}[aorsf](https://docs.ropensci.org/aorsf/){style="color: #990000"}[}]{style="color: #990000"} - Optimized software to fit, interpret, and make predictions with oblique random survival forests (ORSFs)
 
-        Packages
+            -   Instead of using one variable to split the data, use a weighted combination of variables, i.e. $\text{instead of}\;\; x_1 < \text{cutpoint (left), use}\;\; c_1x_1 + c_2x_2 < \text{cutpoint (right)}$
 
-        -   [{]{style="color: #990000"}[aorsf](https://bcjaeger.github.io/aorsf/){style="color: #990000"}[}]{style="color: #990000"} - optimized software to fit, interpret, and make predictions with oblique random survival forests (ORSFs) [{{]{style="color: goldenrod"}[sklearn](https://scikit-survival.readthedocs.io/en/stable/api/generated/sksurv.ensemble.RandomSurvivalForest.html){style="color: goldenrod"}[}}]{style="color: goldenrod"}
+                ![](_resources/Regression,_Survival.resources/ml-rf-axis_versus_oblique-1.png){width="432"}
+
+            -   Predictions of Standard RF vs Oblique RF
+
+                ::: {layout-ncol="2"}
+                ![Standard Random Forest](_resources/Regression,_Survival.resources/ml-rf-obl-vs-axis-axpred-1.png){fig-align="left" width="432"}
+
+                ![Oblique Random Forest](_resources/Regression,_Survival.resources/ml-rf-obl-vs-axis-oblpred-1.png){fig-align="left" width="432"}
+                :::
+
+                -   In the standard rf, the decision boundaries are essentially perpendicular while the oblique rf boundaries are more angular. This should make the oblique model more flexible.
+
+            -   Kaplan-Meir Curves are fit in the leaves of the trees
+
+                ![](_resources/Regression,_Survival.resources/ml-rf-leaf-kmcurve-1.jpg){width="432"}
+
+                -   Time is on the x-axis and probability of survival on the y-axis
+
+        -   [{{]{style="color: goldenrod"}[sklearn](https://scikit-survival.readthedocs.io/en/stable/api/generated/sksurv.ensemble.RandomSurvivalForest.html){style="color: goldenrod"}[}}]{style="color: goldenrod"}
+    -   [Example]{.ribbon-highlight}: {aorsf}
+        -   From Machine Learning for Risk Prediction using Oblique Random Survival Forests ([Video](https://www.youtube.com/watch?v=LJoGmQapvf0&list=PL4IzsxWztPdlpR3NqGzUI01M4_jqzIWqo&index=27); [Slides & Code](https://www.byronjaeger.com/talk/seminar-orsf-rmedicine/))
+
+        -   Via package
+
+            ``` r
+            # equivalent syntaxes
+            fit_orsf <- orsf(data = pbc_orsf, 
+                             formula = Surv(time + status) ~ . - id)
+            fit_orsf <- orsf(data = pbc_orsf, 
+                             formula = time + status ~ . - id)
+            ```
+
+            -   Top model is fit with the typical `survival::coxph` syntax
+            -   [time]{.var-text}: time to event
+            -   [status]{.var-text}: dummy variable indicating whether event occurred
+            -   [id]{.var-text}: unit or patient id which is excluded
+
+        -   Via {tidymodels}
+
+            ``` r
+            library(parsnip)
+            library(censored) # must be version 0.2.0 or higher
+            rf_spec <- 
+              rand_forest(trees = 200) %>%
+              set_engine("aorsf") %>% 
+              set_mode("censored regression") 
+            fit_tidy <- 
+              rf_spec %>% 
+              parsnip::fit(data = pbc_orsf, 
+                           formula = Surv(time, status) ~ . - id)
+            ```
+
+        -   Partial Dependence
+
+            ``` r
+            orsf_summarize_uni(fit_orsf, n_variables = 1)
+            ## 
+            ## -- bili (VI Rank: 1) ----------------------------
+            ## 
+            ##         |---------------- risk ----------------|
+            ##   Value      Mean    Median     25th %    75th %
+            ##  <char>     <num>     <num>      <num>     <num>
+            ##    0.80 0.2343668 0.1116206 0.04509389 0.3729834
+            ##     1.4 0.2547884 0.1363122 0.05985486 0.4103148
+            ##     3.5 0.3698634 0.2862611 0.16196924 0.5533383
+            ## 
+            ##  Predicted risk at time t = 1788 for top 1 predictors
+            ```
+
+            -   Expected risk as a predictor variable varies.
+                -   Value is 3 values of the predictor
+            -   [n_variables]{.arg-text} says how many "important" variables to look at
+                -   e.g. [n_variables = 2]{.arg-text} would look at the top 2 variables in terms of variable importance.
+                -   [VI Rank: 1]{.arg-text} indicates the [bili]{.var-text} is ranked first in variable importance
+            -   [bili]{.var-text}: serum bilirubin (mg/dl); continuous variable
+            -   Also see [Diagnostics, Model Agnostic \>\> DALEX \>\> Dataset Level \>\> Partial Dependence Profiles](diagnostics-model-agnostic.qmd#sec-diag-modagn-dalex-datlev-pdp){style="color: green"}
 -   Gradient Boosting Survival Trees
     -   Loss Functions
         -   Partial likelihood loss of Cox's proportional hazards model
