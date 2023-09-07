@@ -1,21 +1,7 @@
-# Econometrics, Mixed Effects, Frequentist
+# Mixed Effects, Frequentist {#sec-econ-me-freq .unnumbered}
 
 TOC
 
--   Stuff
-    -   Motivation for using a Random Effects model
-    -   Model Choice
-        -   Pooling
-        -   Fixed Effects or Random Effects?
-    -   Advantages of a mixed model (y \~ x + (x \| g)) vs a linear model with an interaction (y \~ x \* g)
-    -   Assumptions
-    -   Variable Assignment
-        -   Fixed Effects
-        -   Random Effects
-    -   Specifications and Notation
-    -   Strategy
-    -   InterClass Coefficient (ICC)
-    -   Examples
 -   Beyond Multiple Linear Regression
     -   Chapter 8 (Introduction to Multilevel Models)
         -   2-Stage Model
@@ -34,93 +20,10 @@ TOC
             -   Final Model
     -   Chapter 9 (2-Level Longitudinal Data)
 
-Stuff
+## Misc {#sec-econ-me-freq-misc .unnumbered}
 
--   Misc
-
-    -   Random Effects model = Multi-level model with random intercepts = Hierarchical model
-    -   Packages
-        -   [{]{style="color: #990000"}[lme4](https://cran.r-project.org/web/packages/lme4/index.html){style="color: #990000"}[}]{style="color: #990000"} - linear and generalized linear mixed-effects models; implemented using the 'Eigen' C++ library for numerical linear algebra and 'RcppEigen' "glue".
-            -   Using [{]{style="color: #990000"}[lmerTest](https://cran.r-project.org/web/packages/lmerTest/index.html){style="color: #990000"}[}]{style="color: #990000"} will produce a summary of lme4 models with pvals for coefficients
-        -   [{]{style="color: #990000"}[plm](https://cran.r-project.org/web/packages/plm/index.html){style="color: #990000"}[}]{style="color: #990000"} - linear models for panel data; including within/fixed effects, random effects, between, first-difference, nested random effects
-        -   [{]{style="color: #990000"}[glmmTMB](https://glmmtmb.github.io/glmmTMB/){style="color: #990000"}[}]{style="color: #990000"} - for fitting generalized linear mixed models (GLMMs) and extensions
-            -   Wide range of statistical distributions (Gaussian, Poisson, binomial, negative binomial, Beta ...) and zero-inflation.
-            -   Fixed and random effects models can be specified for the conditional and zero-inflated components of the model, as well as fixed effects for the dispersion parameter.
-        -   [{]{style="color: #990000"}[spaMM](https://cran.r-project.org/web/packages/spaMM/index.html){style="color: #990000"}[}]{style="color: #990000"} - Inference based on models with or without spatially-correlated random effects, multivariate responses, or non-Gaussian random effects (e.g., Beta).
-    -   Mixed Effects and repeated measures (aka longitudinal)
-        -   **Mixed Effects Models** = Fixed Effects *and* Random Effects
-            -   i.e. variation within the unit and between the units
-        -   Harrell ([article](https://www.fharrell.com/post/re/))
-            -   Says that Mixed Models models can capture within-subject correlation of repeated measures over very short time intervals but not  over extended time intervals  where autocorrelation comes into play
-                -   Example of a short interval is a series of tests on a subject over minutes when the subject does not fatigue
-                -   Example of a long interval is a typical longitudinal clinical trial where patient responses are assessed weekly or monthly
-            -   He recommends a Markov model for longitudinal RCT data (see bkmks)
-        -   Bartlett
-            -   [Mixed model repeated measures (MMRM) in Stata, SAS and R](https://thestatsgeek.com/2020/12/30/mixed-model-repeated-measures-mmrm-in-stata-sas-and-r/)
-                -   Tutorial; uses nlme::gls
-    -   [{tidymodels}]{style="color: #990000"} [workflows](https://multilevelmod.tidymodels.org/articles/multilevelmod.html#models-using-lmer-glmer-and-stan_glmer') (optional outputs: lmer, glmer, stan_glmer objects)
-
--   Motivation for using a Random Effects model
-
-    -   You think the little subgroups are part of some bigger group with a common mean effect
-        -   e.g. multiple observations of a single person, or multiple people in a school, or multiple schools in a district, or multiple varieties of a single kind of fruit, or multiple kinds of vegetable from the same harvest, or multiple harvests of the same kind of vegetable, etc.
-    -   These subgroup means significantly *deviate* from the big group mean.
-    -   These *deviations* follow a distribution, typically Gaussian.
-        -   That's where the "random" in **random effects** comes in: we're assuming the *deviations* of subgroups from a parent follow the distribution of a *random* (Gaussian) variable
-            -   The variation between subgroups is assumed to have a normal distribution with a 0 mean and constant variance (variance estimated by the model).
-        -   GEEs are a semi-parametric option for panel data (See [Regression, Other](Regression,%20Other) \>\> Generalized Estimating Equations (GEE))
-
--   Model Choice
-
-    -   Pooling **Complete pooling** - Each unit is assumed to have the *same* effect Example: County is the grouping variable and radon level is the outcome All counties are *alike*. i.e. all characteristics of counties that affect radon levels in houses have the statistically same effect across counties. Therefore, the variable has no information.
-
-        ```         
-                  Run a single regression to estimate the average radon level in the whole state.
-                      `lm(radon_level ~ predictors)`
-
-                      Note that "county" is NOT a predictor in this model
-
-          **No pooling** - All units are assumed to have _independent_ effects
-              Example: County is the grouping variable (although not a predictor in this case) and radon level is the outcome
-                  All counties are _different_ from each other.
-                      i.e. there are no common characteristics of counties that affect radon levels in houses. Any characteristic a county has that affects radon levels is unique to that county.
-
-                  Run a regression for each county to estimate the average radon level for each county.
-                      `lm(radon_level ~ 0 + county + predictors`
-
-                      Using the "0 + " formula removes the common intercept which means each county will get it's own intercept
-        ```
-
-        -   **Partial pooling** - Each unit is assumed to have a different effect, but the data for all of the observed units informs the estimates for each unit
-            -   Example: County is the grouping variable (random effect) and radon level is the outcome All counties are *similar* each other. i.e. all charcteristics of counties that affect radon levels in house have statistically varying effects sizes depending on the particular county
-
-                ```         
-                  Run a multi-level regression to share information across counties.
-                      `lmer(radon_level ~ predictors + (1 + predictor | county))`
-                ```
-
-            -   This can be a nice compromise between estimating an effect by completely pooling all groups, which masks group-level variation, and estimating an effect for all groups completely separately, which could give poor estimates for low-sample groups.
-
-            -   If you have few data points in a group, the group's effect estimate will be based partially on the more abundant data from other groups. (2 min [video](https://www.youtube.com/watch?v=qMe7qwNMe-s)) Partial pooling is typically accomplished through hierarchical models. Hierarchical models directly model the population of units. From a population model perspective, no pooling corresponds to infinite population variance, whereas complete pooling corresponds to zero population variance.
-
-    -   Fixed Effects or Random Effects?
-
-        -   If there's likely correlation between unobserved group/cases variables (e.g. individual talent) and treatment variable (i.e. E(α\|x) != 0) AND there's substantial variance between group units, then FE is a better choice (see [Econometrics, Fixed Effects](Econometrics,%20Fixed%20Effects) \>\> Fixed Effects \>\> 1-way assumptions)
-        -   If cases units change little, or not at all, across time, a fixed effects model may not work very well or even at all (SEs for a FE model will be large)
-            -   **The FE model is for analyzing within-units variance**
-        -   Do we wish to estimate the effects of variables whose values do not change across time, or do we merely wish to control for them?
-            -   FE: these effects aren't estimated but adjusted for by explicitly including a separate intercept term for each individual (αi) in the regression equation
-            -   RE: estimates these effects (might be biased if RE assumptions violated)
-                -   **The RE model is for analyzing between-units variance**
-        -   The amount of within-unit variation relative to between-unit variation has important implications for these two approaches
-            -   [Article](https://www.r-bloggers.com/2022/06/fixed-effects-vs-random-effects-for-web-browsing-data-a-simulation/) with simulated data showed that within variation around sd \< 0.5 didn't detect the effect of explanatory variable but ymmv (depends on \# of units, observations per unit, N)
-        -   Durbin--Wu--Hausman test ({plm::phtest})
-            -   If H0 is not rejected, then both FE and RE are consistent but only RE is efficient. --\> use RE but if you have a lot of data, then FE is also fine.
-            -   If H0 is rejected, then only FE is consistent --\> use FE
-        -   ICC \> 0.1 is generally accepted as the minimal threshold for justifying the use of Mixed Effects Model (See ICC section)
-
+-   Random Effects model = Multi-level model with random intercepts = Hierarchical model
 -   Advantages of a mixed model (y \~ x + (x \| g)) vs a linear model with an interaction (y \~ x \* g)
-
     -   From T.J. Mahr [tweet](https://twitter.com/tjmahr/status/1504124329319096323)
     -   Conceptual: Assumes participant means are drawn from the same latent population
     -   Computational: partial pooling / smoothing
@@ -129,30 +32,78 @@ Stuff
         -   Standard errors are underestimated in the interaction model though.
             -   Doesn't account for dependence in the repeated measure for each subject
         -   For unbalanced data w/some group categories having few data points or with outliers, the mixed effects model regularizes/shrinks/smooths the estimates to the overall group (i.e. population) mean
-    -   Example of model formula interpretation![](./_resources/Econometrics,_Mixed_Effects,_Frequentist.resources/FLvupd_WYAQPIzA.png)
+    -   Example of model formula interpretation\
+        ![](./_resources/Econometrics,_Mixed_Effects,_Frequentist.resources/FLvupd_WYAQPIzA.png){width="490"}
+-   Packages
+    -   [{]{style="color: #990000"}[lme4](https://cran.r-project.org/web/packages/lme4/index.html){style="color: #990000"}[}]{style="color: #990000"} - linear and generalized linear mixed-effects models; implemented using the 'Eigen' C++ library for numerical linear algebra and 'RcppEigen' "glue".
+        -   Using [{]{style="color: #990000"}[lmerTest](https://cran.r-project.org/web/packages/lmerTest/index.html){style="color: #990000"}[}]{style="color: #990000"} will produce a summary of lme4 models with pvals for coefficients
+    -   [{]{style="color: #990000"}[plm](https://cran.r-project.org/web/packages/plm/index.html){style="color: #990000"}[}]{style="color: #990000"} - linear models for panel data; including within/fixed effects, random effects, between, first-difference, nested random effects
+    -   [{]{style="color: #990000"}[glmmTMB](https://glmmtmb.github.io/glmmTMB/){style="color: #990000"}[}]{style="color: #990000"} - for fitting generalized linear mixed models (GLMMs) and extensions
+        -   Wide range of statistical distributions (Gaussian, Poisson, binomial, negative binomial, Beta ...) and zero-inflation.
+        -   Fixed and random effects models can be specified for the conditional and zero-inflated components of the model, as well as fixed effects for the dispersion parameter.
+    -   [{]{style="color: #990000"}[spaMM](https://cran.r-project.org/web/packages/spaMM/index.html){style="color: #990000"}[}]{style="color: #990000"} - Inference based on models with or without spatially-correlated random effects, multivariate responses, or non-Gaussian random effects (e.g., Beta).
+-   Mixed Effects and repeated measures (aka longitudinal)
+    -   **Mixed Effects Models** = Fixed Effects *and* Random Effects
+        -   i.e. variation within the unit and between the units
+    -   Harrell ([article](https://www.fharrell.com/post/re/))
+        -   Says that Mixed Models models can capture within-subject correlation of repeated measures over very short time intervals but not  over extended time intervals  where autocorrelation comes into play
+            -   Example of a short interval is a series of tests on a subject over minutes when the subject does not fatigue
+            -   Example of a long interval is a typical longitudinal clinical trial where patient responses are assessed weekly or monthly
+        -   He recommends a Markov model for longitudinal RCT data (see bkmks)
+    -   Bartlett
+        -   [Mixed model repeated measures (MMRM) in Stata, SAS and R](https://thestatsgeek.com/2020/12/30/mixed-model-repeated-measures-mmrm-in-stata-sas-and-r/)
+            -   Tutorial; uses nlme::gls
+-   [{tidymodels}]{style="color: #990000"} [workflows](https://multilevelmod.tidymodels.org/articles/multilevelmod.html#models-using-lmer-glmer-and-stan_glmer') (optional outputs: lmer, glmer, stan_glmer objects)
 
--   Assumptions E(αi\|xit) = 0: No time-constant unobserved heterogeneity i.e. no correlation between time-invariant valued, unobserved variables (aka random effect variable) and the explanatory variable of interest (e.g. treatment) time-invariant valued, unobserved variables: variables that are constant across time for each unit and explain variation *between-units* e.g. if random effect variable (aka clustering variable) is the individual, then the "time-invariant, unobserved" variable could be something latent like talent or something measureable like intelligence or socio-economic status. Whatever is likely to explain the variance between-units in relation to the response.
+## Considerations {#sec-econ-me-freq-consid .unnumbered}
 
-    ```         
-          The effect that these variables have must also be time-invariant
-          * e.g. the effect of gender on the outcome at time 1 is the same as the effect of gender at time 5
-          * If effects are time-varying, then an interaction of gender with time could be included
-          It's not reasonable for this to be _exactly_ zero in order to use a mixed effected model, but for situations where there's high correlation, this model should be avoided
-
-      * Example: violation
-
-          ![](./_resources/Econometrics,_Mixed_Effects,_Frequentist.resources/unnamed-chunk-21-1.png)
-          * Each group's x values get larger from left to right as each group's α (aka y-intercepts) for each unit get larger
-              * i.e. multi-effects models fail in cases where there's very high correlation between group intercepts and x, together with large between-group variability compared to the within-group variability
-          * \*\*FE model would be better in this case
-              * Gelman has a [paper](file:///C:/Users/tbats/Documents/R/Documents/Regression/mixed%20effects/fitting-multilevel-models-when-predictors-group-effects-correlate-Bafumi-Gelman.pdf) that describes how a mixed effect model can be fit in this situation though
-      E(ϵit|xit) = 0: No time-varying unobserved heterogeneity
-      * i.e no endogeneity (no correlation between the residuals and explanatory variable of interest)
-      * If violated, there needs to be explicit measurements of omitted time-invariant variables (see 1st assumption for definition) if they are thought to _interact_ with other variables in the model.
-    ```
-
--   Variable Assignment
-
+-   [Motivation for using a Random Effects model]{.underline}
+    -   You think the little subgroups are part of some bigger group with a common mean effect
+        -   e.g. multiple observations of a single person, or multiple people in a school, or multiple schools in a district, or multiple varieties of a single kind of fruit, or multiple kinds of vegetable from the same harvest, or multiple harvests of the same kind of vegetable, etc.
+    -   These subgroup means significantly *deviate* from the big group mean.
+    -   These *deviations* follow a distribution, typically Gaussian.
+        -   That's where the "random" in **random effects** comes in: we're assuming the *deviations* of subgroups from a parent follow the distribution of a *random* (Gaussian) variable
+            -   The variation between subgroups is assumed to have a normal distribution with a 0 mean and constant variance (variance estimated by the model).
+        -   GEEs are a semi-parametric option for panel data (See [Regression, Other \>\> Generalized Estimating Equations (GEE)](regression-other.html#sec-reg-other-gee){style="color: green"})
+-   [Fixed Effects or Random Effects?]{.underline}
+    -   If there's likely correlation between unobserved group/cases variables (e.g. individual talent) and treatment variable (i.e. E(α\|x) != 0) AND there's substantial variance between group units, then FE is a better choice (See [Econometrics, Fixed Effects \>\> One-Way Fixed Effects](econometrics-fixed-effects.qmd#sec-econ-fe-owfe){style="color: green"} \>\> Assumptions)
+    -   If cases units change little, or not at all, across time, a fixed effects model may not work very well or even at all (SEs for a FE model will be large)
+        -   **The FE model is for analyzing within-units variance**
+    -   Do we wish to estimate the effects of variables whose values do not change across time, or do we merely wish to control for them?
+        -   FE: these effects aren't estimated but adjusted for by explicitly including a separate intercept term for each individual (αi) in the regression equation
+        -   RE: estimates these effects (might be biased if RE assumptions violated)
+            -   **The RE model is for analyzing between-units variance**
+    -   The amount of within-unit variation relative to between-unit variation has important implications for these two approaches
+        -   [Article](https://www.r-bloggers.com/2022/06/fixed-effects-vs-random-effects-for-web-browsing-data-a-simulation/) with simulated data showed that within variation around sd \< 0.5 didn't detect the effect of explanatory variable but ymmv (depends on \# of units, observations per unit, N)
+    -   Durbin--Wu--Hausman test ([{plm::phtest}]{style="color: #990000"})
+        -   If H0 is not rejected, then both FE and RE are consistent but only RE is efficient. $\rightarrow$ use RE but if you have a lot of data, then FE is also fine.
+        -   If H0 is rejected, then only FE is consistent $\rightarrow$ use FE
+    -   ICC \> 0.1 is generally accepted as the minimal threshold for justifying the use of Mixed Effects Model (See ICC section)
+-   [Pooling]{.underline}
+    -   **Complete pooling** - Each unit is assumed to have the *same* effect
+        -   [Example]{.ribbon-highlight}: County is the grouping variable and radon level is the outcome
+            -   All counties are *alike*.
+                -   i.e. all characteristics of counties that affect radon levels in houses have the statistically same effect across counties. Therefore, the variable has no information.
+            -   Run a single regression to estimate the average radon level in the whole state.
+                -   `lm(radon_level ~ predictors)`
+                -   Note that "county" is NOT a predictor in this model
+    -   **No pooling** - All units are assumed to have *independent* effects
+        -   [Example]{.ribbon-highlight}: County is the grouping variable (although not a predictor in this case) and radon level is the outcome
+            -   All counties are *different* from each other.
+                -   i.e. there are no common characteristics of counties that affect radon levels in houses. Any characteristic a county has that affects radon levels is unique to that county.
+            -   Run a regression for each county to estimate the average radon level for each county.
+                -   `lm(radon_level ~ 0 + county + predictors`
+                -   Using the "0 +" formula removes the common intercept which means each county will get it's own intercept
+    -   **Partial pooling** - Each unit is assumed to have a different effect, but the [data for all of the observed units informs the estimates for each unit]{.underline}
+        -   [Example]{.ribbon-highlight}: County is the grouping variable (random effect) and radon level is the outcome
+            -   All counties are *similar* each other.
+                -   i.e. all charcteristics of counties that affect radon levels in house have statistically varying effects sizes depending on the particular county
+            -   Run a multi-level regression to share information across counties.
+                -   `lmer(radon_level ~ predictors + (1 + predictor | county))`
+        -   This can be a nice compromise between estimating an effect by completely pooling all groups, which masks group-level variation, and estimating an effect for all groups completely separately, which could give poor estimates for low-sample groups.
+        -   If you have few data points in a group, the group's effect estimate will be based partially on the more abundant data from other groups. (2 min [video](https://www.youtube.com/watch?v=qMe7qwNMe-s))
+        -   Partial pooling is typically accomplished through hierarchical models. Hierarchical models directly model the population of units. From a population model perspective, no pooling corresponds to infinite population variance, whereas complete pooling corresponds to zero population variance.
+-   [Variable Assignment]{.underline}
     -   Questions ([article](https://rlbarter.github.io/Practical-Statistics/2017/03/03/fixed-mixed-and-random-effects/) has examples)
         -   Can the groups we see be considered the full population of possible groups we could see, or are they more like a random sample of a larger set of groups?
             -   Full Population: Fixed
@@ -191,211 +142,249 @@ Stuff
         -   If the random effects are correlated with variables of interest (fixed effects), leaving them out could lead to biased fixed effects. Including them can help more reliably isolate the influence of the fixed effects of interest and more accurately model a clustered system.
         -   To see individual random effects: `lme4::ranef(lme_mod)` or `lme4::ranef(tidy_mod$fit)`
 
--   Specifications and Notation
+## Assumptions {#sec-econ-me-freq-assum .unnumbered}
 
-    -   Varying intercept: `(1 | v1)`
-        -   aka random intercepts, where each level of the random variable (our random effect) had an adjustment to the overall intercept
+-   $\mathbb{E}(\alpha_i\;|\;x_{it}) = 0$: No time-constant unobserved heterogeneity
+    -   i.e. no correlation between time-invariant valued, unobserved variables (aka random effect variable) and the explanatory variable of interest (e.g. treatment)
 
-        -   [Example]{.ribbon-highlight}: each DEPARTMENT (random variable) has a different starting (intercepts) SALARY (outcome variable) for their faculty members (observations), while the annual rate (slope) at which salaries increase is consistent across the university (i.e. effect is constant between-DEPARTMENTS)![](./_resources/Econometrics,_Mixed_Effects,_Frequentist.resources/Screenshot%20(925).png)![](./_resources/Econometrics,_Mixed_Effects,_Frequentist.resources/Screenshot%20(917).png)
+        -   [**Time-Invariant Valued, Unobserved Variables**]{style="color: #009499"}: Variables that are constant across time for each unit and explain variation *between-units*
+            -   e.g. If random effect variable (aka clustering variable) is the individual, then the "time-invariant, unobserved" variable could be something latent like talent or something measureable like intelligence or socio-economic status. Whatever is likely to explain the variance between-units in relation to the response.
 
-            -   where j\[i\] is the index for "department"
+    -   The effect that these variables have must also be time-invariant
 
-            -   This strategy allows us to capture variation in the starting SALARY (intercepts) of our faculty
-    -   Varying Slopes: `(0 + v2| v1)`
-        -   aka random slopes, which would allow the effect of the v2 to vary by v1
+        -   e.g. The effect of gender on the outcome at time 1 is the same as the effect of gender at time 5
+        -   If effects are time-varying, then an interaction of gender with time could be included
 
-            -   i.e. v2 is a predictor whose effect varies according to the level of the grouping variable, v1.
+    -   It's not reasonable for this to be *exactly* zero in order to use a mixed effected model, but for situations where there's high correlation, this model should be avoided
 
-        -   i.e. a slope for each level of the random effects variable
+    -   [Example]{.ribbon-highlight}: Violation\
+        ![](./_resources/Econometrics,_Mixed_Effects,_Frequentist.resources/unnamed-chunk-21-1.png){width="432"}
 
-        -   [Example]{.ribbon-highlight}: faculty SALARY (outcome) increase at different rates (slopes) depending on the DEPARTMENT (random variable).![](./_resources/Econometrics,_Mixed_Effects,_Frequentist.resources/Screenshot%20(926).png)![](./_resources/Econometrics,_Mixed_Effects,_Frequentist.resources/Screenshot%20(919).png)
+        -   Each group's x values get larger from left to right as each group's α (aka y-intercepts) for each unit get larger
+            -   i.e. Mixed-Effects models fail in cases where there's very high correlation between group intercepts and x, together with large between-group variability compared to the within-group variability
+        -   \*\*FE model would be better in this case
+            -   Gelman has a [paper](file:///C:/Users/tbats/Documents/R/Documents/Regression/mixed%20effects/fitting-multilevel-models-when-predictors-group-effects-correlate-Bafumi-Gelman.pdf) that describes how a mixed effect model can be fit in this situation though
+-   $\mathbb{E}(\epsilon_{it}|x_{it}) = 0$: No time-varying unobserved heterogeneity
+    -   i.e No endogeneity (no correlation between the residuals and explanatory variable of interest)
+    -   If violated, there needs to be explicit measurements of omitted time-invariant variables (see 1st assumption for definition) if they are thought to *interact* with other variables in the model.
 
-            -   where j\[i\] is the index for "department"
+## Specifications and Notation {#sec-econ-me-freq-specnot .unnumbered}
 
-            -   This strategy allows us to capture variation in the *change* (slopes) in SALARY
-    -   Varying Slopes and Intercepts: `(1 + v2 | v1)` or just `(v2 | v1)` (See examples)
-        -   See above for descriptions of each
+-   Varying Intercepts: `(1 | v1)`
+    -   aka Random Intercepts, where each level of the random variable (our random effect) had an adjustment to the overall intercept
 
-        -   [Example]{.ribbon-highlight}: each DEPARTMENT (random variable) has a different starting (intercepts) SALARY (outcome variable) for their faculty members (observations), while the annual rate (slope) at which salaries increase varies depending on DEPARTMENT![](./_resources/Econometrics,_Mixed_Effects,_Frequentist.resources/Screenshot%20(922).png)![](./_resources/Econometrics,_Mixed_Effects,_Frequentist.resources/Screenshot%20(921).png)
+    -   [Example]{.ribbon-highlight}: Each DEPARTMENT (random variable) has a different starting (intercepts) SALARY (outcome variable) for their faculty members (observations), while the annual rate (slope) at which salaries increase is consistent across the university (i.e. effect is constant between-DEPARTMENTS)\
+        ![](./_resources/Econometrics,_Mixed_Effects,_Frequentist.resources/Screenshot%20(925).png){width="332"}\
+        ![](./_resources/Econometrics,_Mixed_Effects,_Frequentist.resources/Screenshot%20(917).png)
 
-            -   where j\[i\] is the index for "department"
+        -   Where j\[i\] is the index for "department"
+        -   This strategy allows us to capture variation in the starting SALARY (intercepts) of our faculty
+-   Varying Slopes: `(0 + v2| v1)`
+    -   aka random slopes, which would allow the effect of the v2 to vary by v1
+        -   i.e. v2 is a predictor whose effect varies according to the level of the grouping variable, v1.
+    -   i.e. a slope for each level of the random effects variable
+    -   [Example]{.ribbon-highlight}: faculty SALARY (outcome) increase at different rates (slopes) depending on the DEPARTMENT (random variable).\
+        ![](./_resources/Econometrics,_Mixed_Effects,_Frequentist.resources/Screenshot%20(926).png){width="332"}\
+        ![](./_resources/Econometrics,_Mixed_Effects,_Frequentist.resources/Screenshot%20(919).png)
+        -   Where j\[i\] is the index for "department"
+        -   This strategy allows us to capture variation in the *change* (slopes) in SALARY
+-   Varying Slopes and Intercepts: `(1 + v2 | v1)` or just `(v2 | v1)` (See examples)
+    -   See above for descriptions of each
+    -   [Example]{.ribbon-highlight}: Each DEPARTMENT (random variable) has a different starting (intercepts) SALARY (outcome variable) for their faculty members (observations), while the annual rate (slope) at which salaries increase varies depending on DEPARTMENT\
+        ![](./_resources/Econometrics,_Mixed_Effects,_Frequentist.resources/Screenshot%20(922).png){width="332"}\
+        ![](./_resources/Econometrics,_Mixed_Effects,_Frequentist.resources/Screenshot%20(921).png)
+        -   Where j\[i\] is the index for "department"
+        -   See above for descriptions of each type of variation this strategy captures
+-   Nested effects
+    -   e.g. Studying test scores (outcome variable) within schools (random variable) that are within districts (random variable)
+    -   notation: `(1 | v1 / v2)` says intercepts varying among v1 *and* v2 *within* v1.
+        -   e.g. schools is v2 and districts is v1
+    -   Unit IDs may be repeated within groups.
+        -   [Example]{.ribbon-highlight}: `lme4::lmer(score ~ time  + (time | school/student_id))`
+            -   The random effect at this level is the combination of school and student_id, which is unique.
+            -   You can verify this by calling `ranef` on the fitted model. It'll show you the unique combinations of students within schools used in the model.
+    -   If you take the fixed effects values shown in `summary(model)` then add the `ranef(model)` values to them, that's what `coef(model)` gives.
 
-            -   See above for descriptions of each type of variation this strategy captures
-    -   Nested effects
-        -   e.g. studying test scores (outcome variable) within schools (random variable) that are within districts (random variable)
-        -   notation: `(1 | v1 / v2)` says intercepts varying among v1 *and* v2 *within* v1.
-            -   e.g. schools is v2 and districts is v1
-        -   Unit IDs may be repeated within groups.
-            -   [Example]{.ribbon-highlight}: `lme4::lmer(score ~ time  + (time | school/student_id))`
-                -   The random effect at this level is the combination of school and student_id, which is unique.
-                -   You can verify this by calling `ranef` on the fitted model. It'll show you the unique combinations of students within schools used in the model.
-        -   If you take the fixed effects values shown in `summary(model)` then add the `ranef(model)` values to them, that's what `coef(model)` gives.
+## Strategy {#sec-econ-me-freq-strat .unnumbered}
 
--   Strategy
+-   Misc
+    -   begins with a saturated fixed effects model, determines variance components based on that, and then simplifies the fixed part of the model after fixing the random part.
+-   Overall:
+    -   EDA
+    -   Fit some simple, preliminary models, in part to establish a baseline for evaluating larger models.
+    -   Then, build toward a final model for description and inference by attempting to add important covariates, centering certain variables, and checking model assumptions.
+-   Process
+    -   EDA at each level (see [EDA, Multilevel, Longitudinal](eda-multilevel-longitudinal.qmd#sec-eda-multlong){style="color: green"})
+    -   Examine models with no predictors to assess variability at each level
+    -   Create Level One models: starting simple and adding terms as necessary (see Fixed Effects below)
+    -   Create Level Two models: starting simple and adding terms as necessary (see Fixed Effects below)
+        -   Beginning with the equation for the intercept term.
+    -   Examine the random effects and variance components (see Random Effects below)
+        -   Beginning with a full set of error terms and then removing covariance terms and variance terms where advisable
+            -   e.g. when parameter estimates are failing to converge or producing impossible or unlikely values
+        -   See Specifications and Notation for different RE modeling strategies.
 
-    -   Misc
-        -   begins with a saturated fixed effects model, determines variance components based on that, and then simplifies the fixed part of the model after fixing the random part.
-    -   Overall:
-        -   EDA
-        -   Fit some simple, preliminary models, in part to establish a baseline for evaluating larger models.
-        -   Then, build toward a final model for description and inference by attempting to add important covariates, centering certain variables, and checking model assumptions.
-    -   Process
-        -   EDA at each level (see [EDA, Hierarchical](EDA,%20Hierarchical))
-        -   Examine models with no predictors to assess variability at each level
-        -   Create Level One models: starting simple and adding terms as necessary (see Fixed Effects below)
-        -   Create Level Two models: starting simple and adding terms as necessary (see Fixed Effects below)
-            -   Beginning with the equation for the intercept term.
-        -   Examine the random effects and variance components (see Random Effects below)
-            -   Beginning with a full set of error terms and then removing covariance terms and variance terms where advisable
-                -   e.g. when parameter estimates are failing to converge or producing impossible or unlikely values
-            -   See Specifications and Notation for different RE modeling strategies.
+## Diagnostics {#sec-econ-me-freq-diag .unnumbered}
 
--   **InterClass Coefficient (ICC)**: The proportion of variation that is between-cases![](./_resources/Econometrics,_Mixed_Effects,_Frequentist.resources/ql_5544a786804218cec597e03dee52d1b5_l3.png)
+-   Also see [Diagnostics, Mixed Effects](diagnostics-mixed-effects.qmd#sec-diag-me){style="color: green"}
 
-    -   where σ0 is the between-case variance and σε is the within-case variance.
+-   **InterClass Coefficient (ICC)**: The proportion of variation that is between-cases\
+
+    $$
+    \rho = \frac{\sigma_0}{\sigma_0 + \sigma_\epsilon}
+    $$
+
+    -   Where $\sigma_0$ is the between-case variance and $\sigma_\epsilon$ is the within-case variance.
     -   1-ICC is the proportion of variation within cases
-    -   Statistical power is a function of ICC ([article](https://www.rdatagen.net/post/2023-04-18-generating-variable-cluster-sizes-to-assess-power-in-cluster-randomize-trials/))![](./_resources/Econometrics,_Mixed_Effects,_Frequentist.resources/image.png)
+    -   Statistical power is a function of ICC ([article](https://www.rdatagen.net/post/2023-04-18-generating-variable-cluster-sizes-to-assess-power-in-cluster-randomize-trials/))\
+        ![](./_resources/Econometrics,_Mixed_Effects,_Frequentist.resources/image.png){width="432"}
+
         -   Both higher ICCs and cluster size variability lead to reduced power
         -   The dispersion parameter is a parameter used in the data simulation
+
     -   Guideline: ICC \> 0.1 is generally accepted as the minimal threshold for justifying the use of Mixed Effects Model
 
-```         
-library(sjPlot)
-tab_model(lme_fit)
-```
+    -   [Example]{.ribbon-highlight}: [{sjPlot}]{style="color: #990000"}
 
--   Might need [{lmerTest}]{style="color: #990000"} loaded to get coefficient pvals
--   Also calculates two R2 values
-    -   Marginal: proportion of variance explained , by the fixed effects only
-    -   Conditional: proportion of variance explained by the fixed effects and random effects
+        ``` r
+        library(sjPlot)
+        tab_model(lme_fit)
+        ```
 
--   Data should be sorted by random variable level before modeling. Otherwise you could column bind the residuals to the original data. Then, group by random variable and  make q-q plots for each group
+        -   Might need [{lmerTest}]{style="color: #990000"} loaded to get coefficient pvals
+        -   Also calculates two R2 values
+            -   Marginal: proportion of variance explained , by the fixed effects only
+            -   Conditional: proportion of variance explained by the fixed effects and random effects
 
--   [Example]{.ribbon-highlight}: one-way random effects
+## Examples {#sec-econ-me-freq-examp .unnumbered}
 
-```         
-re1 <- plm(happiness ~ age, data = df,
-          index = c("id", "wave"),
-          effect = "individual", model = "random")
+-   [Example]{.ribbon-highlight}: One-Way Random Effects
 
-summary(re1)
-## Effects:
-##                  var std.dev share
-## idiosyncratic 0.03641 0.19081 0.096
-## individual    0.34396 0.58648 0.904
-## theta: 0.8394
-## Coefficients:
-##              Estimate Std. Error z-value  Pr(>|z|)   
-## (Intercept)  6.933947  1.534054  4.5200 6.183e-06 ***
-## age        -0.015621  0.031277 -0.4994    0.6175
-```
+    ``` r
+    re1 <- plm(happiness ~ age, data = df,
+              index = c("id", "wave"),
+              effect = "individual", model = "random")
 
--   In Fixed effects, "id" is the *cases* variable and "wave" is the time variable, but I'm not sure if that's how they're referred to  in a Mixed Effects model
+    summary(re1)
+    ## Effects:
+    ##                  var std.dev share
+    ## idiosyncratic 0.03641 0.19081 0.096
+    ## individual    0.34396 0.58648 0.904
+    ## theta: 0.8394
+    ## Coefficients:
+    ##              Estimate Std. Error z-value  Pr(>|z|)   
+    ## (Intercept)  6.933947  1.534054  4.5200 6.183e-06 ***
+    ## age        -0.015621  0.031277 -0.4994    0.6175
+    ```
 
-    -   Maybe indexes are always required for panel data even if it isn't a FE model
+    -   In Fixed effects, "id" is the *cases* variable and "wave" is the time variable, but I'm not sure if that's how they're referred to  in a Mixed Effects model
 
--   `effect = "individual", model = "random"` specifies the model as a mixed effects model
+        -   Maybe indexes are always required for panel data even if it isn't a FE model
 
--   idiosyncratic is the time-variant variance (within-cases, ε) variance
+    -   `effect = "individual", model = "random"` specifies the model as a mixed effects model
 
--   individual is the time-constant (between-cases, α) variance
+    -   idiosyncratic is the time-variant variance (within-cases, ε) variance
 
--   [Example]{.ribbon-highlight}: random intercept-only model (aka unconditional means model) from https://www.alexcernat.com/etimating-multilevel-models-for-change-in-r/
+    -   individual is the time-constant (between-cases, α) variance
 
-```         
-library(lme4)
-# unconditional means model (a.k.a. random effects model)
-m0 <- lmer(data = usl, logincome ~ 1 + (1 | pidp))
+-   [Example]{.ribbon-highlight}: Random Intercept-Only model (aka unconditional means model) from https://www.alexcernat.com/etimating-multilevel-models-for-change-in-r/
 
-# check results
-summary(m0)
-## Linear mixed model fit by REML ['lmerMod']
-## Formula: logincome ~ 1 + (1 | pidp)
-##    Data: usl
-## 
-## REML criterion at convergence: 101669.8
-## 
-## Scaled residuals: 
-##    Min      1Q  Median      3Q    Max 
-## -7.2616 -0.2546  0.0627  0.3681  5.8845 
-## 
-## Random effects:
-##  Groups  Name        Variance Std.Dev.
-##  pidp    (Intercept) 0.5203  0.7213 
-##  Residual            0.2655  0.5152 
-## Number of obs: 52512, groups:  pidp, 8752
-## 
-## Fixed effects:
-##            Estimate Std. Error t value
-## (Intercept) 7.162798  0.008031  891.8
-```
+    ``` r
+    library(lme4)
+    # unconditional means model (a.k.a. random effects model)
+    m0 <- lmer(data = usl, logincome ~ 1 + (1 | pidp))
 
--   `usl` is UK sociological survey data
-    -   `logincome`is a logged income variable
-    -   `pidp`is the person's id
--   Interpretation
-    -   Fixed effects:
-        -   (Intercept) = 7.162798, which is the grand mean
-            -   says that over all the time points and individuals, the estimated average log income is 7.162798
-    -   Random effects:
-        -   everything that varies by "pidp"
-        -   between-case (or person, group, cluster, etc.) variance: (Intercept) = 0.5203
-        -   within-case (or person, group, cluster, etc.) variance: Residual =  0.2655
--   ICC
-    -   0.520/(0.520 + 0.265) = 0.662
-    -   says about 66% of the variation in log income comes between people while the remaining (\~ 34%) is within people.
--   `Example:` Random Intercept w/covariate
+    # check results
+    summary(m0)
+    ## Linear mixed model fit by REML ['lmerMod']
+    ## Formula: logincome ~ 1 + (1 | pidp)
+    ##    Data: usl
+    ## 
+    ## REML criterion at convergence: 101669.8
+    ## 
+    ## Scaled residuals: 
+    ##    Min      1Q  Median      3Q    Max 
+    ## -7.2616 -0.2546  0.0627  0.3681  5.8845 
+    ## 
+    ## Random effects:
+    ##  Groups  Name        Variance Std.Dev.
+    ##  pidp    (Intercept) 0.5203  0.7213 
+    ##  Residual            0.2655  0.5152 
+    ## Number of obs: 52512, groups:  pidp, 8752
+    ## 
+    ## Fixed effects:
+    ##            Estimate Std. Error t value
+    ## (Intercept) 7.162798  0.008031  891.8
+    ```
+
+    -   `usl` is UK sociological survey data
+        -   `logincome`is a logged income variable
+        -   `pidp`is the person's id
+    -   Interpretation
+        -   Fixed effects:
+            -   (Intercept) = 7.162798, which is the grand mean
+                -   says that over all the time points and individuals, the estimated average log income is 7.162798
+        -   Random effects:
+            -   everything that varies by "pidp"
+            -   between-case (or person, group, cluster, etc.) variance: (Intercept) = 0.5203
+            -   within-case (or person, group, cluster, etc.) variance: Residual = 0.2655
+    -   ICC
+        -   0.520/(0.520 + 0.265) = 0.662
+        -   says about 66% of the variation in log income comes between people while the remaining (\~ 34%) is within people.
+
+-   [Example]{.ribbon-highlight}: Random Intercept w/covariate
+
     -   random effect: cases; fixed effect: time
     -   from https://www.alexcernat.com/etimating-multilevel-models-for-change-in-r/
 
-```         
-library(lme4)
-# unconditional change model (a.k.a. MLMC)
-m1 <- lmer(data = usl, logincome ~ 1 + wave0 + (1 | pidp))
+    ``` r
+    library(lme4)
+    # unconditional change model (a.k.a. MLMC)
+    m1 <- lmer(data = usl, logincome ~ 1 + wave0 + (1 | pidp))
 
-summary(m1)
-## Linear mixed model fit by REML ['lmerMod']
-## Formula: logincome ~ 1 + wave0 + (1 | pidp)
-##    Data: usl
-## 
-## REML criterion at convergence: 100654.8
-## 
-## Scaled residuals: 
-##    Min      1Q  Median      3Q    Max 
-## -7.1469 -0.2463  0.0556  0.3602  5.7533 
-## 
-## Random effects:
-##  Groups  Name        Variance Std.Dev.
-##  pidp    (Intercept) 0.5213  0.7220 
-##  Residual            0.2593  0.5092 
-## Number of obs: 52512, groups:  pidp, 8752
-## 
-## Fixed effects:
-##            Estimate Std. Error t value
-## (Intercept) 7.057963  0.008665  814.51
-## wave0      0.041934  0.001301  32.23
-## 
-## Correlation of Fixed Effects:
-##      (Intr)
-## wave0 -0.375
-```
+    summary(m1)
+    ## Linear mixed model fit by REML ['lmerMod']
+    ## Formula: logincome ~ 1 + wave0 + (1 | pidp)
+    ##    Data: usl
+    ## 
+    ## REML criterion at convergence: 100654.8
+    ## 
+    ## Scaled residuals: 
+    ##    Min      1Q  Median      3Q    Max 
+    ## -7.1469 -0.2463  0.0556  0.3602  5.7533 
+    ## 
+    ## Random effects:
+    ##  Groups  Name        Variance Std.Dev.
+    ##  pidp    (Intercept) 0.5213  0.7220 
+    ##  Residual            0.2593  0.5092 
+    ## Number of obs: 52512, groups:  pidp, 8752
+    ## 
+    ## Fixed effects:
+    ##            Estimate Std. Error t value
+    ## (Intercept) 7.057963  0.008665  814.51
+    ## wave0      0.041934  0.001301  32.23
+    ## 
+    ## Correlation of Fixed Effects:
+    ##      (Intr)
+    ## wave0 -0.375
+    ```
 
--   `usl` is UK sociological survey data
-    -   `logincome`is a logged income variable
-    -   `pidp`is the person's id
-    -   `wave0`is the time variable that's indexed at 0
--   Interpretation
-    -   Fixed effects:
-        -   (Intercept) = 7.057; the expected log income at the beginning of the study (wave 0).
-        -   wave0 = 0.0419
-            -   the average rate of change with the passing of a wave.
-                -   I don't think this is a percentage. It's the same as a standard OLS regression interpretation.
-            -   So after each wave, individual log income is expected to slowly increase by 0.041 on average.
-    -   Random effects:
-        -   everything that varies by "pidp"
-        -   between-case (or person, group, cluster, etc.) variance in log income: (Intercept) = 0.5213
-        -   within-case (or person, group, cluster, etc.) variance in log income: Residual =  0.2593
-        -   So this stuff is still very similar numbers as the random intercept-only model
+    -   `usl` is UK sociological survey data
+        -   `logincome`is a logged income variable
+        -   `pidp`is the person's id
+        -   `wave0`is the time variable that's indexed at 0
+    -   Interpretation
+        -   Fixed effects:
+            -   (Intercept) = 7.057; the expected log income at the beginning of the study (wave 0).
+            -   wave0 = 0.0419
+                -   the average rate of change with the passing of a wave.
+                    -   I don't think this is a percentage. It's the same as a standard OLS regression interpretation.
+                -   So after each wave, individual log income is expected to slowly increase by 0.041 on average.
+        -   Random effects:
+            -   everything that varies by "pidp"
+            -   between-case (or person, group, cluster, etc.) variance in log income: (Intercept) = 0.5213
+            -   within-case (or person, group, cluster, etc.) variance in log income: Residual =  0.2593
+            -   So this stuff is still very similar numbers as the random intercept-only model
 
 ```         
 usl$pred_m1 <- predict(m1)
@@ -409,7 +398,7 @@ usl %>% 
   theme(legend.position = "none")
 ```
 
-![](./_resources/Econometrics,_Mixed_Effects,_Frequentist.resources/unnamed-chunk-8-1.png)
+![](./_resources/Econometrics,_Mixed_Effects,_Frequentist.resources/unnamed-chunk-8-1.png){width="432"}
 
 -   wave was indexed to 0 for the model but now wave starts at 1. He might've reverted wave to have a starting value of 1 for graphing purposes
 -   Lines show the small, positive, fixed effect slope for `wave0`
@@ -489,7 +478,7 @@ usl %>% 
   theme(legend.position = "none")
 ```
 
-![](./_resources/Econometrics,_Mixed_Effects,_Frequentist.resources/unnamed-chunk-9-1.png)
+![](./_resources/Econometrics,_Mixed_Effects,_Frequentist.resources/unnamed-chunk-9-1.png){width="432"}
 
 -   Different slopes for each person
 
@@ -505,7 +494,7 @@ m_slope <- lmer(pp60 ~ position + toi + (1 + age | player), 
 -   [Example]{.ribbon-highlight} (ggeffects error bar plot)
 
     -   Description:
-        -   outcome: Distance; fixed effect: Season; random_effect: Athlete![](./_resources/Econometrics,_Mixed_Effects,_Frequentist.resources/staticunnamed-chunk-6-1.png)
+        -   outcome: Distance; fixed effect: Season; random_effect: Athlete![](./_resources/Econometrics,_Mixed_Effects,_Frequentist.resources/staticunnamed-chunk-6-1.png){width="432"}
 
 ```         
 library(ggeffects)
@@ -553,8 +542,10 @@ tidy_mod
 ##    -0.16546      1.48931      0.06254
 ```
 
-Beyond Multiple Linear Regression ([link](https://bookdown.org/roback/bookdown-BeyondMLR/)) Chapter 8 (Introduction to Multilevel Models)
+## Beyond Multiple Linear Regression {#sec-econ-me-freq-bmlr .unnumbered}
 
+### Chapter 8: Introduction to Multilevel Models {#sec-econ-me-freq-bmlr-ch8 .unnumbered}
+-   [Chapter 8](https://bookdown.org/roback/bookdown-BeyondMLR/ch-multilevelintro.html)
 -   Variable types
     -   Level One: variables measured at the most frequently occurring observational unit
         -   i.e. variables that (for the most part) have different values for each row
@@ -582,9 +573,11 @@ Beyond Multiple Linear Regression ([link](https://bookdown.org/roback/bookdown-B
         -   Responds to missing individual slopes (i.e. subjects never exposed to treatment) by simply dropping those subjects
         -   Does not share strength effectively across subjects
     -   Specification
-        -   Level 1![](./_resources/Econometrics,_Mixed_Effects,_Frequentist.resources/Screenshot%20(929).png)
+        -   Level 1\
+            ![](./_resources/Econometrics,_Mixed_Effects,_Frequentist.resources/Screenshot%20(929).png)
             -   bi is the fixed effect for subject/unit i  and observation j (i.e. each subject has repeated observations)
-        -   Level 2![](./_resources/Econometrics,_Mixed_Effects,_Frequentist.resources/Screenshot%20(930).png)
+        -   Level 2\
+            ![](./_resources/Econometrics,_Mixed_Effects,_Frequentist.resources/Screenshot%20(930).png)
             -   ui and vi are the random effects for subject/unit i
             -   ai is the true (i.e. not estimated since no hat) mean of performance anxiety (outcome) when subject plays solos or small ensembles (LargeEns = 0)
             -   bi is the true mean difference in performance anxiety (outcome) for subjecti between large ensembles and other performance types (LargeEns contrast)
@@ -616,7 +609,8 @@ Beyond Multiple Linear Regression ([link](https://bookdown.org/roback/bookdown-B
                 -   See Simple to Complex Model Building Workflow \>\> Random Intercepts (with 2 covariates)
             -   Likelihood Ratio Test (LR-Test)
                 -   See Simple to Complex Model Building Workflow \>\> Random Slopes and Intercepts Model (with 3 covariates)
-    -   Specification (composite model of level 1 and level 2 equations)![](./_resources/Econometrics,_Mixed_Effects,_Frequentist.resources/Screenshot%20(932).png)
+    -   Specification (composite model of level 1 and level 2 equations)\
+        ![](./_resources/Econometrics,_Mixed_Effects,_Frequentist.resources/Screenshot%20(932).png)
         -   Random Slopes and Intercepts Model (with 2 covariates) (see Model Hierarchy section)
         -   Fixed Effects: α0, α1, β0 and β1
         -   "ui + vi\*LargeEnsij + εij" is the interesting part.
@@ -1005,8 +999,9 @@ model.f <- lmer(na ~ previous + students + juried + 
     -   Addressing the researchers' primary hypothesis:
         -   After controlling for all these factors, we have significant evidence that musicians with higher levels of negative emotionality (mpqpem) experience higher levels of performance anxiety (outcome), and that this association is even more pronounced (interaction) when musicians are performing solos (solo = 1) rather than as part of an ensemble group (solo = 0).
 
-Chapter 9 (2-Level Longitudinal Data)
+### Chapter 9: Two-Level Longitudinal Data {#sec-econ-me-freq-bmlr-ch9 .unnumbered}
 
+-   [Chapter 9](https://bookdown.org/roback/bookdown-BeyondMLR/ch-lon.html)
 -   Research Questions
     -   Which factors most influence a school's performance in Minnesota Comprehensive Assessment (MCA) testing?
     -   How do the average math MCA-II scores for 6th graders enrolled in charter schools differ from scores for students who attend non-charter public schools? Do these differences persist after accounting for differences in student populations?
@@ -1016,6 +1011,5 @@ Chapter 9 (2-Level Longitudinal Data)
     -   Between schools---effects of school-specific covariates (charter or non-charter, urban or rural, percent free and reduced lunch, percent special education, and percent non-white) on 2008 math scores and rate of change between 2008 and 2010.
 -   Misc
     -   Missing data is a common phenomenon in longitudinal studies
--   
 
-------------------------------------------------------------------------
+
