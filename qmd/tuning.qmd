@@ -1,394 +1,332 @@
-# Tuning
-
-TOC
-
-* Misc
-* Pairwise Tuning
-* Bayesian Optimization
-* Tree-based Parzen Estimators (TPE)
-* Decision Trees
-* Random Forest
-* LightGBM
-* XGBoost
-* SVM
-* Ensembles
-* DL
-
-
-
-Misc
-
-* Tree Parameter _Categories_ (many overlap)
-	* tree structure and learning
-	* training speed
-	* accuracy
-	* overfitting
-* When the search space is quite large, try the particle swarm method or genetic algorithm for optimization.
-* Early Stopping can lower computational costs and decrease practitioner downtime
-	* 
-
-
-
-Pairwise Tuning
-
-* Tunes a pair of parameters at a time. Once the first pair of parameters is tuned, those values replace the default parameter values, and the next pair of parameters is tuned, etc.
-* Limits the computational cost of performing a full grid search jointly with all parameters at once supposedly without sacrificing much in terms of predictive performance.
-	* A full grid search or other tuning method can be applied to each pair.
-* Might be beneficial to create pairs that affect the same tuning area of the model fit (e.g. subsampling, regularization, tree complexity) so that the tuning process might capture any interaction effects between the parameters.
-* Example: XGBoost ([article](https://towardsdatascience.com/pair-wise-hyperparameter-tuning-with-the-native-xgboost-api-2f40a2e382fa))
-	* Parameter Pairs
-		* (max\_depth, eta)
-		* (subsample, colsample\_bytree)
-		* (min\_child\_weight, gamma), and
-		* (reg\_alpha, reg\_lambda)
-	* Process
-		* max\_depth and eta are tuned
-		* Tuned values for max\_depth and eta replace their default values
-		* subsample and colsample\_bytree are tuning using the model with the tuned values for max\_depth and eta
-		* etc.
-* Viz![](./_resources/Tuning.resources/image.5.png)![](./_resources/Tuning.resources/image.4.png)
-	* Each pair of parameters along with the loss metric are plotted in a 3D chart
-	* `matplotlib::plot_trisurf()` uses [Surface Triangulation](https://en.wikipedia.org/wiki/Surface_triangulation) is used to interpolate the gaps between the tested parameter values
-	* If the chart has multiple pronounced dips and bumps (left chart):
-		* May indicate that there's a minima in one of the dips that might be better than the chosen parameter values as the interpolation process might have smoothed over that area a bit.
-			* Might want to play with the smoothing parameter a bit to try and get a clearer idea of the range of values to further investigate.
-		* Indicates the model is sensitive to this pair of parameters which might translate into a model instability, when we pass a new type of dataset into the tuned model in the deployment domain.
-
-
-
-Bayesian Optimization
-
-* Tl;dr
-	* Builds a surrogate model using Gaussian Processes that estimates model score
-	* This surrogate is then provided with configurations picked randomly, and the one that gives the best score is kept for training
-	* Each new training updates the posterior knowledge of the surrogate model.
-* Components:
-	* The black box function to optimize: f(x).
-		* We want to find the value of x which globally optimizes f(x) (aka objective function, the target function, or the loss function)
-	* The acquisition function: a(x)
-		* Used to generate new values of x for evaluation with f(x).
-		* a(x) internally relies on a Gaussian process model m(X, y) to generate new values of x.
-* Steps:
-	1. Define the black box function f(x), the acquisition function a(x) and the search space of the parameter x.
-	2. Generate some initial values of x randomly, and measure the corresponding outputs from f(x).
-	3. Fit a Gaussian process model m(X, y) onto X = x and y = f(x) (i.e. surrogate model for f(x))
-	4. The acquisition function a(x) then uses m(X, y) to generate new values of x as follows:
-		* Use m(X, y) to predict how f(x) varies with x.
-		* The value of x which leads to the largest predicted value in m(X, y) is then suggested as the next sample of x to evaluate with f(x).
-	5. Repeat the optimization process in steps 3 and 4 until we finally get a value of x that leads to the global optimum of f(x).
-		* All historical values of x and f(x) should be used to train the Gaussian process model m(X, y) in the next iteration — as the number of data points increases, m(X, y) becomes better at predicting the optimum of f(x).
-
-
-
-Tree-based Parzen Estimators (TPE)
-
-* Misc
-	* Notes from [HyperOpt Demystified](https://towardsdatascience.com/hyperopt-demystified-3e14006eb6fa)
-	* Libraries
-		* [{{]{style='color: goldenrod'}[hyperopt](http://hyperopt.github.io/hyperopt/){style='color: goldenrod'}[}}]{style='color: goldenrod'}
-	* Typically outperforms basic bayesian optimization, but the main selling point is it handles complex hyperparameter relationships via a tree structure.
-	* Supports categorical variables (cat hyperparams?) which traditional Bayesian optimization does not.
-* Process
-	* Train a model with several sets of randomly-selected hyperparameters, returning objective function values.
-	* Split our observed objective function values into “good” and “bad” groups, according to some threshold gamma (γ).
-	* Calculate the “promisingness” score, which is just _P(x|good) / P(x|bad)_.
-	* Determine the hyperparameters that maximize promisingness via mixture models.
-	* Fit our model using the hyperparameters from step 4.
-	* Repeat steps 2–5 until a stopping criteria.
-* Tips/Tricks
-	* HyperOpt is parallelizable via both [Apache Spark](https://docs.databricks.com/machine-learning/automl-hyperparam-tuning/hyperopt-concepts.html#:~:text=A%20Trials%20or%20SparkTrials%20object,Horovod%20in%20the%20objective%20function.) and [MongoDB](http://hyperopt.github.io/hyperopt/scaleout/mongodb/). If you’re working with multiple cores, wether it be in the cloud or on your local machine, this can dramatically reduce runtime.
-	* If you’re parallelizing the tuning process via Apache Spark, use a `SparkTrials`object for single node ML models (sklearn) and a `Trails` object for parallelized ML models (MLlib).
-	* MLflow easily integrates with HyperOpt.
-	* Don’t narrow down the search space too early. Some combinations of hyperparameters may be surprisingly effective.
-	* Defining the search space can be tricky, especially if you don’t know the [functional form of your hyperparameters](https://hyperopt.github.io/hyperopt/getting-started/search_spaces/). However, from personal experience TPE is pretty robust to misspecification of those functional forms.
-	* Choosing a good objective function goes a long way. In most cases, error is not created equal. If a certain type of error is more problematic, make sure to build that logic into to your function.
-
-
-
-Decision Trees
-
-* Notes
-* Hyperparameters
-	* **maximum depth (aka tree\_depth)**: maximum level a tree can “descend” during the training process
-		* too high may lead to overfit
-		* too low may lead to underfit
-	* **minimum samples split**: control how many observations a node must contain to be available for a split
-		* too low may lead to overfit
-		* too high may lead to underfit
-	* **minimum samples leaf (aka min\_n)**: number of observations in a node after the split has “potentially” happened
-		* too low may lead to overfit
-		* too high may lead to underfit
-	* **minimum impurity decrease**: sets the threshold for the amount of impurity decrease that must occur in order for there to be another split
-		* too low may lead to overfit
-		* too high may lead to underfit
-	* **maximum features**: randomly choosing a set of features for each split
-		* Useful for high dimension datasets; adds some randomness
-		* too high can lead to long training times
-		* too low may lead to underfit
-
-
-
-Random Forest
-
-* Misc
-	* Implicit features selection is performed by splitting, but performance decreases substantially if over 100 noise-like features are added & drastically if over 500 noise-like features![](./_resources/Tuning.resources/image.2.png)
-* Hyperparameters
-	* **mtry**: the number of trees at each node
-		* most influential hyperparameter for random forests.
-		* Increasing it improves performance in the presence of noise![](./_resources/Tuning.resources/image.3.png)
-			* Default: square root of the number of features
-			* Similar improvements can be had with (explicit) feature selection (e.g. recursive feature elimation)
-
-
-
-LightGBM
-
-* Notes
-	* Parameters are listed from most to least important
-	* Seems like the strategy should be to tune structure first, then move to accuracy or overfitting parameters based on results
-	* Missing values should be encoded as NA\_integer\_
-	* Processing: it is recommended to rescale data before training so that features have similar mean and standard deviation
-* Hyperparameters
-	* structure
-		* **num\_leaves**: the number of decision nodes in a tree
-			* kaggle recommendation: 2^(max\_depth)
-				* translates to a range of 8 - 4096
-		* **max\_depth**: The complexity of each tree
-			* kaggle recommendation: 3 - 12
-		* **min\_data\_in\_leaf**: the minimum number of observations that fit the decision criteria in a leaf
-			* Value depends on sample size and num\_leaves
-			* lightgbm doc recommendation: 100 - 10000 for large datasets
-		* **linear\_tree** ([docs](https://lightgbm.readthedocs.io/en/latest/Parameters.html#linear_tree)): fits piecewise linear gradient boosting tree
-			* tree splits are chosen in the usual way, but the model at each leaf is linear instead of constant
-				* the first tree has constant leaf values
-			* Helps to extrapolate linear trends in forecasting
-			* categorical features are used for splits as normal but are not used in the linear models
-			* increases memory use; no L1 regularization
-	* accuracy
-		* **n\_estimators**: controls the number of decision trees
-		* **learning\_rate**: step size parameter of the gradient descent
-			* kaggle recommendation: 0.01 - 0.3
-				* Moving outside this range is usually towards zero
-		* **max\_bin**: controls the maximum number of bins that continuous features will bucketed into
-			* default = 255
-	* overfitting
-		* **lambda\_l1**, **lambda\_l2**: regularization
-			* default: 0
-			* kaggle recommendation: 0 - 100
-		* **min\_gain\_to\_split**: the reduction in training loss that results from adding a split point
-			* default: 0
-			* extra regularization in large parameter grids
-			* reduces training time
-		* **bagging\_fraction**: randomly select this percentage of data without resampling
-			* default: 1
-			* \* must set bagging\_freq to an integer \*
-		* **feature\_fraction**: specifies the percentage of features to sample from when training each tree
-			* default: 1
-			* \* must set bagging\_freq to an integer \*
-		* **bagging\_freq**: frequency for bagging
-			* default: 0 (disabled)
-			* (integer) e.g. Setting to 2 means perform bagging at every 2nd iteration
-		* **stopping\_rounds**: early stopping
-* Issues (from docs)
-	* Poor Accuracy
-		* Use large **max\_bin** (may be slower)
-		* Use small **learning\_rate** with large **num\_iterations**
-		* Use large **num\_leaves** (may cause over-fitting)
-		* Use bigger training data
-	* Overfitting
-		* Use small **max\_bin**
-		* Use small **num\_leaves**
-		* Use **min\_data\_in\_leaf** and **min\_sum\_hessian\_in\_leaf**
-		* Use bagging by set **bagging\_fraction** and **bagging\_freq**
-		* Use feature sub-sampling by set **feature\_fraction**
-		* Use bigger training data
-		* Try **lambda\_l1**, **lambda\_l2** and **min\_gain\_to\_split** for regularization
-		* Try **max\_depth** to avoid growing deep tree
-		* Try **extra\_trees**
-		* Try increasing **path\_smooth**
-
-****
-****
-XGBoost
-
-* Notes
-	* Drob starts with learning rate = 0.01 and tune other parameters before coming back to tune learning rate
-	* Kuhn suggests setting trees to about 500 and tune stop\_iter
-		* **stop\_iter**: early stopping; stops if no improvement has been made after this many iterations
-	* [Uber](https://eng.uber.com/tuning-model-performance/) found that the most important hyperparameters were:
-		* **tree\_depth**, **trees**, **learning\_rate**, and **min\_n**
-	* **tree\_method** (more [details](https://arxiv.org/abs/1603.02754) about exact, approx)- specify which tree construction algorithm you want to use. Trade-offs between accuracy and speed
-		* "exact" - accurate algorithm, but it is not very scalable as during each split find procedure it iterates over all entries of input data.
-			* Inefficient when the data does not completely fit into memory
-			* Doesn’t support distributed training
-		* "approx" - uses quantile sketch and gradient histograms
-		* "hist" - method used in lightgbm with slight changes (binning continuous features)
-			* Applies some of approx performance enhancements (e.g. bin caching)
-			* Typically faster than approx
-		* "gpu\_hist" - gpu implementation of "hist"
-			* Much faster than "hist" and usually requires less memory
-				* Guessing because it uses the gpu memory
-			* Not available for some OSs ([link](https://xgboost.readthedocs.io/en/latest/install.html#python))
-		* "auto" - Default. Chooses fastest method (exact or approx) based on data size
-			* For larger datasets, approx will be used
-* Hyperparameters
-	* **trees**: The number of trees in your forest
-		* grid value examples: seq(50, 700, 50), seq(250, 1500, 25)
-	* **min\_n**: minimum number of data points in a node that is required for the node to be split further
-		* aka minimum child weight
-	* **mtry**: The number of predictors to randomly sample for each split in a tree
-		* grid value examples: c(3,5,7), c(5, 7, 9)
-		* more predictors --> higher mtry
-	* Shrinkage
-		* **learning\_rate (aka eta)**
-				aka step size; [explainer](https://towardsdatascience.com/learning-rate-hyperparameter-explained-2c1a619cbd33)
-				
-			* shrinks the feature weights to make the boosting process more conservative
-				default: 0.3
-				
-				range: \[0,1\]
-				
-			* grid value examples: 0.2, 0.01, 0.008, 0.005
-			* More trees --> lower learning rate
-	* Tree-Booster Constraints
-		* **tree\_depth (aka max\_depth)**: The complexity of each tree
-			* grid value examples: 4 - 8 (also see lightgbm recommendations for max\_depth)
-			* Increasing makes the model more likely to overfit
-			* consumes memory when training a deep tree.
-			* "exact" tree method requires non-zero value.
-			* default: 6
-			* range: \[0,∞\]
-		* **min\_child\_weight**
-			* Minimum sum of weights needed in a node in order for the algorithm to make another split
-			* Increasing makes the model less likely to overfit
-			* default: 1
-			* range: \[0,∞\]
-	* Regularization
-		* **reg\_lambda (aka lambda)**, **reg\_alpha (aka alpha), and gamma**:
-			* These are parameters of the regularization function
-			* Also see
-				* [Algorithms, ML](Algorithms, ML) >> Boosting >> XGBoost >> regularization
-				* [article](https://towardsdatascience.com/visually-understand-xgboost-lightgbm-and-catboost-regularization-parameters-aa12abcd4c17)
-			* high alpha: generates a sparses model (i.e. has many null leaf weights)
-				* L1 regularization term on weights
-				* Simplifies the model
-				* Reduces the model size as it’s not necessary to store null values.
-			* high lambda: more stringently penalizes weights of less influential samples
-				* L2 regularization term on weights
-				* Simplifies the model
-				* Has largest effect when data is smaller
-			* high gamma: fewer nodes
-				* affects the amount of gain needed to add another split
-				* default: 0
-				* range: \[0,∞\]
-	* Random Subsampling
-		* **subsample**:
-			* Setting it to 0.5 means that XGBoost would randomly sample half of the training data prior to growing trees. and this will prevent overfitting.
-			* Subsampling will occur once in every boosting iteration
-			* default: 1
-			* range: (0,1\]
-		* **colsample\_bytree**
-			* subsample ratio of columns when constructing each tree.
-			* default: 1
-	* Iteration Control
-		* **num\_boost\_round** - Total number of boosting iterations
-		* **early\_stopping\_round** - Validation metric needs to improve at least once in every early\_stopping\_rounds round(s) to continue training
-
-
-
-SVM
-
-* Misc
-	* packages: {e1071}, {kernlab}, {LiblineaR}, [{{sklearn}}]{style='color: goldenrod'}
-	* Also see
-		* [Model Building, tidymodels](Model Building, tidymodels) >> Model Specification >> Support Vector Machines
-		* [Algorithms, ML](Algorithms, ML) >> Support Vector Machines (SVM)
-* Hyperparameters
-	1. _gamma –_ All the kernels except the linear one require the gamma parameter. ({e1071} default: 1/(data dimension)
-	2. _coef0 –_ Parameter needed for kernels of type polynomial and sigmoid ({e1071} default: 0).
-	3. _cost –_ The cost of constraints violation ({e1071} default: 1)—it is the ‘**C**’-constant of the regularization term in the Lagrange formulation.
-		* C = 1/λ (R) or 1/α (sklearn)
-		* When C is small, the regularization is strong, so the slope will be small
-	4. _degree -_ Degree of the polynomial kernel function ({e1071} default: 3)
-	5. _epsilon_ - Needed for insensitive loss function (see Regression below) ({e1071} default: 0.1)
-		* When the value of epsilon is small, the model is robust to the outliers.
-		* When the value of epsilon is large, it will take outliers into account.
-	6. _nu_ - For {e1071}, needed for _types_: nu-classification, nu-regression, and one-classification
-
-
-
-Ensembles
-
-* Misc
-	* Notes from
-		* [Hyperparameters Tuning for Machine Learning Model Ensembles](https://towardsdatascience.com/hyperparameters-tuning-for-machine-learning-model-ensembles-8051782b538b)
-			* See article for
-				* details on performance, durations, etc. between sequential and simultaneous tuning methods
-				* links to repo, experimental paper
-			* tldr;
-				* They like the simultaneous tuning because had the best metric performance with the lowest variance (more stable results)
-				* I think the sequential tuning method was comparable (and better in some cases) to the simultaneous tuning method but is probably faster and less costly.
-	* Composite Structures
-		* W/sequential model pipelines (bottom to top)![](./_resources/Tuning.resources/image.1.png)
-			* "dtr" = decision tree regression
-		* W/feature engineering models![](./_resources/Tuning.resources/image.png)
-			* On the left side are typical structures with individual predictive models being fed into an ensemble model (e.g. Random Forest)
-			* On the right side, some kind of feature engineering process or modeling happens prior to the predictive model/ensemble model.
-* Sequential Tuning
-	* Only one model is tuned at a time
-	* The scoring, during the tuning process, happens on the ensemble model
-	* [Example]{.ribbon-highlight}![](./_resources/Tuning.resources/Screenshot (913).png)
-		* Structure
-			* (top pipe) KNN feeds its predictions to the ridge regression which feeds it's predictions to the lasso regression (ensemble model)
-			* (bottom pipe) Ridge regression feeds its predictions to the random forest which feeds it's predictions to the lasso regression (ensemble model)
-			* Red arrows indicate how far the data/predictions have travelled through the structure. Here it's all the way to the ensemble model
-			* Red circle indictates which model is currently being tuned
-			* Models without hyperparameter values are models with default values for their hyperparameters
-		* Figure shows that the KNN and the RR (bottom pipe) models have already been tuned and the RR model (top pipe) is the model being tuned.
-		* The red Y' indicates that the prediction scoring, while ridge regression is being tuned, is happening at the ensemble model.
-		* RF gets tuned next then finally the ensemble model
-* Simultaneous Tuning
-	* All models, including the ensemble model, are tuned at the same time
-	* Computationally expensive
-		* I'd think it would be more monetarily expensive as well given that you likely have to provision more machines in any realistic scenario to get a decent training time (one for each pipe?)
-	* [Example]{.ribbon-highlight}![](./_resources/Tuning.resources/Screenshot (915).png)
-		* See Sequential tuning example for details on the structure and what items in the figure represent.
-			
-			
-
-
-DL
-
-* Weight Decay![](./_resources/Tuning.resources/image.6.png)
-	* Improves data efficiency by > 50%
-	* Frequently found in the best hyperparam configs
-	* Among the most important hparams to tune
-	* Tricky to tune
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
+# Tuning {#sec-tuning .unnumbered}
+
+## Misc {#sec-tuning-misc .unnumbered}
+
+-   Tree Parameter *Categories* (many overlap)
+    -   Tree Structure and Learning
+    -   Training Speed
+    -   Accuracy
+    -   Overfitting
+-   When the search space is quite large, try the particle swarm method or genetic algorithm for optimization.
+-   Early Stopping can lower computational costs and decrease practitioner downtime
+
+## Pairwise Tuning {#sec-tuning-pairwise .unnumbered}
+
+-   Tunes a pair of parameters at a time. Once the first pair of parameters is tuned, those values replace the default parameter values, and the next pair of parameters is tuned, etc.
+-   Limits the computational cost of performing a full grid search jointly with all parameters at once supposedly without sacrificing much in terms of predictive performance.
+    -   A full grid search or other tuning method can be applied to each pair.
+-   Might be beneficial to create pairs that affect the same tuning area of the model fit (e.g. subsampling, regularization, tree complexity) so that the tuning process might capture any interaction effects between the parameters.
+-   [Example]{.ribbon-highlight}: XGBoost ([article](https://towardsdatascience.com/pair-wise-hyperparameter-tuning-with-the-native-xgboost-api-2f40a2e382fa))
+    -   Parameter Pairs
+        -   ([max_depth]{.arg-text}, [eta]{.arg-text})
+        -   ([subsample]{.arg-text}, [colsample_bytree]{.arg-text})
+        -   ([min_child_weight]{.arg-text}, [gamma]{.arg-text}), and
+        -   ([reg_alpha]{.arg-text}, [reg_lambda]{.arg-text})
+    -   Process
+        -   [max_depth]{.arg-text} and [eta]{.arg-text} are tuned
+        -   Tuned values for [max_depth]{.arg-text} and [eta]{.arg-text} replace their default values
+        -   [subsample]{.arg-text} and [colsample_bytree]{.arg-text} are tuning using the model with the tuned values for [max_depth]{.arg-text} and [eta]{.arg-text}
+        -   etc.
+-   Viz\
+    ![](./_resources/Tuning.resources/image.5.png){width="432"}\
+    ![](./_resources/Tuning.resources/image.4.png){width="432"}
+    -   Each pair of parameters along with the loss metric are plotted in a 3D chart
+    -   `matplotlib::plot_trisurf()` uses [Surface Triangulation](https://en.wikipedia.org/wiki/Surface_triangulation) is used to interpolate the gaps between the tested parameter values
+    -   If the chart has multiple pronounced dips and bumps (left chart):
+        -   May indicate that there's a minima in one of the dips that might be better than the chosen parameter values as the interpolation process might have smoothed over that area a bit.
+            -   Might want to play with the smoothing parameter a bit to try and get a clearer idea of the range of values to further investigate.
+        -   Indicates the model is sensitive to this pair of parameters which might translate into a model instability, when we pass a new type of dataset into the tuned model in the deployment domain.
+
+## Bayesian Optimization {#sec-tuning-bayesopt .unnumbered}
+
+-   tl;dr
+    -   Builds a surrogate model using Gaussian Processes that estimates model score
+    -   This surrogate is then provided with configurations picked randomly, and the one that gives the best score is kept for training
+    -   Each new training updates the posterior knowledge of the surrogate model.
+-   Components:
+    -   The black box function to optimize: f(x).
+        -   We want to find the value of x which globally optimizes f(x) (aka objective function, the target function, or the loss function)
+    -   The acquisition function: a(x)
+        -   Used to generate new values of x for evaluation with f(x).
+        -   a(x) internally relies on a Gaussian process model m(X, y) to generate new values of x.
+-   Steps:
+    1.  Define the black box function f(x), the acquisition function a(x) and the search space of the parameter x.
+    2.  Generate some initial values of x randomly, and measure the corresponding outputs from f(x).
+    3.  Fit a Gaussian process model m(X, y) onto X = x and y = f(x) (i.e. surrogate model for f(x))
+    4.  The acquisition function a(x) then uses m(X, y) to generate new values of x as follows:
+        -   Use m(X, y) to predict how f(x) varies with x.
+        -   The value of x which leads to the largest predicted value in m(X, y) is then suggested as the next sample of x to evaluate with f(x).
+    5.  Repeat the optimization process in steps 3 and 4 until we finally get a value of x that leads to the global optimum of f(x).
+        -   All historical values of x and f(x) should be used to train the Gaussian process model m(X, y) in the next iteration --- as the number of data points increases, m(X, y) becomes better at predicting the optimum of f(x).
+
+## Tree-based Parzen Estimators (TPE) {#sec-tuning-tpe .unnumbered}
+
+-   Misc
+    -   Notes from [HyperOpt Demystified](https://towardsdatascience.com/hyperopt-demystified-3e14006eb6fa)
+    -   Libraries
+        -   [{{]{style="color: goldenrod"}[hyperopt](http://hyperopt.github.io/hyperopt/){style="color: goldenrod"}[}}]{style="color: goldenrod"}
+    -   Typically outperforms basic bayesian optimization, but the main selling point is it handles complex hyperparameter relationships via a tree structure.
+    -   Supports categorical variables (cat hyperparams?) which traditional Bayesian optimization does not.
+-   Process
+    -   Train a model with several sets of randomly-selected hyperparameters, returning objective function values.
+    -   Split our observed objective function values into "good" and "bad" groups, according to some threshold gamma (γ).
+    -   Calculate the "promisingness" score, which is just *P(x\|good) / P(x\|bad)*.
+    -   Determine the hyperparameters that maximize promisingness via mixture models.
+    -   Fit our model using the hyperparameters from step 4.
+    -   Repeat steps 2--5 until a stopping criteria.
+-   Tips/Tricks
+    -   HyperOpt is parallelizable via both [Apache Spark](https://docs.databricks.com/machine-learning/automl-hyperparam-tuning/hyperopt-concepts.html#:~:text=A%20Trials%20or%20SparkTrials%20object,Horovod%20in%20the%20objective%20function.) and [MongoDB](http://hyperopt.github.io/hyperopt/scaleout/mongodb/). If you're working with multiple cores, wether it be in the cloud or on your local machine, this can dramatically reduce runtime.
+    -   If you're parallelizing the tuning process via Apache Spark, use a `SparkTrials`object for single node ML models (sklearn) and a `Trails` object for parallelized ML models (MLlib).
+    -   MLflow easily integrates with HyperOpt.
+    -   Don't narrow down the search space too early. Some combinations of hyperparameters may be surprisingly effective.
+    -   Defining the search space can be tricky, especially if you don't know the [functional form of your hyperparameters](https://hyperopt.github.io/hyperopt/getting-started/search_spaces/). However, from personal experience TPE is pretty robust to misspecification of those functional forms.
+    -   Choosing a good objective function goes a long way. In most cases, error is not created equal. If a certain type of error is more problematic, make sure to build that logic into to your function.
+
+## Decision Trees {#sec-tuning-dectr .unnumbered}
+
+-   Notes
+-   Hyperparameters
+    -   **Maximum Depth (aka Tree Depth)**: maximum level a tree can "descend" during the training process
+        -   too high may lead to overfit
+        -   too low may lead to underfit
+    -   **Minimum Samples Split**: control how many observations a node must contain to be available for a split
+        -   too low may lead to overfit
+        -   too high may lead to underfit
+    -   **Minimum Samples Leaf (aka Min N)**: number of observations in a node after the split has "potentially" happened
+        -   too low may lead to overfit
+        -   too high may lead to underfit
+    -   **Minimum Impurity Decrease**: sets the threshold for the amount of impurity decrease that must occur in order for there to be another split
+        -   too low may lead to overfit
+        -   too high may lead to underfit
+    -   **Maximum Features**: randomly choosing a set of features for each split
+        -   Useful for high dimension datasets; adds some randomness
+        -   too high can lead to long training times
+        -   too low may lead to underfit
+
+## Random Forest {#sec-tuning-rf .unnumbered}
+
+-   Misc
+    -   Implicit features selection is performed by splitting, but performance decreases substantially if over 100 noise-like features are added & drastically if over 500 noise-like features\
+        ![](./_resources/Tuning.resources/image.2.png){width="532"}
+-   Hyperparameters
+    -   **mtry**: the number of trees at each node
+        -   Most influential hyperparameter for random forests.
+        -   Increasing it improves performance in the presence of noise\
+            ![](./_resources/Tuning.resources/image.3.png){width="532"}
+            -   Default: square root of the number of features
+            -   Similar improvements can be had with (explicit) feature selection (e.g. recursive feature elimation)
+
+## LightGBM {#sec-tuning-lgbm .unnumbered}
+
+-   Notes
+    -   Parameters are listed from most to least important
+    -   Seems like the strategy should be to tune structure first, then move to accuracy or overfitting parameters based on results
+    -   Missing values should be encoded as NA_integer\_
+    -   Processing: it is recommended to rescale data before training so that features have similar mean and standard deviation
+-   Hyperparameters
+    -   Structure
+        -   **num_leaves**: the number of decision nodes in a tree
+            -   kaggle recommendation: 2\^(max_depth)
+                -   translates to a range of 8 - 4096
+        -   **max_depth**: The complexity of each tree
+            -   kaggle recommendation: 3 - 12
+        -   **min_data_in_leaf**: the minimum number of observations that fit the decision criteria in a leaf
+            -   Value depends on sample size and num_leaves
+            -   lightgbm doc recommendation: 100 - 10000 for large datasets
+        -   **linear_tree** ([docs](https://lightgbm.readthedocs.io/en/latest/Parameters.html#linear_tree)): fits piecewise linear gradient boosting tree
+            -   Tree splits are chosen in the usual way, but the model at each leaf is linear instead of constant
+                -   The first tree has constant leaf values
+            -   Helps to extrapolate linear trends in forecasting
+            -   Categorical features are used for splits as normal but are not used in the linear models
+            -   Increases memory use; no L1 regularization
+    -   Accuracy
+        -   **n_estimators**: controls the number of decision trees
+        -   **learning_rate**: step size parameter of the gradient descent
+            -   Kaggle recommendation: 0.01 - 0.3
+                -   Moving outside this range is usually towards zero
+        -   **max_bin**: controls the maximum number of bins that continuous features will bucketed into
+            -   default = 255
+    -   Overfitting
+        -   **lambda_l1**, **lambda_l2**: regularization
+            -   Default: 0
+            -   Kaggle recommendation: 0 - 100
+        -   **min_gain_to_split**: the reduction in training loss that results from adding a split point
+            -   Default: 0
+            -   Extra regularization in large parameter grids
+            -   Reduces training time
+        -   **bagging_fraction**: randomly select this percentage of data without resampling
+            -   Default: 1
+            -   \* must set bagging_freq to an integer \*
+        -   **feature_fraction**: specifies the percentage of features to sample from when training each tree
+            -   Default: 1
+            -   \* Must set bagging_freq to an integer \*
+        -   **bagging_freq**: frequency for bagging
+            -   Default: 0 (disabled)
+            -   (Integer) e.g. Setting to 2 means perform bagging at every 2nd iteration
+        -   **stopping_rounds**: early stopping
+-   Issues (from docs)
+    -   Poor Accuracy
+        -   Use large **max_bin** (may be slower)
+        -   Use small **learning_rate** with large **num_iterations**
+        -   Use large **num_leaves** (may cause over-fitting)
+        -   Use bigger training data
+    -   Overfitting
+        -   Use small **max_bin**
+        -   Use small **num_leaves**
+        -   Use **min_data_in_leaf** and **min_sum_hessian_in_leaf**
+        -   Use bagging by set **bagging_fraction** and **bagging_freq**
+        -   Use feature sub-sampling by set **feature_fraction**
+        -   Use bigger training data
+        -   Try **lambda_l1**, **lambda_l2** and **min_gain_to_split** for regularization
+        -   Try **max_depth** to avoid growing deep tree
+        -   Try **extra_trees**
+        -   Try increasing **path_smooth**
+
+## XGBoost {#sec-tuning-xgb .unnumbered}
+
+-   Notes
+    -   Drob starts with learning rate = 0.01 and tune other parameters before coming back to tune learning rate
+    -   Kuhn suggests setting trees to about 500 and tune stop_iter
+        -   **stop_iter**: early stopping; stops if no improvement has been made after this many iterations
+    -   [Uber](https://eng.uber.com/tuning-model-performance/) found that the most important hyperparameters were:
+        -   **tree_depth**, **trees**, **learning_rate**, and **min_n**
+    -   **tree_method** (more [details](https://arxiv.org/abs/1603.02754) about exact, approx)- specify which tree construction algorithm you want to use. Trade-offs between accuracy and speed
+        -   "exact" - accurate algorithm, but it is not very scalable as during each split find procedure it iterates over all entries of input data.
+            -   Inefficient when the data does not completely fit into memory
+            -   Doesn't support distributed training
+        -   "approx" - uses quantile sketch and gradient histograms
+        -   "hist" - method used in lightgbm with slight changes (binning continuous features)
+            -   Applies some of approx performance enhancements (e.g. bin caching)
+            -   Typically faster than approx
+        -   "gpu_hist" - gpu implementation of "hist"
+            -   Much faster than "hist" and usually requires less memory
+                -   Guessing because it uses the gpu memory
+            -   Not available for some OSs ([link](https://xgboost.readthedocs.io/en/latest/install.html#python))
+        -   "auto" - Default. Chooses fastest method (exact or approx) based on data size
+            -   For larger datasets, approx will be used
+-   Hyperparameters
+    -   **trees**: The number of trees in your forest
+        -   Grid Value Examples: seq(50, 700, 50), seq(250, 1500, 25)
+    -   **min_n**: minimum number of data points in a node that is required for the node to be split further
+        -   aka minimum child weight
+    -   **mtry**: The number of predictors to randomly sample for each split in a tree
+        -   Grid Value Examples: c(3,5,7), c(5, 7, 9)
+        -   More Predictors --\> higher mtry
+    -   Shrinkage
+        -   **learning_rate (aka eta)** aka step size; [explainer](https://towardsdatascience.com/learning-rate-hyperparameter-explained-2c1a619cbd33)
+            -   Shrinks the feature weights to make the boosting process more conservative default: 0.3
+            -   Range: \[0,1\]
+            -   Grid value examples: 0.2, 0.01, 0.008, 0.005
+            -   More trees $\rightarrow$ lower learning rate
+    -   Tree-Booster Constraints
+        -   **tree_depth (aka max_depth)**: The complexity of each tree
+            -   Grid value examples: 4 - 8 (also see lightgbm recommendations for max_depth)
+            -   Increasing makes the model more likely to overfit
+            -   Consumes memory when training a deep tree.
+            -   "exact" tree method requires non-zero value.
+            -   Default: 6
+            -   Range: \[0,∞\]
+        -   **min_child_weight**
+            -   Minimum sum of weights needed in a node in order for the algorithm to make another split
+            -   Increasing makes the model less likely to overfit
+            -   Default: 1
+            -   Range: \[0,∞\]
+    -   Regularization
+        -   **reg_lambda (aka lambda)**, **reg_alpha (aka alpha), and gamma**:
+            -   These are parameters of the regularization function
+            -   Also see
+                -   [Algorithms, ML \>\> Boosting \>\> XGBoost](%7Balgorithms-ml.qmd#sec-alg-ml-boost-xgb%7D){style="color: green"} \>\> regularization
+                -   [Article](https://towardsdatascience.com/visually-understand-xgboost-lightgbm-and-catboost-regularization-parameters-aa12abcd4c17)
+            -   High Alpha: generates a sparses model (i.e. has many null leaf weights)
+                -   L1 regularization term on weights
+                -   Simplifies the model
+                -   Reduces the model size as it's not necessary to store null values.
+            -   High Lambda: more stringently penalizes weights of less influential samples
+                -   L2 regularization term on weights
+                -   Simplifies the model
+                -   Has largest effect when data is smaller
+            -   High Gamma: fewer nodes
+                -   Affects the amount of gain needed to add another split
+                -   Default: 0
+                -   Range: \[0,∞\]
+    -   Random Subsampling
+        -   **subsample**:
+            -   Setting it to 0.5 means that XGBoost would randomly sample half of the training data prior to growing trees. and this will prevent overfitting.
+            -   Subsampling will occur once in every boosting iteration
+            -   Default: 1
+            -   Range: (0,1\]
+        -   **colsample_bytree**
+            -   Subsample ratio of columns when constructing each tree.
+            -   Default: 1
+    -   Iteration Control
+        -   **num_boost_round** - Total number of boosting iterations
+        -   **early_stopping_round** - Validation metric needs to improve at least once in every early_stopping_rounds round(s) to continue training
+
+## SVM {#sec-tuning-svm .unnumbered}
+
+-   Misc
+    -   Packages: [{e1071}]{style="color: #990000"}, [{kernlab}]{style="color: #990000"}, [{LiblineaR}]{style="color: #990000"}, [{{sklearn}}]{style="color: goldenrod"}
+    -   Also see
+        -   [Model Building, tidymodels \>\> Model Specification](model-building-tidymodels.qmd#sec-modbld-tidymod-modspec){style="color: green"} \>\> Support Vector Machines
+        -   [Algorithms, ML \>\> Support Vector Machines (SVM)](algorithms-ml.qmd#sec-alg-ml-svm){style="color: green"}
+-   Hyperparameters
+    1.  **gamma** -- All the kernels except the linear one require the gamma parameter. ({e1071} default: 1/(data dimension)
+    2.  **coef0** -- Parameter needed for kernels of type polynomial and sigmoid ({e1071} default: 0).
+    3.  **cost** -- The cost of constraints violation ({e1071} default: 1)---it is the '**C**'-constant of the regularization term in the Lagrange formulation.
+        -   C = 1/λ (R) or 1/α (sklearn)
+        -   When C is small, the regularization is strong, so the slope will be small
+    4.  **degree** - Degree of the polynomial kernel function ({e1071} default: 3)
+    5.  **epsilon** - Needed for insensitive loss function (see Regression below) ({e1071} default: 0.1)
+        -   When the value of epsilon is small, the model is robust to the outliers.
+        -   When the value of epsilon is large, it will take outliers into account.
+    6.  **nu** - For {e1071}, needed for types: nu-classification, nu-regression, and one-classification
+
+## Ensembles {#sec-tuning-ensemb .unnumbered}
+
+-   Misc
+    -   Notes from
+        -   [Hyperparameters Tuning for Machine Learning Model Ensembles](https://towardsdatascience.com/hyperparameters-tuning-for-machine-learning-model-ensembles-8051782b538b)
+            -   See article for
+                -   Details on performance, durations, etc. between sequential and simultaneous tuning methods
+                -   Links to repo, experimental paper
+            -   tldr;
+                -   They like the simultaneous tuning because had the best metric performance with the lowest variance (more stable results)
+                -   I think the sequential tuning method was comparable (and better in some cases) to the simultaneous tuning method but is probably faster and less costly.
+    -   Composite Structures
+        -   W/sequential model pipelines (bottom to top)\
+            ![](./_resources/Tuning.resources/image.1.png){width="432"}
+            -   "dtr" = decision tree regression
+        -   W/feature engineering models\
+            ![](./_resources/Tuning.resources/image.png){width="532"}
+            -   On the left side are typical structures with individual predictive models being fed into an ensemble model (e.g. Random Forest)
+            -   On the right side, some kind of feature engineering process or modeling happens prior to the predictive model/ensemble model.
+-   Sequential Tuning
+    -   Only one model is tuned at a time
+    -   The scoring, during the tuning process, happens on the ensemble model
+    -   [Example]{.ribbon-highlight}\
+        ![](./_resources/Tuning.resources/Screenshot%20(913).png){width="432"}
+        -   Structure
+            -   (top pipe) KNN feeds its predictions to the ridge regression which feeds it's predictions to the lasso regression (ensemble model)
+            -   (bottom pipe) Ridge regression feeds its predictions to the random forest which feeds it's predictions to the lasso regression (ensemble model)
+            -   Red arrows indicate how far the data/predictions have travelled through the structure. Here it's all the way to the ensemble model
+            -   Red circle indictates which model is currently being tuned
+            -   Models without hyperparameter values are models with default values for their hyperparameters
+        -   Figure shows that the KNN and the RR (bottom pipe) models have already been tuned and the RR model (top pipe) is the model being tuned.
+        -   The red Y' indicates that the prediction scoring, while ridge regression is being tuned, is happening at the ensemble model.
+        -   RF gets tuned next then finally the ensemble model
+-   Simultaneous Tuning
+    -   All models, including the ensemble model, are tuned at the same time
+    -   Computationally expensive
+        -   I'd think it would be more monetarily expensive as well given that you likely have to provision more machines in any realistic scenario to get a decent training time (one for each pipe?)
+    -   [Example]{.ribbon-highlight}\
+        ![](./_resources/Tuning.resources/Screenshot%20(915).png){width="432"}
+        -   See Sequential tuning example for details on the structure and what items in the figure represent.
+
+## DL {#sec-tuning-dl .unnumbered}
+
+-   Weight Decay\
+    ![](./_resources/Tuning.resources/image.6.png){width="632"}
+    -   Improves data efficiency by \> 50%
+    -   Frequently found in the best hyperparam configs
+    -   Among the most important hparams to tune
+    -   Tricky to tune
