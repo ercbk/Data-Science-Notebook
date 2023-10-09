@@ -58,7 +58,9 @@
 
 ### Instance Level {#sec-diag-modagn-dalex-instlev .unnumbered}
 
--   Use Case: Investigate Outliers
+-   Use Case:
+    -   Investigate extreme response values
+    -   Investigate observations not predicted well by your model
 
 #### Break-Down (BD) {#sec-diag-modagn-dalex-instlev-bd .unnumbered}
 
@@ -206,12 +208,17 @@
 
 -   If calculated for multiple observations, CP profiles are a useful tool for sensitivity analysis.
 
--   Issues
+-   The larger influence of an explanatory variable on prediction for a particular instance, the larger the fluctuations of the corresponding CP profile. For a variable that exercises little or no influence on a model's prediction, the profile will be flat or will barely change.
+
+-   For categoricals or discrete variables, bar graphs are used to visualize the CP values.
+
+-   [Issues]{.underline}
 
     -   Correlated explanatory variables may lead to misleading results , as it is not possible to keep one variable fixed while varying the other one.
-    -   If an interaction is present, whether explicit like in linear regression models or implicit like in Random Forest models, results can be misleading. Pairwise interactions require the use of two-dimensional CP profiles that are more complex than one-dimensional ones.
+    -   If an interaction is present, whether explicit like in linear regression models or implicit like in Random Forest models, results can be misleading.
+        -   Pairwise interactions require the use of two-dimensional CP profiles that are more complex than one-dimensional ones.
 
--   Process
+-   [Process]{.underline}
 
     -   Supply a single observation with values of your choice and a predictor.
     -   That predictor varies while the others in the model are held constant, and predictions are calculated.
@@ -242,10 +249,11 @@
         -   [variables]{.arg-text} - (Not used in this example) Names of explanatory variables, for which CP profiles are to be calculated. By default, [variables = NULL]{.arg-text} and the profiles are constructed for all variables, which may be time consuming.
         -   [variable_splits]{.arg-text} is an optional argument for providing a custom range of predictor values.
             -   By default the function uses the range of values in the training data which is obtained throught the [explainer]{.arg-text} object.
+            -   Also, limits the computations to the variables specified in the data.frame
     -   `plot`
         -   [color = "\_ids\_"]{.arg-text} specifies that more than one observation is being compared
 
--   Example: Compare Multiple Models
+-   [Example]{.ribbon-highlight}: Compare Multiple Models
 
     ![](_resources/Diagnostics,_Model_Agnostic.resources/dalex-cp-multmod-1.png){width="532"}
 
@@ -257,39 +265,129 @@
 
     -   [age]{.var-text} has a non-linear shape because a spline transform was used
 
--   
+-   [Profile Oscillations]{.underline}
 
--   For models with hundreds of variables or discrete variables like zip codes, visual examination can be daunting.
+    -   Method to assign importance to individual CP Profiles. Useful when there are a large number of variables used in your model.
 
--   Sect 5.2 Ceteris Paribus profile for local area around obs. Supply obs, select_neighbors, ceteris_paribus, plot
+        -   For models with hundreds of variables or discrete variables like zip codes, visual examination can be daunting.
 
--   Neighbors chosen from calcd distance metric using all vars, default is gower distance, whatever that is.
+    -   The method estimates the area under the CP curve by summing the differences between the CP values and the prediction at that instance.
 
--   Interpretation
+-   [Example]{.ribbon-highlight}: Basic
 
-    -   Parallel lines suggests the relationship between the variable and the response is additive.
-    -   A small distance between the lines suggests model predictionss are stable for values of that variable around the supplied value.
+    ![](_resources/Diagnostics,_Model_Agnostic.resources/dalex-cp-oscill-1.png){width="382"}
 
--   Add residuals to plot: small residuals suggest good fit for values of var in that neighborhood
+    ``` r
+    oscillations_uniform <- 
+      predict_parts(explainer = explain_rf, 
+                    new_observation = henry, 
+                    type = "oscillations_uni")
 
--   Add layers: add and bold profile line for supplied value. Add mean neighborhood profile line
+    oscillations_uniform
+    ##    _vname_ _ids_ oscillations
+    ## 2   gender     1   0.33700000
+    ## 4    sibsp     1   0.16859406
+    ## 3      age     1   0.16744554
+    ## 1    class     1   0.14257143
+    ## 6     fare     1   0.09942574
+    ## 7 embarked     1   0.02400000
+    ## 5    parch     1   0.01031683
 
--   Sects 5.3, 5.4 - shows facetted plots for sect 5.2, rug added, only neighborhood mean value cp profile, nbhd mean prof for multiple models, faceted for mult vars and mult models
+    oscillations_uniform$`_ids_` <- "Henry"
+    plot(oscillations_uniform) +
+        ggtitle("Ceteris-paribus Oscillations", 
+                "Expectation over uniform distribution (unique values)")
+    ```
 
--   Sect 5.5 multi-class classification model example. Same but a line for each resp class
+    -   [Gender]{.var-text} is a CP Profile that you should definitely look at. Followed by [sibsp]{.var-text}, [age]{.var-text}, and probably [class]{.var-text}
 
--   Sect 5.6 shows using 4 obs instead of one and coloring by a cat var
+    -   [variable_splits]{.arg-text} is optional. Available if you want to use a custom grid of variables and values.
 
--   Champion-Challenger analysis (DALEXtra PKG)
+    -   [type]{.arg-text}
 
-    -   Lets us compare two or more Machine-Learning models, determinate which one is better and improve both of them.
-    -   Funnel Plot of performance measures as an innovative approach to measure comparison.
-    -   Automatic HTML report.
+        -   [type = "oscillations"]{.arg-text} is used when [variable_splits]{.arg-text} is used. An average residual is what's being calculated, and one main difference in the types is the divisor (e.g. number of unique values, sample size) that's used. Here, I'm guessing this argument value sets the divisor to the number of grid values in [variable_splits]{.arg-text}.
 
--   Cross langauge comaprison (DALEXtra PKG)
+        -   [type = "oscillations_uni"]{.arg-text} assumes a uniform distribution of the "residuals" which are differences between the CP value and prediction for that instance.
 
-    -   Creating explainers for models created in different languges so they can be explained using R tools like DrWhy.AI family.
-    -   Currently supported are Python scikit-learn and keras, Java h2o, R xgboost, mlr, mlr3 and tidymodels
+            -   Filters variables to only unique values
+
+            -   Quicker to compute
+
+        -   [type = "oscillations_emp"]{.arg-text} assumes an empirical distribution of the "residuals"
+
+            -   Preferred when there are enough data to accurately estimate the empirical distribution and when the distribution is not uniform.
+
+#### Local Diagnostics {#sec-diag-modagn-dalex-instlev-locdiag .unnumbered}
+
+-   Check how the model behaves locally for observations similar to the instance of interest.
+-   *Neighbors* of the instance of interest are chosen using a distance metric that includes all variables --- default being the **gower distance** which handles categorical and continuous variables.
+-   [Local Fidelity]{.underline}
+    -   Compares the distribution of residuals for the neighbors with the distribution of residuals for the entire training dataset.
+
+    -   A histogram with both sets of residuals is created.
+
+        -   Both distributions should be similar. But, if the residuals for the neighbors are shifted towards positive or negative values, then the model has issues predicting instances with variable values in this space.
+
+    -   Non-parametric tests such as Wilcoxon or Kolmogorov-Smirnov test can also be used to test for differences.
+-   [Local Stability]{.underline}
+    -   Checks whether small changes in the explanatory variables, as represented by the changes within the set of neighbors, have got much influence on the predictions.
+
+    -   CP profiles are calculated for each of the selected neighbors
+
+        -   Adding residuals to the plot allows for evaluation of the local model-fit.
+
+    -   Interpretation
+
+        -   Parallel lines suggests the relationship between the variable and the response is additive.
+        -   A small distance between the lines suggests model predictionss are stable for values of that variable around the supplied value.
+-   [Example]{.ribbon-highlight}
+    -   Local-Fidelity
+
+        ![](_resources/Diagnostics,_Model_Agnostic.resources/dalex-local-fidelity-1.png){width="532"}
+
+        ``` r
+        id_rf <- 
+          predict_diagnostics(explainer = explain_rf,
+                              new_observation = henry,
+                              neighbours = 100)
+        id_rf
+        ##  Two-sample Kolmogorov-Smirnov test
+        ## 
+        ## data:  residuals_other and residuals_sel
+        ## D = 0.47767, p-value = 4.132e-10
+        ## alternative hypothesis: two-sided
+        plot(id_rf)
+        ```
+
+        -   KS-Test indicates a statistically significant difference between the two distributions
+
+        -   The plot suggests that the distribution of the residuals for Henry's neighbours might be slightly shifted towards positive values, as compared to the overall distribution.
+
+        -   I don't think the y-axis values are informative. This is a split axis histogram where neighbor residuals are on top and the rest of the observations are on the bottom.
+
+        -   There is a [nbins]{.arg-text}argument which has a default of twenty. This chart many need a few more bins
+
+    -   Local-Stability
+
+        ![](_resources/Diagnostics,_Model_Agnostic.resources/dalex-local-stab-1.png){width="532"}
+
+        ``` r
+        id_rf_age <- 
+          predict_diagnostics(explainer = explain_rf,
+                              new_observation = henry,
+                              neighbours = 10,
+                              variables = "age")
+        plot(id_rf_age)
+        ```
+
+        -   The vertical segments correspond to residuals
+
+            -   Shorter the segment, the smaller the residual and the more accurate prediction of the model.
+            -   Green segments correspond to positive residuals, red segments to negative residuals.
+
+        -   The profiles are relatively close to each other, suggesting the stability of predictions.
+
+        -   There are more negative than positive residuals, which may be seen as a signal of a (local) positive bias of the predictions.
 
 ### Dataset Level {#sec-diag-modagn-dalex-datlev .unnumbered}
 
@@ -536,6 +634,50 @@ plot(diag_ranger, variable = "y", yvariable = "y_hat") +
         -   [k]{.arg-text} - The number of clusters to be created with the help of the `hclust()` function, with k = NULL used by default and implying no clustering.
 
         -   [geom = "profiles"]{.arg-text} in the `plot` function, we add the CP profiles to the plot of the PD profile.
+
+#### Funnel Plot {#sec-diag-modagn-dalex-datlev-funnel .unnumbered}
+
+-   From {[DALEXtra](https://modeloriented.github.io/DALEXtra/)}, lets us find subsets of data where one of models is significantly better than other ones.
+
+-   Very useful in situations where we have models that have similiar overall performance, but where predictive performance of units with certain characteristics are more important to our business than others.
+
+-   Can be used to create a sort of ensemble model where predictions from different models are used depending on the values of the predictors.
+
+-   [Example]{.ribbon-highlight}
+
+    ![](_resources/Diagnostics,_Model_Agnostic.resources/dalex-funnel-1.png){width="632"}
+
+    ``` r
+    explainer_lm <- 
+      explain_mlr(model_lm, 
+                  apartmentsTest, 
+                  apartmentsTest$m2.price, 
+                  label = "LM", 
+                  verbose = FALSE, 
+                  precalculate = FALSE)
+    explainer_rf <- 
+      explain_mlr(model_rf, 
+                  apartmentsTest, 
+                  apartmentsTest$m2.price, 
+                  label = "RF",
+                  verbose = FALSE, 
+                  precalculate = FALSE)
+
+     plot_data <- 
+       funnel_measure(explainer_lm, 
+                      explainer_rf,
+                      partition_data = cbind(apartmentsTest,
+                                             "m2.per.room" = apartmentsTest$surface/apartmentsTest$no.rooms),
+                      nbins = 5, 
+                      measure_function = DALEX::loss_root_mean_square, 
+                      show_info = FALSE)
+    ```
+
+    -   [nbins]{.arg-text} is the number of bins to partition continuous variables into.
+    -   [measure_function]{.arg-text} is the metric used to judge each model. Here RMSE is used.
+    -   [Length of segment is the difference in prediction performance. The longer the segments are, the better that model is at predicting for those subsets of data.]{.underline}
+    -   For the most expensive and the cheapest (i.e. first and last bin of [m2.price]{.var-text}), the linear regression model performs best, while the random forest model performs best average priced (i.e. middle 3 bins of [m2.price]{.var-text}) apartments.
+    -   The linear regression is extremely better at predicting prices for apartments in the Srodmiescie [district]{.var-text}.
 
 ## triplot {#sec-diag-modagn-triplot}
 
