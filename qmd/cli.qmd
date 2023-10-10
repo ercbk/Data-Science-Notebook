@@ -2,6 +2,8 @@
 
 ## Misc {#sec-cli-misc .unnumbered}
 
+-   Resources
+    -   [Data Science at the Command Line](https://jeroenjanssens.com/dsatcl/)
 -   `ctrl-r`shell command history search
     -   [McFly](https://github.com/cantino/mcfly) - intelligent command history search engine that takes into account your working directory and the context of recently executed commands. McFly's suggestions are prioritized in real time with a small neural network
 -   Path to a folder that's above root folder:
@@ -34,6 +36,34 @@
         -   Debian works well on older hardware. Debian still offers a 32-bit version of the distro, while Ubuntu no longer offers a 32-bit version.
 
 ## R {#sec-cli-r .unnumbered}
+
+-   Make an R script pipeable (From [link](https://livefreeordichotomize.com/posts/2019-06-04-using-awk-and-r-to-parse-25tb/index.html#piping-to-r))
+
+    ``` bash
+    parallel "echo 'zipping bin {}'; cat chunked/*_bin_{}_*.csv | ./upload_as_rds.R '$S3_DEST'/chr_'$DESIRED_CHR'_bin_{}.rds"
+    ```
+
+    ``` r
+    #!/usr/bin/env Rscript
+    library(readr)
+    library(aws.s3)
+
+    # Read first command line argument
+    data_destination <- commandArgs(trailingOnly = TRUE)[1]
+
+    data_cols <- list(SNP_Name = 'c', ...)
+
+    s3saveRDS(
+      read_csv(
+            file("stdin"), 
+            col_names = names(data_cols),
+            col_types = data_cols 
+        ),
+      object = data_destination
+    )
+    ```
+
+    -   By passing `readr::read_csv` the function, `file("stdin")`, it loads the data piped to the R script into a dataframe, which then gets written as an .rds file directly to s3 using {aws.s3}.
 
 -   Killing a process
 
@@ -94,25 +124,65 @@
 
 -   Misc
 
-    -   [Docs](https://www.gnu.org/software/gawk/manual/gawk.html)
+    -   Resources
+        -   [Docs](https://www.gnu.org/software/gawk/manual/gawk.html)
+        -   [Awk - A Tutorial and Introduction](https://www.grymoire.com/Unix/Awk.html)
 
 -   Print first few rows of columns 1 and 2
 
-    ``` bash
+    ``` awk
     awk -F, '{print $1,$2}' adult_t.csv|head
     ```
 
 -   Filter lines where no of hours/ week (13th column) \> 98
 
-    ``` bash
+    ``` awk
     awk -F, ‘$13 > 98’ adult_t.csv|head
     ```
 
 -   Filter lines with "Doctorate" and print first 3 columns
 
-    ``` bash
+    ``` awk
     awk '/Doctorate/{print $1, $2, $3}' adult_t.csv
     ```
+
+-   Random sample 8% of the total lines from a .csv (keeps header)
+
+    ``` awk
+    'BEGIN {srand()} !/^$/ {if(rand()<=0.08||FNR==1) print > "rand.samp.csv"}' big_fn.csv
+    ```
+
+-   Decompresses, chunks, sorts, and writes back to S3 (From [link](https://livefreeordichotomize.com/posts/2019-06-04-using-awk-and-r-to-parse-25tb/index.html))
+
+    ``` awk
+    # Let S3 use as many threads as it wants
+    aws configure set default.s3.max_concurrent_requests 50
+
+    for chunk_file in $(aws s3 ls $DATA_LOC | awk '{print $4}' | grep 'chr'$DESIRED_CHR'.csv') ; do
+
+            aws s3 cp s3://$batch_loc$chunk_file - |
+            pigz -dc |
+            parallel --block 100M --pipe  \
+            "awk -F '\t' '{print \$1\",...\"$30\">\"chunked/{#}_chr\"\$15\".csv\"}'"
+
+            # Combine all the parallel process chunks to single files
+            ls chunked/ |
+            cut -d '_' -f 2 |
+            sort -u |
+            parallel 'cat chunked/*_{} | sort -k5 -n -S 80% -t, | aws s3 cp - '$s3_dest'/batch_'$batch_num'_{}'
+
+            # Clean up intermediate data
+            rm chunked/*
+    done
+    ```
+
+    -   Uses [pigz](https://linux.die.net/man/1/pigz) to parallelize decompression
+
+    -   Uses GNU Parallel ([site](https://www.gnu.org/software/parallel/), [docs](https://www.gnu.org/software/parallel/man.html), [tutorial1](https://jeroenjanssens.com/dsatcl/chapter-8-parallel-pipelines#introducing-gnu-parallel), [tutorial2](https://www.gnu.org/software/parallel/parallel_tutorial.html#gnu-parallel-tutorial)) to parallelize chunking (100MB chunks in 1st section)
+
+    -   Chunks data into smaller files and sorts them into directories based on a chromosome column (I think)
+
+    -   Avoids writing to disk
 
 ## Bash {#sec-cli-bash .unnumbered}
 
