@@ -1779,6 +1779,7 @@ pre > code.sourceCode > span > a:first-child::before { text-decoration: underlin
   <li><a href="#sec-db-duckdb-dbplyr" id="toc-sec-db-duckdb-dbplyr" class="nav-link" data-scroll-target="#sec-db-duckdb-dbplyr">dbplyr</a></li>
   <li><a href="#sec-db-duckdb-arrow" id="toc-sec-db-duckdb-arrow" class="nav-link" data-scroll-target="#sec-db-duckdb-arrow">Apache Arrow</a></li>
   <li><a href="#sec-db-duckdb-sql" id="toc-sec-db-duckdb-sql" class="nav-link" data-scroll-target="#sec-db-duckdb-sql">SQL</a></li>
+  <li><a href="#remote-connections" id="toc-remote-connections" class="nav-link" data-scroll-target="#remote-connections">Remote Connections</a></li>
   </ul>
 </nav>
     </div>
@@ -2037,6 +2038,66 @@ pre > code.sourceCode > span > a:first-child::before { text-decoration: underlin
 <span id="cb8-10"><a href="#cb8-10" aria-hidden="true" tabindex="-1"></a><span class="kw">SELECT</span> <span class="kw">COLUMNS</span>(c <span class="op">-&gt;</span> c <span class="kw">LIKE</span> <span class="st">'%num%'</span>) <span class="kw">FROM</span> addresses;</span>
 <span id="cb8-11"><a href="#cb8-11" aria-hidden="true" tabindex="-1"></a><span class="co">-- select all columns matching the given regex from the table</span></span>
 <span id="cb8-12"><a href="#cb8-12" aria-hidden="true" tabindex="-1"></a><span class="kw">SELECT</span> <span class="kw">COLUMNS</span>(<span class="st">'number\d+'</span>) <span class="kw">FROM</span> addresses;</span></code><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></pre></div></li>
+</ul></li>
+</ul>
+</section>
+<section id="remote-connections" class="level2">
+<h2 class="anchored" data-anchor-id="remote-connections">Remote Connections</h2>
+<ul>
+<li><p>Misc</p>
+<ul>
+<li>Notes from
+<ul>
+<li><a href="https://rfsaldanha.github.io/posts/query_remot_parquet_file.html">Query Remote Parquet Files with DuckDB</a></li>
+</ul></li>
+</ul></li>
+<li><p><a href="https://duckdb.org/docs/extensions/httpfs.html">httpfs</a> Extension</p>
+<ul>
+<li><p>Create a db in memory since the data is stored remotely.</p>
+<div class="sourceCode" id="cb9"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb9-1"><a href="#cb9-1" aria-hidden="true" tabindex="-1"></a>conn <span class="ot">&lt;-</span> </span>
+<span id="cb9-2"><a href="#cb9-2" aria-hidden="true" tabindex="-1"></a>  DBI<span class="sc">::</span><span class="fu">dbConnect</span>(</span>
+<span id="cb9-3"><a href="#cb9-3" aria-hidden="true" tabindex="-1"></a>    duckdb<span class="sc">::</span><span class="fu">duckdb</span>(),</span>
+<span id="cb9-4"><a href="#cb9-4" aria-hidden="true" tabindex="-1"></a>    <span class="at">dbdir =</span> <span class="st">":memory:"</span></span>
+<span id="cb9-5"><a href="#cb9-5" aria-hidden="true" tabindex="-1"></a>  )</span></code><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></pre></div></li>
+<li><p>Install and Load httpfs extension</p>
+<div class="sourceCode" id="cb10"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb10-1"><a href="#cb10-1" aria-hidden="true" tabindex="-1"></a>DBI<span class="sc">::</span><span class="fu">dbExecute</span>(conn, <span class="st">"INSTALL httpfs;"</span>)</span>
+<span id="cb10-2"><a href="#cb10-2" aria-hidden="true" tabindex="-1"></a>DBI<span class="sc">::</span><span class="fu">dbExecute</span>(conn, <span class="st">"LOAD httpfs;"</span>)</span></code><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></pre></div>
+<ul>
+<li>Currently not available for Windows</li>
+</ul></li>
+<li><p>Query</p>
+<div class="sourceCode" id="cb11"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb11-1"><a href="#cb11-1" aria-hidden="true" tabindex="-1"></a>parquet_url <span class="ot">&lt;-</span> <span class="st">"url_to_parquet_files"</span></span>
+<span id="cb11-2"><a href="#cb11-2" aria-hidden="true" tabindex="-1"></a>res <span class="ot">&lt;-</span> DBI<span class="sc">::</span><span class="fu">dbGetQuery</span>(</span>
+<span id="cb11-3"><a href="#cb11-3" aria-hidden="true" tabindex="-1"></a>  conn, </span>
+<span id="cb11-4"><a href="#cb11-4" aria-hidden="true" tabindex="-1"></a>  glue<span class="sc">::</span><span class="fu">glue</span>(<span class="st">"SELECT carrier, flight, tailnum, year FROM '{parquet_url}' WHERE year = 2013 LIMIT 100"</span>)</span>
+<span id="cb11-5"><a href="#cb11-5" aria-hidden="true" tabindex="-1"></a>)</span></code><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></pre></div>
+<ul>
+<li>Queries that needs more data and return more rows takes longer to run, especially transmitting data over the Internet. Craft carefully your queries with this in mind.</li>
+</ul></li>
+<li><p>To use <span style="color: #990000">{dplyr}</span>, a View must first be created</p>
+<div class="sourceCode" id="cb12"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb12-1"><a href="#cb12-1" aria-hidden="true" tabindex="-1"></a>DBI<span class="sc">::</span><span class="fu">dbExecute</span>(conn, </span>
+<span id="cb12-2"><a href="#cb12-2" aria-hidden="true" tabindex="-1"></a>               glue<span class="sc">::</span><span class="fu">glue</span>(<span class="st">"CREATE VIEW flights AS SELECT * FROM PARQUET_SCAN('{parquet_url}')"</span>))</span>
+<span id="cb12-3"><a href="#cb12-3" aria-hidden="true" tabindex="-1"></a>DBI<span class="sc">::</span><span class="fu">dbListTables</span>(conn)</span>
+<span id="cb12-4"><a href="#cb12-4" aria-hidden="true" tabindex="-1"></a><span class="co">#&gt; [1] "flights"</span></span>
+<span id="cb12-5"><a href="#cb12-5" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb12-6"><a href="#cb12-6" aria-hidden="true" tabindex="-1"></a><span class="fu">tbl</span>(conn, <span class="st">"flights"</span>) <span class="sc">%&gt;%</span></span>
+<span id="cb12-7"><a href="#cb12-7" aria-hidden="true" tabindex="-1"></a>  <span class="fu">group_by</span>(month) <span class="sc">%&gt;%</span></span>
+<span id="cb12-8"><a href="#cb12-8" aria-hidden="true" tabindex="-1"></a>  <span class="fu">summarise</span>(<span class="at">freq =</span> <span class="fu">n</span>()) <span class="sc">%&gt;%</span></span>
+<span id="cb12-9"><a href="#cb12-9" aria-hidden="true" tabindex="-1"></a>  <span class="fu">ungroup</span>() <span class="sc">%&gt;%</span></span>
+<span id="cb12-10"><a href="#cb12-10" aria-hidden="true" tabindex="-1"></a>  <span class="fu">collect</span>()</span></code><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></pre></div></li>
+<li><p>Close connection: <code>DBI::dbDisconnect(conn, shutdown = TRUE)</code></p></li>
+</ul></li>
+<li><p><span style="color: #990000">{</span><a href="https://cboettig.github.io/duckdbfs/" style="color: #990000">duckdbfs</a><span style="color: #990000">}</span></p>
+<ul>
+<li><p>Create dataset object</p>
+<div class="sourceCode" id="cb13"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb13-1"><a href="#cb13-1" aria-hidden="true" tabindex="-1"></a>parquet_url <span class="ot">&lt;-</span> <span class="st">"url_to_parquet_files"</span> <span class="co">#e.g. AWS S3</span></span>
+<span id="cb13-2"><a href="#cb13-2" aria-hidden="true" tabindex="-1"></a>ds <span class="ot">&lt;-</span> duckdbfs<span class="sc">::</span><span class="fu">open_dataset</span>(parquet_url)</span></code><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></pre></div></li>
+<li><p>Query</p>
+<div class="sourceCode" id="cb14"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb14-1"><a href="#cb14-1" aria-hidden="true" tabindex="-1"></a>ds <span class="sc">%&gt;%</span></span>
+<span id="cb14-2"><a href="#cb14-2" aria-hidden="true" tabindex="-1"></a>  <span class="fu">group_by</span>(month) <span class="sc">%&gt;%</span></span>
+<span id="cb14-3"><a href="#cb14-3" aria-hidden="true" tabindex="-1"></a>  <span class="fu">summarise</span>(<span class="at">freq =</span> <span class="fu">n</span>()) <span class="sc">%&gt;%</span></span>
+<span id="cb14-4"><a href="#cb14-4" aria-hidden="true" tabindex="-1"></a>  <span class="fu">ungroup</span>() <span class="sc">%&gt;%</span></span>
+<span id="cb14-5"><a href="#cb14-5" aria-hidden="true" tabindex="-1"></a>  <span class="fu">collect</span>()</span></code><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></pre></div></li>
 </ul></li>
 </ul>
 

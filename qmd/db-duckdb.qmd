@@ -245,3 +245,79 @@
         -- select all columns matching the given regex from the table
         SELECT COLUMNS('number\d+') FROM addresses;
         ```
+
+## Remote Connections
+
+-   Misc
+
+    -   Notes from
+        -   [Query Remote Parquet Files with DuckDB](https://rfsaldanha.github.io/posts/query_remot_parquet_file.html)
+
+-   [httpfs](https://duckdb.org/docs/extensions/httpfs.html) Extension
+
+    -   Create a db in memory since the data is stored remotely.
+
+        ``` r
+        conn <- 
+          DBI::dbConnect(
+            duckdb::duckdb(),
+            dbdir = ":memory:"
+          )
+        ```
+
+    -   Install and Load httpfs extension
+
+        ``` r
+        DBI::dbExecute(conn, "INSTALL httpfs;")
+        DBI::dbExecute(conn, "LOAD httpfs;")
+        ```
+
+        -   Currently not available for Windows
+
+    -   Query
+
+        ``` r
+        parquet_url <- "url_to_parquet_files"
+        res <- DBI::dbGetQuery(
+          conn, 
+          glue::glue("SELECT carrier, flight, tailnum, year FROM '{parquet_url}' WHERE year = 2013 LIMIT 100")
+        )
+        ```
+
+        -   Queries that needs more data and return more rows takes longer to run, especially transmitting data over the Internet. Craft carefully your queries with this in mind.
+
+    -   To use [{dplyr}]{style="color: #990000"}, a View must first be created
+
+        ``` r
+        DBI::dbExecute(conn, 
+                       glue::glue("CREATE VIEW flights AS SELECT * FROM PARQUET_SCAN('{parquet_url}')"))
+        DBI::dbListTables(conn)
+        #> [1] "flights"
+
+        tbl(conn, "flights") %>%
+          group_by(month) %>%
+          summarise(freq = n()) %>%
+          ungroup() %>%
+          collect()
+        ```
+
+    -   Close connection: `DBI::dbDisconnect(conn, shutdown = TRUE)`
+
+-   [{]{style="color: #990000"}[duckdbfs](https://cboettig.github.io/duckdbfs/){style="color: #990000"}[}]{style="color: #990000"}
+
+    -   Create dataset object
+
+        ``` r
+        parquet_url <- "url_to_parquet_files" #e.g. AWS S3
+        ds <- duckdbfs::open_dataset(parquet_url)
+        ```
+
+    -   Query
+
+        ``` r
+        ds %>%
+          group_by(month) %>%
+          summarise(freq = n()) %>%
+          ungroup() %>%
+          collect()
+        ```
