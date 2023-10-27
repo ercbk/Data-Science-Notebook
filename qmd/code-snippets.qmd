@@ -293,3 +293,114 @@
     8      b        4        8
     4      b        5        8
     ```
+
+-   Intervals using [{]{style="color: #990000"}[lubridate](https://lubridate.tidyverse.org/){style="color: #990000"}[}]{style="color: #990000"}
+
+    -   Lubridate's [interval functions](https://lubridate.tidyverse.org/reference/interval.html)
+
+    -   Notes from: [Wrangling interval data using lubridate](https://odissei-soda.nl/tutorials/post-5/)
+
+    -   Data
+
+        ``` r
+        (house_df <- tibble(
+          person_id  = factor(c("A10232", "A10232", "A10232", "A39211", "A39211", "A28183", "A28183", "A10124")),
+          house_id   = factor(c("H1200E", "H1243D", "H3432B", "HA7382", "H53621", "HC39EF", "HA3A01", "H222BA")),
+          start_date = ymd(c("20200101", "20200112", "20211120", "19800101", "19900101", "20170303", "20190202", "19931023")),
+          end_date   = ymd(c("20200112", "20211120", "20230720", "19891231", "20170102", "20180720", "20230720", "20230720"))
+        ))
+
+        #>   A tibble: 8 × 4
+        #>   person_id house_id start_date end_date  
+        #>   <fct>     <fct>    <date>     <date>    
+        #> 1 A10232    H1200E   2020-01-01 2020-01-12
+        #> 2 A10232    H1243D   2020-01-12 2021-11-20
+        #> 3 A10232    H3432B   2021-11-20 2023-07-20
+        #> 4 A39211    HA7382   1980-01-01 1989-12-31
+        #> 5 A39211    H53621   1990-01-01 2017-01-02
+        #> 6 A28183    HC39EF   2017-03-03 2018-07-20
+        #> 7 A28183    HA3A01   2019-02-02 2023-07-20
+        #> 8 A10124    H222BA   1993-10-23 2023-07-20
+        ```
+
+    -   Create interval column
+
+        ``` r
+        house_df <- 
+          house_df |> 
+          mutate(
+            # create the interval
+            int = interval(start_date, end_date), 
+            # drop the start/end columns
+            .keep = "unused"                      
+          )
+
+        house_df
+        #>   A tibble: 8 × 3
+        #>   person_id house_id int                           
+        #>   <fct>     <fct>    <Interval>                    
+        #> 1 A10232    H1200E   2020-01-01 UTC--2020-01-12 UTC
+        #> 2 A10232    H1243D   2020-01-12 UTC--2021-11-20 UTC
+        #> 3 A10232    H3432B   2021-11-20 UTC--2023-07-20 UTC
+        #> 4 A39211    HA7382   1980-01-01 UTC--1989-12-31 UTC
+        #> 5 A39211    H53621   1990-01-01 UTC--2017-01-02 UTC
+        #> 6 A28183    HC39EF   2017-03-03 UTC--2018-07-20 UTC
+        #> 7 A28183    HA3A01   2019-02-02 UTC--2023-07-20 UTC
+        #> 8 A10124    H222BA   1993-10-23 UTC--2023-07-20 UTC
+        ```
+
+    -   Intersection Function\
+        ![](_resources/Code,_Snippets.resources/calc-interval-intersection-1.svg){width="316"}
+
+        ``` r
+        int_intersect <- function(int, int_limits) {
+          int_start(int) <- pmax(int_start(int), int_start(int_limits))
+          int_end(int)   <- pmin(int_end(int), int_end(int_limits))
+          return(int)
+        }
+        ```
+
+        -   The red dashed line is the reference interval and the blue solid line is the interval of interest
+        -   The function creates an interval thats the intersection of both intervals (segment between black parentheses)
+
+    -   Proportion of the Reference Interval\
+        ![](_resources/Code,_Snippets.resources/calc-interval-prop-1.svg){width="255"}
+
+        ``` r
+        int_proportion <- function(dat, reference_interval) {
+          
+          # start with the housing data
+          dat |> 
+            # only retain overlapping rows, this makes the following
+            # operations more efficient by only computing what we need
+            filter(int_overlaps(int, reference_interval)) |> 
+            # then, actually compute the overlap of the intervals
+            mutate(
+              # use our earlier truncate function
+              int_sect = int_intersect(int, reference_interval),
+              # then, it's simple to compute the overlap proportion
+              prop = int_length(int_sect) / int_length(reference_interval)
+            ) |> 
+            # combine different intervals per person
+            summarize(prop_in_nl = sum(prop), .by = person_id)
+          
+        }
+        ```
+
+    -   [Example]{.ribbon-highlight}
+
+        ``` r
+        int_2017  <- interval(ymd("20170101"), ymd("20171231"))
+        prop_2017 <- 
+          int_proportion(dat = house_df, 
+                         reference_interval = int_2017)
+
+        prop_2017
+
+        #> # A tibble: 3 × 2
+        #>   person_id prop_in_nl
+        #>   <fct>          <dbl>
+        #> 1 A39211       0.00275
+        #> 2 A28183       0.832  
+        #> 3 A10124       1      
+        ```
