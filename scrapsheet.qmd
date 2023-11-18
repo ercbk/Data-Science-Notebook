@@ -12,7 +12,11 @@ title: "Scrapsheet"
 
 ## Propensity Score Analysis (PSA)
 
--   [Video](https://www.youtube.com/watch?v=JLV4mtFhRMM)
+-   Notes from:
+
+    -   nyhackr meet-up [Video](https://www.youtube.com/watch?v=JLV4mtFhRMM)
+
+    -   Paper: [PSAgraphics: An R Package to Support Propensity Score Analysis](https://www.jstatsoft.org/article/view/v029i06#:~:text=PSAgraphics%20is%20an%20R%20package,having%20adjusted%20for%20covariate%20differences.)
 
 -   If two people have similar propensity scores, then they will be similar in all the values of the covariates that were used to create that score
 
@@ -22,17 +26,17 @@ title: "Scrapsheet"
 
     -   Stratification - Treatment and Comparison (aka Control) units are divided into strata (or subclasses) based upon a propensity score (e.g. quantiles), so that treated and comparison units are similar within each strata.
 
-        -    Logistic Regression (treatment/control \~ covariates) can be used to estimate scores (i.e. predicted logits)
+        -   Logistic Regression (treatment/control \~ covariates) can be used to estimate scores (i.e. predicted logits)
 
-            ``` r
-            lr.out <- 
-              glm(
-              treatment ~ x1 + x2 + x3,
-              data = dat,
-              family = binomial(link = logit)
-              )
-            dat$ps <- fitted(lr.out)
-            ```
+        ``` r
+        lr.out <- 
+          glm(
+          treatment ~ x1 + x2 + x3,
+          data = dat,
+          family = binomial(link = logit)
+          )
+        dat$ps <- fitted(lr.out)
+        ```
 
         -   5 stratum removes \> 90% of the bias in estimated treatment effect (Cochran 1968)
 
@@ -47,7 +51,11 @@ title: "Scrapsheet"
               )
             ```
 
-        -   With Trees, strata are determined by the leaf nodes
+        -   With Regression, each strata has very similar numbers of observations.
+
+        -   Trees, strata are determined by the leaf nodes and each strata generally differs in the numbers of observations.
+
+            -   In a decision tree example, strata had some funky proportions in relation to the categorical and continuous predictors (see Paper)
 
         -   Within each stratum, independent sample t-tests are conducted and then pooled to provide an overall estimate
 
@@ -80,6 +88,80 @@ title: "Scrapsheet"
         -   Propensity Scores are used as weights for the regression model that you'll use to perform your analysis.
 
             -   The specific weights will depend on the estimand (e.g ATE, ATT, etc.)
+
+        -   Average Treatment Effect (ATE): $\text{ATE} = E(Y_1 - Y_0|X) = E(Y_1|X) - E(Y_0|X)$
+
+            -   Weight: $w_{\text{ATE}} = \frac{Z_i}{\pi_i} + \frac{1-Z_i}{1-\pi_i}$
+
+            -   $Z_i = 1$ says the unit is in the treatment group
+
+            -   Not sure what $\pi_i$ is.
+
+            -   [Example]{.ribbon-highlight}:
+
+                ``` r
+                dat <- 
+                  dat |> 
+                  mutate(
+                    ate_weights = psa::calculate_ps_weights(treatment, ps, estimand = "ATE"))
+
+                # via {psa}
+                psa::treatment_effect(
+                  treatment = dat$treatment,
+                  outcome = dat$outcome,
+                  weights = dat$ate_weights
+                )
+                # via lm
+                lm(outcome ~ treatment,
+                   data = dat,
+                   weights = dat$ate_weights)
+                ```
+
+        -   ATE Among the Treated (ATT): $\text{ATT} = E(Y_1 - Y_0|X,C = 1) = E(Y_1|X,C = 1) - E(Y_)|X,C = 1)$
+
+            -   Weight: $w_{\text{ATT}} = \frac{\pi_i Z_i}{\pi_i} + \frac{\pi_i(1-Z_i)}{1-\pi_i}$
+
+            -   [Example]{.ribbon-highlight}:
+
+                ``` r
+                dat <- 
+                  dat |> 
+                  mutate(
+                    att_weights = psa::calculate_ps_weights(treatment, ps, estimand = "ATT"))
+
+                # via {psa}
+                psa::treatment_effect(
+                  treatment = dat$treatment,
+                  outcome = dat$outcome,
+                  weights = dat$att_weights
+                )
+                # via lm
+                lm(outcome ~ treatment,
+                   data = dat,
+                   weights = dat$att_weights)
+                ```
+
+        -   ATE Among the Control (ATC): $\text{ATC} = E(Y_1- Y_0|X = 0) = E(Y_1|X = 0) - E(Y_0|X = 0)$
+
+            -   Weight: $w_{\text{ATC}} = \frac{(1-\pi_i)Z_i}{\pi_i} + \frac{(1-e_i)(1-Z_i)}{1-\pi_i}$
+
+            -   Not sure what $e_i$ is
+
+            -   [Example]{.ribbon-highlight}: Same as above except with ATC weights
+
+        -   ATE Among the Evenly Matched (ATM): $\text{ATM}_d = E(Y_1 - Y_0|M_d = 1)$
+
+            -   Weight: $w_{\text{ATM}} = \frac{\min\{\pi_i, 1-\pi_i\}}{Z_i \pi_i(1-Z_i)(1-\pi_i)}$
+
+            -   [Example]{.ribbon-highlight}: Same as above except with ADM weights
+
+        -   Shows mirrored axis histogram with PS on x-axis and count on y-axis; guessing treatment/control are top/bottom histograms?
+
+        -   Treament Effects for Weighting
+
+            $$
+            \text{TE} = \frac{\sum Y_iZ_i}{\sum Z_i w_i} - \frac{Y_i(1-Z_i)w_i}{\sum(1-Z_i)w_i}
+            $$
 
 -   3 Phases
 
@@ -153,25 +235,70 @@ title: "Scrapsheet"
 
         -   Want blue dots close to zero which says that after PS adjustment, the covariates have little predictive power in determining whether a unit is in the treatment group or control group. It means the PS are effectively adjusting for the selection bias of the treatment/control "assignment" in the observational data.
 
-    -   
+    -   Boxplot by Propensity Score Strata by Treatment
 
         ``` r
         PSAgraphics::box.psa(
-          dat$x2,
-          dat$treatment,
-          dat$strata5
+          continuous = dat$x2,
+          treatment = dat$treatment,
+          strata = dat$strata5
         )
         ```
 
-    -   Words
+        -   For a continuous predictor, it allows you to visually examine the balance produced by the PS strata by comparing the distributions between treatment and control within each strata
+
+        -   Connected dots are the means within each distribution and numbers below each box are its sample size.
+
+            -   Setting [trim = 0.5]{.arg-text} will connect medians
+
+        -   *Within* strata, the more similar the distributions between treatment and control, the better the balance. Balance should be assessed for each predictor.
+
+        -   Trends or patterns *between* strata can hint at potential variation and may help explain effects detected in the later performed analysis
+
+            -   Units in higher strata (i.e. higher PS) are more likely to be treated than those in lower strata, so looking at the values of predictor, you can say whether those with higher or lower values of the predictor are more likely to be treated.
+
+        -   With [balance = TRUE]{.arg-text} (default is FALSE),
+
+            -   Histogram
+
+                -   Permuted data are randomly assigned to strata, absolute differences of means calculated within each strata, and the differences summed to produce the statistic.
+
+                -   Repeated until there's a distribution which is then visualized as a histogram
+
+                -   The sum of the mean differences of the original data is represented by a red dot.
+
+                -   The further left the red dot is from the mean (or median with [trim = 0.5]{.arg-text}) of the permuation distribution, the better the balance
+
+                    -   i.e. the **smaller** the sum of mean differences of the original data as compared the permuted distribution of sums of mean differences, the better.
+
+                    -   The rank shows where the original data statistic ranks in comparison to all of the summed differences in the permuted distribution.
+
+                        -   Total_number_of_ranks = number_of_permutations + 1 (aka original data)
+
+            -   Boxplot
+
+                -   P-Values for KS-tests on treatment and control distributions are placed above the sample sizes of each strata. A *lack* of balance for a given strata would be indicated by a p-value \< 0.05.
+
+    -   Stacked Bar Chart by Propensity Score Strata by Treatment
 
         ``` r
         PSAgraphics::cat.psa(
-          dat$x3,
-          dat$treatment,
-          dat$strat5
+          categorical = dat$x3,
+          treatment = dat$treatment,
+          strata = dat$strat5
         )
         ```
+
+        -   For a categorical predictor, it allows you to visually examine the balance produced by the PS strata by comparing the category proportions between treatment and control within each strata
+        -   Within each strata, side-by-side segmented bars can be used to compare proportions of cases in each category
+        -   Sample sizes are above each bar
+        -   if subsequent analysis indicates large differences in size or direction of effects for different strata, then comparing covariate distributions across strata may give an initial indication of potential causes.
+        -   With [balance = TRUE]{.arg-text} (default is FALSE), it's very similar to `box.psa`.
+            -   Histogram
+                -   Units within each category are permuted between strata
+                -   Differences in proportions is used instead of difference in means
+                -   Interpretation is the same
+            -   Fisher's Exact Tests are performed and the p-values are shown at the bottom of the bars for each strata. A *lack* of balance for a given strata would be indicated by a p-value \< 0.05.
 
 ## Hard Drive
 
