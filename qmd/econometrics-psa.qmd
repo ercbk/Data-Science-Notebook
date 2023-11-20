@@ -1,0 +1,445 @@
+# Propensity Score Analysis {#sec-econ-psa .unnumbered}
+
+::: callout-caution
+This note is unfinished. I still have more to add, and the concepts need to be organized.
+:::
+
+::: {.callout-note collapse="true"}
+## todo
+
+1.  Finish video
+2.  Figure out exactly what $\pi$ and $e$ are in the weight formulas
+3.  Organize note
+:::
+
+## Misc
+
+-   Notes from:
+
+    -   nyhackr meet-up [Video](https://www.youtube.com/watch?v=JLV4mtFhRMM)
+    -   Vignette: [PSAgraphics: An R Package to Support Propensity Score Analysis](https://www.jstatsoft.org/article/view/v029i06#:~:text=PSAgraphics%20is%20an%20R%20package,having%20adjusted%20for%20covariate%20differences.)
+    -   Book: [Applied Propensity Score Analysis in R](https://psa.bryer.org/) (unfinished)
+
+-   Any classification model should be able to produce propensity scores.
+
+    -   Examples ([code](https://psa.bryer.org/appendix-psmodels.html)): Logistic Regression, Bayesian Logistic Regression, Probit BART, Conditional Inference Trees (partykit), Decision Trees, Random Forest.
+
+-   If two people have similar propensity scores, then they will be similar in all the values of the covariates that were used to create that score
+
+-   `psa::psa_simulation_shiny` - App that simulates and visualizes balance of groups according effect size, sample size, estimand (e.g ATE, ATT, etc.), and PSA method
+
+-   Process\
+    ![](_resources/Econometrics-PSA.resources/workflow-1.png){width="632"}
+
+    -   Phase 1
+        -   Select covariates
+            -   Typically whatever variables are available if it's a secondhand dataset
+            -   If running and experiment, collect data that will demonstrate baseline equivalence (?), which can later be used in a PSA
+        -   Choose PSA method
+        -   Check Balance (i.e. do observations in treatment and control look equivalent)
+        -   Repeat if necessary until sufficient balance is achieved
+    -   Phase 2
+        -   Estimate Treatment Effects
+    -   Phase 3
+        -   Sensitivity Analysis
+            -   Test how sensitive the results are to an unobserved confounder
+                -   i.e. How much variance would a variable need to have before it changes the results (sign change or just significance?)
+        -   Go back to Phase I and choose a different method
+            -   Tests how sensitive the results are to the PSA method chosen
+
+-   Methods:
+
+    -   Stratification - Treatment and Comparison (aka Control) units are divided into strata (or subclasses) based upon a propensity score (e.g. quantiles), so that treated and comparison units are similar within each strata.
+
+        -   Logistic Regression (treatment/control \~ covariates) can be used to estimate scores (i.e. predicted logits)
+
+        ``` r
+        lr.out <- 
+          glm(
+          treatment ~ x1 + x2 + x3,
+          data = dat,
+          family = binomial(link = logit)
+          )
+        dat$ps <- fitted(lr.out)
+        ```
+
+        -   5 stratum removes \> 90% of the bias in estimated treatment effect (Cochran 1968)
+
+            ``` r
+            breaks5 <- psa::get_strata_breaks(dat$ps)
+            dat$strata5 <-
+              cut(
+                x = dat$ps,
+                breaks = breaks5$breaks,
+                include.lowest = TRUE,
+                labels = breaks5$labels$strata
+              )
+            ```
+
+        -   With Regression, each strata has very similar numbers of observations.
+
+        -   Trees, strata are determined by the leaf nodes and each strata generally differs in the numbers of observations.
+
+            -   In a decision tree example, strata had some funky proportions in relation to the categorical and continuous predictors (see Paper)
+
+        -   Within each stratum, independent sample t-tests are conducted and then pooled to provide an overall estimate
+
+    -   Matching - Each treatment unit is paired with a comparison unit base upon the pre-treatment covariates
+
+        -   Algorithms
+
+            -   Propensity Score Matching
+            -   Limited Exact Matching
+            -   Full Matching
+            -   Nearest Neighbor Matching
+            -   Optimal/Generic Matching
+            -   Mahalanobis distance matching (quantitative covariates only)
+            -   Matching with and without replacement
+            -   One-to-One or One-to-Many Matching
+
+        -   Choice of algorithm is trial and error --- whichever one gives the best balance.
+
+        -   Dependent sample tests (e.g. repeated mearsures, t-test w/paired = TRUE) are conducted using the match pairs.
+
+        -   [Example]{.ribbon-highlight}:
+
+            ``` r
+            rr <- 
+              Matching::Match(
+                Y = lalonde$re78, 
+                Tr = lalonde$treat, 
+                X = lalonde$ps, 
+                M = 1,
+                estimand = 'ATT',
+                ties = FALSE)
+            summary(rr)
+            #> 
+            #> Estimate...  2579.8 
+            #> SE.........  637.69 
+            #> T-stat.....  4.0456 
+            #> p.val......  5.2189e-05 
+            #? 
+            #> Original number of observations..............  445 
+            #> Original number of treated obs...............  185 
+            #> Matched number of observations...............  185 
+            #> Matched number of observations  (unweighted).  185
+            ```
+
+            -   X: Variables to match on or PS
+            -   [M]{.arg-text}: how many matches per unit that you want where 1 is a 1:1 match between treatment and control
+                -   For imbalanced data, you'd want set to something higher depending on the level of imbalance between treatment and control groups.
+                -   For values greater than 1, units get used more than once which may not be accepted in some fields.
+            -   [ties]{.arg-text}: For units that have multiple matches, TRUE means that the matched dataset will include the multiple control group matches with weights that reflect it (see docs for more details). FALSE means one of the multiple matches is chosen at random.
+            -   [estimand]{.arg-text}: ATE and ATC also available; Value printed in the results as [Estimate]{.arg-text}.
+
+        -   Dependent Sample Assessment Plot\
+            ![](_resources/Econometrics-PSA.resources/match-assess-1.png){width="532"}
+
+            ``` r
+            matches <- data.frame(Treat = lalonde[rr$index.treated,'re78'],
+                                  Control = lalonde[rr$index.control,'re78'])
+            granovagg::granovagg.ds(
+              matches[,c('Control','Treat')], 
+              xlab = 'Treat', 
+              ylab = 'Control')
+            ```
+
+            -   [{]{style="color: #990000"}[granovagg](https://www.rdocumentation.org/packages/granovaGG/versions/1.4.0/topics/granovaGG-package){style="color: #990000"}[}]{style="color: #990000"} is a ggplot extension of [{]{style="color: #990000"}[granova](https://cran.r-project.org/web/packages/granova/index.html){style="color: #990000"}[}]{style="color: #990000"}. The package has been archived on CRAN and the github has broken links and no documentation.
+            -   Very similar characteristics and interpretation as the Propensity Score Assessment Plot except instead of the circles which represented strata, each dot represents a matched pair between treatment and control. (Also a different color scheme)
+            -   The purple CI bar is difficult to spot since it's very short, but it stradles the green dashed ATE line and doesn't include the diagonal (i.e. zero).
+
+        -   Balance Assessment\
+            ![](_resources/Econometrics-PSA.resources/match-bal-assess-1.png){width="632"}
+
+            ``` r
+            psa::MatchBalance(df = lalonde, 
+                              formu = lalonde.formu,
+                              formu.Y = update.formula(lalonde.formu, 
+                                                       re78 ~ .),
+                              M = 1, 
+                              estimand = 'ATT', 
+                              ties = FALSE) |> 
+              plot()
+            ```
+
+            -   Currently this package doesn't have a website or CRAN docs. See `Matching::Match` above for details on some of these arguments or see the [R script](https://github.com/jbryer/psa/blob/master/R/MatchBalance.R) or `?psa::MatchBalance` if you have it installed.
+
+            -   Charts
+
+                -   Top Left: For 2% of the matched pairs, they only matched on 12% of the covariates.
+
+                    -   The percent annotation was cut-off on his chart but it very likely says 88%. Since the y-axis in "% unmatched", the percent matched is 12%.
+
+                -   Bottom-Left: A breakdown of the unmatched covariates for each individual matched pair. Each column is a matched pair. Each colored segment in that column represents unmatched covariate. Each row is a covariate which is labelled in the bar graph at the bottom-right.
+
+                    -   The first matched pair was unmatched on the covariates: [nodegr]{.var-text}, [black]{.var-text}, [re74]{.var-text}, and [hisp]{.var-text}
+                    -   Some of the segments have a light coloring instead of dark and I'm not sure what that means.
+
+                -   Bottom-Right: The aggregated unmatched percentage for each covariate across all matched pairs
+
+                -   Top-Right: Standardized Estimate for each covariate. A variable that's CI *doesn't* include 0 indicates an imbalance. (e.g. [nodegr]{.var-text})
+
+                    -   The estimate here looks like the after-adjustment estimate from the Covariate Balance Plot except with error bars.
+
+            -   You can apply Partial Exact Matching to try bring any imbalanced variables into balance. This method allows you to be able to specify variables that want to guarantee that units to be matched upon. Doing this affects the matching upon other variables though. So, a variable that was matched before might not still be matched after using this method.\
+                ![](_resources/Econometrics-PSA.resources/match-bal-assess-pex-1.png)
+
+                ``` r
+                psa::MatchBalance(df = lalonde, 
+                                  formu = lalonde.formu,
+                                  formu.Y = update.formula(lalonde.formu, 
+                                                           re78 ~ .),
+                                  M = 1, 
+                                  estimand = 'ATT', 
+                                  ties = FALSE,
+                                  exact.covs = c('nodegr')) |> 
+                  plot()
+                ```
+
+            -   You can see [nodegr]{.var-text} has been fixed in the Top-Right error-bar chart. It also appears this has brought [re75]{.var-text} into balance as well while not throwing the rest of the variables out of balance.
+
+            -   The x-axis range has narrowed which gives the appearance that the error bars have widened, but I don't think they have.
+
+    -   Weighting - Each observation is weighted by the inverse of probability of being in that group
+
+        -   Propensity Scores are used as weights for the regression model that you'll use to perform your analysis.
+
+            -   The specific weights will depend on the estimand (e.g ATE, ATT, etc.)
+
+        -   Average Treatment Effect (ATE): $\text{ATE} = E(Y_1 - Y_0|X) = E(Y_1|X) - E(Y_0|X)$
+
+            -   Weight: $w_{\text{ATE}} = \frac{Z_i}{\pi_i} + \frac{1-Z_i}{1-\pi_i}$
+
+            -   $Z_i = 1$ says the unit is in the treatment group
+
+            -   Not sure what $\pi_i$ is.
+
+            -   [Example]{.ribbon-highlight}:
+
+                ``` r
+                dat <- 
+                  dat |> 
+                  mutate(
+                    ate_weights = psa::calculate_ps_weights(treatment, ps, estimand = "ATE"))
+
+                # via {psa}
+                psa::treatment_effect(
+                  treatment = dat$treatment,
+                  outcome = dat$outcome,
+                  weights = dat$ate_weights
+                )
+                # via lm
+                lm(outcome ~ treatment,
+                   data = dat,
+                   weights = dat$ate_weights)
+                ```
+
+        -   ATE Among the Treated (ATT): $\text{ATT} = E(Y_1 - Y_0|X,C = 1) = E(Y_1|X,C = 1) - E(Y_)|X,C = 1)$
+
+            -   Weight: $w_{\text{ATT}} = \frac{\pi_i Z_i}{\pi_i} + \frac{\pi_i(1-Z_i)}{1-\pi_i}$
+
+            -   [Example]{.ribbon-highlight}:
+
+                ``` r
+                dat <- 
+                  dat |> 
+                  mutate(
+                    att_weights = psa::calculate_ps_weights(treatment, ps, estimand = "ATT"))
+
+                # via {psa}
+                psa::treatment_effect(
+                  treatment = dat$treatment,
+                  outcome = dat$outcome,
+                  weights = dat$att_weights
+                )
+                # via lm
+                lm(outcome ~ treatment,
+                   data = dat,
+                   weights = dat$att_weights)
+                ```
+
+        -   ATE Among the Control (ATC): $\text{ATC} = E(Y_1- Y_0|X = 0) = E(Y_1|X = 0) - E(Y_0|X = 0)$
+
+            -   Weight: $w_{\text{ATC}} = \frac{(1-\pi_i)Z_i}{\pi_i} + \frac{(1-e_i)(1-Z_i)}{1-\pi_i}$
+            -   Not sure what $e_i$ is
+            -   [Example]{.ribbon-highlight}: Same as above except with ATC weights
+
+        -   ATE Among the Evenly Matched (ATM): $\text{ATM}_d = E(Y_1 - Y_0|M_d = 1)$
+
+            -   Weight: $w_{\text{ATM}} = \frac{\min\{\pi_i, 1-\pi_i\}}{Z_i \pi_i(1-Z_i)(1-\pi_i)}$
+            -   [Example]{.ribbon-highlight}: Same as above except with ADM weights
+
+        -   Shows mirrored axis histogram with PS on x-axis and count on y-axis; guessing treatment/control are top/bottom histograms?
+
+        -   Treament Effect for Weighting
+
+            $$
+            \text{TE} = \frac{\sum Y_iZ_i}{\sum Z_i w_i} - \frac{Y_i(1-Z_i)w_i}{\sum(1-Z_i)w_i}
+            $$
+
+            -   This formula is an alternative to using the weights in a model to estimate the effect.
+
+-   Visualization
+
+    -   Distribution of propensity scores\
+        ![](_resources/Econometrics-PSA.resources/ps-distr-1.png){width="532"}
+
+        ``` r
+        ggplot(dat) +
+          geom_histogram(
+            data = dat[dat$treatment == 1, ],
+            aes(x = ps, y = after_stat(count)),
+            bins = 50,
+            fill = cols[2]
+          ) +
+          geom_histogram(
+            data = dat[dat$treatment == 0, ],
+            aes(x = ps, y = -after_stat(count)),
+            bins = 50,
+            fill = cols[3]
+          ) +
+          geom_hline(
+            yintercept = 0,
+            lwd = 0.5
+          ) + 
+          scale_y_continuous(lable = abs)
+        ```
+
+    -   Covariate Balance Plot\
+        ![](_resources/Econometrics-PSA.resources/covar-bal-1.png){width="532"}
+
+        ``` r
+        PSAgraphics::cv.bal.psa(
+          dat[, 1:3],
+          data$treatment,
+          dat$ps,
+          strata = 5
+        )
+        ```
+
+        -   Absolute standardized Covariate effect sizes with (blue) and without (red) PS adjustment
+
+        -   Want blue dots close to zero which says that after PS adjustment, the covariates have little predictive power in determining whether a unit is in the treatment group or control group. It means the PS are effectively adjusting for the selection bias of the treatment/control "assignment" in the observational data.
+
+    -   Boxplot by Propensity Score Strata by Treatment\
+        ![](_resources/Econometrics-PSA.resources/strat-box-1.png){width="532"}
+
+        ``` r
+        PSAgraphics::box.psa(
+          continuous = dat$x2,
+          treatment = dat$treatment,
+          strata = dat$strata5
+        )
+        ```
+
+        -   For a continuous predictor, it allows you to visually examine the balance produced by the PS strata by comparing the distributions between treatment and control within each strata
+
+        -   Connected dots are the means within each distribution and numbers below each box are its sample size.
+
+            -   Setting [trim = 0.5]{.arg-text} will connect medians. (Range of trim is from 0 to 0.5)
+
+        -   *Within* strata, the more similar the distributions between treatment and control, the better the balance. Balance should be assessed for each predictor.
+
+        -   Trends or patterns *between* strata can hint at potential variation and may help explain effects detected in the later performed analysis
+
+            -   Units in higher strata (i.e. higher PS) are more likely to be treated than those in lower strata, so looking at the values of predictor, you can say whether those with higher or lower values of the predictor are more likely to be treated.
+
+        -   With [balance = TRUE]{.arg-text} (default is FALSE),
+
+            -   Histogram
+                -   Permuted data are randomly assigned to strata, absolute differences of means calculated within each strata, and the differences summed to produce the statistic.
+                -   Repeated until there's a distribution which is then visualized as a histogram
+                -   The sum of the mean differences of the original data is represented by a red dot.
+                -   The further left the red dot is from the mean (or median with [trim = 0.5]{.arg-text}) of the permuation distribution, the better the balance
+                    -   i.e. the **smaller** the sum of mean differences of the original data as compared the permuted distribution of sums of mean differences, the better.
+                    -   The rank shows where the original data statistic ranks in comparison to all of the summed differences in the permuted distribution.
+                        -   Total_number_of_ranks = number_of_permutations + 1 (aka original data)
+            -   Boxplot
+                -   P-Values for KS-tests on treatment and control distributions are placed above the sample sizes of each strata. A *lack* of balance for a given strata would be indicated by a p-value \< 0.05.
+
+    -   Stacked Bar Chart by Propensity Score Strata by Treatment\
+        ![](_resources/Econometrics-PSA.resources/strat-bar-1.png){width="532"}
+
+        ``` r
+        PSAgraphics::cat.psa(
+          categorical = dat$x3,
+          treatment = dat$treatment,
+          strata = dat$strat5
+        )
+        ```
+
+        -   For a categorical predictor, it allows you to visually examine the balance produced by the PS strata by comparing the category proportions between treatment and control within each strata
+        -   Within each strata, side-by-side segmented bars can be used to compare proportions of cases in each category
+        -   Sample sizes are above each bar
+        -   if subsequent analysis indicates large differences in size or direction of effects for different strata, then comparing covariate distributions across strata may give an initial indication of potential causes.
+        -   With [balance = TRUE]{.arg-text} (default is FALSE), it's very similar to `box.psa`.
+            -   Histogram
+                -   Units within each category are permuted between strata
+                -   Differences in proportions is used instead of difference in means
+                -   Interpretation is the same
+            -   Fisher's Exact Tests are performed and the p-values are shown at the bottom of the bars for each strata. A *lack* of balance for a given strata would be indicated by a p-value \< 0.05.
+
+    -   Propensity Score Assessment Plot\
+        ![](_resources/Econometrics-PSA.resources/ps-assess-1.png){width="432"}
+
+        ``` r
+        strata5 <- cut(lalonde$ps, 
+                       quantile(lalonde$ps, seq(0, 1, 1/5)), 
+                       include.lowest = TRUE, 
+                       labels = letters[1:5])
+        circ.psa(lalonde$re78, 
+                 lalonde$treat, 
+                 strata5)
+        ```
+
+        -   When differences in outcomes between treatments vary across strata, the investigator may want to learn how these differences are related to changes in covariate distributions within the strata.
+        -   Displays contributions of individual strata to the overall effect, weighing contributions of individual strata according to the relative sizes of the respective strata. The overall effect is plotted as a heavy dashed diagonal line that runs parallel to the identity diagonal.
+        -   The x-axis is the response values when treatment = 0, and the y-axis is the response values when treatment = 1. Labels depend on the values of the treatment variable.
+        -   Circles
+            -   Each circle represents a stratum, and the sizes of circles vary according to their respective sample sizes.
+            -   The center of each stratum's circle corresponds to outcome means for the respective control and treatment groups for that stratum.
+        -   The Crosses represent the difference in response means between treatment and control.
+        -   The blue dashed line is the mean of the differences between the strata which is the ATE, and the green line is its 95%CI.
+            -   CIs that span the diagonal means no significant effect.
+            -   CIs become increasingly unreliable for larger values of the trim arg.
+        -   The vertical and horizontal dashed red lines represent the (weighted) response means for the control and treatment groups respectively.
+        -   Interpretation
+            -   Circles/Crosses that fall on the diagonal means that those strata do not have a treatment effect.
+            -   Circles on the lower side of diagonal black line show that the corresponding x-axis (e.g. treatment = 0) mean for that strata is larger than the y-axis (e.g. treatment = 1) mean for that stratum
+            -   Circles close proximity to one another on the same side of the diagonal indicates concordance of outcome values in these strata
+            -   Circles far outside of the cluster of circles should be investigated via the other predictor charts above to see what characteristics make-up that particular strata. If the sizes of each strata aren't relatively balanced, then a strata with few units may present outside the cluster. It may be useful try a larger amount of strata to see how that affects the outlier circle as it may help narrow the strata profile.
+            -   The distance of the crosses from the diagonal represents the size of estimated effect. A stratum with a much larger effect would influence the ATE (blue line) more strongly.
+
+    -   LOESS Plot\
+        ![](_resources/Econometrics-PSA.resources/loess-1.png){width="532"}
+
+        ``` r
+        psa::loess_plot(
+          ps = psadf[psadf$Y < 30000,]$ps, 
+          outcome = psadf[psadf$Y < 30000,]$Y, 
+          treatment = as.logical(psadf[psadf$Y < 30000,]$Tr))
+        ```
+
+        -   Includes:
+            -   Top: PS density plots for treatment and control. Looking to make sure there's substantial overlap of the two densities.
+            -   Right: Density plot of the outcome variable by treatment variable. Example shows significant skew and should be logged.
+            -   Center: LOESS plot
+        -   Parallel lines would indicate that there is a treatment effect, and it is homogeneous (i.e. same for all units) across all propensity scores which is not often the case.
+            -   An important feature of PSA in detecting heterogeneous, or uneven, treatments based upon different "profiles."
+                -   I think a profile would be kind of like a latent variable description of a cluster, but in this case, clusters are strata determined by the propensity scores. Profiles can be built by looking at the predictor vs propensity score strata charts above.
+        -   Can be used to find strata boundarys. Potential boundaries are indicated where the treatment and control lines narrow or cross. Spaces between the lines are where you can expect a treatment effect.
+            -   e.g. Setting `int = c(0.375, 0.55, 0.875, 1)` says that 0.357 and 1 are the minimum and maximum propensity scores and 0.55 and 0.875 are scores where the loess lines narrow or cross. This would represent 3 strata: (0.375, 0.55\], (0.55, 0.875\], and (0.875, 1\].
+            -   Seems like this would be highly dependent on the parameters of the LOESS parameters that are set unless you have a lot of data.
+
+    -   Stratification Plot\
+        ![](_resources/Econometrics-PSA.resources/strat-ttest-indep-2.png){width="632"}
+
+        ``` r
+        psa::stratification_plot(ps = psadf$ps,
+                                 treatment = psadf$Tr,
+                                 outcome = psadf$Y,
+                                 n_strata = 5)
+        ```
+
+        -   Instead of assuming a continuous vector of propensity scores as with the LOESS, it visualizes the mean differences in the response variable for each strata
+        -   Essentially a visualization of an independent t-test.
