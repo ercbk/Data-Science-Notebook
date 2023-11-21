@@ -181,7 +181,10 @@ This note is unfinished. I still have more to add, and the concepts need to be o
 
                 -   Top-Right: Standardized Estimate for each covariate. A variable that's CI *doesn't* include 0 indicates an imbalance. (e.g. [nodegr]{.var-text})
 
-                    -   The estimate here looks like the after-adjustment estimate from the Covariate Balance Plot except with error bars.
+                    -   Estimate is the mean difference from a paired t-test function that's been standardized by dividing the estimate by the sd of the variable over the whole sample (i.e. treatment and control groups).
+                    -   Using paired because the units have been matched.
+                    -   So if the data has been perfectly matched for a variable, the mean difference between the treatment units and control units should be 0.
+                    -   A CI of this estimate that includes 0 means that the variable is balanced.
 
             -   You can apply Partial Exact Matching to try bring any imbalanced variables into balance. This method allows you to be able to specify variables that want to guarantee that units to be matched upon. Doing this affects the matching upon other variables though. So, a variable that was matched before might not still be matched after using this method.\
                 ![](_resources/Econometrics-PSA.resources/match-bal-assess-pex-1.png)
@@ -471,4 +474,83 @@ This note is unfinished. I still have more to add, and the concepts need to be o
     $$
 
     -   The ratio of the odds of the treated unit being in the treated group to the odds of the control unit being in the control group
-    -   Example: In smoking studies, the ratio is around 6 which means the results are very robust to unobserved confounders. Anything around 1 is considered sensitive to confounders.
+    -   Converting Gamma to probability
+    -   Examples
+        -   In smoking studies, the ratio is around 6 which means the results are very robust to unobserved confounders. Anything around 1 is considered sensitive to confounders.
+        -   For Social Science studies, it's typically between 1 and 2.
+    -   Converting to the probability of 1 unit of the matched pair being treated\
+        $$
+        \frac{1}{\Gamma + 1} \leq p_a, p_b \leq \frac{\Gamma}{\Gamma + 1}
+        $$
+        -   $p_a$ is the probability of a unit in group $a$ being treated.
+        -   $\Gamma = 1 \quad \longrightarrow \quad p_a =0.5 \;\&\; p_b = 0.5$ which means each unit is equally likely to get treated
+        -   $0.5 \leq \Gamma \leq 2 \quad \longrightarrow \quad 0.33 \leq p_a, p_b \leq 0.66$ which means no unit can be more than twice as likely as its match to get treated
+        -   $0.33 \leq \Gamma \leq 3 \quad \longrightarrow \quad 0.25 \leq p_a,p_b \leq 0.75$ which means no unit can be more than three times as likely as its match to get treated.
+
+-   Wilcoxon Signed Rank Test
+
+    -   Used in the sensitivity test to determine which level of $\Gamma$ will produce a non-significant treatment effect.
+
+    -   Steps
+
+        -   Drop matched pairs that have the same outcome value
+
+        -   Calculate the difference in outcome value between each matched pair
+
+        -   Rank the absolute differences from smallest (1) to largest (N)
+
+        -   Calculate W\
+            $$
+            W = \left|\; \sum_1^N \operatorname{sgn} (x_{T,i} - x_{C,i}) \cdot R_i \; \right|
+            $$
+
+            -   $N$ is the number of ranked pairs
+
+            -   $R_i$ is the Rank for pair $i$
+
+            -   $x_{T,i}$ and $x_{C,i}$ are the outcome values for each unit of pair $i$
+
+-   [Example]{.ribbon-highlight}:
+
+    ``` r
+    rbounds::psens(x = lalonde$re78[rr$index.treated], 
+                   y = lalonde$re78[rr$index.control],
+                   Gamma = 2, 
+                   GammaInc = 0.1)
+
+    #> 
+    #>  Rosenbaum Sensitivity Test for Wilcoxon Signed Rank P-Value 
+    #>  
+    #> Unconfounded estimate ....  2e-04 
+    #> 
+    #>  Gamma Lower bound Upper bound
+    #>    1.0       2e-04      0.0002
+    #>    1.1       0e+00      0.0016
+    #>    1.2       0e+00      0.0069
+    #>    1.3       0e+00      0.0215
+    #>    1.4       0e+00      0.0527
+    ```
+
+    -   {[rbounds](https://cran.r-project.org/web/packages/rbounds/index.html)} performs Rosenbaum Bounds Sensitivity Tests for Matched and Unmatched Data. Also has functions for IV models and 2x2 contingency tables.
+
+        -   There is another function for continuous/ordinal outcomes called `hlsens` which uses the Hodges-Lehman point estimate. After reading the wiki, the output of this function seems to be a median difference or effect size for a given Gamma, but I'm not sure how that's supposed to be interpreted in this context.
+
+        -   For binary outcomes, use `binarysens`. The x and y args say to use counts of discrepant pairs. This means counts where the treatment group and control groups have different outcomes. So in the 2x2 table, that's the counts in cells (1,2) and (2,1)
+
+            -   Bryer's slides say to use McNemar's test, but after looking at the code, I don't see how Gamma can be incorporated into that test.
+
+    -   Arguments
+
+        -   [x]{.arg-text}: Treatment group outcome values ordered by matched pairs
+
+        -   [y]{.arg-text}: Control group outcome values ordered by matched pairs
+
+        -   [Gamma]{.arg-text}: Largest value of Gamma that you want to test
+
+        -   [GammaInc]{.arg-text}: Increment value of Gamma.
+
+    -   The [Lower bound]{.arg-text} and [Upper bound]{.arg-text} are a sort of CI for the Wilcoxon test's p-values
+
+    -   Look for the value of Gamma that would nullify a significant treatment effect in your analysis.
+
+        -   e.g. $\Gamma = 1.4$ (since it's Upper bound value is \> 0.05) says that a confounder that adds 40% more variance in explaining the outcome would result in a Wilcoxon Test that doesn't reject the Null Hypothesis (i.e. no significant treatment effect).
