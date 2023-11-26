@@ -99,6 +99,93 @@
         -   3rd Row from the bottom (top row) are the functions in each of those other functions
             -   "pause" in "step_2" takes about 2/3 of the total function execution time or twice the execution time of "pause" in "step_1"
 
+## Python {#sec-code-opt-py .unnumbered}
+
+-   Benchmarking
+
+    -   [{{]{style="color: goldenrod"}[time](https://docs.python.org/3/library/time.html){style="color: goldenrod"}[}}]{style="color: goldenrod"}(built-in module)
+
+        ``` python
+        import time
+        start = time.perf_counter()
+        time.sleep(1) # do work
+        elapsed = time.perf_counter() - start
+        print(f'Time {elapsed:0.4}')
+        #> Time 1.001
+        ```
+
+-   Memory Usage
+
+    -   [{{]{style="color: goldenrod"}[memory-profiler](https://pypi.org/project/memory-profiler/){style="color: goldenrod"}[}}]{style="color: goldenrod"}
+        -   Basic usage for a function
+
+            ``` python
+            from memory_profiler import memory_usage
+            mem, retval = memory_usage((fn, args, kwargs), retval=True, interval=1e-7)
+            ```
+
+            -   [interval]{.arg-text}: For very quick operations the function `fn` might be executed more than once. By setting `interval` to a value [lower than 1e-6](https://github.com/pythonprofilers/memory_profiler/blob/0.55/memory_profiler.py#L350), we force it to execute only once.
+
+            -   [retval]{.arg-text}: Tells the function to return the result of [fn]{.arg-text}.
+
+        -   Non-interactive usage
+
+            ``` bash
+            $ python -m memory_profiler example.py
+            #> Line #    Mem usage  Increment   Line Contents
+            #> ==============================================
+            #>      3                           @profile
+            #>      4      5.97 MB    0.00 MB   def my_func():
+            #>      5     13.61 MB    7.64 MB       a = [1] * (10 ** 6)
+            #>      6    166.20 MB  152.59 MB       b = [2] * (2 * 10 ** 7)
+            #>      7     13.61 MB -152.59 MB       del b
+            #>      8     13.61 MB    0.00 MB       return a
+            ```
+
+-   Profile decorator
+
+    ``` python
+    import time
+    from functools import wraps
+    from memory_profiler import memory_usage
+
+    def profile(fn):
+        @wraps(fn)
+        def inner(*args, **kwargs):
+            fn_kwargs_str = ', '.join(f'{k}={v}' for k, v in kwargs.items())
+            print(f'\n{fn.__name__}({fn_kwargs_str})')
+
+            # Measure time
+            t = time.perf_counter()
+            retval = fn(*args, **kwargs)
+            elapsed = time.perf_counter() - t
+            print(f'Time   {elapsed:0.4}')
+
+            # Measure memory
+            mem, retval = memory_usage((fn, args, kwargs), retval=True, timeout=200, interval=1e-7)
+            
+            # Get Peak Memory Usage
+            print(f'Memory {max(mem) - min(mem)}')
+            return retval
+
+        return inner
+      
+    @profile
+    def work(n):
+       for i in range(n):
+           2 ** n
+
+    work(10)
+    #> work()
+    #> Time   0.06269
+    #> Memory 0.0
+
+    work(n=10000)
+    #> work(n=10000)
+    #> Time   0.3865
+    #> Memory 0.0234375
+    ```
+
 ## Replacements for Tidyverse Functions {#sec-code-opt-rftf .unnumbered}
 
 -   Misc
