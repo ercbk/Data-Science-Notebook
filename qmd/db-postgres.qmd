@@ -170,9 +170,12 @@
     -   Misc
 
         -   Notes from [Fastest Way to Load Data Into PostgreSQL Using Python](https://hakibenita.com/fast-load-data-python-postgresql)
-        -   
+        -   tl;dr
+            -   Large Data: use `copy_to`
+            -   Medium to Small Data:
+                -   Time and memory isn't an issue: Use `extract_values` or maybe `copy_to` if you don't have JSON.
 
-    -   Connect to db
+    -   [Connect to db]{.underline}
 
         ``` python
         import psycopg2
@@ -186,7 +189,7 @@
         connection.autocommit = True
         ```
 
-    -   Create a table
+    -   [Create a table]{.underline}
 
         ``` python
         def create_staging_table(cursor) -> None:
@@ -218,3 +221,228 @@
         ```
 
         -   The function receives a cursor and creates a unlogged table called [staging_beers]{.var-text}.
+
+    -   [Insert many rows at once]{.underline}
+
+        -   Notes from [Fastest Way to Load Data Into PostgreSQL Using Python](https://hakibenita.com/fast-load-data-python-postgresql)
+
+        -   The best way to load data into a database is using the `copy` command (last method in this section). The issue here is that `copy` needs a .csv file and not json.
+
+            -   This might be an issue just because of psycopg2 library doesn't support json or that there is a postgres extension that isn't supported by the library. This also might not be a problem in the future.
+
+        -   Data
+
+            ``` python
+            beers = iter_beers_from_api()
+            next(beers)
+            {'id': 1,
+             'name': 'Buzz',
+             'tagline': 'A Real Bitter Experience.',
+             'first_brewed': '09/2007',
+             'description': 'A light, crisp and bitter IPA brewed...',
+             'image_url': 'https://images.punkapi.com/v2/keg.png',
+             'abv': 4.5,
+             'ibu': 60,
+             'target_fg': 1010,
+            ...
+            }
+            next(beers)
+            {'id': 2,
+             'name': 'Trashy Blonde',
+             'tagline': "You Know You Shouldn't",
+             'first_brewed': '04/2008',
+             'description': 'A titillating, ...',
+             'image_url': 'https://images.punkapi.com/v2/2.png',
+             'abv': 4.1,
+             'ibu': 41.5,
+             ...
+             }
+            ```
+
+            -   Data is from [beers api](https://punkapi.com/documentation/v2)
+
+            -   `iter_beers_from_api` is a udf that takes the json from the api and creates a generator object that iterates through each beer.
+
+        -   [Insert data in db using `execute_values`]{.underline} (low memory usage and still pretty fast)
+
+            ``` python
+            def insert_execute_values_iterator(
+                connection,
+                beers: Iterator[Dict[str, Any]],
+                page_size: int = 100,
+            ) -> None:
+                with connection.cursor() as cursor:
+                    create_staging_table(cursor)
+                    psycopg2.extras.execute_values(cursor, """
+                        INSERT INTO staging_beers VALUES %s;
+                    """, ((
+                        beer['id'],
+                        beer['name'],
+                        beer['tagline'],
+                        parse_first_brewed(beer['first_brewed']),
+                        beer['description'],
+                        beer['image_url'],
+                        beer['abv'],
+                        beer['ibu'],
+                        beer['target_fg'],
+                        beer['target_og'],
+                        beer['ebc'],
+                        beer['srm'],
+                        beer['ph'],
+                        beer['attenuation_level'],
+                        beer['brewers_tips'],
+                        beer['contributed_by'],
+                        beer['volume']['value'],
+                    ) for beer in beers), page_size=page_size)
+
+            insert_execute_values_iterator(page_size=1000)
+            ```
+
+            -   `parse_first_brewed` is a udf that transforms a date string to datetime type.
+
+            -   [beer\['volume'\]\['value'\]]{.var-text}: Data is in json and the value for [volume]{.var-text} is subsetted from the nested field.
+
+            -   Benchmark: At page_size = 1000, 1.468s, 0.0MB of RAM used
+
+            -   The generator`((bear['id'], … , bear['volume']['value'], for beer in beers)` keeps data from being stored in memory during transformation
+
+            -   [page_size]{.arg-text}: maximum number of [arglist]{.arg-text} items to include in every statement. If there are more items the function will execute more than one statement.
+
+                -   Here [arglist]{.arg-text} is the data in the form of generator
+
+        -   [Insert data in db using `copy_from`]{.underline} (Fast but memory intensive)
+
+            ``` python
+            import io
+
+            def clean_csv_value(value: Optional[Any]) -> str:
+                if value is None:
+                    return r'\N'
+                return str(value).replace('\n', '\\n')
+
+            def copy_stringio(connection, beers: Iterator[Dict[str, Any]]) -> None:
+                with connection.cursor() as cursor:
+                    create_staging_table(cursor)
+                    csv_file_like_object = io.StringIO()
+                    for beer in beers:
+                        csv_file_like_object.write('|'.join(map(clean_csv_value, (
+                            beer['id'],
+                            beer['name'],
+                            beer['tagline'],
+                            parse_first_brewed(beer['first_brewed']),
+                            beer['description'],
+                            beer['image_url'],
+                            beer['abv'],
+                            beer['ibu'],
+                            beer['target_fg'],
+                            beer['target_og'],
+                            beer['ebc'],
+                            beer['srm'],
+                            beer['ph'],
+                            beer['attenuation_level'],
+                            beer['contributed_by'],
+                            beer['brewers_tips'],
+                            beer['volume']['value'],
+                        ))) + '\n')
+                    csv_file_like_object.seek(0)
+                    cursor.copy_from(csv_file_like_object, 'staging_beers', sep='|')
+            ```
+
+            -   `clean_csv_value`: Transforms a single value
+
+                -   Escape new lines: some of the text fields include newlines, so we escape `\n` -\> `\\n`.
+
+                -   Empty values are transformed to `\N`: The string `"\N"` is the default string used by PostgreSQL to indicate NULL in COPY (this can be changed using the `NULL` option).
+
+            -   `csv_file_like_object`: Generate a file like object using [`io.StringIO`](https://docs.python.org/3.7/library/io.html?#io.StringIO). A `StringIO` object contains a string which can be used like a file. In our case, a CSV file.
+
+            -   `csv_file_like_object.write`: Transform a beer to a CSV row
+
+                -   Transform the data: transformations on `first_brewed` and `volume` are performed here.
+
+                -   Pick a delimiter: Some of the fields in the dataset contain free text with commas. To prevent conflicts, we pick "\|" as the delimiter (another option is to use `QUOTE`).
+
+        -   [Insert data (streaming) in db using `copy_from`]{.underline} (Fastest and low memory but complicated, at least with json)
+
+            -   Buffering function
+
+                ``` python
+                from typing import Iterator, Optional
+                import io
+
+                class StringIteratorIO(io.TextIOBase):
+                    def __init__(self, iter: Iterator[str]):
+                        self._iter = iter
+                        self._buff = ''
+
+                    def readable(self) -> bool:
+                        return True
+
+                    def _read1(self, n: Optional[int] = None) -> str:
+                        while not self._buff:
+                            try:
+                                self._buff = next(self._iter)
+                            except StopIteration:
+                                break
+                        ret = self._buff[:n]
+                        self._buff = self._buff[len(ret):]
+                        return ret
+
+                    def read(self, n: Optional[int] = None) -> str:
+                        line = []
+                        if n is None or n < 0:
+                            while True:
+                                m = self._read1()
+                                if not m:
+                                    break
+                                line.append(m)
+                        else:
+                            while n > 0:
+                                m = self._read1(n)
+                                if not m:
+                                    break
+                                n -= len(m)
+                                line.append(m)
+                        return ''.join(line)
+                ```
+
+                -   The regular `io.StringIO` creates a file-like object but is memory-heavy. This function creates buffer that will feed each line of the file into a buffer, stream it to `copy`, empty the buffer, and load the next line.
+
+            -   Copy to db
+
+                ``` python
+                def clean_csv_value(value: Optional[Any]) -> str:
+                    if value is None:
+                        return r'\N'
+                    return str(value).replace('\n', '\\n')
+
+                def copy_string_iterator(connection, beers: Iterator[Dict[str,
+                Any]]) -> None:
+                    with connection.cursor() as cursor:
+                        create_staging_table(cursor)
+                        beers_string_iterator = StringIteratorIO((
+                            '|'.join(map(clean_csv_value, (
+                                beer['id'],
+                                beer['name'],
+                                beer['tagline'],
+                                parse_first_brewed(beer['first_brewed']).isoformat(),
+                                beer['description'],
+                                beer['image_url'],
+                                beer['abv'],
+                                beer['ibu'],
+                                beer['target_fg'],
+                                beer['target_og'],
+                                beer['ebc'],
+                                beer['srm'],
+                                beer['ph'],
+                                beer['attenuation_level'],
+                                beer['brewers_tips'],
+                                beer['contributed_by'],
+                                beer['volume']['value'],
+                            ))) + '\n'
+                            for beer in beers
+                        ))
+                        cursor.copy_from(beers_string_iterator, 'staging_beers', sep='|')
+                ```
+
+                -   Similar to other code above
