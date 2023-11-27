@@ -2126,9 +2126,16 @@ pre > code.sourceCode > span > a:first-child::before { text-decoration: underlin
 <li><p>Misc</p>
 <ul>
 <li>Notes from <a href="https://hakibenita.com/fast-load-data-python-postgresql">Fastest Way to Load Data Into PostgreSQL Using Python</a></li>
-<li></li>
+<li>tl;dr
+<ul>
+<li>Large Data: use <code>copy_to</code></li>
+<li>Medium to Small Data:
+<ul>
+<li>Time and memory isn’t an issue: Use <code>extract_values</code> or maybe <code>copy_to</code> if you don’t have JSON.</li>
 </ul></li>
-<li><p>Connect to db</p>
+</ul></li>
+</ul></li>
+<li><p><u>Connect to db</u></p>
 <div class="sourceCode" id="cb2"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb2-1"><a href="#cb2-1" aria-hidden="true" tabindex="-1"></a><span class="im">import</span> psycopg2</span>
 <span id="cb2-2"><a href="#cb2-2" aria-hidden="true" tabindex="-1"></a></span>
 <span id="cb2-3"><a href="#cb2-3" aria-hidden="true" tabindex="-1"></a>connection <span class="op">=</span> psycopg2.<span class="ex">connect</span>(</span>
@@ -2138,7 +2145,7 @@ pre > code.sourceCode > span > a:first-child::before { text-decoration: underlin
 <span id="cb2-7"><a href="#cb2-7" aria-hidden="true" tabindex="-1"></a>    password<span class="op">=</span><span class="va">None</span>,</span>
 <span id="cb2-8"><a href="#cb2-8" aria-hidden="true" tabindex="-1"></a>)</span>
 <span id="cb2-9"><a href="#cb2-9" aria-hidden="true" tabindex="-1"></a>connection.autocommit <span class="op">=</span> <span class="va">True</span></span></code><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></pre></div></li>
-<li><p>Create a table</p>
+<li><p><u>Create a table</u></p>
 <div class="sourceCode" id="cb3"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb3-1"><a href="#cb3-1" aria-hidden="true" tabindex="-1"></a><span class="kw">def</span> create_staging_table(cursor) <span class="op">-&gt;</span> <span class="va">None</span>:</span>
 <span id="cb3-2"><a href="#cb3-2" aria-hidden="true" tabindex="-1"></a>    cursor.execute(<span class="st">"""</span></span>
 <span id="cb3-3"><a href="#cb3-3" aria-hidden="true" tabindex="-1"></a><span class="st">        DROP TABLE IF EXISTS staging_beers;</span></span>
@@ -2167,6 +2174,211 @@ pre > code.sourceCode > span > a:first-child::before { text-decoration: underlin
 <span id="cb3-26"><a href="#cb3-26" aria-hidden="true" tabindex="-1"></a>  create_staging_table(cursor)</span></code><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></pre></div>
 <ul>
 <li>The function receives a cursor and creates a unlogged table called <span class="var-text">staging_beers</span>.</li>
+</ul></li>
+<li><p><u>Insert many rows at once</u></p>
+<ul>
+<li><p>Notes from <a href="https://hakibenita.com/fast-load-data-python-postgresql">Fastest Way to Load Data Into PostgreSQL Using Python</a></p></li>
+<li><p>The best way to load data into a database is using the <code>copy</code> command (last method in this section). The issue here is that <code>copy</code> needs a .csv file and not json.</p>
+<ul>
+<li>This might be an issue just because of psycopg2 library doesn’t support json or that there is a postgres extension that isn’t supported by the library. This also might not be a problem in the future.</li>
+</ul></li>
+<li><p>Data</p>
+<div class="sourceCode" id="cb4"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb4-1"><a href="#cb4-1" aria-hidden="true" tabindex="-1"></a>beers <span class="op">=</span> iter_beers_from_api()</span>
+<span id="cb4-2"><a href="#cb4-2" aria-hidden="true" tabindex="-1"></a><span class="bu">next</span>(beers)</span>
+<span id="cb4-3"><a href="#cb4-3" aria-hidden="true" tabindex="-1"></a>{<span class="st">'id'</span>: <span class="dv">1</span>,</span>
+<span id="cb4-4"><a href="#cb4-4" aria-hidden="true" tabindex="-1"></a> <span class="st">'name'</span>: <span class="st">'Buzz'</span>,</span>
+<span id="cb4-5"><a href="#cb4-5" aria-hidden="true" tabindex="-1"></a> <span class="st">'tagline'</span>: <span class="st">'A Real Bitter Experience.'</span>,</span>
+<span id="cb4-6"><a href="#cb4-6" aria-hidden="true" tabindex="-1"></a> <span class="st">'first_brewed'</span>: <span class="st">'09/2007'</span>,</span>
+<span id="cb4-7"><a href="#cb4-7" aria-hidden="true" tabindex="-1"></a> <span class="st">'description'</span>: <span class="st">'A light, crisp and bitter IPA brewed...'</span>,</span>
+<span id="cb4-8"><a href="#cb4-8" aria-hidden="true" tabindex="-1"></a> <span class="st">'image_url'</span>: <span class="st">'https://images.punkapi.com/v2/keg.png'</span>,</span>
+<span id="cb4-9"><a href="#cb4-9" aria-hidden="true" tabindex="-1"></a> <span class="st">'abv'</span>: <span class="fl">4.5</span>,</span>
+<span id="cb4-10"><a href="#cb4-10" aria-hidden="true" tabindex="-1"></a> <span class="st">'ibu'</span>: <span class="dv">60</span>,</span>
+<span id="cb4-11"><a href="#cb4-11" aria-hidden="true" tabindex="-1"></a> <span class="st">'target_fg'</span>: <span class="dv">1010</span>,</span>
+<span id="cb4-12"><a href="#cb4-12" aria-hidden="true" tabindex="-1"></a>...</span>
+<span id="cb4-13"><a href="#cb4-13" aria-hidden="true" tabindex="-1"></a>}</span>
+<span id="cb4-14"><a href="#cb4-14" aria-hidden="true" tabindex="-1"></a><span class="bu">next</span>(beers)</span>
+<span id="cb4-15"><a href="#cb4-15" aria-hidden="true" tabindex="-1"></a>{<span class="st">'id'</span>: <span class="dv">2</span>,</span>
+<span id="cb4-16"><a href="#cb4-16" aria-hidden="true" tabindex="-1"></a> <span class="st">'name'</span>: <span class="st">'Trashy Blonde'</span>,</span>
+<span id="cb4-17"><a href="#cb4-17" aria-hidden="true" tabindex="-1"></a> <span class="st">'tagline'</span>: <span class="st">"You Know You Shouldn't"</span>,</span>
+<span id="cb4-18"><a href="#cb4-18" aria-hidden="true" tabindex="-1"></a> <span class="st">'first_brewed'</span>: <span class="st">'04/2008'</span>,</span>
+<span id="cb4-19"><a href="#cb4-19" aria-hidden="true" tabindex="-1"></a> <span class="st">'description'</span>: <span class="st">'A titillating, ...'</span>,</span>
+<span id="cb4-20"><a href="#cb4-20" aria-hidden="true" tabindex="-1"></a> <span class="st">'image_url'</span>: <span class="st">'https://images.punkapi.com/v2/2.png'</span>,</span>
+<span id="cb4-21"><a href="#cb4-21" aria-hidden="true" tabindex="-1"></a> <span class="st">'abv'</span>: <span class="fl">4.1</span>,</span>
+<span id="cb4-22"><a href="#cb4-22" aria-hidden="true" tabindex="-1"></a> <span class="st">'ibu'</span>: <span class="fl">41.5</span>,</span>
+<span id="cb4-23"><a href="#cb4-23" aria-hidden="true" tabindex="-1"></a> ...</span>
+<span id="cb4-24"><a href="#cb4-24" aria-hidden="true" tabindex="-1"></a> }</span></code><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></pre></div>
+<ul>
+<li><p>Data is from <a href="https://punkapi.com/documentation/v2">beers api</a></p></li>
+<li><p><code>iter_beers_from_api</code> is a udf that takes the json from the api and creates a generator object that iterates through each beer.</p></li>
+</ul></li>
+<li><p><u>Insert data in db using <code>execute_values</code></u> (low memory usage and still pretty fast)</p>
+<div class="sourceCode" id="cb5"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb5-1"><a href="#cb5-1" aria-hidden="true" tabindex="-1"></a><span class="kw">def</span> insert_execute_values_iterator(</span>
+<span id="cb5-2"><a href="#cb5-2" aria-hidden="true" tabindex="-1"></a>    connection,</span>
+<span id="cb5-3"><a href="#cb5-3" aria-hidden="true" tabindex="-1"></a>    beers: Iterator[Dict[<span class="bu">str</span>, Any]],</span>
+<span id="cb5-4"><a href="#cb5-4" aria-hidden="true" tabindex="-1"></a>    page_size: <span class="bu">int</span> <span class="op">=</span> <span class="dv">100</span>,</span>
+<span id="cb5-5"><a href="#cb5-5" aria-hidden="true" tabindex="-1"></a>) <span class="op">-&gt;</span> <span class="va">None</span>:</span>
+<span id="cb5-6"><a href="#cb5-6" aria-hidden="true" tabindex="-1"></a>    <span class="cf">with</span> connection.cursor() <span class="im">as</span> cursor:</span>
+<span id="cb5-7"><a href="#cb5-7" aria-hidden="true" tabindex="-1"></a>        create_staging_table(cursor)</span>
+<span id="cb5-8"><a href="#cb5-8" aria-hidden="true" tabindex="-1"></a>        psycopg2.extras.execute_values(cursor, <span class="st">"""</span></span>
+<span id="cb5-9"><a href="#cb5-9" aria-hidden="true" tabindex="-1"></a><span class="st">            INSERT INTO staging_beers VALUES </span><span class="sc">%s</span><span class="st">;</span></span>
+<span id="cb5-10"><a href="#cb5-10" aria-hidden="true" tabindex="-1"></a><span class="st">        """</span>, ((</span>
+<span id="cb5-11"><a href="#cb5-11" aria-hidden="true" tabindex="-1"></a>            beer[<span class="st">'id'</span>],</span>
+<span id="cb5-12"><a href="#cb5-12" aria-hidden="true" tabindex="-1"></a>            beer[<span class="st">'name'</span>],</span>
+<span id="cb5-13"><a href="#cb5-13" aria-hidden="true" tabindex="-1"></a>            beer[<span class="st">'tagline'</span>],</span>
+<span id="cb5-14"><a href="#cb5-14" aria-hidden="true" tabindex="-1"></a>            parse_first_brewed(beer[<span class="st">'first_brewed'</span>]),</span>
+<span id="cb5-15"><a href="#cb5-15" aria-hidden="true" tabindex="-1"></a>            beer[<span class="st">'description'</span>],</span>
+<span id="cb5-16"><a href="#cb5-16" aria-hidden="true" tabindex="-1"></a>            beer[<span class="st">'image_url'</span>],</span>
+<span id="cb5-17"><a href="#cb5-17" aria-hidden="true" tabindex="-1"></a>            beer[<span class="st">'abv'</span>],</span>
+<span id="cb5-18"><a href="#cb5-18" aria-hidden="true" tabindex="-1"></a>            beer[<span class="st">'ibu'</span>],</span>
+<span id="cb5-19"><a href="#cb5-19" aria-hidden="true" tabindex="-1"></a>            beer[<span class="st">'target_fg'</span>],</span>
+<span id="cb5-20"><a href="#cb5-20" aria-hidden="true" tabindex="-1"></a>            beer[<span class="st">'target_og'</span>],</span>
+<span id="cb5-21"><a href="#cb5-21" aria-hidden="true" tabindex="-1"></a>            beer[<span class="st">'ebc'</span>],</span>
+<span id="cb5-22"><a href="#cb5-22" aria-hidden="true" tabindex="-1"></a>            beer[<span class="st">'srm'</span>],</span>
+<span id="cb5-23"><a href="#cb5-23" aria-hidden="true" tabindex="-1"></a>            beer[<span class="st">'ph'</span>],</span>
+<span id="cb5-24"><a href="#cb5-24" aria-hidden="true" tabindex="-1"></a>            beer[<span class="st">'attenuation_level'</span>],</span>
+<span id="cb5-25"><a href="#cb5-25" aria-hidden="true" tabindex="-1"></a>            beer[<span class="st">'brewers_tips'</span>],</span>
+<span id="cb5-26"><a href="#cb5-26" aria-hidden="true" tabindex="-1"></a>            beer[<span class="st">'contributed_by'</span>],</span>
+<span id="cb5-27"><a href="#cb5-27" aria-hidden="true" tabindex="-1"></a>            beer[<span class="st">'volume'</span>][<span class="st">'value'</span>],</span>
+<span id="cb5-28"><a href="#cb5-28" aria-hidden="true" tabindex="-1"></a>        ) <span class="cf">for</span> beer <span class="kw">in</span> beers), page_size<span class="op">=</span>page_size)</span>
+<span id="cb5-29"><a href="#cb5-29" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb5-30"><a href="#cb5-30" aria-hidden="true" tabindex="-1"></a>insert_execute_values_iterator(page_size<span class="op">=</span><span class="dv">1000</span>)</span></code><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></pre></div>
+<ul>
+<li><p><code>parse_first_brewed</code> is a udf that transforms a date string to datetime type.</p></li>
+<li><p><span class="var-text">beer[‘volume’][‘value’]</span>: Data is in json and the value for <span class="var-text">volume</span> is subsetted from the nested field.</p></li>
+<li><p>Benchmark: At page_size = 1000, 1.468s, 0.0MB of RAM used</p></li>
+<li><p>The generator<code>((bear['id'], … , bear['volume']['value'], for beer in beers)</code> keeps data from being stored in memory during transformation</p></li>
+<li><p><span class="arg-text">page_size</span>: maximum number of&nbsp;<span class="arg-text">arglist</span> items to include in every statement. If there are more items the function will execute more than one statement.</p>
+<ul>
+<li>Here <span class="arg-text">arglist</span> is the data in the form of generator</li>
+</ul></li>
+</ul></li>
+<li><p><u>Insert data in db using <code>copy_from</code></u> (Fast but memory intensive)</p>
+<div class="sourceCode" id="cb6"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb6-1"><a href="#cb6-1" aria-hidden="true" tabindex="-1"></a><span class="im">import</span> io</span>
+<span id="cb6-2"><a href="#cb6-2" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb6-3"><a href="#cb6-3" aria-hidden="true" tabindex="-1"></a><span class="kw">def</span> clean_csv_value(value: Optional[Any]) <span class="op">-&gt;</span> <span class="bu">str</span>:</span>
+<span id="cb6-4"><a href="#cb6-4" aria-hidden="true" tabindex="-1"></a>    <span class="cf">if</span> value <span class="kw">is</span> <span class="va">None</span>:</span>
+<span id="cb6-5"><a href="#cb6-5" aria-hidden="true" tabindex="-1"></a>        <span class="cf">return</span> <span class="vs">r'\N'</span></span>
+<span id="cb6-6"><a href="#cb6-6" aria-hidden="true" tabindex="-1"></a>    <span class="cf">return</span> <span class="bu">str</span>(value).replace(<span class="st">'</span><span class="ch">\n</span><span class="st">'</span>, <span class="st">'</span><span class="ch">\\</span><span class="st">n'</span>)</span>
+<span id="cb6-7"><a href="#cb6-7" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb6-8"><a href="#cb6-8" aria-hidden="true" tabindex="-1"></a><span class="kw">def</span> copy_stringio(connection, beers: Iterator[Dict[<span class="bu">str</span>, Any]]) <span class="op">-&gt;</span> <span class="va">None</span>:</span>
+<span id="cb6-9"><a href="#cb6-9" aria-hidden="true" tabindex="-1"></a>    <span class="cf">with</span> connection.cursor() <span class="im">as</span> cursor:</span>
+<span id="cb6-10"><a href="#cb6-10" aria-hidden="true" tabindex="-1"></a>        create_staging_table(cursor)</span>
+<span id="cb6-11"><a href="#cb6-11" aria-hidden="true" tabindex="-1"></a>        csv_file_like_object <span class="op">=</span> io.StringIO()</span>
+<span id="cb6-12"><a href="#cb6-12" aria-hidden="true" tabindex="-1"></a>        <span class="cf">for</span> beer <span class="kw">in</span> beers:</span>
+<span id="cb6-13"><a href="#cb6-13" aria-hidden="true" tabindex="-1"></a>            csv_file_like_object.write(<span class="st">'|'</span>.join(<span class="bu">map</span>(clean_csv_value, (</span>
+<span id="cb6-14"><a href="#cb6-14" aria-hidden="true" tabindex="-1"></a>                beer[<span class="st">'id'</span>],</span>
+<span id="cb6-15"><a href="#cb6-15" aria-hidden="true" tabindex="-1"></a>                beer[<span class="st">'name'</span>],</span>
+<span id="cb6-16"><a href="#cb6-16" aria-hidden="true" tabindex="-1"></a>                beer[<span class="st">'tagline'</span>],</span>
+<span id="cb6-17"><a href="#cb6-17" aria-hidden="true" tabindex="-1"></a>                parse_first_brewed(beer[<span class="st">'first_brewed'</span>]),</span>
+<span id="cb6-18"><a href="#cb6-18" aria-hidden="true" tabindex="-1"></a>                beer[<span class="st">'description'</span>],</span>
+<span id="cb6-19"><a href="#cb6-19" aria-hidden="true" tabindex="-1"></a>                beer[<span class="st">'image_url'</span>],</span>
+<span id="cb6-20"><a href="#cb6-20" aria-hidden="true" tabindex="-1"></a>                beer[<span class="st">'abv'</span>],</span>
+<span id="cb6-21"><a href="#cb6-21" aria-hidden="true" tabindex="-1"></a>                beer[<span class="st">'ibu'</span>],</span>
+<span id="cb6-22"><a href="#cb6-22" aria-hidden="true" tabindex="-1"></a>                beer[<span class="st">'target_fg'</span>],</span>
+<span id="cb6-23"><a href="#cb6-23" aria-hidden="true" tabindex="-1"></a>                beer[<span class="st">'target_og'</span>],</span>
+<span id="cb6-24"><a href="#cb6-24" aria-hidden="true" tabindex="-1"></a>                beer[<span class="st">'ebc'</span>],</span>
+<span id="cb6-25"><a href="#cb6-25" aria-hidden="true" tabindex="-1"></a>                beer[<span class="st">'srm'</span>],</span>
+<span id="cb6-26"><a href="#cb6-26" aria-hidden="true" tabindex="-1"></a>                beer[<span class="st">'ph'</span>],</span>
+<span id="cb6-27"><a href="#cb6-27" aria-hidden="true" tabindex="-1"></a>                beer[<span class="st">'attenuation_level'</span>],</span>
+<span id="cb6-28"><a href="#cb6-28" aria-hidden="true" tabindex="-1"></a>                beer[<span class="st">'contributed_by'</span>],</span>
+<span id="cb6-29"><a href="#cb6-29" aria-hidden="true" tabindex="-1"></a>                beer[<span class="st">'brewers_tips'</span>],</span>
+<span id="cb6-30"><a href="#cb6-30" aria-hidden="true" tabindex="-1"></a>                beer[<span class="st">'volume'</span>][<span class="st">'value'</span>],</span>
+<span id="cb6-31"><a href="#cb6-31" aria-hidden="true" tabindex="-1"></a>            ))) <span class="op">+</span> <span class="st">'</span><span class="ch">\n</span><span class="st">'</span>)</span>
+<span id="cb6-32"><a href="#cb6-32" aria-hidden="true" tabindex="-1"></a>        csv_file_like_object.seek(<span class="dv">0</span>)</span>
+<span id="cb6-33"><a href="#cb6-33" aria-hidden="true" tabindex="-1"></a>        cursor.copy_from(csv_file_like_object, <span class="st">'staging_beers'</span>, sep<span class="op">=</span><span class="st">'|'</span>)</span></code><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></pre></div>
+<ul>
+<li><p><code>clean_csv_value</code>: Transforms a single value</p>
+<ul>
+<li><p>Escape new lines: some of the text fields include newlines, so we escape <code>\n</code> -&gt; <code>\\n</code>.</p></li>
+<li><p>Empty values are transformed to <code>\N</code>: The string <code>"\N"</code> is the default string used by PostgreSQL to indicate NULL in COPY (this can be changed using the <code>NULL</code> option).</p></li>
+</ul></li>
+<li><p><code>csv_file_like_object</code>: Generate a file like object using <a href="https://docs.python.org/3.7/library/io.html?#io.StringIO"><code>io.StringIO</code></a>. A <code>StringIO</code> object contains a string which can be used like a file. In our case, a CSV file.</p></li>
+<li><p><code>csv_file_like_object.write</code>: Transform a beer to a CSV row</p>
+<ul>
+<li><p>Transform the data: transformations on <code>first_brewed</code> and <code>volume</code> are performed here.</p></li>
+<li><p>Pick a delimiter: Some of the fields in the dataset contain free text with commas. To prevent conflicts, we pick “|” as the delimiter (another option is to use <code>QUOTE</code>).</p></li>
+</ul></li>
+</ul></li>
+<li><p><u>Insert data (streaming) in db using <code>copy_from</code></u> (Fastest and low memory but complicated, at least with json)</p>
+<ul>
+<li><p>Buffering function</p>
+<div class="sourceCode" id="cb7"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb7-1"><a href="#cb7-1" aria-hidden="true" tabindex="-1"></a><span class="im">from</span> typing <span class="im">import</span> Iterator, Optional</span>
+<span id="cb7-2"><a href="#cb7-2" aria-hidden="true" tabindex="-1"></a><span class="im">import</span> io</span>
+<span id="cb7-3"><a href="#cb7-3" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb7-4"><a href="#cb7-4" aria-hidden="true" tabindex="-1"></a><span class="kw">class</span> StringIteratorIO(io.TextIOBase):</span>
+<span id="cb7-5"><a href="#cb7-5" aria-hidden="true" tabindex="-1"></a>    <span class="kw">def</span> <span class="fu">__init__</span>(<span class="va">self</span>, <span class="bu">iter</span>: Iterator[<span class="bu">str</span>]):</span>
+<span id="cb7-6"><a href="#cb7-6" aria-hidden="true" tabindex="-1"></a>        <span class="va">self</span>._iter <span class="op">=</span> <span class="bu">iter</span></span>
+<span id="cb7-7"><a href="#cb7-7" aria-hidden="true" tabindex="-1"></a>        <span class="va">self</span>._buff <span class="op">=</span> <span class="st">''</span></span>
+<span id="cb7-8"><a href="#cb7-8" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb7-9"><a href="#cb7-9" aria-hidden="true" tabindex="-1"></a>    <span class="kw">def</span> readable(<span class="va">self</span>) <span class="op">-&gt;</span> <span class="bu">bool</span>:</span>
+<span id="cb7-10"><a href="#cb7-10" aria-hidden="true" tabindex="-1"></a>        <span class="cf">return</span> <span class="va">True</span></span>
+<span id="cb7-11"><a href="#cb7-11" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb7-12"><a href="#cb7-12" aria-hidden="true" tabindex="-1"></a>    <span class="kw">def</span> _read1(<span class="va">self</span>, n: Optional[<span class="bu">int</span>] <span class="op">=</span> <span class="va">None</span>) <span class="op">-&gt;</span> <span class="bu">str</span>:</span>
+<span id="cb7-13"><a href="#cb7-13" aria-hidden="true" tabindex="-1"></a>        <span class="cf">while</span> <span class="kw">not</span> <span class="va">self</span>._buff:</span>
+<span id="cb7-14"><a href="#cb7-14" aria-hidden="true" tabindex="-1"></a>            <span class="cf">try</span>:</span>
+<span id="cb7-15"><a href="#cb7-15" aria-hidden="true" tabindex="-1"></a>                <span class="va">self</span>._buff <span class="op">=</span> <span class="bu">next</span>(<span class="va">self</span>._iter)</span>
+<span id="cb7-16"><a href="#cb7-16" aria-hidden="true" tabindex="-1"></a>            <span class="cf">except</span> <span class="pp">StopIteration</span>:</span>
+<span id="cb7-17"><a href="#cb7-17" aria-hidden="true" tabindex="-1"></a>                <span class="cf">break</span></span>
+<span id="cb7-18"><a href="#cb7-18" aria-hidden="true" tabindex="-1"></a>        ret <span class="op">=</span> <span class="va">self</span>._buff[:n]</span>
+<span id="cb7-19"><a href="#cb7-19" aria-hidden="true" tabindex="-1"></a>        <span class="va">self</span>._buff <span class="op">=</span> <span class="va">self</span>._buff[<span class="bu">len</span>(ret):]</span>
+<span id="cb7-20"><a href="#cb7-20" aria-hidden="true" tabindex="-1"></a>        <span class="cf">return</span> ret</span>
+<span id="cb7-21"><a href="#cb7-21" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb7-22"><a href="#cb7-22" aria-hidden="true" tabindex="-1"></a>    <span class="kw">def</span> read(<span class="va">self</span>, n: Optional[<span class="bu">int</span>] <span class="op">=</span> <span class="va">None</span>) <span class="op">-&gt;</span> <span class="bu">str</span>:</span>
+<span id="cb7-23"><a href="#cb7-23" aria-hidden="true" tabindex="-1"></a>        line <span class="op">=</span> []</span>
+<span id="cb7-24"><a href="#cb7-24" aria-hidden="true" tabindex="-1"></a>        <span class="cf">if</span> n <span class="kw">is</span> <span class="va">None</span> <span class="kw">or</span> n <span class="op">&lt;</span> <span class="dv">0</span>:</span>
+<span id="cb7-25"><a href="#cb7-25" aria-hidden="true" tabindex="-1"></a>            <span class="cf">while</span> <span class="va">True</span>:</span>
+<span id="cb7-26"><a href="#cb7-26" aria-hidden="true" tabindex="-1"></a>                m <span class="op">=</span> <span class="va">self</span>._read1()</span>
+<span id="cb7-27"><a href="#cb7-27" aria-hidden="true" tabindex="-1"></a>                <span class="cf">if</span> <span class="kw">not</span> m:</span>
+<span id="cb7-28"><a href="#cb7-28" aria-hidden="true" tabindex="-1"></a>                    <span class="cf">break</span></span>
+<span id="cb7-29"><a href="#cb7-29" aria-hidden="true" tabindex="-1"></a>                line.append(m)</span>
+<span id="cb7-30"><a href="#cb7-30" aria-hidden="true" tabindex="-1"></a>        <span class="cf">else</span>:</span>
+<span id="cb7-31"><a href="#cb7-31" aria-hidden="true" tabindex="-1"></a>            <span class="cf">while</span> n <span class="op">&gt;</span> <span class="dv">0</span>:</span>
+<span id="cb7-32"><a href="#cb7-32" aria-hidden="true" tabindex="-1"></a>                m <span class="op">=</span> <span class="va">self</span>._read1(n)</span>
+<span id="cb7-33"><a href="#cb7-33" aria-hidden="true" tabindex="-1"></a>                <span class="cf">if</span> <span class="kw">not</span> m:</span>
+<span id="cb7-34"><a href="#cb7-34" aria-hidden="true" tabindex="-1"></a>                    <span class="cf">break</span></span>
+<span id="cb7-35"><a href="#cb7-35" aria-hidden="true" tabindex="-1"></a>                n <span class="op">-=</span> <span class="bu">len</span>(m)</span>
+<span id="cb7-36"><a href="#cb7-36" aria-hidden="true" tabindex="-1"></a>                line.append(m)</span>
+<span id="cb7-37"><a href="#cb7-37" aria-hidden="true" tabindex="-1"></a>        <span class="cf">return</span> <span class="st">''</span>.join(line)</span></code><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></pre></div>
+<ul>
+<li>The regular <code>io.StringIO</code> creates a file-like object but is memory-heavy. This function creates buffer that will feed each line of the file into a buffer, stream it to <code>copy</code>, empty the buffer, and load the next line.</li>
+</ul></li>
+<li><p>Copy to db</p>
+<div class="sourceCode" id="cb8"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb8-1"><a href="#cb8-1" aria-hidden="true" tabindex="-1"></a><span class="kw">def</span> clean_csv_value(value: Optional[Any]) <span class="op">-&gt;</span> <span class="bu">str</span>:</span>
+<span id="cb8-2"><a href="#cb8-2" aria-hidden="true" tabindex="-1"></a>    <span class="cf">if</span> value <span class="kw">is</span> <span class="va">None</span>:</span>
+<span id="cb8-3"><a href="#cb8-3" aria-hidden="true" tabindex="-1"></a>        <span class="cf">return</span> <span class="vs">r'\N'</span></span>
+<span id="cb8-4"><a href="#cb8-4" aria-hidden="true" tabindex="-1"></a>    <span class="cf">return</span> <span class="bu">str</span>(value).replace(<span class="st">'</span><span class="ch">\n</span><span class="st">'</span>, <span class="st">'</span><span class="ch">\\</span><span class="st">n'</span>)</span>
+<span id="cb8-5"><a href="#cb8-5" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb8-6"><a href="#cb8-6" aria-hidden="true" tabindex="-1"></a><span class="kw">def</span> copy_string_iterator(connection, beers: Iterator[Dict[<span class="bu">str</span>,</span>
+<span id="cb8-7"><a href="#cb8-7" aria-hidden="true" tabindex="-1"></a>Any]]) <span class="op">-&gt;</span> <span class="va">None</span>:</span>
+<span id="cb8-8"><a href="#cb8-8" aria-hidden="true" tabindex="-1"></a>    <span class="cf">with</span> connection.cursor() <span class="im">as</span> cursor:</span>
+<span id="cb8-9"><a href="#cb8-9" aria-hidden="true" tabindex="-1"></a>        create_staging_table(cursor)</span>
+<span id="cb8-10"><a href="#cb8-10" aria-hidden="true" tabindex="-1"></a>        beers_string_iterator <span class="op">=</span> StringIteratorIO((</span>
+<span id="cb8-11"><a href="#cb8-11" aria-hidden="true" tabindex="-1"></a>            <span class="st">'|'</span>.join(<span class="bu">map</span>(clean_csv_value, (</span>
+<span id="cb8-12"><a href="#cb8-12" aria-hidden="true" tabindex="-1"></a>                beer[<span class="st">'id'</span>],</span>
+<span id="cb8-13"><a href="#cb8-13" aria-hidden="true" tabindex="-1"></a>                beer[<span class="st">'name'</span>],</span>
+<span id="cb8-14"><a href="#cb8-14" aria-hidden="true" tabindex="-1"></a>                beer[<span class="st">'tagline'</span>],</span>
+<span id="cb8-15"><a href="#cb8-15" aria-hidden="true" tabindex="-1"></a>                parse_first_brewed(beer[<span class="st">'first_brewed'</span>]).isoformat(),</span>
+<span id="cb8-16"><a href="#cb8-16" aria-hidden="true" tabindex="-1"></a>                beer[<span class="st">'description'</span>],</span>
+<span id="cb8-17"><a href="#cb8-17" aria-hidden="true" tabindex="-1"></a>                beer[<span class="st">'image_url'</span>],</span>
+<span id="cb8-18"><a href="#cb8-18" aria-hidden="true" tabindex="-1"></a>                beer[<span class="st">'abv'</span>],</span>
+<span id="cb8-19"><a href="#cb8-19" aria-hidden="true" tabindex="-1"></a>                beer[<span class="st">'ibu'</span>],</span>
+<span id="cb8-20"><a href="#cb8-20" aria-hidden="true" tabindex="-1"></a>                beer[<span class="st">'target_fg'</span>],</span>
+<span id="cb8-21"><a href="#cb8-21" aria-hidden="true" tabindex="-1"></a>                beer[<span class="st">'target_og'</span>],</span>
+<span id="cb8-22"><a href="#cb8-22" aria-hidden="true" tabindex="-1"></a>                beer[<span class="st">'ebc'</span>],</span>
+<span id="cb8-23"><a href="#cb8-23" aria-hidden="true" tabindex="-1"></a>                beer[<span class="st">'srm'</span>],</span>
+<span id="cb8-24"><a href="#cb8-24" aria-hidden="true" tabindex="-1"></a>                beer[<span class="st">'ph'</span>],</span>
+<span id="cb8-25"><a href="#cb8-25" aria-hidden="true" tabindex="-1"></a>                beer[<span class="st">'attenuation_level'</span>],</span>
+<span id="cb8-26"><a href="#cb8-26" aria-hidden="true" tabindex="-1"></a>                beer[<span class="st">'brewers_tips'</span>],</span>
+<span id="cb8-27"><a href="#cb8-27" aria-hidden="true" tabindex="-1"></a>                beer[<span class="st">'contributed_by'</span>],</span>
+<span id="cb8-28"><a href="#cb8-28" aria-hidden="true" tabindex="-1"></a>                beer[<span class="st">'volume'</span>][<span class="st">'value'</span>],</span>
+<span id="cb8-29"><a href="#cb8-29" aria-hidden="true" tabindex="-1"></a>            ))) <span class="op">+</span> <span class="st">'</span><span class="ch">\n</span><span class="st">'</span></span>
+<span id="cb8-30"><a href="#cb8-30" aria-hidden="true" tabindex="-1"></a>            <span class="cf">for</span> beer <span class="kw">in</span> beers</span>
+<span id="cb8-31"><a href="#cb8-31" aria-hidden="true" tabindex="-1"></a>        ))</span>
+<span id="cb8-32"><a href="#cb8-32" aria-hidden="true" tabindex="-1"></a>        cursor.copy_from(beers_string_iterator, <span class="st">'staging_beers'</span>, sep<span class="op">=</span><span class="st">'|'</span>)</span></code><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></pre></div>
+<ul>
+<li>Similar to other code above</li>
+</ul></li>
+</ul></li>
 </ul></li>
 </ul></li>
 </ul>
