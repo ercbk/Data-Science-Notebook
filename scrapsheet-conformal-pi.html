@@ -83,6 +83,36 @@ pre > code.sourceCode > span > a:first-child::before { text-decoration: underlin
 
 <section id="scrapsheet-conformal-prediction" class="level1">
 <h1>Scrapsheet Conformal Prediction</h1>
+<section id="multinomial" class="level2">
+<h2 class="anchored" data-anchor-id="multinomial">Multinomial</h2>
+<ul>
+<li><p>Non-Conformity Score (<span class="math inline">\(s_i\)</span>):&nbsp;<em>1 — predicted class probability</em>&nbsp;for the given label</p></li>
+<li><p>Threshold step</p>
+<ul>
+<li>Scores calculated using <u>only</u> the predicted probability for the true label on the Validation set (aka Calibration set)</li>
+</ul></li>
+<li><p>The threshold determines what&nbsp;<em>coverage</em> our predicted labels will have</p>
+<div class="sourceCode" id="cb1"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb1-1"><a href="#cb1-1" aria-hidden="true" tabindex="-1"></a>number_of_samples <span class="op">=</span> <span class="bu">len</span>(X_Cal)</span>
+<span id="cb1-2"><a href="#cb1-2" aria-hidden="true" tabindex="-1"></a>alpha <span class="op">=</span> <span class="fl">0.05</span></span>
+<span id="cb1-3"><a href="#cb1-3" aria-hidden="true" tabindex="-1"></a>qlevel <span class="op">=</span> (<span class="dv">1</span> <span class="op">-</span> alpha) <span class="op">*</span> ((number_of_samples <span class="op">+</span> <span class="dv">1</span>) <span class="op">/</span> number_of_samples)</span>
+<span id="cb1-4"><a href="#cb1-4" aria-hidden="true" tabindex="-1"></a>threshold <span class="op">=</span> np.percentile(si_scores, qlevel<span class="op">*</span><span class="dv">100</span>)</span>
+<span id="cb1-5"><a href="#cb1-5" aria-hidden="true" tabindex="-1"></a><span class="bu">print</span>(<span class="ss">f'Threshold: </span><span class="sc">{</span>threshold<span class="sc">:0.3f}</span><span class="ss">'</span>)</span></code><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></pre></div>
+<ul>
+<li>Finite sample correction for the 95th quantile: multiply 0.95 by&nbsp;(n+1)/n</li>
+</ul></li>
+<li><p>Threshold is then used to get predicted labels of the test set</p>
+<ul>
+<li>Conformal scores are calculated for each label using the predicted probabilities</li>
+<li>The predicted label for an instance is determined by whether a label has a score below the threshold.</li>
+<li>Therefore, an instance may have 1 or more predicted labels or 0 predicted labels.</li>
+</ul></li>
+<li><p><em>Average set size</em>&nbsp;is the average number of predicted classes per instance.</p></li>
+<li><p>Overall coverage (i.e.&nbsp;for all labels) will be at or very near 95% but coverage for individual classes may vary.</p>
+<ul>
+<li>Solution: Get thresholds for each class.</li>
+<li>Also possible do this for subgroups of data, such as ensuring equal coverage for a diagnostic across racial groups, if we found coverage using a shared threshold led to problems.</li>
+</ul></li>
+</ul>
 <p><a href="https://towardsdatascience.com/how-to-handle-uncertainty-in-forecasts-86817f21bb54" class="uri">https://towardsdatascience.com/how-to-handle-uncertainty-in-forecasts-86817f21bb54</a> <a href="https://towardsdatascience.com/mapie-explained-exactly-how-you-wished-someone-explained-to-you-78fb8ce81ff3" class="uri">https://towardsdatascience.com/mapie-explained-exactly-how-you-wished-someone-explained-to-you-78fb8ce81ff3</a> <a href="https://towardsdatascience.com/conformal-prediction-in-julia-351b81309e30" class="uri">https://towardsdatascience.com/conformal-prediction-in-julia-351b81309e30</a></p>
 <ul>
 <li><p>CQR requires three sets of data:</p>
@@ -127,39 +157,39 @@ pre > code.sourceCode > span > a:first-child::before { text-decoration: underlin
 </ul></li>
 </ol></li>
 <li><p>Py code</p>
-<div class="sourceCode" id="cb1"><pre class="sourceCode py code-with-copy"><code class="sourceCode python"><span id="cb1-1"><a href="#cb1-1" aria-hidden="true" tabindex="-1"></a><span class="im">import</span> numpy <span class="im">as</span> np</span>
-<span id="cb1-2"><a href="#cb1-2" aria-hidden="true" tabindex="-1"></a><span class="im">from</span> skgarden <span class="im">import</span> RandomForestQuantileRegressor</span>
-<span id="cb1-3"><a href="#cb1-3" aria-hidden="true" tabindex="-1"></a></span>
-<span id="cb1-4"><a href="#cb1-4" aria-hidden="true" tabindex="-1"></a>alpha <span class="op">=</span> <span class="fl">.05</span></span>
-<span id="cb1-5"><a href="#cb1-5" aria-hidden="true" tabindex="-1"></a></span>
-<span id="cb1-6"><a href="#cb1-6" aria-hidden="true" tabindex="-1"></a><span class="co"># 1. Fit quantile regression model on training data</span></span>
-<span id="cb1-7"><a href="#cb1-7" aria-hidden="true" tabindex="-1"></a>model <span class="op">=</span> RandomForestQuantileRegressor().fit(X_train, y_train)</span>
-<span id="cb1-8"><a href="#cb1-8" aria-hidden="true" tabindex="-1"></a></span>
-<span id="cb1-9"><a href="#cb1-9" aria-hidden="true" tabindex="-1"></a><span class="co"># 2. Make prediction on calibration data</span></span>
-<span id="cb1-10"><a href="#cb1-10" aria-hidden="true" tabindex="-1"></a>y_cal_interval_pred <span class="op">=</span> np.column_stack([</span>
-<span id="cb1-11"><a href="#cb1-11" aria-hidden="true" tabindex="-1"></a>&nbsp; &nbsp; model.predict(X_cal, quantile<span class="op">=</span>(alpha<span class="op">/</span><span class="dv">2</span>)<span class="op">*</span><span class="dv">100</span>),&nbsp;</span>
-<span id="cb1-12"><a href="#cb1-12" aria-hidden="true" tabindex="-1"></a>&nbsp; &nbsp; model.predict(X_cal, quantile<span class="op">=</span>(<span class="dv">1</span><span class="op">-</span>alpha<span class="op">/</span><span class="dv">2</span>)<span class="op">*</span><span class="dv">100</span>)])</span>
-<span id="cb1-13"><a href="#cb1-13" aria-hidden="true" tabindex="-1"></a></span>
-<span id="cb1-14"><a href="#cb1-14" aria-hidden="true" tabindex="-1"></a><span class="co"># 3. Compute conformity scores on calibration data</span></span>
-<span id="cb1-15"><a href="#cb1-15" aria-hidden="true" tabindex="-1"></a>y_cal_conformity_scores <span class="op">=</span> np.maximum(</span>
-<span id="cb1-16"><a href="#cb1-16" aria-hidden="true" tabindex="-1"></a>&nbsp; &nbsp; y_cal_interval_pred[:,<span class="dv">0</span>] <span class="op">-</span> y_cal,&nbsp;</span>
-<span id="cb1-17"><a href="#cb1-17" aria-hidden="true" tabindex="-1"></a>&nbsp; &nbsp; y_cal <span class="op">-</span> y_cal_interval_pred[:,<span class="dv">1</span>])</span>
-<span id="cb1-18"><a href="#cb1-18" aria-hidden="true" tabindex="-1"></a></span>
-<span id="cb1-19"><a href="#cb1-19" aria-hidden="true" tabindex="-1"></a><span class="co"># 4. Threshold: Get 1-alpha quantile from the distribution of conformity scores</span></span>
-<span id="cb1-20"><a href="#cb1-20" aria-hidden="true" tabindex="-1"></a><span class="co">#&nbsp; &nbsp; Note: this is a single number</span></span>
-<span id="cb1-21"><a href="#cb1-21" aria-hidden="true" tabindex="-1"></a>quantile_conformity_scores <span class="op">=</span> np.quantile(</span>
-<span id="cb1-22"><a href="#cb1-22" aria-hidden="true" tabindex="-1"></a>&nbsp; &nbsp; y_cal_conformity_scores, <span class="dv">1</span><span class="op">-</span>alpha)</span>
-<span id="cb1-23"><a href="#cb1-23" aria-hidden="true" tabindex="-1"></a></span>
-<span id="cb1-24"><a href="#cb1-24" aria-hidden="true" tabindex="-1"></a><span class="co"># 5. Make prediction on test data</span></span>
-<span id="cb1-25"><a href="#cb1-25" aria-hidden="true" tabindex="-1"></a>y_test_interval_pred <span class="op">=</span> np.column_stack([</span>
-<span id="cb1-26"><a href="#cb1-26" aria-hidden="true" tabindex="-1"></a>&nbsp; &nbsp; model.predict(X_test, quantile<span class="op">=</span>(alpha<span class="op">/</span><span class="dv">2</span>)<span class="op">*</span><span class="dv">100</span>),&nbsp;</span>
-<span id="cb1-27"><a href="#cb1-27" aria-hidden="true" tabindex="-1"></a>&nbsp; &nbsp; model.predict(X_test, quantile<span class="op">=</span>(<span class="dv">1</span><span class="op">-</span>alpha<span class="op">/</span><span class="dv">2</span>)<span class="op">*</span><span class="dv">100</span>)])</span>
-<span id="cb1-28"><a href="#cb1-28" aria-hidden="true" tabindex="-1"></a></span>
-<span id="cb1-29"><a href="#cb1-29" aria-hidden="true" tabindex="-1"></a><span class="co"># 6. Compute left (right) end of the interval by</span></span>
-<span id="cb1-30"><a href="#cb1-30" aria-hidden="true" tabindex="-1"></a><span class="co">#&nbsp; &nbsp; subtracting (adding) the quantile to the predictions</span></span>
-<span id="cb1-31"><a href="#cb1-31" aria-hidden="true" tabindex="-1"></a>y_test_interval_pred_cqr <span class="op">=</span> np.column_stack([</span>
-<span id="cb1-32"><a href="#cb1-32" aria-hidden="true" tabindex="-1"></a>&nbsp; &nbsp; y_test_interval_pred[:,<span class="dv">0</span>] <span class="op">-</span> quantile_conformity_scores,</span>
-<span id="cb1-33"><a href="#cb1-33" aria-hidden="true" tabindex="-1"></a>&nbsp; &nbsp; y_test_interval_pred[:,<span class="dv">1</span>] <span class="op">+</span> quantile_conformity_scores])</span></code><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></pre></div></li>
+<div class="sourceCode" id="cb2"><pre class="sourceCode py code-with-copy"><code class="sourceCode python"><span id="cb2-1"><a href="#cb2-1" aria-hidden="true" tabindex="-1"></a><span class="im">import</span> numpy <span class="im">as</span> np</span>
+<span id="cb2-2"><a href="#cb2-2" aria-hidden="true" tabindex="-1"></a><span class="im">from</span> skgarden <span class="im">import</span> RandomForestQuantileRegressor</span>
+<span id="cb2-3"><a href="#cb2-3" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb2-4"><a href="#cb2-4" aria-hidden="true" tabindex="-1"></a>alpha <span class="op">=</span> <span class="fl">.05</span></span>
+<span id="cb2-5"><a href="#cb2-5" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb2-6"><a href="#cb2-6" aria-hidden="true" tabindex="-1"></a><span class="co"># 1. Fit quantile regression model on training data</span></span>
+<span id="cb2-7"><a href="#cb2-7" aria-hidden="true" tabindex="-1"></a>model <span class="op">=</span> RandomForestQuantileRegressor().fit(X_train, y_train)</span>
+<span id="cb2-8"><a href="#cb2-8" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb2-9"><a href="#cb2-9" aria-hidden="true" tabindex="-1"></a><span class="co"># 2. Make prediction on calibration data</span></span>
+<span id="cb2-10"><a href="#cb2-10" aria-hidden="true" tabindex="-1"></a>y_cal_interval_pred <span class="op">=</span> np.column_stack([</span>
+<span id="cb2-11"><a href="#cb2-11" aria-hidden="true" tabindex="-1"></a>&nbsp; &nbsp; model.predict(X_cal, quantile<span class="op">=</span>(alpha<span class="op">/</span><span class="dv">2</span>)<span class="op">*</span><span class="dv">100</span>),&nbsp;</span>
+<span id="cb2-12"><a href="#cb2-12" aria-hidden="true" tabindex="-1"></a>&nbsp; &nbsp; model.predict(X_cal, quantile<span class="op">=</span>(<span class="dv">1</span><span class="op">-</span>alpha<span class="op">/</span><span class="dv">2</span>)<span class="op">*</span><span class="dv">100</span>)])</span>
+<span id="cb2-13"><a href="#cb2-13" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb2-14"><a href="#cb2-14" aria-hidden="true" tabindex="-1"></a><span class="co"># 3. Compute conformity scores on calibration data</span></span>
+<span id="cb2-15"><a href="#cb2-15" aria-hidden="true" tabindex="-1"></a>y_cal_conformity_scores <span class="op">=</span> np.maximum(</span>
+<span id="cb2-16"><a href="#cb2-16" aria-hidden="true" tabindex="-1"></a>&nbsp; &nbsp; y_cal_interval_pred[:,<span class="dv">0</span>] <span class="op">-</span> y_cal,&nbsp;</span>
+<span id="cb2-17"><a href="#cb2-17" aria-hidden="true" tabindex="-1"></a>&nbsp; &nbsp; y_cal <span class="op">-</span> y_cal_interval_pred[:,<span class="dv">1</span>])</span>
+<span id="cb2-18"><a href="#cb2-18" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb2-19"><a href="#cb2-19" aria-hidden="true" tabindex="-1"></a><span class="co"># 4. Threshold: Get 1-alpha quantile from the distribution of conformity scores</span></span>
+<span id="cb2-20"><a href="#cb2-20" aria-hidden="true" tabindex="-1"></a><span class="co">#&nbsp; &nbsp; Note: this is a single number</span></span>
+<span id="cb2-21"><a href="#cb2-21" aria-hidden="true" tabindex="-1"></a>quantile_conformity_scores <span class="op">=</span> np.quantile(</span>
+<span id="cb2-22"><a href="#cb2-22" aria-hidden="true" tabindex="-1"></a>&nbsp; &nbsp; y_cal_conformity_scores, <span class="dv">1</span><span class="op">-</span>alpha)</span>
+<span id="cb2-23"><a href="#cb2-23" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb2-24"><a href="#cb2-24" aria-hidden="true" tabindex="-1"></a><span class="co"># 5. Make prediction on test data</span></span>
+<span id="cb2-25"><a href="#cb2-25" aria-hidden="true" tabindex="-1"></a>y_test_interval_pred <span class="op">=</span> np.column_stack([</span>
+<span id="cb2-26"><a href="#cb2-26" aria-hidden="true" tabindex="-1"></a>&nbsp; &nbsp; model.predict(X_test, quantile<span class="op">=</span>(alpha<span class="op">/</span><span class="dv">2</span>)<span class="op">*</span><span class="dv">100</span>),&nbsp;</span>
+<span id="cb2-27"><a href="#cb2-27" aria-hidden="true" tabindex="-1"></a>&nbsp; &nbsp; model.predict(X_test, quantile<span class="op">=</span>(<span class="dv">1</span><span class="op">-</span>alpha<span class="op">/</span><span class="dv">2</span>)<span class="op">*</span><span class="dv">100</span>)])</span>
+<span id="cb2-28"><a href="#cb2-28" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb2-29"><a href="#cb2-29" aria-hidden="true" tabindex="-1"></a><span class="co"># 6. Compute left (right) end of the interval by</span></span>
+<span id="cb2-30"><a href="#cb2-30" aria-hidden="true" tabindex="-1"></a><span class="co">#&nbsp; &nbsp; subtracting (adding) the quantile to the predictions</span></span>
+<span id="cb2-31"><a href="#cb2-31" aria-hidden="true" tabindex="-1"></a>y_test_interval_pred_cqr <span class="op">=</span> np.column_stack([</span>
+<span id="cb2-32"><a href="#cb2-32" aria-hidden="true" tabindex="-1"></a>&nbsp; &nbsp; y_test_interval_pred[:,<span class="dv">0</span>] <span class="op">-</span> quantile_conformity_scores,</span>
+<span id="cb2-33"><a href="#cb2-33" aria-hidden="true" tabindex="-1"></a>&nbsp; &nbsp; y_test_interval_pred[:,<span class="dv">1</span>] <span class="op">+</span> quantile_conformity_scores])</span></code><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></pre></div></li>
 <li><p>Data usage summary</p>
 <ul>
 <li>The model is fit on the training data</li>
@@ -223,67 +253,67 @@ pre > code.sourceCode > span > a:first-child::before { text-decoration: underlin
 <p>Example: ranger rf quantile regression (shalloway article)</p>
 <ul>
 <li><p>model</p>
-<div class="sourceCode" id="cb2"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb2-1"><a href="#cb2-1" aria-hidden="true" tabindex="-1"></a>rf_mod <span class="ot">&lt;-</span> <span class="fu">rand_forest</span>() <span class="sc">%&gt;%</span></span>
-<span id="cb2-2"><a href="#cb2-2" aria-hidden="true" tabindex="-1"></a>&nbsp; <span class="fu">set_engine</span>(<span class="st">"ranger"</span>, <span class="at">importance =</span> <span class="st">"impurity"</span>, <span class="at">seed =</span> <span class="dv">63233</span>, <span class="at">quantreg =</span> <span class="cn">TRUE</span>) <span class="sc">%&gt;%</span></span>
-<span id="cb2-3"><a href="#cb2-3" aria-hidden="true" tabindex="-1"></a>&nbsp; <span class="fu">set_mode</span>(<span class="st">"regression"</span>)</span>
-<span id="cb2-4"><a href="#cb2-4" aria-hidden="true" tabindex="-1"></a><span class="fu">set.seed</span>(<span class="dv">63233</span>)</span>
-<span id="cb2-5"><a href="#cb2-5" aria-hidden="true" tabindex="-1"></a>rf_wf <span class="ot">&lt;-</span> workflows<span class="sc">::</span><span class="fu">workflow</span>() <span class="sc">%&gt;%</span>&nbsp;</span>
-<span id="cb2-6"><a href="#cb2-6" aria-hidden="true" tabindex="-1"></a>&nbsp; <span class="fu">add_model</span>(rf_mod) <span class="sc">%&gt;%</span>&nbsp;</span>
-<span id="cb2-7"><a href="#cb2-7" aria-hidden="true" tabindex="-1"></a>&nbsp; <span class="fu">add_recipe</span>(rf_recipe) <span class="sc">%&gt;%</span>&nbsp;</span>
-<span id="cb2-8"><a href="#cb2-8" aria-hidden="true" tabindex="-1"></a>&nbsp; <span class="fu">fit</span>(ames_train)</span></code><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></pre></div></li>
+<div class="sourceCode" id="cb3"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb3-1"><a href="#cb3-1" aria-hidden="true" tabindex="-1"></a>rf_mod <span class="ot">&lt;-</span> <span class="fu">rand_forest</span>() <span class="sc">%&gt;%</span></span>
+<span id="cb3-2"><a href="#cb3-2" aria-hidden="true" tabindex="-1"></a>&nbsp; <span class="fu">set_engine</span>(<span class="st">"ranger"</span>, <span class="at">importance =</span> <span class="st">"impurity"</span>, <span class="at">seed =</span> <span class="dv">63233</span>, <span class="at">quantreg =</span> <span class="cn">TRUE</span>) <span class="sc">%&gt;%</span></span>
+<span id="cb3-3"><a href="#cb3-3" aria-hidden="true" tabindex="-1"></a>&nbsp; <span class="fu">set_mode</span>(<span class="st">"regression"</span>)</span>
+<span id="cb3-4"><a href="#cb3-4" aria-hidden="true" tabindex="-1"></a><span class="fu">set.seed</span>(<span class="dv">63233</span>)</span>
+<span id="cb3-5"><a href="#cb3-5" aria-hidden="true" tabindex="-1"></a>rf_wf <span class="ot">&lt;-</span> workflows<span class="sc">::</span><span class="fu">workflow</span>() <span class="sc">%&gt;%</span>&nbsp;</span>
+<span id="cb3-6"><a href="#cb3-6" aria-hidden="true" tabindex="-1"></a>&nbsp; <span class="fu">add_model</span>(rf_mod) <span class="sc">%&gt;%</span>&nbsp;</span>
+<span id="cb3-7"><a href="#cb3-7" aria-hidden="true" tabindex="-1"></a>&nbsp; <span class="fu">add_recipe</span>(rf_recipe) <span class="sc">%&gt;%</span>&nbsp;</span>
+<span id="cb3-8"><a href="#cb3-8" aria-hidden="true" tabindex="-1"></a>&nbsp; <span class="fu">fit</span>(ames_train)</span></code><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></pre></div></li>
 <li><p>quantile predictions</p>
-<div class="sourceCode" id="cb3"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb3-1"><a href="#cb3-1" aria-hidden="true" tabindex="-1"></a>preds_bind <span class="ot">&lt;-</span> <span class="cf">function</span>(data_fit, <span class="at">lower =</span> <span class="fl">0.05</span>, <span class="at">upper =</span> <span class="fl">0.95</span>){</span>
-<span id="cb3-2"><a href="#cb3-2" aria-hidden="true" tabindex="-1"></a>&nbsp; <span class="fu">predict</span>(</span>
-<span id="cb3-3"><a href="#cb3-3" aria-hidden="true" tabindex="-1"></a>&nbsp; &nbsp; &nbsp; rf_wf<span class="sc">$</span>fit<span class="sc">$</span>fit<span class="sc">$</span>fit,&nbsp; <span class="co"># parsnip::extract_fit_engine available now</span></span>
-<span id="cb3-4"><a href="#cb3-4" aria-hidden="true" tabindex="-1"></a>&nbsp; &nbsp; &nbsp; workflows<span class="sc">::</span><span class="fu">pull_workflow_prepped_recipe</span>(rf_wf) <span class="sc">%&gt;%</span> <span class="fu">bake</span>(data_fit), <span class="co"># preprocessed data</span></span>
-<span id="cb3-5"><a href="#cb3-5" aria-hidden="true" tabindex="-1"></a>&nbsp; &nbsp; &nbsp; <span class="at">type =</span> <span class="st">"quantiles"</span>,</span>
-<span id="cb3-6"><a href="#cb3-6" aria-hidden="true" tabindex="-1"></a>&nbsp; &nbsp; &nbsp; <span class="at">quantiles =</span> <span class="fu">c</span>(lower, upper, <span class="fl">0.50</span>)</span>
-<span id="cb3-7"><a href="#cb3-7" aria-hidden="true" tabindex="-1"></a>&nbsp; ) <span class="sc">%&gt;%</span>&nbsp;</span>
-<span id="cb3-8"><a href="#cb3-8" aria-hidden="true" tabindex="-1"></a>&nbsp; <span class="fu">with</span>(predictions) <span class="sc">%&gt;%</span>&nbsp;</span>
-<span id="cb3-9"><a href="#cb3-9" aria-hidden="true" tabindex="-1"></a>&nbsp; <span class="fu">as_tibble</span>() <span class="sc">%&gt;%</span>&nbsp;</span>
-<span id="cb3-10"><a href="#cb3-10" aria-hidden="true" tabindex="-1"></a>&nbsp; <span class="fu">set_names</span>(<span class="fu">paste0</span>(<span class="st">".pred"</span>, <span class="fu">c</span>(<span class="st">"_lower"</span>, <span class="st">"_upper"</span>,&nbsp; <span class="st">""</span>))) <span class="sc">%&gt;%</span>&nbsp;</span>
-<span id="cb3-11"><a href="#cb3-11" aria-hidden="true" tabindex="-1"></a>&nbsp; <span class="fu">mutate</span>(<span class="fu">across</span>(<span class="fu">contains</span>(<span class="st">".pred"</span>), <span class="sc">~</span><span class="dv">10</span><span class="sc">^</span>.x)) <span class="sc">%&gt;%</span>&nbsp;</span>
-<span id="cb3-12"><a href="#cb3-12" aria-hidden="true" tabindex="-1"></a>&nbsp; <span class="fu">bind_cols</span>(data_fit) <span class="sc">%&gt;%</span>&nbsp;</span>
-<span id="cb3-13"><a href="#cb3-13" aria-hidden="true" tabindex="-1"></a>&nbsp; <span class="fu">select</span>(<span class="fu">contains</span>(<span class="st">".pred"</span>), Sale_Price, Lot_Area, Neighborhood, Years_Old, Gr_Liv_Area, Overall_Qual, Total_Bsmt_SF, Garage_Area)</span>
-<span id="cb3-14"><a href="#cb3-14" aria-hidden="true" tabindex="-1"></a>}</span>
-<span id="cb3-15"><a href="#cb3-15" aria-hidden="true" tabindex="-1"></a>rf_preds_test <span class="ot">&lt;-</span> <span class="fu">preds_bind</span>(ames_holdout)</span></code><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></pre></div></li>
+<div class="sourceCode" id="cb4"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb4-1"><a href="#cb4-1" aria-hidden="true" tabindex="-1"></a>preds_bind <span class="ot">&lt;-</span> <span class="cf">function</span>(data_fit, <span class="at">lower =</span> <span class="fl">0.05</span>, <span class="at">upper =</span> <span class="fl">0.95</span>){</span>
+<span id="cb4-2"><a href="#cb4-2" aria-hidden="true" tabindex="-1"></a>&nbsp; <span class="fu">predict</span>(</span>
+<span id="cb4-3"><a href="#cb4-3" aria-hidden="true" tabindex="-1"></a>&nbsp; &nbsp; &nbsp; rf_wf<span class="sc">$</span>fit<span class="sc">$</span>fit<span class="sc">$</span>fit,&nbsp; <span class="co"># parsnip::extract_fit_engine available now</span></span>
+<span id="cb4-4"><a href="#cb4-4" aria-hidden="true" tabindex="-1"></a>&nbsp; &nbsp; &nbsp; workflows<span class="sc">::</span><span class="fu">pull_workflow_prepped_recipe</span>(rf_wf) <span class="sc">%&gt;%</span> <span class="fu">bake</span>(data_fit), <span class="co"># preprocessed data</span></span>
+<span id="cb4-5"><a href="#cb4-5" aria-hidden="true" tabindex="-1"></a>&nbsp; &nbsp; &nbsp; <span class="at">type =</span> <span class="st">"quantiles"</span>,</span>
+<span id="cb4-6"><a href="#cb4-6" aria-hidden="true" tabindex="-1"></a>&nbsp; &nbsp; &nbsp; <span class="at">quantiles =</span> <span class="fu">c</span>(lower, upper, <span class="fl">0.50</span>)</span>
+<span id="cb4-7"><a href="#cb4-7" aria-hidden="true" tabindex="-1"></a>&nbsp; ) <span class="sc">%&gt;%</span>&nbsp;</span>
+<span id="cb4-8"><a href="#cb4-8" aria-hidden="true" tabindex="-1"></a>&nbsp; <span class="fu">with</span>(predictions) <span class="sc">%&gt;%</span>&nbsp;</span>
+<span id="cb4-9"><a href="#cb4-9" aria-hidden="true" tabindex="-1"></a>&nbsp; <span class="fu">as_tibble</span>() <span class="sc">%&gt;%</span>&nbsp;</span>
+<span id="cb4-10"><a href="#cb4-10" aria-hidden="true" tabindex="-1"></a>&nbsp; <span class="fu">set_names</span>(<span class="fu">paste0</span>(<span class="st">".pred"</span>, <span class="fu">c</span>(<span class="st">"_lower"</span>, <span class="st">"_upper"</span>,&nbsp; <span class="st">""</span>))) <span class="sc">%&gt;%</span>&nbsp;</span>
+<span id="cb4-11"><a href="#cb4-11" aria-hidden="true" tabindex="-1"></a>&nbsp; <span class="fu">mutate</span>(<span class="fu">across</span>(<span class="fu">contains</span>(<span class="st">".pred"</span>), <span class="sc">~</span><span class="dv">10</span><span class="sc">^</span>.x)) <span class="sc">%&gt;%</span>&nbsp;</span>
+<span id="cb4-12"><a href="#cb4-12" aria-hidden="true" tabindex="-1"></a>&nbsp; <span class="fu">bind_cols</span>(data_fit) <span class="sc">%&gt;%</span>&nbsp;</span>
+<span id="cb4-13"><a href="#cb4-13" aria-hidden="true" tabindex="-1"></a>&nbsp; <span class="fu">select</span>(<span class="fu">contains</span>(<span class="st">".pred"</span>), Sale_Price, Lot_Area, Neighborhood, Years_Old, Gr_Liv_Area, Overall_Qual, Total_Bsmt_SF, Garage_Area)</span>
+<span id="cb4-14"><a href="#cb4-14" aria-hidden="true" tabindex="-1"></a>}</span>
+<span id="cb4-15"><a href="#cb4-15" aria-hidden="true" tabindex="-1"></a>rf_preds_test <span class="ot">&lt;-</span> <span class="fu">preds_bind</span>(ames_holdout)</span></code><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></pre></div></li>
 <li><p>Visualize<br>
 <img src="./_resources/Confidence_&amp;_Prediction_Intervals.resources/unnamed-chunk-3-1.png" class="img-fluid" width="532"></p>
-<div class="sourceCode" id="cb4"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb4-1"><a href="#cb4-1" aria-hidden="true" tabindex="-1"></a><span class="fu">set.seed</span>(<span class="dv">1234</span>)</span>
-<span id="cb4-2"><a href="#cb4-2" aria-hidden="true" tabindex="-1"></a>rf_preds_test <span class="sc">%&gt;%</span>&nbsp;</span>
-<span id="cb4-3"><a href="#cb4-3" aria-hidden="true" tabindex="-1"></a>&nbsp; <span class="fu">mutate</span>(<span class="at">pred_interval =</span> ggplot2<span class="sc">::</span><span class="fu">cut_number</span>(Sale_Price, <span class="dv">10</span>)) <span class="sc">%&gt;%</span>&nbsp;</span>
-<span id="cb4-4"><a href="#cb4-4" aria-hidden="true" tabindex="-1"></a>&nbsp; <span class="fu">group_by</span>(pred_interval) <span class="sc">%&gt;%</span>&nbsp;</span>
-<span id="cb4-5"><a href="#cb4-5" aria-hidden="true" tabindex="-1"></a>&nbsp; <span class="fu">sample_n</span>(<span class="dv">2</span>) <span class="sc">%&gt;%</span>&nbsp;</span>
-<span id="cb4-6"><a href="#cb4-6" aria-hidden="true" tabindex="-1"></a>&nbsp; <span class="fu">ggplot</span>(<span class="fu">aes</span>(<span class="at">x =</span> .pred))<span class="sc">+</span></span>
-<span id="cb4-7"><a href="#cb4-7" aria-hidden="true" tabindex="-1"></a>&nbsp; <span class="fu">geom_point</span>(<span class="fu">aes</span>(<span class="at">y =</span> .pred, <span class="at">color =</span> <span class="st">"prediction interval"</span>))<span class="sc">+</span></span>
-<span id="cb4-8"><a href="#cb4-8" aria-hidden="true" tabindex="-1"></a>&nbsp; <span class="fu">geom_errorbar</span>(<span class="fu">aes</span>(<span class="at">ymin =</span> .pred_lower, <span class="at">ymax =</span> .pred_upper, <span class="at">color =</span> <span class="st">"prediction interval"</span>))<span class="sc">+</span></span>
-<span id="cb4-9"><a href="#cb4-9" aria-hidden="true" tabindex="-1"></a>&nbsp; <span class="fu">geom_point</span>(<span class="fu">aes</span>(<span class="at">y =</span> Sale_Price, <span class="at">color =</span> <span class="st">"actuals"</span>))<span class="sc">+</span></span>
-<span id="cb4-10"><a href="#cb4-10" aria-hidden="true" tabindex="-1"></a>&nbsp; <span class="fu">scale_x_log10</span>(<span class="at">labels =</span> scales<span class="sc">::</span>dollar)<span class="sc">+</span> <span class="co"># target variable is log10 transformed</span></span>
-<span id="cb4-11"><a href="#cb4-11" aria-hidden="true" tabindex="-1"></a>&nbsp; <span class="fu">scale_y_log10</span>(<span class="at">labels =</span> scales<span class="sc">::</span>dollar)<span class="sc">+</span></span>
-<span id="cb4-12"><a href="#cb4-12" aria-hidden="true" tabindex="-1"></a>&nbsp; <span class="fu">labs</span>(<span class="at">title =</span> <span class="st">"90% Prediction intervals on a holdout dataset"</span>,</span>
-<span id="cb4-13"><a href="#cb4-13" aria-hidden="true" tabindex="-1"></a>&nbsp; &nbsp; &nbsp; <span class="at">subtitle =</span> <span class="st">"Random Forest Model"</span>,</span>
-<span id="cb4-14"><a href="#cb4-14" aria-hidden="true" tabindex="-1"></a>&nbsp; &nbsp; &nbsp; &nbsp; <span class="at">y =</span> <span class="st">"Sale_Price prediction intervals and actuals"</span>)<span class="sc">+</span></span>
-<span id="cb4-15"><a href="#cb4-15" aria-hidden="true" tabindex="-1"></a>&nbsp; <span class="fu">theme_bw</span>()<span class="sc">+</span></span>
-<span id="cb4-16"><a href="#cb4-16" aria-hidden="true" tabindex="-1"></a>&nbsp; <span class="fu">coord_fixed</span>()</span></code><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></pre></div></li>
+<div class="sourceCode" id="cb5"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb5-1"><a href="#cb5-1" aria-hidden="true" tabindex="-1"></a><span class="fu">set.seed</span>(<span class="dv">1234</span>)</span>
+<span id="cb5-2"><a href="#cb5-2" aria-hidden="true" tabindex="-1"></a>rf_preds_test <span class="sc">%&gt;%</span>&nbsp;</span>
+<span id="cb5-3"><a href="#cb5-3" aria-hidden="true" tabindex="-1"></a>&nbsp; <span class="fu">mutate</span>(<span class="at">pred_interval =</span> ggplot2<span class="sc">::</span><span class="fu">cut_number</span>(Sale_Price, <span class="dv">10</span>)) <span class="sc">%&gt;%</span>&nbsp;</span>
+<span id="cb5-4"><a href="#cb5-4" aria-hidden="true" tabindex="-1"></a>&nbsp; <span class="fu">group_by</span>(pred_interval) <span class="sc">%&gt;%</span>&nbsp;</span>
+<span id="cb5-5"><a href="#cb5-5" aria-hidden="true" tabindex="-1"></a>&nbsp; <span class="fu">sample_n</span>(<span class="dv">2</span>) <span class="sc">%&gt;%</span>&nbsp;</span>
+<span id="cb5-6"><a href="#cb5-6" aria-hidden="true" tabindex="-1"></a>&nbsp; <span class="fu">ggplot</span>(<span class="fu">aes</span>(<span class="at">x =</span> .pred))<span class="sc">+</span></span>
+<span id="cb5-7"><a href="#cb5-7" aria-hidden="true" tabindex="-1"></a>&nbsp; <span class="fu">geom_point</span>(<span class="fu">aes</span>(<span class="at">y =</span> .pred, <span class="at">color =</span> <span class="st">"prediction interval"</span>))<span class="sc">+</span></span>
+<span id="cb5-8"><a href="#cb5-8" aria-hidden="true" tabindex="-1"></a>&nbsp; <span class="fu">geom_errorbar</span>(<span class="fu">aes</span>(<span class="at">ymin =</span> .pred_lower, <span class="at">ymax =</span> .pred_upper, <span class="at">color =</span> <span class="st">"prediction interval"</span>))<span class="sc">+</span></span>
+<span id="cb5-9"><a href="#cb5-9" aria-hidden="true" tabindex="-1"></a>&nbsp; <span class="fu">geom_point</span>(<span class="fu">aes</span>(<span class="at">y =</span> Sale_Price, <span class="at">color =</span> <span class="st">"actuals"</span>))<span class="sc">+</span></span>
+<span id="cb5-10"><a href="#cb5-10" aria-hidden="true" tabindex="-1"></a>&nbsp; <span class="fu">scale_x_log10</span>(<span class="at">labels =</span> scales<span class="sc">::</span>dollar)<span class="sc">+</span> <span class="co"># target variable is log10 transformed</span></span>
+<span id="cb5-11"><a href="#cb5-11" aria-hidden="true" tabindex="-1"></a>&nbsp; <span class="fu">scale_y_log10</span>(<span class="at">labels =</span> scales<span class="sc">::</span>dollar)<span class="sc">+</span></span>
+<span id="cb5-12"><a href="#cb5-12" aria-hidden="true" tabindex="-1"></a>&nbsp; <span class="fu">labs</span>(<span class="at">title =</span> <span class="st">"90% Prediction intervals on a holdout dataset"</span>,</span>
+<span id="cb5-13"><a href="#cb5-13" aria-hidden="true" tabindex="-1"></a>&nbsp; &nbsp; &nbsp; <span class="at">subtitle =</span> <span class="st">"Random Forest Model"</span>,</span>
+<span id="cb5-14"><a href="#cb5-14" aria-hidden="true" tabindex="-1"></a>&nbsp; &nbsp; &nbsp; &nbsp; <span class="at">y =</span> <span class="st">"Sale_Price prediction intervals and actuals"</span>)<span class="sc">+</span></span>
+<span id="cb5-15"><a href="#cb5-15" aria-hidden="true" tabindex="-1"></a>&nbsp; <span class="fu">theme_bw</span>()<span class="sc">+</span></span>
+<span id="cb5-16"><a href="#cb5-16" aria-hidden="true" tabindex="-1"></a>&nbsp; <span class="fu">coord_fixed</span>()</span></code><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></pre></div></li>
 <li></li>
 </ul>
 <p>Coverage and interval length tuning</p>
-<div class="sourceCode" id="cb5"><pre class="sourceCode py code-with-copy"><code class="sourceCode python"><span id="cb5-1"><a href="#cb5-1" aria-hidden="true" tabindex="-1"></a><span class="kw">def</span> compute_coverage_len(y_test, y_lower, y_upper):</span>
-<span id="cb5-2"><a href="#cb5-2" aria-hidden="true" tabindex="-1"></a>&nbsp; &nbsp; <span class="st">""" Compute average coverage and length of prediction intervals</span></span>
-<span id="cb5-3"><a href="#cb5-3" aria-hidden="true" tabindex="-1"></a><span class="st">&nbsp; &nbsp; Parameters</span></span>
-<span id="cb5-4"><a href="#cb5-4" aria-hidden="true" tabindex="-1"></a><span class="st">&nbsp; &nbsp; ----------</span></span>
-<span id="cb5-5"><a href="#cb5-5" aria-hidden="true" tabindex="-1"></a><span class="st">&nbsp; &nbsp; y_test : numpy array, true labels (n)</span></span>
-<span id="cb5-6"><a href="#cb5-6" aria-hidden="true" tabindex="-1"></a><span class="st">&nbsp; &nbsp; y_lower : numpy array, estimated lower bound for the labels (n)</span></span>
-<span id="cb5-7"><a href="#cb5-7" aria-hidden="true" tabindex="-1"></a><span class="st">&nbsp; &nbsp; y_upper : numpy array, estimated upper bound for the labels (n)</span></span>
-<span id="cb5-8"><a href="#cb5-8" aria-hidden="true" tabindex="-1"></a><span class="st">&nbsp; &nbsp; Returns</span></span>
-<span id="cb5-9"><a href="#cb5-9" aria-hidden="true" tabindex="-1"></a><span class="st">&nbsp; &nbsp; -------</span></span>
-<span id="cb5-10"><a href="#cb5-10" aria-hidden="true" tabindex="-1"></a><span class="st">&nbsp; &nbsp; coverage : float, average coverage</span></span>
-<span id="cb5-11"><a href="#cb5-11" aria-hidden="true" tabindex="-1"></a><span class="st">&nbsp; &nbsp; avg_length : float, average length</span></span>
-<span id="cb5-12"><a href="#cb5-12" aria-hidden="true" tabindex="-1"></a><span class="st">&nbsp; &nbsp; """</span></span>
-<span id="cb5-13"><a href="#cb5-13" aria-hidden="true" tabindex="-1"></a>&nbsp; &nbsp; in_the_range <span class="op">=</span> np.<span class="bu">sum</span>((y_test <span class="op">&gt;=</span> y_lower) <span class="op">&amp;</span> (y_test <span class="op">&lt;=</span> y_upper))</span>
-<span id="cb5-14"><a href="#cb5-14" aria-hidden="true" tabindex="-1"></a>&nbsp; &nbsp; coverage <span class="op">=</span> in_the_range <span class="op">/</span> <span class="bu">len</span>(y_test) <span class="op">*</span> <span class="dv">100</span></span>
-<span id="cb5-15"><a href="#cb5-15" aria-hidden="true" tabindex="-1"></a>&nbsp; &nbsp; avg_length <span class="op">=</span> np.mean(<span class="bu">abs</span>(y_upper <span class="op">-</span> y_lower))</span>
-<span id="cb5-16"><a href="#cb5-16" aria-hidden="true" tabindex="-1"></a>&nbsp; &nbsp; <span class="cf">return</span> coverage, avg_length</span></code><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></pre></div>
+<div class="sourceCode" id="cb6"><pre class="sourceCode py code-with-copy"><code class="sourceCode python"><span id="cb6-1"><a href="#cb6-1" aria-hidden="true" tabindex="-1"></a><span class="kw">def</span> compute_coverage_len(y_test, y_lower, y_upper):</span>
+<span id="cb6-2"><a href="#cb6-2" aria-hidden="true" tabindex="-1"></a>&nbsp; &nbsp; <span class="st">""" Compute average coverage and length of prediction intervals</span></span>
+<span id="cb6-3"><a href="#cb6-3" aria-hidden="true" tabindex="-1"></a><span class="st">&nbsp; &nbsp; Parameters</span></span>
+<span id="cb6-4"><a href="#cb6-4" aria-hidden="true" tabindex="-1"></a><span class="st">&nbsp; &nbsp; ----------</span></span>
+<span id="cb6-5"><a href="#cb6-5" aria-hidden="true" tabindex="-1"></a><span class="st">&nbsp; &nbsp; y_test : numpy array, true labels (n)</span></span>
+<span id="cb6-6"><a href="#cb6-6" aria-hidden="true" tabindex="-1"></a><span class="st">&nbsp; &nbsp; y_lower : numpy array, estimated lower bound for the labels (n)</span></span>
+<span id="cb6-7"><a href="#cb6-7" aria-hidden="true" tabindex="-1"></a><span class="st">&nbsp; &nbsp; y_upper : numpy array, estimated upper bound for the labels (n)</span></span>
+<span id="cb6-8"><a href="#cb6-8" aria-hidden="true" tabindex="-1"></a><span class="st">&nbsp; &nbsp; Returns</span></span>
+<span id="cb6-9"><a href="#cb6-9" aria-hidden="true" tabindex="-1"></a><span class="st">&nbsp; &nbsp; -------</span></span>
+<span id="cb6-10"><a href="#cb6-10" aria-hidden="true" tabindex="-1"></a><span class="st">&nbsp; &nbsp; coverage : float, average coverage</span></span>
+<span id="cb6-11"><a href="#cb6-11" aria-hidden="true" tabindex="-1"></a><span class="st">&nbsp; &nbsp; avg_length : float, average length</span></span>
+<span id="cb6-12"><a href="#cb6-12" aria-hidden="true" tabindex="-1"></a><span class="st">&nbsp; &nbsp; """</span></span>
+<span id="cb6-13"><a href="#cb6-13" aria-hidden="true" tabindex="-1"></a>&nbsp; &nbsp; in_the_range <span class="op">=</span> np.<span class="bu">sum</span>((y_test <span class="op">&gt;=</span> y_lower) <span class="op">&amp;</span> (y_test <span class="op">&lt;=</span> y_upper))</span>
+<span id="cb6-14"><a href="#cb6-14" aria-hidden="true" tabindex="-1"></a>&nbsp; &nbsp; coverage <span class="op">=</span> in_the_range <span class="op">/</span> <span class="bu">len</span>(y_test) <span class="op">*</span> <span class="dv">100</span></span>
+<span id="cb6-15"><a href="#cb6-15" aria-hidden="true" tabindex="-1"></a>&nbsp; &nbsp; avg_length <span class="op">=</span> np.mean(<span class="bu">abs</span>(y_upper <span class="op">-</span> y_lower))</span>
+<span id="cb6-16"><a href="#cb6-16" aria-hidden="true" tabindex="-1"></a>&nbsp; &nbsp; <span class="cf">return</span> coverage, avg_length</span></code><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></pre></div>
 <ul>
 <li><p>Notes</p>
 <ul>
@@ -498,6 +528,7 @@ pre > code.sourceCode > span > a:first-child::before { text-decoration: underlin
 </ul></li>
 </ul></li>
 </ul>
+</section>
 </section>
 
 </main>
