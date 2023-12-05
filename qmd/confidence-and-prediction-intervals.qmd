@@ -21,7 +21,7 @@
 
     -   Frequentist: the confidence interval is constructed by a procedure, which, if you were to repeat the experiment and collecting samples many many times, in 95% of the experiments, the corresponding confidence intervals would cover the true value of the population mean.\
         $$
-        (1-\alpha)\;100\%\: \text{CI of}\: \hat\beta_i = \hat\beta_i \pm \left[t_{(1-\alpha/2)(n-k)} \cdot \text{SE}(\hat\beta_i)\right]
+        [100\cdot(1-\alpha)]\;\%\: \text{CI for}\: \hat\beta_i = \hat\beta_i \pm \left[t_{(1-\alpha/2)(n-k)} \cdot \text{SE}(\hat\beta_i)\right]
         $$
 
         -   $t$ is the t-stat for
@@ -88,7 +88,7 @@
         -   Docs have formula
             -   The actual paper is dense Need to take the mean of MIS
 
--   **Coverage**
+-   **(Empirical) Coverage**
 
     -   [Example]{.ribbon-highlight}: Coverage %
 
@@ -185,53 +185,299 @@
 
 ## Conformal Prediction Intervals {#sec-cipi-conf .unnumbered}
 
--   Notes from [How to Handle Uncertainty in Forecasts: A deep dive into conformal prediction](https://towardsdatascience.com/how-to-handle-uncertainty-in-forecasts-86817f21bb54)
+### Misc {#sec-cipi-conf-misc .unnumbered}
+
+-   Notes from
+    -   [How to Handle Uncertainty in Forecasts: A deep dive into conformal prediction](https://towardsdatascience.com/how-to-handle-uncertainty-in-forecasts-86817f21bb54)
+        -   The conformal score formula used in this article, $s_i = |\;y_i - \hat p_i(y_i\;|\;X_i)\;|$ where $y_i$ is the observed class and $\hat p$ is the predicted probability, has the same results as to the one below, but it's not workable in production since there is no *observed* class.
+    -   [Conformal Prediction for Machine Learning Classification --- From the Ground Up](https://towardsdatascience.com/conformal-prediction-for-machine-learning-classification-from-the-ground-up-a12fcf6860d0)
 -   Normal PIs require iid data while conformal PIs only require the "identically distributed" part (not independent) and therefore should provide more robust coverage.
--   Steps
-    1.  CV the model
-    2.  On the hold-out set, compute the "conformal scores" for each observation\
+-   Continuous outcome ([link](https://arxiv.org/pdf/2107.07511.pdf)) using quantile regression
+
+### Classification {#sec-cipi-conf-class .unnumbered}
+
+-   [Process]{.underline}
+    1.  Split data into Train, Calibration (aka Validation), and Test
+    2.  Train the model on the training set
+    3.  On the calibration (aka validation) set, compute the conformal scores [only for the observed class]{.underline} (i.e. true label) for each observation\
         $$
-        s_i = y_i - \hat p_i(y_i\;|\;X_i)
+        s_{i, j}  = 1 - \hat p_{i,j}(y_i | X_i)
         $$
         -   Variables
-            -   $s_i$: Conformal Score
-            -   $y_i$: Binary label corresponding to cow or camel
-            -   $\hat p_i$: Predicted probability by our model
+            -   $s_{i,j}$: Conformal Score for the i^th^ observation and class $j$
+            -   $y_i$: Observed Class
+            -   $\hat p_{i,j}$: Predicted probability by the model for class $j$
             -   $X_i$: Predictors
             -   $i$: Index of the observed data
-        -   This is just the residual of sorts.
-            -   Low = good, High = bad
-        -   $y_i$ is the observed label (e.g. binary 0 or 1)
-            -   Good model
-                -   If truth = 0, low predicted probability -\> score = low
-                -   If truth = 1, high predicted probability -\> score = low
-            -   Awful model
-                -   If truth = 0, high predicted probability -\> score = high
-                -   If truth = 1, low predicted probability -\> score = high
-        -   For each observation, we calculate the conformal score
-            -   e.g. for a binary target/label, each observation has two conformal scores.
-        -   Only need the magnitude, so take the absolute value. Therefore, the range is between 0 and 1
-    3.  Order the conformal scores from highest to lowest
-    4.  Calculate the critical value for a chosen $\alpha$\
+            -   $j$: Class of the outcome variable
+        -   Range: \[0, 1\]
+        -   In general, Low = good, High = bad
+        -   In R, the predicted probabilities for statistical models are always for the event (i.e. $y_i = 1$) in a binary outcome context, so when the observed class = 0, the score will be $s_{i,0} = 1-(1- \hat p_{i, 1}(y_i | X_i)) = \hat p_{i, 1}(y_i | X_i)$ which is just the predicted probability.
+    4.  Order the conformal scores from highest to lowest
+    5.  Calculate the critical value or threshold for a chosen $\alpha$\
         ![](./_resources/Confidence_&_Prediction_Intervals.resources/1-xhMp1BLRRrikQV_Y2lW3Ag.png){width="432"}
         -   x-axis corresponds to an ordered set of conformal scores
-        -   If $\alpha = 0.05$, find the residual value at the the 95^th^ percentile
+        -   If $\alpha = 0.05$, find the score value at the the 95^th^ percentile (e.g. `quantile(scores, 0.95)`)
         -   Blue: Conformal scores are not statistically significant. They're within our prediction interval.
         -   Red: Very large conformal scores indicate high divergence from the true label. These conformal scores are statistically significant and thereby outside of our prediction interval.
-    5.  Compute confusion matrix (e.g. binary target where labels are 0 and 1)\
-        ![](./_resources/Confidence_&_Prediction_Intervals.resources/1-sGyrptF4r4NGjCay77msbw.png){width="232"}
-        -   Interpretation
-            -   Top-left: predictions where both labels are not statistically significant (i.e. inside the "prediction interval").
-                -   The model predicts both classes well since both labels have low scores.
-                -   Depending the threshold, maybe the model could be relatively agnostic (e.g. predicted probabilites like 0.50-0.50, 0.60-0.40)
-            -   Bottom-right: predictions where both labels are statistically significant  (i.e. outside the "prediction interval").
-                -   Model totally whiffs. Confident it's one label when it's actually another.
-                    -   Example
-                        -   1 (truth) - low predicted probability = high score -\> Red and significant
-                        -   0 - high predicted probability = high score -\> Red and significant
-            -   Top-right: predictions where all 0 labels are not statistically significant.
-                -   Model predicted the 0=class well (i.e. low scores) but the 1-class poorly (i.e. high scores)
-            -   Bottom-left: predictions where all 1 labels are not statistically significant. Here, the model predicted that 1 is the true class.
-                -   Vice versa of top-right
--   This can be extended to multinomial classification but it becomes more computationally intensive
-    -   Also to continuous cases ([link](https://arxiv.org/pdf/2107.07511.pdf)) using quantile regression
+    6.  Predict on the Test set and calculate conformal scores [for each class]{.underline}
+    7.  For each test set observation, select classes that have scores below the threshold score as the model prediction.
+        -   An observation could potentially have both classes or no classes selected. ( Not sure if this is true in a binary outcome situation)
+-   [Example]{.ribbon-highlight}: Multinomial
+    -   Model
+
+        ``` python
+        classifier = LogisticRegression(random_state=42)
+        classifier.fit(X_train, y_train)
+        ```
+
+    -   Scores calculated using [only]{.underline} the predicted probability for the true class on the Validation set (aka Calibration set)
+
+        ``` python
+        # Get predicted probabilities for calibration set
+        y_pred = classifier.predict(X_Cal)
+        y_pred_proba = classifier.predict_proba(X_Cal)
+        si_scores = []
+        # Loop through all calibration instances
+        for i, true_class in enumerate(y_cal):
+            # Get predicted probability for observed/true class
+            predicted_prob = y_pred_proba[i][true_class]
+            si_scores.append(1 - predicted_prob) 
+        ```
+
+    -   The threshold determines what *coverage* our predicted labels will have
+
+        ``` python
+        number_of_samples = len(X_Cal)
+        alpha = 0.05
+        qlevel = (1 - alpha) * ((number_of_samples + 1) / number_of_samples)
+        threshold = np.percentile(si_scores, qlevel*100)
+        print(f'Threshold: {threshold:0.3f}')
+        #> Threshold: 0.598
+        ```
+
+        -   Finite sample correction for the 95th quantile: multiply 0.95 by (n+1)/n
+
+    -   Threshold is then used to get predicted labels of the test set
+
+        ``` python
+        # Get standard predictions for comparison
+        y_pred = classifier.predict(X_test)
+        # Calc scores, then only take scores in the 95% conformal PI
+        prediction_sets = (1 - classifier.predict_proba(X_test) <= threshold)
+
+        # Get labels for predictions in conformal PI
+        def get_prediction_set_labels(prediction_set, class_labels):
+            # Get set of class labels for each instance in prediction sets
+            prediction_set_labels = [
+                set([class_labels[i] for i, x in enumerate(prediction_set) if x]) for prediction_set in 
+                prediction_sets]
+            return prediction_set_labels
+
+        # Compare conformal prediction with observed and traditional preds
+        results_sets = pd.DataFrame()
+        results_sets['observed'] = [class_labels[i] for i in y_test]
+        results_sets['conformal'] = get_prediction_set_labels(prediction_sets, class_labels)
+        results_sets['traditional'] = [class_labels[i] for i in y_pred]
+        results_sets.head(10)
+        #>    observed  conformal        traditional
+        #> 0  blue      {blue}           blue
+        #> 1  green     {green}          green
+        #> 2  blue      {blue}           blue
+        #> 3  green     {green}          green
+        #> 4  orange    {orange}         orange
+        #> 5  orange    {orange}         orange
+        #> 6  orange    {orange}         orange
+        #> 7  orange    {blue, orange}   blue
+        #> 8  orange    {orange}         orange
+        #> 9  orange    {orange}         orange
+        ```
+
+        -   Conformal scores are calculated for each potential class using the predicted probabilities on the test set
+        -   The predicted class for an observation is determined by whether a class has a score below the threshold.
+        -   Therefore, an observation may have 1 or more predicted classes or 0 predicted classes.
+
+    -   Statistics (See Statistics section for functions)
+
+        -   Overall
+
+            ``` python
+            weighted_coverage = get_weighted_coverage(
+                results['Coverage'], results['Class counts'])
+
+            weighted_set_size = get_weighted_set_size(
+                results['Average set size'], results['Class counts'])
+
+            print (f'Overall coverage: {weighted_coverage}')
+            print (f'Average set size: {weighted_set_size}')
+            #> Overall coverage: 0.947
+            #> Average set size: 1.035
+            ```
+
+        -   Per Class
+
+            ``` python
+            results = pd.DataFrame(index=class_labels)
+            results['Class counts'] = get_class_counts(y_test)
+            results['Coverage'] = get_coverage_by_class(prediction_sets, y_test)
+            results['Average set size'] = get_average_set_size(prediction_sets, y_test)
+            results
+            #>         Class counts  Coverage   Average set size
+            #> blue    241           0.817427   1.087137
+            #> orange  848           0.954009   1.037736
+            #> green   828           0.977053   1.016908
+            ```
+
+            -   Overall coverage (i.e. for all labels) will be at or very near 95% but coverage for individual classes may vary.
+                -   Solution: Get thresholds for each class. (See next example)
+            -   Note that the blue class had substantially fewer observations that the other 2 classes.
+-   [Example]{.ribbon-highlight}: Multinomial - Threshold per Class
+    -   Also possible do this for subgroups of data, such as ensuring equal coverage for a diagnostic across racial groups, if we found coverage using a shared threshold led to problems.
+
+        ``` python
+        # Set alpha (1 - coverage)
+        alpha = 0.05
+        thresholds = []
+        # Get predicted probabilities for calibration set
+        y_cal_prob = classifier.predict_proba(X_Cal)
+        # Get 95th percentile score for each class's s-scores
+        for class_label in range(n_classes):
+            mask = y_cal == class_label
+            y_cal_prob_class = y_cal_prob[mask][:, class_label]
+            s_scores = 1 - y_cal_prob_class
+            q = (1 - alpha) * 100
+            class_size = mask.sum()
+            correction = (class_size + 1) / class_size
+            q *= correction
+            threshold = np.percentile(s_scores, q)
+            thresholds.append(threshold)
+        ```
+
+    -   Apply individual class thresholds to test set scores
+
+        ``` python
+        # Get Si scores for test set
+        predicted_proba = classifier.predict_proba(X_test)
+        si_scores = 1 - predicted_proba
+
+        # For each class, check whether each instance is below the threshold
+        prediction_sets = []
+        for i in range(n_classes):
+            prediction_sets.append(si_scores[:, i] <= thresholds[i])
+        prediction_sets = np.array(prediction_sets).T
+
+        # Get prediction set labels and show first 10
+        prediction_set_labels = get_prediction_set_labels(prediction_sets, class_labels)
+        ```
+
+    -   Statistics
+
+        -   Overall
+
+            ``` python
+            weighted_coverage = get_weighted_coverage(
+                results['Coverage'], results['Class counts'])
+
+            weighted_set_size = get_weighted_set_size(
+                results['Average set size'], results['Class counts'])
+
+            print (f'Overall coverage: {weighted_coverage}')
+            print (f'Average set size: {weighted_set_size}')
+            #> Overall coverage: 0.95
+            #> Average set size: 1.093
+            ```
+
+            -   Similar to previous example
+
+        -   Per Class
+
+            ``` python
+            results = pd.DataFrame(index=class_labels)
+            results['Class counts'] = get_class_counts(y_test)
+            results['Coverage'] = get_coverage_by_class(prediction_sets, y_test)
+            results['Average set size'] = get_average_set_size(prediction_sets, y_test)
+            results
+            #>         Class counts  Coverage   Average set size
+            #> blue    241           0.954357   1.228216
+            #> orange  848           0.956368   1.139151
+            #> green   828           0.942029   1.006039
+            ```
+
+            -   Coverages now very close to 95% and the average set sizes have increased, especially for Blue.
+
+### Statistics {#sec-cipi-conf-stat .unnumbered}
+
+-   [Average Set Size]{.underline}
+    -   The average number of predicted classes per observation since there can be more than 1 predicted class in the conformal PI
+
+    -   [Example]{.ribbon-highlight}:
+
+        ``` python
+        # average set size for each class
+        def get_average_set_size(prediction_sets, y_test):
+            average_set_size = []
+            for i in range(n_classes):
+                average_set_size.append(
+                    np.mean(np.sum(prediction_sets[y_test == i], axis=1)))
+            return average_set_size   
+
+        # Overall average set size (weighted by class size)
+        # Get class counts
+        def get_class_counts(y_test):
+            class_counts = []
+            for i in range(n_classes):
+                class_counts.append(np.sum(y_test == i))
+            return class_counts
+
+        def get_weighted_set_size(set_size, class_counts):
+            total_counts = np.sum(class_counts)
+            weighted_set_size = np.sum((set_size * class_counts) / total_counts)
+            weighted_set_size = round(weighted_set_size, 3)
+            return weighted_set_size
+        ```
+-   [Coverage]{.underline}
+    -   Classification: Percentage of correct classifications
+
+    -   [Example]{.ribbon-highlight}: Classification
+
+        ``` python
+        # coverage for each class
+        def get_coverage_by_class(prediction_sets, y_test):
+            coverage = []
+            for i in range(n_classes):
+                coverage.append(np.mean(prediction_sets[y_test == i, i]))
+            return coverage
+          
+        # overall coverage (weighted by class size)
+        # Get class counts
+        def get_class_counts(y_test):
+            class_counts = []
+            for i in range(n_classes):
+                class_counts.append(np.sum(y_test == i))
+            return class_counts
+
+        def get_weighted_coverage(coverage, class_counts):
+            total_counts = np.sum(class_counts)
+            weighted_coverage = np.sum((coverage * class_counts) / total_counts)
+            weighted_coverage = round(weighted_coverage, 3)
+            return weighted_coverage
+        ```
+
+### Visualization {#sec-cipi-conf-viz .unnumbered}
+
+-   [Confusion Matrix]{.underline}\
+    ![](./_resources/Confidence_&_Prediction_Intervals.resources/1-sGyrptF4r4NGjCay77msbw.png){width="232"}
+    -   Binary target where labels are 0 and 1
+    -   Interpretation
+        -   Top-left: predictions where both labels are not statistically significant (i.e. inside the "prediction interval").
+            -   The model predicts both classes well since both labels have low scores.
+            -   Depending the threshold, maybe the model could be relatively agnostic (e.g. predicted probabilites like 0.50-0.50, 0.60-0.40)
+        -   Bottom-right: predictions where both labels are statistically significant  (i.e. outside the "prediction interval").
+            -   Model totally whiffs. Confident it's one label when it's actually another.
+                -   Example
+                    -   1 (truth) - low predicted probability = high score -\> Red and significant
+                    -   0 - high predicted probability = high score -\> Red and significant
+        -   Top-right: predictions where all 0 labels are not statistically significant.
+            -   Model predicted the 0=class well (i.e. low scores) but the 1-class poorly (i.e. high scores)
+        -   Bottom-left: predictions where all 1 labels are not statistically significant. Here, the model predicted that 1 is the true class.
+            -   Vice versa of top-right
