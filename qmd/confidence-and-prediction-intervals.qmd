@@ -26,11 +26,11 @@
 
 -   [**Coverage**]{style="color: #009499"} or [**Empirical Coverage**]{style="color: #009499"}: The level of coverage *actually observed* when evaluated on a dataset, typically a holdout dataset not used in training the model. Rarely will your model produce the Expected Coverage exactly
 
-    -   [**Adaptive Coverage**]{style="color: #009499"}: Setting your Expected Coverage so that your Empirical Coverage = Target Coverage
+    -   [**Adaptive Coverage**]{style="color: #009499"}: Setting your Expected Coverage so that your Empirical Coverage = Target Coverage. A conformal prediction algorithm is adaptive if it not only achieves marginal coverage, but also (approximately) conditional coverage
         -   Example: 90% target coverage
             -   If our model is slightly overfit, you might see that a 90% expected coverage leads to an 85% empirical coverage on a holdout dataset. To align your target and empirical coverage at 90%, may require setting expected coverage at something like 93%
     -   [**Expected Coverage**]{style="color: #009499"}: The level of confidence in the model for the prediction intervals.
-    -   [**Conditional Coverage**]{style="color: #009499"}: The coverage for each individual class of the outcome variable.
+    -   [**Conditional Coverage**]{style="color: #009499"}: The coverage for each individual class of the outcome variable or subset of data specified by a grouping variable.
     -   [**Marginal Coverage**]{style="color: #009499"}: The overall average coverage across all classes of the outcome variable. All conformal methods achieve at or near the Expected Coverage averaged across classes but not necessarily for each individual class.
     -   [**Target Coverage**]{style="color: #009499"}: The level of coverage you *want* to attain on a holdout dataset
         -   i.e. The proportion of observations you want to fall within your prediction intervals
@@ -80,28 +80,28 @@
         -   Docs have formula
             -   The actual paper is dense Need to take the mean of MIS
 
--   **(Empirical) Coverage**
+-   **Coverage**
 
     -   [Example]{.ribbon-highlight}: Coverage %
 
         ``` r
-            coverage <- function(df, ...){
-              df %>%
-                mutate(covered = ifelse(Sale_Price >= .pred_lower & Sale_Price <= .pred_upper, 1, 0)) %>% 
-                group_by(...) %>% 
-                summarise(n = n(),
-                          n_covered = sum(
-                            covered
-                          ),
-                          stderror = sd(covered) / sqrt(n),
-                          coverage_prop = n_covered / n)
-            }
-            rf_preds_test %>% 
-              coverage() %>% 
-              mutate(across(c(coverage_prop, stderror), ~.x * 100)) %>% 
-              gt::gt() %>% 
-              gt::fmt_number("stderror", decimals = 2) %>% 
-              gt::fmt_number("coverage_prop", decimals = 1)
+        coverage <- function(df, ...){
+          df %>%
+            mutate(covered = ifelse(Sale_Price >= .pred_lower & Sale_Price pred_upper, 1, 0)) %>% 
+            group_by(...) %>% 
+            summarise(n = n(),
+                      n_covered = sum(
+                        covered
+                      ),
+                      stderror = sd(covered) / sqrt(n),
+                      coverage_prop = n_covered / n)
+        }
+        rf_preds_test %>% 
+          coverage() %>% 
+          mutate(across(c(coverage_prop, stderror), ~.x * 100)) %>% 
+          gt::gt() %>% 
+          gt::fmt_number("stderror", decimals = 2) %>% 
+          gt::fmt_number("coverage_prop", decimals = 1)
         ```
 
         -   From [Quantile Regression Forests for Prediction Intervals](https://www.bryanshalloway.com/2021/04/21/quantile-regression-forests-for-prediction-intervals/#coverage)
@@ -111,10 +111,10 @@
     -   [Example]{.ribbon-highlight}: Test consistency of coverage across quintiles
 
         ``` r
-            preds_intervals %>%  # preds w/ PIs
-              mutate(price_grouped = ggplot2::cut_number(.pred, 5)) %>%  # quintiles
-              mutate(covered = ifelse(Sale_Price >= .pred_lower & Sale_Price <= .pred_upper, 1, 0)) %>% 
-              with(chisq.test(price_grouped, covered))
+        preds_intervals %>%  # preds w/ PIs
+          mutate(price_grouped = ggplot2::cut_number(.pred, 5)) %>%  # quintiles
+          mutate(covered = ifelse(Sale_Price >= .pred_lower & Sale_Price <= .pred_upper, 1, 0)) %>% 
+          with(chisq.test(price_grouped, covered))
         ```
 
         -   p value \< 0.05 says coverage significantly differs by quintile
@@ -127,25 +127,25 @@
     -   [Example]{.ribbon-highlight}: Average interval width across quintiles
 
         ``` r
-            lm_interval_widths <- preds_intervals %>% 
-              mutate(interval_width = .pred_upper - .pred_lower,
-                    interval_pred_ratio = interval_width / .pred) %>% 
-              mutate(price_grouped = ggplot2::cut_number(.pred, 5)) %>% # quintiles
-              group_by(price_grouped) %>% 
-              summarise(n = n(),
-                        mean_interval_width_percentage = mean(interval_pred_ratio),
-                        stdev = sd(interval_pred_ratio),
-                        stderror = stdev / sqrt(n)) %>% 
-              mutate(x_tmp = str_sub(price_grouped, 2, -2)) %>% 
-              separate(x_tmp, c("min", "max"), sep = ",") %>% 
-              mutate(across(c(min, max), as.double)) %>% 
-              select(-price_grouped) 
+        lm_interval_widths <- preds_intervals %>% 
+          mutate(interval_width = .pred_upper - .pred_lower,
+                interval_pred_ratio = interval_width / .pred) %>% 
+          mutate(price_grouped = ggplot2::cut_number(.pred, 5)) %>% # quintiles
+          group_by(price_grouped) %>% 
+          summarize(n = n(),
+                    mean_interval_width_percentage = mean(interval_pred_ratio),
+                    stdev = sd(interval_pred_ratio),
+                    stderror = stdev / sqrt(n)) %>% 
+          mutate(x_tmp = str_sub(price_grouped, 2, -2)) %>% 
+          separate(x_tmp, c("min", "max"), sep = ",") %>% 
+          mutate(across(c(min, max), as.double)) %>% 
+          select(-price_grouped)
 
-            lm_interval_widths %>% 
-              mutate(across(c(mean_interval_width_percentage, stdev, stderror), ~.x*100)) %>% 
-              gt::gt() %>% 
-              gt::fmt_number(c("stdev", "stderror"), decimals = 2) %>% 
-              gt::fmt_number("mean_interval_width_percentage", decimals = 1)
+        lm_interval_widths %>% 
+          mutate(across(c(mean_interval_width_percentage, stdev, stderror), ~.x*100)) %>% 
+          gt::gt() %>% 
+          gt::fmt_number(c("stdev", "stderror"), decimals = 2) %>% 
+          gt::fmt_number("mean_interval_width_percentage", decimals = 1)
         ```
 
         -   Interval width has actually been transformed into a percentage as related to the prediction (removes the scale of the outcome variable)
@@ -190,8 +190,14 @@
             -   EnbPI is for time series and residuals must be updated each time new observations are available
         -   Classification
             -   Methods: LAC, Top-K, Adaptive Prediction Sets (APS), Regularized Adaptive Prediction Sets (RAPS), Split and Cross-Conformal methods.
+
             -   The difference between these methods is the way the conformity scores are computed
-            -   LAC tends to produce empty prediction sets when the model is uncertain, for example at the border between two classes. The rest of the methods try to resolve this issue with RAPS being the most complex.
+
+            -   LAC method is not adaptive: the coverage guarantee only holds on average (i.e. marginal coverage). Difficult classification cases may have prediction sets that are too small, and easy cases may have sets that are too large. (See below for details on process). Doesn't seem like to great a task to manually make it adaptive though (See example below).
+
+            -   APS' conformity score used to determine the threshold is a constrained sum of the predicted probabilities for that observation. Only the predicted probabilites $\ge$ the predicted probability of the true class are included in the sum. Everything else is the same as the LAC algorithm, although the default behavior is to keep the last class that *crosses* the threshold through the argument, [include_last_label = \[True, "randomized", False\]]{.arg-text}. The value of the argument can determine whether conditional coverage is (approximately) attained with [True]{.arg-text} being the most liberal setting. Note that only "randomized" can produce empty predicted class sets. Algorithm tends to produce large predicted class sets when there are many classes in the outcome variable.
+
+            -   RAPS attenuates the lengthier predicted class sets in APS through regularization. A penalty, $\lambda$, is added to predicted probabilities with ranks greater that some value, $k$. Everything else is the same as APS.
 -   Notes from
     -   [How to Handle Uncertainty in Forecasts: A deep dive into conformal prediction](https://towardsdatascience.com/how-to-handle-uncertainty-in-forecasts-86817f21bb54)
         -   The conformal score formula used in this article, $s_i = |\;y_i - \hat p_i(y_i\;|\;X_i)\;|$ where $y_i$ is the observed class and $\hat p$ is the predicted probability, has the same results as to the one below, but it's not workable in production since there is no *observed* class.
@@ -223,14 +229,15 @@
         -   In general, Low = good, High = bad
         -   In R, the predicted probabilities for statistical models are always for the event (i.e. $y_i = 1$) in a binary outcome context, so when the observed class = 0, the score will be $s_{i,0} = 1-(1- \hat p_{i, 1}(y_i | X_i)) = \hat p_{i, 1}(y_i | X_i)$ which is just the predicted probability.
     4.  Order the conformal scores from highest to lowest
-    5.  Calculate the critical value or threshold for a chosen $\alpha$\
+    5.  Adjust the chosen the $\alpha$ using a finite sample correction, $q_{\text{level}} = 1- \frac{ceil((n_{\text{cal}}+1)\alpha)}{n_{\text{cal}}}$ and calculate the quantile.
+    6.  Calculate the critical value or threshold for the quantile\
         ![](./_resources/Confidence_&_Prediction_Intervals.resources/1-xhMp1BLRRrikQV_Y2lW3Ag.png){width="432"}
         -   x-axis corresponds to an ordered set of conformal scores
         -   If $\alpha = 0.05$, find the score value at the the 95^th^ percentile (e.g. `quantile(scores, 0.95)`)
         -   Blue: Conformal scores are not statistically significant. They're within our prediction interval.
         -   Red: Very large conformal scores indicate high divergence from the true label. These conformal scores are statistically significant and thereby outside of our prediction interval.
-    6.  Predict on the Test set and calculate conformal scores [for each class]{.underline}
-    7.  For each test set observation, select classes that have scores below the threshold score as the model prediction.
+    7.  Predict on the Test set and calculate conformal scores [for each class]{.underline}
+    8.  For each test set observation, select classes that have scores below the threshold score as the model prediction.
         -   An observation could potentially have both classes or no classes selected. ( Not sure if this is true in a binary outcome situation)
 -   [Example]{.ribbon-highlight}: LAC Method, Multinomial
     -   Model
@@ -343,8 +350,12 @@
                 -   An illustration of how this method lacks Conditional Coverage
                 -   Solution: Get thresholds for each class. (See next example)
             -   Note that the blue class had substantially fewer observations that the other 2 classes.
--   [Example]{.ribbon-highlight}: Multinomial - Threshold per Class
+-   [Example]{.ribbon-highlight}: LAC-adapted - Threshold per Class
+    -   Don't think [{{]{style="color: goldenrod"}mapie[}}]{style="color: goldenrod"} has this option.
+
     -   Also possible do this for subgroups of data, such as ensuring equal coverage for a diagnostic across racial groups, if we found coverage using a shared threshold led to problems.
+
+    -   Calculate individual class thresholds
 
         ``` python
         # Set alpha (1 - coverage)
