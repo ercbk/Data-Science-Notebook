@@ -746,6 +746,10 @@
 
 ## Recipe {#sec-modbld-tidymod-recipe .unnumbered}
 
+### Misc
+
+-   [Docs](https://recipes.tidymodels.org/), [Function Reference](https://recipes.tidymodels.org/reference/index.html#step-functions-dummy-variables-and-encodings)
+
 -   Step args are tunable. Just use `tune()` for value in the arg and include it in tune_grid
 
     -   e.g spline degrees in `step_ns` or bs, number of bootstraps in `step_impute_bag`, or number of neighbors in `step_impute_knn`
@@ -769,211 +773,279 @@
     -   based on type
         -   `has_type, all_numeric, all_nominal`
 
--   Misc
+### Other
 
-    -   `zv`, `nzv`
+-   `zv`, `nzv`
 
-        -   Removes predictors with zero variance or near-zero variance
+    -   Removes predictors with zero variance or near-zero variance
+
+    ``` r
+    step_nsv(all_predictors(), freq_cut = 90/10)
+    ```
+
+    -   freq_cut: ratio that determines when indicator variables with too few 1s or too few 0s are removed.
+        -   default: 95/5
+    -   unique_cut: percentage (not a decimal), number of unique values divided by the total number of samples
+        -   default: 10
+
+-   [`step_indicate_na`](https://recipes.tidymodels.org/reference/step_indicate_na.html)
+
+    ``` r
+    example_data <- tibble(
+      x1 = c(1, 5, 8, NA, NA, 3),
+      x2 = c(1, NA, 3, 6, 2, 2),
+      x3 = c(NA, NA, NA, NA, NA, NA),
+      x4 = c(7, 8, 4, 2, 1, 1)
+    )
+
+    recipe(~ ., data = example_data) |>
+      step_indicate_na(all_predictors()) |>
+      prep() |>
+      bake(new_data = NULL)
+
+    #> # A tibble: 6 × 8
+    #>      x1    x2 x3       x4 na_ind_x1 na_ind_x2 na_ind_x3 na_ind_x4
+    #>   <dbl> <dbl> <lgl> <dbl>     <int>     <int>     <int>     <int>
+    #> 1     1     1 NA        7         0         0         1         0
+    #> 2     5    NA NA        8         0         1         1         0
+    #> 3     8     3 NA        4         0         0         1         0
+    #> 4    NA     6 NA        2         1         0         1         0
+    #> 5    NA     2 NA        1         1         0         1         0
+    #> 6     3     2 NA        1         0         0         1         0
+    ```
+
+    -   Creates dummys for the NAs in a column(s)
+
+    -   If you're doing this, I think you're assuming the missingness is MNAR (See [Missingness](missingness.qmd#sec-missing){style="color: green"})
+
+-   [`step_clean_names`](https://textrecipes.tidymodels.org/reference/step_clean_names.html) - From [{textrecipes}]{style="color: #990000"}, a `step_*` function for the [{janitor}]{style="color: #990000"} function from tidying column names
+
+### Transformations
+
+-   log, BoxCox, YeoJohnson, sqrt
+
+    ``` r
+    step_log(rainfall, offset = 1, base = 2)
+    ```
+
+    -   If variable has zeros, *offset* adds 1 to the value.
+    -   *base* is the log base
+
+-   splines
+
+    -   bs (basis splines); ns (natural splines), poly
+        -   More are available, see [docs](https://recipes.tidymodels.org/dev/reference/index.html#step-functions-individual-transformations)
+    -   both have deg_free args where larger values --\> more complex curves
+    -   degree arg: bs-only, degree of polynomial spline (e.g. 2 quadratic, 3 cubic)
+    -   original variable replaced with "varname_ns_1"
+
+### Categorical
+
+-   Also see
+    -   [DOCS: Handling Categorical Predictors](https://recipes.tidymodels.org/articles/Dummies.html)
+    -   [Feature Engineering, General \>\> Categoricals](feature-engineering-general.qmd#sec-feats-general-cats){style="color: green"}
+-   `step_dummy`: if there are C levels of the factor, there will be C - 1 dummy variables created and all but the first factor level are made into new columns
+-   `step_other`
+    -   collapses categories that have a frequency below a specified threshold
+    -   threshold: proportion of total rows that a category will be collapsed into other
+        -   default = 0.05
+        -   grid value examples: 0.001, 0.003, 0.01, 0.03
+-   `step_unknown`
+    -   If NAs aren't random, they can be pooled into a category called "Unknown"
+
+### Imputation
+
+-   Also see [Missingness](missingness.qmd#sec-missing){style="color: green"}
+
+-   tldr;
+
+    -   Try **bag** first, **knn** second
+        -   Seems to me that bag would be more flexible
+    -   **rolling** would be useful for time series
+
+-   common args
+
+    -   `impute_with`: arg for including other predictors (besides outcome and variable to be imputed) in the imputation model.
 
         ``` r
-        step_nsv(all_predictors(), freq_cut = 90/10)
+        step_impute_<method>(var, impute_with = imp_vars(pred1, pred2))
         ```
 
-        -   freq_cut: ratio that determines when indicator variables with too few 1s or too few 0s are removed.
-            -   default: 95/5
-        -   unique_cut: percentage (not a decimal), number of unique values divided by the total number of samples
-            -   default: 10
+    -   "skip" arg: When set to false, this step will not be used when the recipe is baked (unless newdata=NULL)
 
--   Transformations
+        -   useful when down/up-sampling an outcome variable. New data should be asis in the wild. So usecases where the step is good for training but not production.
+        -   default = T for step_filter, slice, sample, naomit
 
-    -   log, BoxCox, YeoJohnson, sqrt
+-   bag
 
-        ``` r
-        step_log(rainfall, offset = 1, base = 2)
-        ```
+    -   bagged tree model
+    -   categoricals and numerics can be imputed
+    -   Predictors can have NAs but can't be included in the list of variables to be imputed
+        -   Guess you could do separate imputation steps if you want to include them as predictors
+    -   speed up by lowering bootstrap replications
 
-        -   If variable has zeros, *offset* adds 1 to the value.
-        -   *base* is the log base
+    ``` r
+    # keepX = FALSE says don't return a df of predictions - not sure why that's included (memory optimization?)
+    options = list(nbagg = 5, keepX = FALSE))
+    ```
 
-    -   splines
+-   knn
 
-        -   bs (basis splines); ns (natural splines), poly
-            -   More are available, see [docs](https://recipes.tidymodels.org/dev/reference/index.html#step-functions-individual-transformations)
-        -   both have deg_free args where larger values --\> more complex curves
-        -   degree arg: bs-only, degree of polynomial spline (e.g. 2 quadratic, 3 cubic)
-        -   original variable replaced with "varname_ns_1"
+    -   K-Nearest Neighbors
+    -   categoricals and numerics can be imputed
+        -   gower distance used (only distance available)
+    -   possible that missing values will still occur after imputation if a large majority (or all) of the imputing variables (predictors?) are also missing
+    -   Can be computationally intensive and is NOT robust to outliers
+    -   neighbors = 5 by default
+    -   options: nthreads, eps (threshold for values to be set to 0, default = 1e-8)
 
--   Categorical
+-   linear, mean, median
 
-    -   Also see
-        -   [DOCS: Handling Categorical Predictors](https://recipes.tidymodels.org/articles/Dummies.html)
-        -   [Feature Engineering, General \>\> Categoricals](feature-engineering-general.qmd#sec-feats-general-cats){style="color: green"}
-    -   `step_dummy`: if there are C levels of the factor, there will be C - 1 dummy variables created and all but the first factor level are made into new columns
-    -   `step_other`
-        -   collapses categories that have a frequency below a specified threshold
-        -   threshold: proportion of total rows that a category will be collapsed into other
-            -   default = 0.05
-            -   grid value examples: 0.001, 0.003, 0.01, 0.03
-    -   `step_unknown`
-        -   If NAs aren't random, they can be pooled into a category called "Unknown"
+    -   regression model, mean, median
+    -   only numerics can be imputed
+    -   if missingness is missing not at random (MNAR) then mean shouldn't be used (probably not median either)
 
--   Imputation `step_impute_*`
+-   mode
 
-    -   Also see [Missingness](missingness.qmd#sec-missing){style="color: green"}
+    -   most common value
+    -   discrete variable (maybe only nominal variables)
+    -   if more than one mode, one of them will be chosen at random
 
+-   roll
+
+    -   rolling window
+    -   window: window of data that you want to use to calculate the statistic
+        -   For time series, maybe look at a acf, pacf plot to get an idea for a good window size
+    -   statistic: stat to calculate over the window (e.g. mean, median, etc)
+        -   probably takes a custom function with a single arg (data)
+    -   values in the window that would be imputed in previous steps aren't used to impute the current value.
+
+### Up/Down-Sampling
+
+-   [{]{style="color: #990000"}[themis](https://themis.tidymodels.org/){style="color: #990000"}[}]{style="color: #990000"} for unbalanced outcome variables
+-   Common args
+    -   "skip": When set to false, this step will not be used when the recipe is baked (unless newdata=NULL)
+        -   useful when down/up-sampling an outcome variable. New data should be asis in the wild. So usecases where the step is good for training but not production.
+        -   default = T for step_filter, slice, sample, naomit, and themis data balancing steps
+    -   "over_ratio": desired ratio of num_rows of  the minority level(s) to num_rows of the majority level. Default = 1 (i.e. all levels have equal number of rows)
+        -   Example: Bring the minority levels up to about 200 rows each where the majority level has 16562 rows in the data. Therefore, 200/16562 is approx 0.0121. Set over_ratio to 0.0121 and each minority level will have 200 rows in the upsampled dataset.
+    -   "neighbors":  number of clusters, default = 5
+-   Upsampling
+    -   All methods handle multi-level factor variables except rose.
+    -   Misc
+        -   Applying SMOTE without re-calibration is bad ([paper](https://twitter.com/MaartenvSmeden/status/1495668297630633985))
     -   tldr;
-
-        -   Try **bag** first, **knn** second
-            -   Seems to me that bag would be more flexible
-        -   **rolling** would be useful for time series
-
-    -   common args
-
-        -   `impute_with`: arg for including other predictors (besides outcome and variable to be imputed) in the imputation model.
+        -   If time isn't an issue AND you have a binary variable, **rose** sounds like a good approach, otherwise use **bsmote** (probably should tune the all_neighbor option)
+    -   upsample
+        -   repeats rows of minority level until dataset has desired ratio
+    -   smote
+        -   SMOTE alg performs knn, generates points between the that level's points and the centroid for each cluster
+        -   Preprocessing: Every predictor in the formula must be numeric with no missing data.
+            -   impute missing data and encode all categoricals before using this step
+        -   Generated points can form "bridges" between that level's outlier points and the main distribution. This is like adding a feature that doesn't exist in the sample.
+    -   bsmote
+        -   borderline-SMOTE alg is the same as SMOTE except that it generates points in the border region between classes. Ignores outliers in the resampling process.
+        -   Preprocessing: Every predictor in the formula must be numeric with no missing data.
+            -   impute missing data and encode all categoricals before using this step
+        -   all_neighbors; default = FALSE
+            -   FALSE then points will be generated between nearest neighbors in its own class.
+                -   This can produce mini-clusters of points
+            -   TRUE then points will be generated between neighbors of the upsampled class and the other classes.
+                -   May blur the line between clusters (and levels? Therefore potentially making classification tasks more difficult)
+        -   Only selecting from the borderline region can be an issue if there aren't that many borderline points in the original dataset.
+    -   adasyn
+        -   similar to SMOTE, but generates the most points from points that have the smallest representation in the data, i.e. generates a lot of outlier or extreme value points.
+            -   Might produce much more stable results with tree models as compared to regression models
+        -   Preprocessing: Every predictor in the formula must be numeric with no missing data.
+            -   impute missing data and encode all categoricals before using this step
+    -   rose
+        -   Uses a "smoothed" bootstrap approach to generate new samples. (paper was incoherent as fuck)
+        -   Only for binary (factor) variables
+        -   Preprocessing: Every predictor in the formula must be numeric with no missing data.
+            -   impute missing data and encode all categoricals before using this step
+                -   no mention of missing data in the docs but probably still a good idea.
+        -   minority_prop: same function as over_ratio. Default = 0.5
+        -   minority_smoothness and majority_smoothness
+            -   default = 1. Reducing this value will shrink the (resampling?) region in the feature space associated with that class (minority or majority).
+            -   If these regions are too large, the boundary between class regions blurs. If too small, maybe you aren't getting the variance out of the resampling that you could be getting.
+-   Downsampling
+    -   Misc
+        -   Manually
 
             ``` r
-            step_impute_<method>(var, impute_with = imp_vars(pred1, pred2))
+            minority_class <- data %>%
+              count(class) %>%
+              filter(n == min(n))
+
+            balanced <- data %>%
+              group_split(class, .keep = TRUE) %>%
+              map_dfr(
+                ~ {
+                  if (.x$class[1] == minority_class$class) {
+                    .x
+                  } else {
+                    slice_sample(
+                      .x,
+                      n = minority_class$n,
+                      replace = FALSE
+                    )
+                  }
+                }
+              )
+
+            balanced %>%
+              count(class) %>%
+              pretty_print()
             ```
-
-        -   "skip" arg: When set to false, this step will not be used when the recipe is baked (unless newdata=NULL)
-
-            -   useful when down/up-sampling an outcome variable. New data should be asis in the wild. So usecases where the step is good for training but not production.
-            -   default = T for step_filter, slice, sample, naomit
-
-    -   bag
-
-        -   bagged tree model
-        -   categoricals and numerics can be imputed
-        -   Predictors can have NAs but can't be included in the list of variables to be imputed
-            -   Guess you could do separate imputation steps if you want to include them as predictors
-        -   speed up by lowering bootstrap replications
-
-        ``` r
-        # keepX = FALSE says don't return a df of predictions - not sure why that's included (memory optimization?)
-        options = list(nbagg = 5, keepX = FALSE))
-        ```
-
-    -   knn
-
-        -   K-Nearest Neighbors
-        -   categoricals and numerics can be imputed
-            -   gower distance used (only distance available)
-        -   possible that missing values will still occur after imputation if a large majority (or all) of the imputing variables (predictors?) are also missing
-        -   Can be computationally intensive and is NOT robust to outliers
-        -   neighbors = 5 by default
-        -   options: nthreads, eps (threshold for values to be set to 0, default = 1e-8)
-
-    -   linear, mean, median
-
-        -   regression model, mean, median
-        -   only numerics can be imputed
-        -   if missingness is missing not at random (MNAR) then mean shouldn't be used (probably not median either)
-
-    -   mode
-
-        -   most common value
-        -   discrete variable (maybe only nominal variables)
-        -   if more than one mode, one of them will be chosen at random
-
-    -   roll
-
-        -   rolling window
-        -   window: window of data that you want to use to calculate the statistic
-            -   For time series, maybe look at a acf, pacf plot to get an idea for a good window size
-        -   statistic: stat to calculate over the window (e.g. mean, median, etc)
-            -   probably takes a custom function with a single arg (data)
-        -   values in the window that would be imputed in previous steps aren't used to impute the current value.
-
--   up/down-sampling
-
-    -   [{]{style="color: #990000"}[themis](https://themis.tidymodels.org/){style="color: #990000"}[}]{style="color: #990000"} for unbalanced outcome variables
-    -   Common args
-        -   "skip": When set to false, this step will not be used when the recipe is baked (unless newdata=NULL)
-            -   useful when down/up-sampling an outcome variable. New data should be asis in the wild. So usecases where the step is good for training but not production.
-            -   default = T for step_filter, slice, sample, naomit, and themis data balancing steps
-        -   "over_ratio": desired ratio of num_rows of  the minority level(s) to num_rows of the majority level. Default = 1 (i.e. all levels have equal number of rows)
-            -   Example: Bring the minority levels up to about 200 rows each where the majority level has 16562 rows in the data. Therefore, 200/16562 is approx 0.0121. Set over_ratio to 0.0121 and each minority level will have 200 rows in the upsampled dataset.
-        -   "neighbors":  number of clusters, default = 5
-    -   Upsampling
-        -   All methods handle multi-level factor variables except rose.
-        -   Misc
-            -   Applying SMOTE without re-calibration is bad ([paper](https://twitter.com/MaartenvSmeden/status/1495668297630633985))
-        -   tldr;
-            -   If time isn't an issue AND you have a binary variable, **rose** sounds like a good approach, otherwise use **bsmote** (probably should tune the all_neighbor option)
-        -   upsample
-            -   repeats rows of minority level until dataset has desired ratio
-        -   smote
-            -   SMOTE alg performs knn, generates points between the that level's points and the centroid for each cluster
-            -   Preprocessing: Every predictor in the formula must be numeric with no missing data.
-                -   impute missing data and encode all categoricals before using this step
-            -   Generated points can form "bridges" between that level's outlier points and the main distribution. This is like adding a feature that doesn't exist in the sample.
-        -   bsmote
-            -   borderline-SMOTE alg is the same as SMOTE except that it generates points in the border region between classes. Ignores outliers in the resampling process.
-            -   Preprocessing: Every predictor in the formula must be numeric with no missing data.
-                -   impute missing data and encode all categoricals before using this step
-            -   all_neighbors; default = FALSE
-                -   FALSE then points will be generated between nearest neighbors in its own class.
-                    -   This can produce mini-clusters of points
-                -   TRUE then points will be generated between neighbors of the upsampled class and the other classes.
-                    -   May blur the line between clusters (and levels? Therefore potentially making classification tasks more difficult)
-            -   Only selecting from the borderline region can be an issue if there aren't that many borderline points in the original dataset.
-        -   adasyn
-            -   similar to SMOTE, but generates the most points from points that have the smallest representation in the data, i.e. generates a lot of outlier or extreme value points.
-                -   Might produce much more stable results with tree models as compared to regression models
-            -   Preprocessing: Every predictor in the formula must be numeric with no missing data.
-                -   impute missing data and encode all categoricals before using this step
-        -   rose
-            -   Uses a "smoothed" bootstrap approach to generate new samples. (paper was incoherent as fuck)
-            -   Only for binary (factor) variables
-            -   Preprocessing: Every predictor in the formula must be numeric with no missing data.
-                -   impute missing data and encode all categoricals before using this step
-                    -   no mention of missing data in the docs but probably still a good idea.
-            -   minority_prop: same function as over_ratio. Default = 0.5
-            -   minority_smoothness and majority_smoothness
-                -   default = 1. Reducing this value will shrink the (resampling?) region in the feature space associated with that class (minority or majority).
-                -   If these regions are too large, the boundary between class regions blurs. If too small, maybe you aren't getting the variance out of the resampling that you could be getting.
-    -   Downsampling
-        -   Misc
-            -   Manually
-
-                ``` r
-                minority_class <- data %>%
-                  count(class) %>%
-                  filter(n == min(n))
-
-                balanced <- data %>%
-                  group_split(class, .keep = TRUE) %>%
-                  map_dfr(
-                    ~ {
-                      if (.x$class[1] == minority_class$class) {
-                        .x
-                      } else {
-                        slice_sample(
-                          .x,
-                          n = minority_class$n,
-                          replace = FALSE
-                        )
-                      }
-                    }
-                  )
-
-                balanced %>%
-                  count(class) %>%
-                  pretty_print()
-                ```
-        -   tldr;
-            -   none of the methods below sound too bad.
-        -   downsample
-            -   removes majority level(s) rows randomly to match the under_ratio (see over_ratio defintion above)
-        -   nearmiss
-        -   removes majority level(s) rows by undersampling points in the majority level(s) based on their distance to other points in the same level. - Default: neighbors = 5 - Preprocessing: Every predictor in the formula must be numeric with no missing data.
+    -   tldr;
+        -   none of the methods below sound too bad.
+    -   downsample
+        -   removes majority level(s) rows randomly to match the under_ratio (see over_ratio defintion above)
+    -   nearmiss
+    -   removes majority level(s) rows by undersampling points in the majority level(s) based on their distance to other points in the same level. - Default: neighbors = 5 - Preprocessing: Every predictor in the formula must be numeric with no missing data.
+        -   impute missing data and encode all categoricals before using this step
+    -   tomek
+        -   undersamples by removing pairs of points that each other's nearest neighbor but are of different levels (tomek links)
+            -   Doesn't make sense to me this way. SInce it's binary, maybe the point that's the majority class gets removed the other point in the pair (minority class) gets saved.
+        -   Only for binary (factor) variables
+        -   Preprocessing: Every predictor in the formula must be numeric with no missing data.
             -   impute missing data and encode all categoricals before using this step
-        -   tomek
-            -   undersamples by removing pairs of points that each other's nearest neighbor but are of different levels (tomek links)
-                -   Doesn't make sense to me this way. SInce it's binary, maybe the point that's the majority class gets removed the other point in the pair (minority class) gets saved.
-            -   Only for binary (factor) variables
-            -   Preprocessing: Every predictor in the formula must be numeric with no missing data.
-                -   impute missing data and encode all categoricals before using this step
+
+### Feature Reduction
+
+-   Requires [{]{style="color: #990000"}[embed](https://embed.tidymodels.org/index.html){style="color: #990000"}[}]{style="color: #990000"}
+
+-   [`step_discretize_cart`](https://embed.tidymodels.org/reference/step_discretize_cart.html), [`step_discretize_xgb`](https://embed.tidymodels.org/reference/step_discretize_xgb.html), [`step_pca_sparse`](https://embed.tidymodels.org/reference/step_pca_sparse.html), [`step_pca_sparse_bayes`](https://embed.tidymodels.org/reference/step_pca_sparse_bayes.html), [`step_pca_truncated`](https://embed.tidymodels.org/reference/step_pca_truncated.html)
+
+-   [`step_umap`](https://embed.tidymodels.org/reference/step_umap.html)
+
+    ``` r
+    data(diamonds, package = "ggplot2")
+
+    set.seed(1234)
+
+    recipe(price ~ ., data = diamonds) |>
+      step_dummy(all_nominal_predictors()) |>
+      step_normalize(all_numeric_predictors()) |>
+      step_umap(all_numeric_predictors()) |>
+      prep() |>
+      bake(new_data = NULL)
+
+    # A tibble: 53,940 × 3
+       price   UMAP1   UMAP2
+       <int>   <dbl>   <dbl>
+     1   326  -0.605   5.56 
+     2   326  -1.17  -16.8  
+     3   327  -1.78   -5.43 
+     4   334 -10.7   -12.3  
+     5   335  14.2     2.66 
+     6   336   2.50    1.79 
+     7   336  -5.48    0.914
+     8   337   7.39   -5.29 
+     9   337  -1.43   -5.95 
+    10   338  -6.38   -0.785
+    # ℹ 53,930 more rows
+    ```
 
 ## Examples {#sec-modbld-tidymod-ex .unnumbered}
 
