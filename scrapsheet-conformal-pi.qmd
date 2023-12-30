@@ -1,0 +1,305 @@
+# Scrapsheet Conformal Prediction
+
+<https://towardsdatascience.com/how-to-handle-uncertainty-in-forecasts-86817f21bb54> <https://towardsdatascience.com/mapie-explained-exactly-how-you-wished-someone-explained-to-you-78fb8ce81ff3> <https://towardsdatascience.com/conformal-prediction-in-julia-351b81309e30>
+
+-   CQR requires three sets of data:
+
+    -   Training data: data on which the quantile regression model learns.
+    -   Calibration data: data on which CQR calibrates the intervals.
+        -   Maybe "calibration" data is the validation set
+        -   In the example, he split the data into 3 equal sets
+    -   Test data: data on which we evaluate the goodness of intervals.
+
+-   Py code
+
+    ``` py
+    import numpy as np
+    from skgarden import RandomForestQuantileRegressor
+
+    alpha = .05
+
+    # 1. Fit quantile regression model on training data
+    model = RandomForestQuantileRegressor().fit(X_train, y_train)
+
+    # 2. Make prediction on calibration data
+    y_cal_interval_pred = np.column_stack([
+        model.predict(X_cal, quantile=(alpha/2)*100), 
+        model.predict(X_cal, quantile=(1-alpha/2)*100)])
+
+    # 3. Compute conformity scores on calibration data
+    y_cal_conformity_scores = np.maximum(
+        y_cal_interval_pred[:,0] - y_cal, 
+        y_cal - y_cal_interval_pred[:,1])
+
+    # 4. Threshold: Get 1-alpha quantile from the distribution of conformity scores
+    #    Note: this is a single number
+    quantile_conformity_scores = np.quantile(
+        y_cal_conformity_scores, 1-alpha)
+
+    # 5. Make prediction on test data
+    y_test_interval_pred = np.column_stack([
+        model.predict(X_test, quantile=(alpha/2)*100), 
+        model.predict(X_test, quantile=(1-alpha/2)*100)])
+
+    # 6. Compute left (right) end of the interval by
+    #    subtracting (adding) the quantile to the predictions
+    y_test_interval_pred_cqr = np.column_stack([
+        y_test_interval_pred[:,0] - quantile_conformity_scores,
+        y_test_interval_pred[:,1] + quantile_conformity_scores])
+    ```
+
+-   Data usage summary
+
+    -   The model is fit on the training data
+    -   The scores are calculated on the calibration data along with the threshold
+    -   For the conformity intervals, predictions from a model fit on the test data add/subtract the threshold from those predictions
+
+-   Positive threshold means the PIs get widened by the threshold amount, upper and lower.
+
+    -   e.g. quantile DL model
+
+-   Negative threshold means the PIs get shrank by the threshold amount, upper and lower.
+
+    -   e.g quantile RF model
+
+-   So future data (just like the test set) uses the threshold amount obtained using the training and calibration data to calculate the PIs for the those estimates
+
+-   Description
+
+    -   Conformity scores express the (signed) distance between each observation and the nearest extreme of the interval.
+    -   The sign is given by the position of the point, whether it falls inside or outside the interval.
+        -   When the point lies within the interval, the sign of conformity score is negative
+        -   When the point lies outside the interval, the sign of conformity score is positive.
+        -   When the point lies exactly on the interval, the conformity score is zero
+    -   Since the maximum is taken to get the overall conformity score for that data point,
+        -   Both the lower quantile prediction and upper quantile predictions have to lie within the interval for the overall score to be negative at that data point
+        -   Either or both quantile predictions have to lie outside the interval for the overall score to be positive at the data point.
+        -   Both quantile predictions have to lie exactly on the interval for the overall score to be zero at the data point
+        -   Therefore, all things being equal, the threshold is more likely to expand the interval than contract it.
+            -   The alpha can be adjusted if need be to get the desired coverage
+
+Boosted models only able to fit one quantile at a time. no xgboost quantile regression `gbm::gbm(distribution = list(name = "quantile",alpha = 0.25)`
+
+-   where alpha is the quantile
+
+lightgbm
+
+-   args: objective = "quantile", alpha = 0.50,
+-   (maybe) metric = "quantile"
+    -   "metric(s) to be evaluated on the evaluation set(s)"
+
+catboost
+
+-   catboost.train(params = list(c('Quantile:alpha=0.1'))
+    -   params syntax might be wrong. R documentation isn't even half-assed. It's like 1% -assed
+
+rf
+
+-   {grf}, {ranger}, {quantregForest}, {quantregRanger}
+-   grf's quantile_forest method does not actually implement Meinshausen's quantile regression forest algorithm. A major difference is that grf makes splits that are sensitive to quantiles, whereas Meinshausen's method uses standard CART splits. ([Paper](https://arxiv.org/pdf/1610.01271.pdf))
+
+Example: ranger rf quantile regression (shalloway article)
+
+-   model
+
+    ``` r
+    rf_mod <- rand_forest() %>%
+      set_engine("ranger", importance = "impurity", seed = 63233, quantreg = TRUE) %>%
+      set_mode("regression")
+    set.seed(63233)
+    rf_wf <- workflows::workflow() %>% 
+      add_model(rf_mod) %>% 
+      add_recipe(rf_recipe) %>% 
+      fit(ames_train)
+    ```
+
+-   quantile predictions
+
+    ``` r
+    preds_bind <- function(data_fit, lower = 0.05, upper = 0.95){
+      predict(
+          rf_wf$fit$fit$fit,  # parsnip::extract_fit_engine available now
+          workflows::pull_workflow_prepped_recipe(rf_wf) %>% bake(data_fit), # preprocessed data
+          type = "quantiles",
+          quantiles = c(lower, upper, 0.50)
+      ) %>% 
+      with(predictions) %>% 
+      as_tibble() %>% 
+      set_names(paste0(".pred", c("_lower", "_upper",  ""))) %>% 
+      mutate(across(contains(".pred"), ~10^.x)) %>% 
+      bind_cols(data_fit) %>% 
+      select(contains(".pred"), Sale_Price, Lot_Area, Neighborhood, Years_Old, Gr_Liv_Area, Overall_Qual, Total_Bsmt_SF, Garage_Area)
+    }
+    rf_preds_test <- preds_bind(ames_holdout)
+    ```
+
+-   Visualize\
+    ![](./_resources/Confidence_&_Prediction_Intervals.resources/unnamed-chunk-3-1.png){width="532"}
+
+    ``` r
+    set.seed(1234)
+    rf_preds_test %>% 
+      mutate(pred_interval = ggplot2::cut_number(Sale_Price, 10)) %>% 
+      group_by(pred_interval) %>% 
+      sample_n(2) %>% 
+      ggplot(aes(x = .pred))+
+      geom_point(aes(y = .pred, color = "prediction interval"))+
+      geom_errorbar(aes(ymin = .pred_lower, ymax = .pred_upper, color = "prediction interval"))+
+      geom_point(aes(y = Sale_Price, color = "actuals"))+
+      scale_x_log10(labels = scales::dollar)+ # target variable is log10 transformed
+      scale_y_log10(labels = scales::dollar)+
+      labs(title = "90% Prediction intervals on a holdout dataset",
+          subtitle = "Random Forest Model",
+            y = "Sale_Price prediction intervals and actuals")+
+      theme_bw()+
+      coord_fixed()
+    ```
+
+-   
+
+Coverage and interval length tuning
+
+``` py
+def compute_coverage_len(y_test, y_lower, y_upper):
+    """ Compute average coverage and length of prediction intervals
+    Parameters
+    ----------
+    y_test : numpy array, true labels (n)
+    y_lower : numpy array, estimated lower bound for the labels (n)
+    y_upper : numpy array, estimated upper bound for the labels (n)
+    Returns
+    -------
+    coverage : float, average coverage
+    avg_length : float, average length
+    """
+    in_the_range = np.sum((y_test >= y_lower) & (y_test <= y_upper))
+    coverage = in_the_range / len(y_test) * 100
+    avg_length = np.mean(abs(y_upper - y_lower))
+    return coverage, avg_length
+```
+
+-   Notes
+
+    -   training set_1 = 0.80, test set = 0.20
+    -   training set_1 divided into train_2 and calibration sets (50/50)
+        -   row indexes: idx_train, idx_cal
+        -   The  train_2 of the split is split further for figuring out the quantiles with correct coverage
+            -   train_3/test = 95/5
+    -   Predictions from tuned quantiles used to calculate scores
+    -   Uses alpha as the threshold index
+    -   hardcoded values
+        -   coverage_factor would have to be something guess-timated or based on some previous knowledge about how "off" the algrithm's PI quantiles' coverage is
+        -   initial best_avg_length would require some knowledge of a baseline PI length and scale of the data
+        -   Maybe these don't have to be hardcoded
+    -   Values
+        -   quantiles: \[0.05, 0.95\]
+        -   quantile factor = 0.85 \* (0.95 - 0.05) = 0.76
+        -   alpha = 0.10 (i.e. acceptable miscoverage rate; "significance" in the code)
+    -   asymmetric score function (QuantileRegAsymmetricErrFunc) available
+
+-   run_icp (cqr/helper.py)
+
+    -   nc, x_train, y_train, x_test, idx_train, idx_cal, alpha
+
+    -   instantiates IcpRegressor (nonconformist/icp.py)
+
+        -   input: nc_function = RegressorNC(QuantileForestRegressorAdapter (cqr/helper.py), QuantileRegErrFunc (nonconformist/nc.py))
+            -   RegressorNC (nonconformist/nc.py)
+                -   inherits
+                    -   BaseModelNc(model, errorfunc)
+                        -   methods
+                            -   fit via model.fit
+                            -   score
+                                -   computes nonconformity scores
+        -   inherits
+            -   BaseICP
+                -   inherits sklearn BaseEstimater
+                    -   methods: get_params, set_params
+                -   method
+                    -   fit via nc.fit
+                    -   calibrate
+                    -   other calibrate stuff
+        -   method: predict
+
+    -   Runs  via IcpRegressor (nonconformist/icp.py)
+
+        -   fit
+            -   input: X_train\[idx_train,:\], y_train\[idx_train\]
+            -   QuantileForestRegressorAdapter (cqr/helper.py)
+                -   inherits RegressorAdapter (noncomformist/base.py)
+                    -   inherits BaseModelAdaptor
+                        -   inherits BaseEstimator
+                        -   methods: fit, predict, underlying_predict
+                    -   methods: underlying_predict
+                -   methods
+                    -   fit
+                        -   inputs: X_train\[idx_train,:\], y_train\[idx_train\]
+                        -   target_coverage = quantiles\[0\] - quantiles\[1\] (quantiles = \[0.05, 0.95\]) = 0.90
+                        -   coverage_factor = 0.85
+                        -   target_coverage = coverage_factor \* target_coverage = 0.765
+                        -   range_vals = 30
+                        -   num_vals = 10
+                        -   grid_q = grid of quantiles to search
+                            -   lower = 0.05 to 0.35 (num_vals = 10 evenly spaced values) (i.e. 0.05 to 0.05 + range_vals)
+                            -   upper = 0.95 to 0.65  (num_vals = 10 evenly spaced values) (i.e. 0.95 to 0.95 - range_vals)
+                            -   concantenated pairwise (0.35, 0.65 gets fit, etc.), so I think he's fitting 10 models
+                        -   calls CV_quntiles_rf (cqr/tune_params_cv.py)
+                            -   inputs: rf_params, x, y, target_coverage, grid_q, test_ratio, coverage_factor)
+                                -   test_ratio = 0.05
+                                -   So train/test =  95/5
+                            -   process
+                                -   rf fit on training data
+                                -   best_avg_length = 1e10 (initial value)
+                                -   loop (row in row of grid_q)
+                                -   predicts lower and upper quantile vectors (i.e. row of the grid_q) on test data
+                                -   calls compute_coverage_len (cqr/helper.py)
+                                -           inputs: y_test, y_lower (i.e. lower quantile), y_upper (i.e. upper quantile)
+                                -           computes coverage and avg length of interval
+                                -           check if coverage \> target_coverage AND avg length \< best_avg_length
+                                -               if so, set best_q = row of grid_q, best avg length = avg length
+                                -   return best_q
+                            -   stored in attribute, self.cv_quantiles        
+                    -   predict
+                        -   uses self.cv_quantiles
+        -   calibrate
+            -   input: X_train\[idx_cal,:\], y_train\[idx_cal\]
+            -   inherits BaseIcp
+                -   method:calibrate
+                    -   uses nc.function.score which is RegressorNc (nonconformist/nc.py)
+                        -   inherits BaseModelNc
+                            -   Calc predictions with QuantileForestRegressorAdapter (cqr/helper.py) predict method
+                                -   So it does use tuned quantiles to compute scores
+                            -   sends predictions to QuantileRegErrFunc (nonconformist/nc.py) to calc scores
+                                -   max(\\hat{q}\_low - y, y - \\hat{q}\_high)
+                -   Sorts (desc), and stores scores in self.cal_scores
+        -   predict
+            -   input: X_test, alpha
+            -   IcpRegressor.predict makes no sense to me. Looks to me that it would return an array of zeros. ¯\\\_(ツ)\_/¯
+            -   It uses nc.function.predict(X_test, self.cal_scores, significance (aka alpha)) in the code, but the conditional doesn't make sense to me
+                -   RegressorNC.predict
+                    -   Calc predictions with QuantileForestRegressorAdapter (cqr/helper.py) predict method
+                    -   Uses alpha to find the index of threshold score value through a QuantileRegErrFunc method
+                    -   he has
+                        -   lower PI = lower_quantile_pred - threshold score
+                        -   upper PI = upper_quantile_pred + threshold score
+
+Classification
+
+-   Notes from paper, "[Classification with Valid and Adaptive Coverage](https://arxiv.org/pdf/2006.02544.pdf)"
+-   Marginal Coverage\
+    ![](./_resources/Confidence_&_Prediction_Intervals.resources/Screenshot%20(728).png)
+    -   The probability that an future observed value is in a predicted set is greater than equal some miscoverage rate.
+-   Conditional Coverage\
+    ![](./_resources/Confidence_&_Prediction_Intervals.resources/Screenshot%20(727).png)
+    -   Valid coverage conditional on a specific observed value of the features X.
+        -   Stronger statement than marginal coverage and cannot be achieved in theory without strong modeling assumptions
+-   The only restrictions are the data are exchangeable and the training algorithm treats all samples exchangeably; i.e., it should be invariant to their order.
+    -   No typical ML algorithm fails this
+-   Adaptive classification with CV+ calibration
+    -   Sample Ui ∼ Uniform(0, 1) for each i ∈ {1, . . . , n + 1}, independently of everything else
+    -   Typical k-fold CV
+        -   train model on all folds except k, etc.
+    -   Construct prediction set, $CCV+n,α$\
+        ![](./_resources/Confidence_&_Prediction_Intervals.resources/Screenshot%20(757).png)
+        -   Says we sweep over all possible labels y ∈ Y and include y in the final prediction set CCV+ n,α (Xn+1) if the corresponding score E(Xn+1, y, Un+1; ˆπ k(i) ) is smaller than (1 − α)(n + 1) hold-out scores E(Xi , Yi , Ui ; ˆπ k(i) ) evaluated on the true labeled data
+        -   
