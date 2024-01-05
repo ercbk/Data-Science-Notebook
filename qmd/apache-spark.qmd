@@ -66,11 +66,17 @@
     -   **Serializing** - Transforms data to be sent over the network to other workers or back to the driver node.\
         ![](./_resources/Apache,_Spark.resources/1-UeNRlmH00Xb1uxlyijMzhg.png){width="532"}
 
-        -   **Spark driver** (aka **master node**) - Orchestrates the execution of the processing and its distribution among the **Spark executors** (Also called **slave nodes**).
+        -   **Spark Driver** (aka **master node**) - Orchestrates the execution of the processing and its distribution among the **Spark Executors**.
             -   Not necessarily hosted by the computing cluster, it can be an external client.
+        -   A **Spark Executor** is a *process* that runs on a **Worker Node** and is responsible for executing the tasks of a specific Spark application.
+            -   Executors are allocated a certain amount of memory and CPU cores on the Worker Node. They can run multiple tasks concurrently, using threads to parallelize execution.
+            -   Executors typically persist for the duration of the Spark application, reusing cached data and avoiding overheads of starting new processes for each job.
         -   **Cluster Manager** - Manages the available resources of the cluster in real time.
             -   With a better overview than the Spark application, it allocates the requested resources to the Spark driver if they are available
             -   e.g. Standalone cluster manager (Spark's own manager that is deployed on private cluster), Apache Mesos, Hadoop YARN, or Kubernetes
+        -   **Worker Node** - The physical compute or virtual machine that is responsible for executing tasks and storing data.
+            -   Managed by the **Cluster Manager**, such as Apache Mesos or YARN, which allocates resources to them.
+            -   Provides CPU, memory, and storage for **Spark Executors** to run and can host multiple executors from different Spark applications, depending on its available resources.
 
     -   [Example]{.ribbon-highlight} (process)
 
@@ -253,6 +259,71 @@
             -   Larger executor memory is required to broadcast the smaller input dataset and to support intermediate in-memory collection for manual Join provision.
     -   The smaller of the two input dataset is broadcasted to executors while the Join logic is manually provisioned in the 'MapPartitions' transformation which is invoked on the larger non-broadcasted dataset.
 
+### Disk Spill {#sec-apache-spark-errors-datsp .unnumbered}
+
+-   Notes from [Spark Performance Tuning: Spill](https://selectfrom.dev/spark-performance-tuning-spill-7318363e18cb)
+    -   Article also has a nice breakdown of the memory types, parameters, etc for executors and where spill occurs.
+-   Spark is designed to leverage in-memory processing. If you don’t have enough memory, spark will try to write the extra data to disk to prevent your process from crashing. (i.e. data is "spilling" over because memory is "full")
+-   Monitoring
+    -   If there is disk spill, the spill metrics will be included in the various monitoring tables
+        -   Spill (Memory): Captures the size of data in memory *before* it's spilled to disk and serialized.
+            -   More directly gauges the volume of data being processed in memory before spilling.
+        -   Spill (Disk): The size of the serialized data on disk *after* it was spilled from memory during shuffle operations.
+            -   More directly reflects the actual disk usage during spilling.
+            -   Before spilling, Spark serializes the data (converts it into a compact format for efficient disk storage).
+    -   Tables (e.g. large partitions leading to disk spillage)\
+        ![](_resources/Apache,_Spark.resources/spill-mon-jobs-1.webp){width="532"}
+        -   Summary\
+            ![](_resources/Apache,_Spark.resources/spill-mon-stats-sum-1.webp){width="532"}
+        -   Aggregated\
+            ![](_resources/Apache,_Spark.resources/spill-mon-stats-agg.webp){width="532"}
+        -   Task\
+            ![](_resources/Apache,_Spark.resources/spill-mon-stats-task-1.webp){width="532"}
+        -   SQL Plan (On sort step)\
+            ![](_resources/Apache,_Spark.resources/spill-mon-sqlplan-1.webp){width="332"}
+-   Actions that can generate spill
+    -   Data Skew
+    -   Reducing [spark.sql.shuffle.partitions]{.arg-text}leads to bigger file sizes per partition.
+        -   [Example]{.ribbon-highlight}
+
+            ``` scala
+            // Create a large partition by mismanaging shuffle partitions
+            spark.conf.set(“spark.sql.shuffle.partitions”, 60)
+            // The location of our non-skewed set of transactions
+            val trxPath = “./transactions/2011-to-2018_int-only_60gb.delta”
+            spark
+             .read.format(“delta”).load(trxPath) // Load the transactions table
+             .orderBy(“trx_id”) // Some wide transformation
+             .write.format(“noop”).mode(“overwrite”).save() // Execute a noop 
+            ```
+    -   `join` or `crossJoin` between 2 data tables.
+    -   Setting [spark.sql.files.maxPartitionBytes]{.arg-text} to high (default is 128 MBs).
+    -   `explode` on multiple columns in data tables.
+        -   [Example]{.ribbon-highlight}
+
+            ``` scala
+            // An array that will grow each partions by a factor of 8
+            val data = Seq(0,1,3,4,5,6,7,8).toArray
+            val count = spark
+             .read.format(“delta”).load(trxPath) // Load the transactions table
+             .withColumn(“stuff”, lit(data)) // Add an array of N items
+             .select($”*”, explode($”stuff”)) // Explode dataset in size by N-1 
+             .distinct() // Some wide transformation
+             .write.format(“noop”).mode(“overwrite”).save() // Execute a noop
+            ```
+-   Solutions:
+    -   Fix Skew
+    -   Process less data per task, which can be achieved reducing file size per partition via [spark.shuffle.partitions](https://spark.apache.org/docs/latest/sql-performance-tuning.html#other-configuration-options) or [repartition](https://spark.apache.org/docs/3.1.3/api/python/reference/api/pyspark.sql.DataFrame.repartition.html).
+        -   See [Optimization \>\> Partitioning](apache-spark.qmd#sec-apache-spark-opt-part){style="color: green"}
+    -   Increase the RAM to core ratio in your compute, i.e. add more memory per worker (increase worker size).
+    -   Adjust [spark.sql.files.maxPartitionBytes]{.arg-text} - Influences size of partitions when reading in files. Parquet files are already efficient in this respect but CSVs and others may benefite.
+        -   See [Optimization \>\> Partitioning](apache-spark.qmd#sec-apache-spark-opt-part){style="color: green"}
+    -   Increase [spark.shuffle.spill.fraction]{.arg-text}: Specifies the fraction of executor memory that can be used for shuffle data before spilling starts. Default: 0.20 (20%)
+        -   [Example]{.ribbon-highlight}: If executor memory is 10GB and spark.shuffle.spill.fraction is 0.2, then spilling to disk starts when shuffle data reaches 2GB (20% of 10GB).
+        -   Increasing:
+            -   Delays spilling, potentially improving performance by keeping more data in memory.
+            -   Risks out-of-memory errors if memory is limited.
+
 ## Optimization {#sec-apache-spark-opt .unnumbered}
 
 ![](./_resources/Apache,_Spark.resources/1-0a3eoFBqKLS-lajp4uk4_w.png){width="632"}
@@ -348,6 +419,33 @@
         -   I think this a numeric vector in R but they just call everything a df in Spark
     -   I think the default is set the partitions to the number of cores/instances that are being used in the cluster
 
+-   [spark.sql.files.maxPartitionBytes]{.arg-text} - Influences size of partitions when reading in files. Parquet files are already efficient in this respect but CSVs and others may benefite.
+
+    -   Data Size and Distribution:
+        -   Large Files**:** For massive files, smaller partitions can improve parallelism and processing speed by distributing work across more cores.
+        -   Small Files**:** Too many small partitions can introduce overhead, so larger partitions might be better.
+        -   Skewed Data**:** If data distribution is uneven (some partitions much larger than others), adjusting the parameter can help balance workload and prevent bottlenecks.
+    -   File Format:
+        -   Columnar Formats (Parquet, ORC): Efficiently handle larger partitions due to compression and selective column reads.
+        -   Text-based Formats (CSV, JSON): Might benefit from smaller partitions for faster parsing and processing.
+    -   Memory Constraints:
+        -   Limited Memory: Smaller partitions can reduce memory pressure, but excessive partitioning can increase overhead.
+    -   Computation Type:
+        -   Shuffle-intensive Operations (joins, aggregations): Benefit from larger partitions to minimize data movement and shuffling overhead.
+        -   Transformations on individual partitions: Less affected by partition size.
+    -   Hardware Configuration:
+        -   Number of Cores: More cores can handle larger partitions effectively.
+        -   Disk I/O Speed: Slower disks might favor smaller partitions to reduce disk seeks.
+    -   General Recommendations:
+        -   Default (128MB): Often a good starting point.
+        -   Larger Files: Consider increasing the value (e.g., 1GB).
+        -   Small Files: Decrease the value (e.g., 64MB).
+        -   Skewed Data: Experiment with different values to find the best balance.
+    -   Best Practices:
+        -   Monitor performance metrics to assess partitioning effectiveness.
+        -   Adjust the parameter based on specific data characteristics and workload requirements.
+        -   Consider other configuration options like [spark.sql.files.openCostInBytes]{.arg-text} and [spark.sql.files.minPartitionNum]{.arg-text} for fine-tuning.
+
 ### Caching {#sec-apache-spark-opt-cach .unnumbered}
 
 -   Functions like `spark_read_parquet()` or `copy_to()` load/cache data objects into memory (aka resilient distributed dataset (RDD))
@@ -434,6 +532,50 @@
     config$spark.serializer <- "org.apache.spark.serializer.KryoSerializer"
     ```
 
+### Avoid Loops {#sec-apache-spark-opt-loop .unnumbered}
+
+-   In the planning phase, spark creates a directed acyclical graph (DAG) which indicates how your specified transformations will be carried out. The planning phase is relatively expensive and can sometimes take several seconds, so you want to invoke it as infrequently as possible.
+
+-   [Example]{.ribbon-highlight}: pyspark
+
+    ``` python
+    import functools
+    from pyspark.sql import DataFrame
+
+    paths = get_file_paths()
+
+    # BAD: For loop
+    for path in paths:
+      df = spark.read.load(path)
+      df = fancy_transformations(df)
+      df.write.mode("append").saveAsTable("xyz")
+
+    # GOOD: functools.reduce
+    lazily_evaluated_reads = [spark.read.load(path) for path in paths]
+    lazily_evaluted_transforms = [fancy_transformations(df) for df in lazily_evaluated_reads]
+    unioned_df = functools.reduce(DataFrame.union, lazily_evaluted_transforms)
+    unioned_df.write.mode("append").saveAsTable("xyz")
+    ```
+
+    -   I assume pyspark can do the same trick with wildcards that sparklyr uses, so not sure how necessary this is.
+
+-   [Example]{.ribbon-highlight}: sparklyr
+
+    ``` r
+    library(sparklyr)
+
+    # wildcard
+    file_paths <- "/path/to/directory/*.csv"
+    # directory
+    file_paths <- "/path/to/directory"
+    # explicitly
+    file_paths <- c("/path/to/file1.csv", "/path/to/file2.csv")
+    # arrow
+    data <- arrow::open_dataset(sources = "/path/to/directory")
+
+    data <- spark_read_csv(sc = sc, name = "my_data", path = file_paths)
+    ```
+
 ### Union Operator {#sec-apache-spark-opt-unop .unnumbered}
 
 -   e.g. `df = df1.union(df2).union(df3)` ([article](https://towardsdatascience.com/boosting-spark-union-operator-performance-optimization-tips-for-improved-query-speed-9123ae6ada80))
@@ -504,11 +646,11 @@
 
     ``` r
     full_products <- 
-      dplyr::copy_to(sc, products_ref %>%
+      dplyr::copy_to(sc, products_ref) %>%
           inner_join(departments_ref) %>%
-          inner_join(aisles_ref),
-          name = "product_full",
-          overwrite = TRUE)
+          inner_join(aisles_ref,
+                     name = "product_full",
+                     overwrite = TRUE)
     # or use the spark object name to create an ref object
     tbl(sc, "product_full") %>% select(var_name)
     ```
@@ -528,6 +670,23 @@
     -   [sc]{.var-text} is the connection object
     -   [products_tbl]{.var-text} is the name we want for the table inside spark
     -   Last part is the path to the file
+    
+-   Read multiple files
+
+    ``` r
+    library(sparklyr)
+
+    # wildcard
+    file_paths <- "/path/to/directory/*.csv"
+    # directory
+    file_paths <- "/path/to/directory"
+    # explicitly
+    file_paths <- c("/path/to/file1.csv", "/path/to/file2.csv")
+    # arrow
+    data <- arrow::open_dataset(sources = "/path/to/directory")
+
+    data <- spark_read_csv(sc = sc, name = "my_data", path = file_paths)
+    ```
 
 -   View tables in cluster - `src_tbl(sc)`
 
