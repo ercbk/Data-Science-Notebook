@@ -1835,6 +1835,7 @@ pre > code.sourceCode > span > a:first-child::before { text-decoration: underlin
   <li><a href="#sec-apache-spark-errors" id="toc-sec-apache-spark-errors" class="nav-link" data-scroll-target="#sec-apache-spark-errors">Errors</a>
   <ul>
   <li><a href="#sec-apache-spark-errors-datskew" id="toc-sec-apache-spark-errors-datskew" class="nav-link" data-scroll-target="#sec-apache-spark-errors-datskew">Data Skew</a></li>
+  <li><a href="#sec-apache-spark-errors-datsp" id="toc-sec-apache-spark-errors-datsp" class="nav-link" data-scroll-target="#sec-apache-spark-errors-datsp">Disk Spill</a></li>
   </ul></li>
   <li><a href="#sec-apache-spark-opt" id="toc-sec-apache-spark-opt" class="nav-link" data-scroll-target="#sec-apache-spark-opt">Optimization</a>
   <ul>
@@ -1847,6 +1848,7 @@ pre > code.sourceCode > span > a:first-child::before { text-decoration: underlin
   <li><a href="#sec-apache-spark-opt-shuf-iterbrjoin" id="toc-sec-apache-spark-opt-shuf-iterbrjoin" class="nav-link" data-scroll-target="#sec-apache-spark-opt-shuf-iterbrjoin">Iterative Broadcast Joins</a></li>
   </ul></li>
   <li><a href="#sec-apache-spark-opt-serial" id="toc-sec-apache-spark-opt-serial" class="nav-link" data-scroll-target="#sec-apache-spark-opt-serial">Serialization</a></li>
+  <li><a href="#sec-apache-spark-opt-loop" id="toc-sec-apache-spark-opt-loop" class="nav-link" data-scroll-target="#sec-apache-spark-opt-loop">Avoid Loops</a></li>
   <li><a href="#sec-apache-spark-opt-unop" id="toc-sec-apache-spark-opt-unop" class="nav-link" data-scroll-target="#sec-apache-spark-opt-unop">Union Operator</a></li>
   </ul></li>
   <li><a href="#sec-apache-spark-dating" id="toc-sec-apache-spark-dating" class="nav-link" data-scroll-target="#sec-apache-spark-dating">Data Ingestion</a></li>
@@ -1943,14 +1945,24 @@ pre > code.sourceCode > span > a:first-child::before { text-decoration: underlin
 <li><p><strong>Serializing</strong> - Transforms data to be sent over the network to other workers or back to the driver node.<br>
 <img src="./_resources/Apache,_Spark.resources/1-UeNRlmH00Xb1uxlyijMzhg.png" class="img-fluid" width="532"></p>
 <ul>
-<li><strong>Spark driver</strong> (aka <strong>master node</strong>) - Orchestrates the execution of the processing and its distribution among the <strong>Spark executors</strong> (Also called <strong>slave nodes</strong>).
+<li><strong>Spark Driver</strong> (aka <strong>master node</strong>) - Orchestrates the execution of the processing and its distribution among the <strong>Spark Executors</strong>.
 <ul>
 <li>Not necessarily hosted by the computing cluster, it can be an external client.</li>
+</ul></li>
+<li>A <strong>Spark Executor</strong> is a <em>process</em> that runs on a <strong>Worker Node</strong> and is responsible for executing the tasks of a specific Spark application.
+<ul>
+<li>Executors are allocated a certain amount of memory and CPU cores on the Worker Node. They can run multiple tasks concurrently, using threads to parallelize execution.</li>
+<li>Executors typically persist for the duration of the Spark application, reusing cached data and avoiding overheads of starting new processes for each job.</li>
 </ul></li>
 <li><strong>Cluster Manager</strong> - Manages the available resources of the cluster in real time.
 <ul>
 <li>With a better overview than the Spark application, it allocates the requested resources to the Spark driver if they are available</li>
 <li>e.g.&nbsp;Standalone cluster manager (Spark’s own manager that is deployed on private cluster), Apache Mesos, Hadoop YARN, or Kubernetes</li>
+</ul></li>
+<li><strong>Worker Node</strong> - The physical compute or virtual machine that is responsible for executing tasks and storing data.
+<ul>
+<li>Managed by the <strong>Cluster Manager</strong>, such as Apache Mesos or YARN, which allocates resources to them.</li>
+<li>Provides CPU, memory, and storage for <strong>Spark Executors</strong> to run and can host multiple executors from different Spark applications, depending on its available resources.</li>
 </ul></li>
 </ul></li>
 <li><p><span class="ribbon-highlight">Example</span> (process)</p>
@@ -2207,6 +2219,95 @@ pre > code.sourceCode > span > a:first-child::before { text-decoration: underlin
 </ul></li>
 </ul>
 </section>
+<section id="sec-apache-spark-errors-datsp" class="level3 unnumbered">
+<h3 class="unnumbered anchored" data-anchor-id="sec-apache-spark-errors-datsp">Disk Spill</h3>
+<ul>
+<li>Notes from <a href="https://selectfrom.dev/spark-performance-tuning-spill-7318363e18cb">Spark Performance Tuning: Spill</a>
+<ul>
+<li>Article also has a nice breakdown of the memory types, parameters, etc for executors and where spill occurs.</li>
+</ul></li>
+<li>Spark is designed to leverage in-memory processing. If you don’t have enough memory, spark will try to write the extra data to disk to prevent your process from crashing. (i.e.&nbsp;data is “spilling” over because memory is “full”)</li>
+<li>Monitoring
+<ul>
+<li>If there is disk spill, the spill metrics will be included in the various monitoring tables
+<ul>
+<li>Spill (Memory): Captures the size of data in memory <em>before</em> it’s spilled to disk and serialized.
+<ul>
+<li>More directly gauges the volume of data being processed in memory before spilling.</li>
+</ul></li>
+<li>Spill (Disk): The size of the serialized data on disk <em>after</em> it was spilled from memory during shuffle operations.
+<ul>
+<li>More directly reflects the actual disk usage during spilling.</li>
+<li>Before spilling, Spark serializes the data (converts it into a compact format for efficient disk storage).</li>
+</ul></li>
+</ul></li>
+<li>Tables (e.g.&nbsp;large partitions leading to disk spillage)<br>
+<img src="_resources/Apache,_Spark.resources/spill-mon-jobs-1.webp" class="img-fluid" width="532">
+<ul>
+<li>Summary<br>
+<img src="_resources/Apache,_Spark.resources/spill-mon-stats-sum-1.webp" class="img-fluid" width="532"></li>
+<li>Aggregated<br>
+<img src="_resources/Apache,_Spark.resources/spill-mon-stats-agg.webp" class="img-fluid" width="532"></li>
+<li>Task<br>
+<img src="_resources/Apache,_Spark.resources/spill-mon-stats-task-1.webp" class="img-fluid" width="532"></li>
+<li>SQL Plan (On sort step)<br>
+<img src="_resources/Apache,_Spark.resources/spill-mon-sqlplan-1.webp" class="img-fluid" width="332"></li>
+</ul></li>
+</ul></li>
+<li>Actions that can generate spill
+<ul>
+<li>Data Skew</li>
+<li>Reducing <span class="arg-text">spark.sql.shuffle.partitions</span>leads to bigger file sizes per partition.
+<ul>
+<li><p><span class="ribbon-highlight">Example</span></p>
+<div class="sourceCode" id="cb5"><pre class="sourceCode scala code-with-copy"><code class="sourceCode scala"><span id="cb5-1"><a href="#cb5-1" aria-hidden="true" tabindex="-1"></a><span class="co">// Create a large partition by mismanaging shuffle partitions</span></span>
+<span id="cb5-2"><a href="#cb5-2" aria-hidden="true" tabindex="-1"></a>spark<span class="op">.</span>conf<span class="op">.</span><span class="fu">set</span><span class="op">(</span>“spark<span class="op">.</span>sql<span class="op">.</span>shuffle<span class="op">.</span>partitions”<span class="op">,</span> <span class="dv">60</span><span class="op">)</span></span>
+<span id="cb5-3"><a href="#cb5-3" aria-hidden="true" tabindex="-1"></a><span class="co">// The location of our non-skewed set of transactions</span></span>
+<span id="cb5-4"><a href="#cb5-4" aria-hidden="true" tabindex="-1"></a><span class="kw">val</span> trxPath <span class="op">=</span> “<span class="op">./</span>transactions<span class="op">/</span><span class="dv">2011</span><span class="op">-</span>to<span class="op">-</span>2018_int<span class="op">-</span>only_60gb<span class="op">.</span>delta”</span>
+<span id="cb5-5"><a href="#cb5-5" aria-hidden="true" tabindex="-1"></a>spark</span>
+<span id="cb5-6"><a href="#cb5-6" aria-hidden="true" tabindex="-1"></a> <span class="op">.</span>read<span class="op">.</span><span class="fu">format</span><span class="op">(</span>“delta”<span class="op">).</span><span class="fu">load</span><span class="op">(</span>trxPath<span class="op">)</span> <span class="co">// Load the transactions table</span></span>
+<span id="cb5-7"><a href="#cb5-7" aria-hidden="true" tabindex="-1"></a> <span class="op">.</span><span class="fu">orderBy</span><span class="op">(</span>“trx_id”<span class="op">)</span> <span class="co">// Some wide transformation</span></span>
+<span id="cb5-8"><a href="#cb5-8" aria-hidden="true" tabindex="-1"></a> <span class="op">.</span>write<span class="op">.</span><span class="fu">format</span><span class="op">(</span>“noop”<span class="op">).</span><span class="fu">mode</span><span class="op">(</span>“overwrite”<span class="op">).</span><span class="fu">save</span><span class="op">()</span> <span class="co">// Execute a noop </span></span></code><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></pre></div></li>
+</ul></li>
+<li><code>join</code> or <code>crossJoin</code> between 2 data tables.</li>
+<li>Setting <span class="arg-text">spark.sql.files.maxPartitionBytes</span> to high (default is 128 MBs).</li>
+<li><code>explode</code> on multiple columns in data tables.
+<ul>
+<li><p><span class="ribbon-highlight">Example</span></p>
+<div class="sourceCode" id="cb6"><pre class="sourceCode scala code-with-copy"><code class="sourceCode scala"><span id="cb6-1"><a href="#cb6-1" aria-hidden="true" tabindex="-1"></a><span class="co">// An array that will grow each partions by a factor of 8</span></span>
+<span id="cb6-2"><a href="#cb6-2" aria-hidden="true" tabindex="-1"></a><span class="kw">val</span> data <span class="op">=</span> <span class="bu">Seq</span><span class="op">(</span><span class="dv">0</span><span class="op">,</span><span class="dv">1</span><span class="op">,</span><span class="dv">3</span><span class="op">,</span><span class="dv">4</span><span class="op">,</span><span class="dv">5</span><span class="op">,</span><span class="dv">6</span><span class="op">,</span><span class="dv">7</span><span class="op">,</span><span class="dv">8</span><span class="op">).</span>toArray</span>
+<span id="cb6-3"><a href="#cb6-3" aria-hidden="true" tabindex="-1"></a><span class="kw">val</span> count <span class="op">=</span> spark</span>
+<span id="cb6-4"><a href="#cb6-4" aria-hidden="true" tabindex="-1"></a> <span class="op">.</span>read<span class="op">.</span><span class="fu">format</span><span class="op">(</span>“delta”<span class="op">).</span><span class="fu">load</span><span class="op">(</span>trxPath<span class="op">)</span> <span class="co">// Load the transactions table</span></span>
+<span id="cb6-5"><a href="#cb6-5" aria-hidden="true" tabindex="-1"></a> <span class="op">.</span><span class="fu">withColumn</span><span class="op">(</span>“stuff”<span class="op">,</span> <span class="fu">lit</span><span class="op">(</span>data<span class="op">))</span> <span class="co">// Add an array of N items</span></span>
+<span id="cb6-6"><a href="#cb6-6" aria-hidden="true" tabindex="-1"></a> <span class="op">.</span><span class="fu">select</span><span class="op">(</span>$”<span class="op">*</span>”<span class="op">,</span> <span class="fu">explode</span><span class="op">(</span>$”stuff”<span class="op">))</span> <span class="co">// Explode dataset in size by N-1 </span></span>
+<span id="cb6-7"><a href="#cb6-7" aria-hidden="true" tabindex="-1"></a> <span class="op">.</span><span class="fu">distinct</span><span class="op">()</span> <span class="co">// Some wide transformation</span></span>
+<span id="cb6-8"><a href="#cb6-8" aria-hidden="true" tabindex="-1"></a> <span class="op">.</span>write<span class="op">.</span><span class="fu">format</span><span class="op">(</span>“noop”<span class="op">).</span><span class="fu">mode</span><span class="op">(</span>“overwrite”<span class="op">).</span><span class="fu">save</span><span class="op">()</span> <span class="co">// Execute a noop</span></span></code><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></pre></div></li>
+</ul></li>
+</ul></li>
+<li>Solutions:
+<ul>
+<li>Fix Skew</li>
+<li>Process less data per task, which can be achieved reducing file size per partition via <a href="https://spark.apache.org/docs/latest/sql-performance-tuning.html#other-configuration-options">spark.shuffle.partitions</a> or <a href="https://spark.apache.org/docs/3.1.3/api/python/reference/api/pyspark.sql.DataFrame.repartition.html">repartition</a>.
+<ul>
+<li>See <a href="../qmd/apache-spark.html#sec-apache-spark-opt-part" style="color: green">Optimization &gt;&gt; Partitioning</a></li>
+</ul></li>
+<li>Increase the RAM to core ratio in your compute, i.e.&nbsp;add more memory per worker (increase worker size).</li>
+<li>Adjust <span class="arg-text">spark.sql.files.maxPartitionBytes</span> - Influences size of partitions when reading in files. Parquet files are already efficient in this respect but CSVs and others may benefite.
+<ul>
+<li>See <a href="../qmd/apache-spark.html#sec-apache-spark-opt-part" style="color: green">Optimization &gt;&gt; Partitioning</a></li>
+</ul></li>
+<li>Increase <span class="arg-text">spark.shuffle.spill.fraction</span>: Specifies the fraction of executor memory that can be used for shuffle data before spilling starts. Default: 0.20 (20%)
+<ul>
+<li><span class="ribbon-highlight">Example</span>: If executor memory is 10GB and spark.shuffle.spill.fraction is 0.2, then spilling to disk starts when shuffle data reaches 2GB (20% of 10GB).</li>
+<li>Increasing:
+<ul>
+<li>Delays spilling, potentially improving performance by keeping more data in memory.</li>
+<li>Risks out-of-memory errors if memory is limited.</li>
+</ul></li>
+</ul></li>
+</ul></li>
+</ul>
+</section>
 </section>
 <section id="sec-apache-spark-opt" class="level2 unnumbered">
 <h2 class="unnumbered anchored" data-anchor-id="sec-apache-spark-opt">Optimization</h2>
@@ -2241,22 +2342,22 @@ pre > code.sourceCode > span > a:first-child::before { text-decoration: underlin
 <li><span class="arg-text">spark.executor.memory</span>: percentage of RAM you want specifically for executing actions</li>
 </ul></li>
 <li><p><span class="ribbon-highlight">Example</span> (method 1)</p>
-<div class="sourceCode" id="cb5"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb5-1"><a href="#cb5-1" aria-hidden="true" tabindex="-1"></a> conf <span class="ot">&lt;-</span> <span class="fu">list</span>()</span>
-<span id="cb5-2"><a href="#cb5-2" aria-hidden="true" tabindex="-1"></a> conf<span class="sc">$</span><span class="st">`</span><span class="at">sparklyr.cores.local</span><span class="st">`</span> <span class="ot">&lt;-</span> <span class="dv">6</span></span>
-<span id="cb5-3"><a href="#cb5-3" aria-hidden="true" tabindex="-1"></a> conf<span class="sc">$</span><span class="st">`</span><span class="at">sparklyr.shell.driver-memory</span><span class="st">`</span> <span class="ot">&lt;-</span> <span class="st">"6G"</span></span>
-<span id="cb5-4"><a href="#cb5-4" aria-hidden="true" tabindex="-1"></a> conf<span class="sc">$</span><span class="st">`</span><span class="at">spark.memory.fraction</span><span class="st">`</span> <span class="ot">&lt;-</span> <span class="fl">0.9</span></span></code><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></pre></div></li>
+<div class="sourceCode" id="cb7"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb7-1"><a href="#cb7-1" aria-hidden="true" tabindex="-1"></a> conf <span class="ot">&lt;-</span> <span class="fu">list</span>()</span>
+<span id="cb7-2"><a href="#cb7-2" aria-hidden="true" tabindex="-1"></a> conf<span class="sc">$</span><span class="st">`</span><span class="at">sparklyr.cores.local</span><span class="st">`</span> <span class="ot">&lt;-</span> <span class="dv">6</span></span>
+<span id="cb7-3"><a href="#cb7-3" aria-hidden="true" tabindex="-1"></a> conf<span class="sc">$</span><span class="st">`</span><span class="at">sparklyr.shell.driver-memory</span><span class="st">`</span> <span class="ot">&lt;-</span> <span class="st">"6G"</span></span>
+<span id="cb7-4"><a href="#cb7-4" aria-hidden="true" tabindex="-1"></a> conf<span class="sc">$</span><span class="st">`</span><span class="at">spark.memory.fraction</span><span class="st">`</span> <span class="ot">&lt;-</span> <span class="fl">0.9</span></span></code><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></pre></div></li>
 <li><p><span class="ribbon-highlight">Example</span> (method 2)</p>
-<div class="sourceCode" id="cb6"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb6-1"><a href="#cb6-1" aria-hidden="true" tabindex="-1"></a><span class="co"># Initialize configuration with defaults</span></span>
-<span id="cb6-2"><a href="#cb6-2" aria-hidden="true" tabindex="-1"></a>config <span class="ot">&lt;-</span> <span class="fu">spark_config</span>()</span>
-<span id="cb6-3"><a href="#cb6-3" aria-hidden="true" tabindex="-1"></a></span>
-<span id="cb6-4"><a href="#cb6-4" aria-hidden="true" tabindex="-1"></a><span class="co"># Memory</span></span>
-<span id="cb6-5"><a href="#cb6-5" aria-hidden="true" tabindex="-1"></a>config[<span class="st">"sparklyr.shell.driver-memory"</span>] <span class="ot">&lt;-</span> <span class="st">"2g"</span></span>
-<span id="cb6-6"><a href="#cb6-6" aria-hidden="true" tabindex="-1"></a></span>
-<span id="cb6-7"><a href="#cb6-7" aria-hidden="true" tabindex="-1"></a><span class="co"># Cores</span></span>
-<span id="cb6-8"><a href="#cb6-8" aria-hidden="true" tabindex="-1"></a>config[<span class="st">"sparklyr.connect.cores.local"</span>] <span class="ot">&lt;-</span> <span class="dv">2</span></span></code><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></pre></div></li>
+<div class="sourceCode" id="cb8"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb8-1"><a href="#cb8-1" aria-hidden="true" tabindex="-1"></a><span class="co"># Initialize configuration with defaults</span></span>
+<span id="cb8-2"><a href="#cb8-2" aria-hidden="true" tabindex="-1"></a>config <span class="ot">&lt;-</span> <span class="fu">spark_config</span>()</span>
+<span id="cb8-3"><a href="#cb8-3" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb8-4"><a href="#cb8-4" aria-hidden="true" tabindex="-1"></a><span class="co"># Memory</span></span>
+<span id="cb8-5"><a href="#cb8-5" aria-hidden="true" tabindex="-1"></a>config[<span class="st">"sparklyr.shell.driver-memory"</span>] <span class="ot">&lt;-</span> <span class="st">"2g"</span></span>
+<span id="cb8-6"><a href="#cb8-6" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb8-7"><a href="#cb8-7" aria-hidden="true" tabindex="-1"></a><span class="co"># Cores</span></span>
+<span id="cb8-8"><a href="#cb8-8" aria-hidden="true" tabindex="-1"></a>config[<span class="st">"sparklyr.connect.cores.local"</span>] <span class="ot">&lt;-</span> <span class="dv">2</span></span></code><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></pre></div></li>
 <li><p><span class="ribbon-highlight">Example</span> (method 3)</p>
-<div class="sourceCode" id="cb7"><pre class="sourceCode yaml code-with-copy"><code class="sourceCode yaml"><span id="cb7-1"><a href="#cb7-1" aria-hidden="true" tabindex="-1"></a><span class="fu">default</span><span class="kw">:</span></span>
-<span id="cb7-2"><a href="#cb7-2" aria-hidden="true" tabindex="-1"></a><span class="at">  </span><span class="fu">sparklyr.shell.driver-memory</span><span class="kw">:</span><span class="at"> 2G</span></span></code><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></pre></div>
+<div class="sourceCode" id="cb9"><pre class="sourceCode yaml code-with-copy"><code class="sourceCode yaml"><span id="cb9-1"><a href="#cb9-1" aria-hidden="true" tabindex="-1"></a><span class="fu">default</span><span class="kw">:</span></span>
+<span id="cb9-2"><a href="#cb9-2" aria-hidden="true" tabindex="-1"></a><span class="at">  </span><span class="fu">sparklyr.shell.driver-memory</span><span class="kw">:</span><span class="at"> 2G</span></span></code><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></pre></div>
 <ul>
 <li>Allows you to have cleaner code</li>
 <li>Create a <em>config.yml</em> file in the working dir or a parent dir. Then there’s no need to specify the config parameter when creating a connection
@@ -2297,14 +2398,55 @@ pre > code.sourceCode > span > a:first-child::before { text-decoration: underlin
 </ul></li>
 </ul></li>
 <li><p>Check number of partitions for a data object</p>
-<div class="sourceCode" id="cb8"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb8-1"><a href="#cb8-1" aria-hidden="true" tabindex="-1"></a><span class="fu">sdf_len</span>(sc, <span class="dv">10</span>) <span class="sc">%&gt;%</span> <span class="fu">sdf_num_partitions</span>()</span>
-<span id="cb8-2"><a href="#cb8-2" aria-hidden="true" tabindex="-1"></a><span class="sc">&gt;</span><span class="er">&gt;</span> <span class="dv">2</span></span></code><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></pre></div>
+<div class="sourceCode" id="cb10"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb10-1"><a href="#cb10-1" aria-hidden="true" tabindex="-1"></a><span class="fu">sdf_len</span>(sc, <span class="dv">10</span>) <span class="sc">%&gt;%</span> <span class="fu">sdf_num_partitions</span>()</span>
+<span id="cb10-2"><a href="#cb10-2" aria-hidden="true" tabindex="-1"></a><span class="sc">&gt;</span><span class="er">&gt;</span> <span class="dv">2</span></span></code><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></pre></div>
 <ul>
 <li><code>sdf_len</code> creates a spark df with a sequence length (e.g.&nbsp;10 in this toy example)
 <ul>
 <li>I think this a numeric vector in R but they just call everything a df in Spark</li>
 </ul></li>
 <li>I think the default is set the partitions to the number of cores/instances that are being used in the cluster</li>
+</ul></li>
+<li><p><span class="arg-text">spark.sql.files.maxPartitionBytes</span> - Influences size of partitions when reading in files. Parquet files are already efficient in this respect but CSVs and others may benefite.</p>
+<ul>
+<li>Data Size and Distribution:
+<ul>
+<li>Large Files<strong>:</strong> For massive files, smaller partitions can improve parallelism and processing speed by distributing work across more cores.</li>
+<li>Small Files<strong>:</strong> Too many small partitions can introduce overhead, so larger partitions might be better.</li>
+<li>Skewed Data<strong>:</strong> If data distribution is uneven (some partitions much larger than others), adjusting the parameter can help balance workload and prevent bottlenecks.</li>
+</ul></li>
+<li>File Format:
+<ul>
+<li>Columnar Formats (Parquet, ORC): Efficiently handle larger partitions due to compression and selective column reads.</li>
+<li>Text-based Formats (CSV, JSON): Might benefit from smaller partitions for faster parsing and processing.</li>
+</ul></li>
+<li>Memory Constraints:
+<ul>
+<li>Limited Memory: Smaller partitions can reduce memory pressure, but excessive partitioning can increase overhead.</li>
+</ul></li>
+<li>Computation Type:
+<ul>
+<li>Shuffle-intensive Operations (joins, aggregations): Benefit from larger partitions to minimize data movement and shuffling overhead.</li>
+<li>Transformations on individual partitions: Less affected by partition size.</li>
+</ul></li>
+<li>Hardware Configuration:
+<ul>
+<li>Number of Cores: More cores can handle larger partitions effectively.</li>
+<li>Disk I/O Speed: Slower disks might favor smaller partitions to reduce disk seeks.</li>
+</ul></li>
+<li>General Recommendations:
+<ul>
+<li>Default (128MB): Often a good starting point.</li>
+<li>Larger Files: Consider increasing the value (e.g., 1GB).</li>
+<li>Small Files: Decrease the value (e.g., 64MB).</li>
+<li>Skewed Data: Experiment with different values to find the best balance.</li>
+</ul></li>
+<li>Best Practices:
+<ul>
+<li>Monitor performance metrics to assess partitioning effectiveness.</li>
+<li>Adjust the parameter based on specific data characteristics and workload requirements.</li>
+<li>Consider other configuration options like <span class="arg-text">spark.sql.files.openCostInBytes</span> and <span class="arg-text">spark.sql.files.minPartitionNum</span> for fine-tuning.</li>
+</ul></li>
 </ul></li>
 </ul>
 </section>
@@ -2378,9 +2520,9 @@ pre > code.sourceCode > span > a:first-child::before { text-decoration: underlin
 <li>There is also a considerable demand of execution memory on executors based on the size of broadcasted dataset.</li>
 </ul></li>
 <li><p><span class="ribbon-highlight">Example</span>:</p>
-<div class="sourceCode" id="cb9"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb9-1"><a href="#cb9-1" aria-hidden="true" tabindex="-1"></a><span class="fu">sdf_len</span>(sc, <span class="dv">10000</span>) <span class="sc">%&gt;%</span></span>
-<span id="cb9-2"><a href="#cb9-2" aria-hidden="true" tabindex="-1"></a>  <span class="fu">sdf_broadcast</span>() <span class="sc">%&gt;%</span></span>
-<span id="cb9-3"><a href="#cb9-3" aria-hidden="true" tabindex="-1"></a>  <span class="fu">left_join</span>(<span class="fu">sdf_len</span>(sc, <span class="dv">100</span>))</span></code><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></pre></div></li>
+<div class="sourceCode" id="cb11"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb11-1"><a href="#cb11-1" aria-hidden="true" tabindex="-1"></a><span class="fu">sdf_len</span>(sc, <span class="dv">10000</span>) <span class="sc">%&gt;%</span></span>
+<span id="cb11-2"><a href="#cb11-2" aria-hidden="true" tabindex="-1"></a>  <span class="fu">sdf_broadcast</span>() <span class="sc">%&gt;%</span></span>
+<span id="cb11-3"><a href="#cb11-3" aria-hidden="true" tabindex="-1"></a>  <span class="fu">left_join</span>(<span class="fu">sdf_len</span>(sc, <span class="dv">100</span>))</span></code><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></pre></div></li>
 </ul>
 </section>
 <section id="sec-apache-spark-opt-shuf-iterbrjoin" class="level4 unnumbered">
@@ -2411,8 +2553,47 @@ pre > code.sourceCode > span > a:first-child::before { text-decoration: underlin
 <h3 class="unnumbered anchored" data-anchor-id="sec-apache-spark-opt-serial">Serialization</h3>
 <ul>
 <li><p><a href="https://oreil.ly/TRbNh">Kryo Serializer</a> that can provide performance improvements over the default <a href="https://oreil.ly/0DMsd">Java Serializer</a></p>
-<div class="sourceCode" id="cb10"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb10-1"><a href="#cb10-1" aria-hidden="true" tabindex="-1"></a>config <span class="ot">&lt;-</span> <span class="fu">spark_config</span>()</span>
-<span id="cb10-2"><a href="#cb10-2" aria-hidden="true" tabindex="-1"></a>config<span class="sc">$</span>spark.serializer <span class="ot">&lt;-</span> <span class="st">"org.apache.spark.serializer.KryoSerializer"</span></span></code><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></pre></div></li>
+<div class="sourceCode" id="cb12"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb12-1"><a href="#cb12-1" aria-hidden="true" tabindex="-1"></a>config <span class="ot">&lt;-</span> <span class="fu">spark_config</span>()</span>
+<span id="cb12-2"><a href="#cb12-2" aria-hidden="true" tabindex="-1"></a>config<span class="sc">$</span>spark.serializer <span class="ot">&lt;-</span> <span class="st">"org.apache.spark.serializer.KryoSerializer"</span></span></code><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></pre></div></li>
+</ul>
+</section>
+<section id="sec-apache-spark-opt-loop" class="level3 unnumbered">
+<h3 class="unnumbered anchored" data-anchor-id="sec-apache-spark-opt-loop">Avoid Loops</h3>
+<ul>
+<li><p>In the planning phase, spark creates a directed acyclical graph (DAG) which indicates how your specified transformations will be carried out. The planning phase is relatively expensive and can sometimes take several seconds, so you want to invoke it as infrequently as possible.</p></li>
+<li><p><span class="ribbon-highlight">Example</span>: pyspark</p>
+<div class="sourceCode" id="cb13"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb13-1"><a href="#cb13-1" aria-hidden="true" tabindex="-1"></a><span class="im">import</span> functools</span>
+<span id="cb13-2"><a href="#cb13-2" aria-hidden="true" tabindex="-1"></a><span class="im">from</span> pyspark.sql <span class="im">import</span> DataFrame</span>
+<span id="cb13-3"><a href="#cb13-3" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb13-4"><a href="#cb13-4" aria-hidden="true" tabindex="-1"></a>paths <span class="op">=</span> get_file_paths()</span>
+<span id="cb13-5"><a href="#cb13-5" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb13-6"><a href="#cb13-6" aria-hidden="true" tabindex="-1"></a><span class="co"># BAD: For loop</span></span>
+<span id="cb13-7"><a href="#cb13-7" aria-hidden="true" tabindex="-1"></a><span class="cf">for</span> path <span class="kw">in</span> paths:</span>
+<span id="cb13-8"><a href="#cb13-8" aria-hidden="true" tabindex="-1"></a>  df <span class="op">=</span> spark.read.load(path)</span>
+<span id="cb13-9"><a href="#cb13-9" aria-hidden="true" tabindex="-1"></a>  df <span class="op">=</span> fancy_transformations(df)</span>
+<span id="cb13-10"><a href="#cb13-10" aria-hidden="true" tabindex="-1"></a>  df.write.mode(<span class="st">"append"</span>).saveAsTable(<span class="st">"xyz"</span>)</span>
+<span id="cb13-11"><a href="#cb13-11" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb13-12"><a href="#cb13-12" aria-hidden="true" tabindex="-1"></a><span class="co"># GOOD: functools.reduce</span></span>
+<span id="cb13-13"><a href="#cb13-13" aria-hidden="true" tabindex="-1"></a>lazily_evaluated_reads <span class="op">=</span> [spark.read.load(path) <span class="cf">for</span> path <span class="kw">in</span> paths]</span>
+<span id="cb13-14"><a href="#cb13-14" aria-hidden="true" tabindex="-1"></a>lazily_evaluted_transforms <span class="op">=</span> [fancy_transformations(df) <span class="cf">for</span> df <span class="kw">in</span> lazily_evaluated_reads]</span>
+<span id="cb13-15"><a href="#cb13-15" aria-hidden="true" tabindex="-1"></a>unioned_df <span class="op">=</span> functools.<span class="bu">reduce</span>(DataFrame.union, lazily_evaluted_transforms)</span>
+<span id="cb13-16"><a href="#cb13-16" aria-hidden="true" tabindex="-1"></a>unioned_df.write.mode(<span class="st">"append"</span>).saveAsTable(<span class="st">"xyz"</span>)</span></code><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></pre></div>
+<ul>
+<li>I assume pyspark can do the same trick with wildcards that sparklyr uses, so not sure how necessary this is.</li>
+</ul></li>
+<li><p><span class="ribbon-highlight">Example</span>: sparklyr</p>
+<div class="sourceCode" id="cb14"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb14-1"><a href="#cb14-1" aria-hidden="true" tabindex="-1"></a><span class="fu">library</span>(sparklyr)</span>
+<span id="cb14-2"><a href="#cb14-2" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb14-3"><a href="#cb14-3" aria-hidden="true" tabindex="-1"></a><span class="co"># wildcard</span></span>
+<span id="cb14-4"><a href="#cb14-4" aria-hidden="true" tabindex="-1"></a>file_paths <span class="ot">&lt;-</span> <span class="st">"/path/to/directory/*.csv"</span></span>
+<span id="cb14-5"><a href="#cb14-5" aria-hidden="true" tabindex="-1"></a><span class="co"># directory</span></span>
+<span id="cb14-6"><a href="#cb14-6" aria-hidden="true" tabindex="-1"></a>file_paths <span class="ot">&lt;-</span> <span class="st">"/path/to/directory"</span></span>
+<span id="cb14-7"><a href="#cb14-7" aria-hidden="true" tabindex="-1"></a><span class="co"># explicitly</span></span>
+<span id="cb14-8"><a href="#cb14-8" aria-hidden="true" tabindex="-1"></a>file_paths <span class="ot">&lt;-</span> <span class="fu">c</span>(<span class="st">"/path/to/file1.csv"</span>, <span class="st">"/path/to/file2.csv"</span>)</span>
+<span id="cb14-9"><a href="#cb14-9" aria-hidden="true" tabindex="-1"></a><span class="co"># arrow</span></span>
+<span id="cb14-10"><a href="#cb14-10" aria-hidden="true" tabindex="-1"></a>data <span class="ot">&lt;-</span> arrow<span class="sc">::</span><span class="fu">open_dataset</span>(<span class="at">sources =</span> <span class="st">"/path/to/directory"</span>)</span>
+<span id="cb14-11"><a href="#cb14-11" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb14-12"><a href="#cb14-12" aria-hidden="true" tabindex="-1"></a>data <span class="ot">&lt;-</span> <span class="fu">spark_read_csv</span>(<span class="at">sc =</span> sc, <span class="at">name =</span> <span class="st">"my_data"</span>, <span class="at">path =</span> file_paths)</span></code><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></pre></div></li>
 </ul>
 </section>
 <section id="sec-apache-spark-opt-unop" class="level3 unnumbered">
@@ -2443,22 +2624,22 @@ pre > code.sourceCode > span > a:first-child::before { text-decoration: underlin
 <li>Hint to Catalyst and let it reuse the joined data frame from memory through caching</li>
 </ul></li>
 <li><p><span class="ribbon-highlight">Example</span>: Caching</p>
-<div class="sourceCode" id="cb11"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb11-1"><a href="#cb11-1" aria-hidden="true" tabindex="-1"></a><span class="co">## Perform inner join on df1 and df2</span></span>
-<span id="cb11-2"><a href="#cb11-2" aria-hidden="true" tabindex="-1"></a>df <span class="op">=</span> df1.join(df2, how<span class="op">=</span><span class="st">"inner"</span>, on<span class="op">=</span><span class="st">"value"</span>)</span>
-<span id="cb11-3"><a href="#cb11-3" aria-hidden="true" tabindex="-1"></a></span>
-<span id="cb11-4"><a href="#cb11-4" aria-hidden="true" tabindex="-1"></a><span class="co">## add cache here</span></span>
-<span id="cb11-5"><a href="#cb11-5" aria-hidden="true" tabindex="-1"></a>df.cache()</span>
-<span id="cb11-6"><a href="#cb11-6" aria-hidden="true" tabindex="-1"></a></span>
-<span id="cb11-7"><a href="#cb11-7" aria-hidden="true" tabindex="-1"></a><span class="co">## Split the joined result into two data frames: one only contains the odd numbers, another one for the even numbers</span></span>
-<span id="cb11-8"><a href="#cb11-8" aria-hidden="true" tabindex="-1"></a>df_odd <span class="op">=</span> df.<span class="bu">filter</span>(df.value <span class="op">%</span> <span class="dv">2</span> <span class="op">==</span> <span class="dv">1</span>)</span>
-<span id="cb11-9"><a href="#cb11-9" aria-hidden="true" tabindex="-1"></a>df_even <span class="op">=</span> df.<span class="bu">filter</span>(df.value <span class="op">%</span> <span class="dv">2</span> <span class="op">==</span> <span class="dv">0</span>)</span>
-<span id="cb11-10"><a href="#cb11-10" aria-hidden="true" tabindex="-1"></a></span>
-<span id="cb11-11"><a href="#cb11-11" aria-hidden="true" tabindex="-1"></a><span class="co">## Add a transformation with a field called magic_value which is generated by two dummy transformations.</span></span>
-<span id="cb11-12"><a href="#cb11-12" aria-hidden="true" tabindex="-1"></a>df_odd <span class="op">=</span> df_odd.withColumn(<span class="st">"magic_value"</span>, df.value<span class="op">+</span><span class="dv">1</span>)</span>
-<span id="cb11-13"><a href="#cb11-13" aria-hidden="true" tabindex="-1"></a>df_even <span class="op">=</span> df_even.withColumn(<span class="st">"magic_value"</span>, df.value<span class="op">/</span><span class="dv">2</span>)</span>
-<span id="cb11-14"><a href="#cb11-14" aria-hidden="true" tabindex="-1"></a></span>
-<span id="cb11-15"><a href="#cb11-15" aria-hidden="true" tabindex="-1"></a><span class="co">## Union the odd and even number data frames</span></span>
-<span id="cb11-16"><a href="#cb11-16" aria-hidden="true" tabindex="-1"></a>df_odd.union(df_even).count()</span></code><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></pre></div>
+<div class="sourceCode" id="cb15"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb15-1"><a href="#cb15-1" aria-hidden="true" tabindex="-1"></a><span class="co">## Perform inner join on df1 and df2</span></span>
+<span id="cb15-2"><a href="#cb15-2" aria-hidden="true" tabindex="-1"></a>df <span class="op">=</span> df1.join(df2, how<span class="op">=</span><span class="st">"inner"</span>, on<span class="op">=</span><span class="st">"value"</span>)</span>
+<span id="cb15-3"><a href="#cb15-3" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb15-4"><a href="#cb15-4" aria-hidden="true" tabindex="-1"></a><span class="co">## add cache here</span></span>
+<span id="cb15-5"><a href="#cb15-5" aria-hidden="true" tabindex="-1"></a>df.cache()</span>
+<span id="cb15-6"><a href="#cb15-6" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb15-7"><a href="#cb15-7" aria-hidden="true" tabindex="-1"></a><span class="co">## Split the joined result into two data frames: one only contains the odd numbers, another one for the even numbers</span></span>
+<span id="cb15-8"><a href="#cb15-8" aria-hidden="true" tabindex="-1"></a>df_odd <span class="op">=</span> df.<span class="bu">filter</span>(df.value <span class="op">%</span> <span class="dv">2</span> <span class="op">==</span> <span class="dv">1</span>)</span>
+<span id="cb15-9"><a href="#cb15-9" aria-hidden="true" tabindex="-1"></a>df_even <span class="op">=</span> df.<span class="bu">filter</span>(df.value <span class="op">%</span> <span class="dv">2</span> <span class="op">==</span> <span class="dv">0</span>)</span>
+<span id="cb15-10"><a href="#cb15-10" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb15-11"><a href="#cb15-11" aria-hidden="true" tabindex="-1"></a><span class="co">## Add a transformation with a field called magic_value which is generated by two dummy transformations.</span></span>
+<span id="cb15-12"><a href="#cb15-12" aria-hidden="true" tabindex="-1"></a>df_odd <span class="op">=</span> df_odd.withColumn(<span class="st">"magic_value"</span>, df.value<span class="op">+</span><span class="dv">1</span>)</span>
+<span id="cb15-13"><a href="#cb15-13" aria-hidden="true" tabindex="-1"></a>df_even <span class="op">=</span> df_even.withColumn(<span class="st">"magic_value"</span>, df.value<span class="op">/</span><span class="dv">2</span>)</span>
+<span id="cb15-14"><a href="#cb15-14" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb15-15"><a href="#cb15-15" aria-hidden="true" tabindex="-1"></a><span class="co">## Union the odd and even number data frames</span></span>
+<span id="cb15-16"><a href="#cb15-16" aria-hidden="true" tabindex="-1"></a>df_odd.union(df_even).count()</span></code><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></pre></div>
 <ul>
 <li>Reduces the plan from 50 to 32 stages</li>
 </ul></li>
@@ -2469,7 +2650,7 @@ pre > code.sourceCode > span > a:first-child::before { text-decoration: underlin
 <h2 class="unnumbered anchored" data-anchor-id="sec-apache-spark-dating">Data Ingestion</h2>
 <ul>
 <li><p>Send data from R to the Spark Cluster</p>
-<div class="sourceCode" id="cb12"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb12-1"><a href="#cb12-1" aria-hidden="true" tabindex="-1"></a>iris_ref <span class="ot">&lt;-</span> dplyr<span class="sc">::</span><span class="fu">copy_to</span>(sc, iris_df, <span class="st">"iris_tbl"</span>)</span></code><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></pre></div>
+<div class="sourceCode" id="cb16"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb16-1"><a href="#cb16-1" aria-hidden="true" tabindex="-1"></a>iris_ref <span class="ot">&lt;-</span> dplyr<span class="sc">::</span><span class="fu">copy_to</span>(sc, iris_df, <span class="st">"iris_tbl"</span>)</span></code><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></pre></div>
 <ul>
 <li><span class="var-text">iris_ref</span>
 <ul>
@@ -2486,14 +2667,14 @@ pre > code.sourceCode > span > a:first-child::before { text-decoration: underlin
 </ul></li>
 </ul></li>
 <li><p>Manipulate ref objs and create new object in spark and R</p>
-<div class="sourceCode" id="cb13"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb13-1"><a href="#cb13-1" aria-hidden="true" tabindex="-1"></a>full_products <span class="ot">&lt;-</span> </span>
-<span id="cb13-2"><a href="#cb13-2" aria-hidden="true" tabindex="-1"></a>  dplyr<span class="sc">::</span><span class="fu">copy_to</span>(sc, products_ref <span class="sc">%&gt;%</span></span>
-<span id="cb13-3"><a href="#cb13-3" aria-hidden="true" tabindex="-1"></a>      <span class="fu">inner_join</span>(departments_ref) <span class="sc">%&gt;%</span></span>
-<span id="cb13-4"><a href="#cb13-4" aria-hidden="true" tabindex="-1"></a>      <span class="fu">inner_join</span>(aisles_ref),</span>
-<span id="cb13-5"><a href="#cb13-5" aria-hidden="true" tabindex="-1"></a>      <span class="at">name =</span> <span class="st">"product_full"</span>,</span>
-<span id="cb13-6"><a href="#cb13-6" aria-hidden="true" tabindex="-1"></a>      <span class="at">overwrite =</span> <span class="cn">TRUE</span>)</span>
-<span id="cb13-7"><a href="#cb13-7" aria-hidden="true" tabindex="-1"></a><span class="co"># or use the spark object name to create an ref object</span></span>
-<span id="cb13-8"><a href="#cb13-8" aria-hidden="true" tabindex="-1"></a><span class="fu">tbl</span>(sc, <span class="st">"product_full"</span>) <span class="sc">%&gt;%</span> <span class="fu">select</span>(var_name)</span></code><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></pre></div>
+<div class="sourceCode" id="cb17"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb17-1"><a href="#cb17-1" aria-hidden="true" tabindex="-1"></a>full_products <span class="ot">&lt;-</span> </span>
+<span id="cb17-2"><a href="#cb17-2" aria-hidden="true" tabindex="-1"></a>  dplyr<span class="sc">::</span><span class="fu">copy_to</span>(sc, products_ref) <span class="sc">%&gt;%</span></span>
+<span id="cb17-3"><a href="#cb17-3" aria-hidden="true" tabindex="-1"></a>      <span class="fu">inner_join</span>(departments_ref) <span class="sc">%&gt;%</span></span>
+<span id="cb17-4"><a href="#cb17-4" aria-hidden="true" tabindex="-1"></a>      <span class="fu">inner_join</span>(aisles_ref,</span>
+<span id="cb17-5"><a href="#cb17-5" aria-hidden="true" tabindex="-1"></a>                 <span class="at">name =</span> <span class="st">"product_full"</span>,</span>
+<span id="cb17-6"><a href="#cb17-6" aria-hidden="true" tabindex="-1"></a>                 <span class="at">overwrite =</span> <span class="cn">TRUE</span>)</span>
+<span id="cb17-7"><a href="#cb17-7" aria-hidden="true" tabindex="-1"></a><span class="co"># or use the spark object name to create an ref object</span></span>
+<span id="cb17-8"><a href="#cb17-8" aria-hidden="true" tabindex="-1"></a><span class="fu">tbl</span>(sc, <span class="st">"product_full"</span>) <span class="sc">%&gt;%</span> <span class="fu">select</span>(var_name)</span></code><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></pre></div>
 <ul>
 <li><code>copy_to</code> also can be used to create new objects in spark from reference objects in R
 <ul>
@@ -2503,18 +2684,31 @@ pre > code.sourceCode > span > a:first-child::before { text-decoration: underlin
 </ul></li>
 </ul></li>
 <li><p>Read csv file into spark cluster</p>
-<div class="sourceCode" id="cb14"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb14-1"><a href="#cb14-1" aria-hidden="true" tabindex="-1"></a>products_ref <span class="ot">&lt;-</span> <span class="fu">spark_read_csv</span>(sc, <span class="st">"products_tbl"</span>, <span class="st">"folder/folder/products.csv"</span>)</span></code><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></pre></div>
+<div class="sourceCode" id="cb18"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb18-1"><a href="#cb18-1" aria-hidden="true" tabindex="-1"></a>products_ref <span class="ot">&lt;-</span> <span class="fu">spark_read_csv</span>(sc, <span class="st">"products_tbl"</span>, <span class="st">"folder/folder/products.csv"</span>)</span></code><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></pre></div>
 <ul>
 <li><span class="var-text">products_ref</span> is the reference object</li>
 <li><span class="var-text">sc</span> is the connection object</li>
 <li><span class="var-text">products_tbl</span> is the name we want for the table inside spark</li>
 <li>Last part is the path to the file</li>
 </ul></li>
+<li><p>Read multiple files</p>
+<div class="sourceCode" id="cb19"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb19-1"><a href="#cb19-1" aria-hidden="true" tabindex="-1"></a><span class="fu">library</span>(sparklyr)</span>
+<span id="cb19-2"><a href="#cb19-2" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb19-3"><a href="#cb19-3" aria-hidden="true" tabindex="-1"></a><span class="co"># wildcard</span></span>
+<span id="cb19-4"><a href="#cb19-4" aria-hidden="true" tabindex="-1"></a>file_paths <span class="ot">&lt;-</span> <span class="st">"/path/to/directory/*.csv"</span></span>
+<span id="cb19-5"><a href="#cb19-5" aria-hidden="true" tabindex="-1"></a><span class="co"># directory</span></span>
+<span id="cb19-6"><a href="#cb19-6" aria-hidden="true" tabindex="-1"></a>file_paths <span class="ot">&lt;-</span> <span class="st">"/path/to/directory"</span></span>
+<span id="cb19-7"><a href="#cb19-7" aria-hidden="true" tabindex="-1"></a><span class="co"># explicitly</span></span>
+<span id="cb19-8"><a href="#cb19-8" aria-hidden="true" tabindex="-1"></a>file_paths <span class="ot">&lt;-</span> <span class="fu">c</span>(<span class="st">"/path/to/file1.csv"</span>, <span class="st">"/path/to/file2.csv"</span>)</span>
+<span id="cb19-9"><a href="#cb19-9" aria-hidden="true" tabindex="-1"></a><span class="co"># arrow</span></span>
+<span id="cb19-10"><a href="#cb19-10" aria-hidden="true" tabindex="-1"></a>data <span class="ot">&lt;-</span> arrow<span class="sc">::</span><span class="fu">open_dataset</span>(<span class="at">sources =</span> <span class="st">"/path/to/directory"</span>)</span>
+<span id="cb19-11"><a href="#cb19-11" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb19-12"><a href="#cb19-12" aria-hidden="true" tabindex="-1"></a>data <span class="ot">&lt;-</span> <span class="fu">spark_read_csv</span>(<span class="at">sc =</span> sc, <span class="at">name =</span> <span class="st">"my_data"</span>, <span class="at">path =</span> file_paths)</span></code><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></pre></div></li>
 <li><p>View tables in cluster - <code>src_tbl(sc)</code></p></li>
 <li><p>Bring Data from the Cluster into R</p>
-<div class="sourceCode" id="cb15"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb15-1"><a href="#cb15-1" aria-hidden="true" tabindex="-1"></a>pred_iris <span class="ot">&lt;-</span> </span>
-<span id="cb15-2"><a href="#cb15-2" aria-hidden="true" tabindex="-1"></a>  <span class="fu">ml_predict</span>(model_iris, test_iris) <span class="sc">%&gt;%</span></span>
-<span id="cb15-3"><a href="#cb15-3" aria-hidden="true" tabindex="-1"></a>    dplyr<span class="sc">::</span><span class="fu">collect</span>()</span></code><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></pre></div>
+<div class="sourceCode" id="cb20"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb20-1"><a href="#cb20-1" aria-hidden="true" tabindex="-1"></a>pred_iris <span class="ot">&lt;-</span> </span>
+<span id="cb20-2"><a href="#cb20-2" aria-hidden="true" tabindex="-1"></a>  <span class="fu">ml_predict</span>(model_iris, test_iris) <span class="sc">%&gt;%</span></span>
+<span id="cb20-3"><a href="#cb20-3" aria-hidden="true" tabindex="-1"></a>    dplyr<span class="sc">::</span><span class="fu">collect</span>()</span></code><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></pre></div>
 <ul>
 <li><code>collect</code> brings the predictions data into the R environment</li>
 </ul></li>
@@ -2529,9 +2723,9 @@ pre > code.sourceCode > span > a:first-child::before { text-decoration: underlin
 </ul></li>
 <li><p>quantile <span class="math inline">\(\rightarrow\)</span> <code>percentile</code></p></li>
 <li><p><span class="ribbon-highlight">Example</span>:</p>
-<div class="sourceCode" id="cb16"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb16-1"><a href="#cb16-1" aria-hidden="true" tabindex="-1"></a>cars <span class="sc">%&gt;%</span></span>
-<span id="cb16-2"><a href="#cb16-2" aria-hidden="true" tabindex="-1"></a>  <span class="fu">summarize</span>(<span class="at">mpg_percentile =</span> <span class="fu">percentile</span>(mpg, <span class="fu">array</span>(<span class="dv">0</span>, <span class="fl">0.25</span>, <span class="fl">0.5</span>, <span class="fl">0.75</span>, <span class="dv">1</span>))) <span class="sc">%&gt;%</span></span>
-<span id="cb16-3"><a href="#cb16-3" aria-hidden="true" tabindex="-1"></a>  <span class="fu">mutate</span>(<span class="at">mpg_percentile =</span> <span class="fu">explode</span>(mpg_percentile))</span></code><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></pre></div>
+<div class="sourceCode" id="cb21"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb21-1"><a href="#cb21-1" aria-hidden="true" tabindex="-1"></a>cars <span class="sc">%&gt;%</span></span>
+<span id="cb21-2"><a href="#cb21-2" aria-hidden="true" tabindex="-1"></a>  <span class="fu">summarize</span>(<span class="at">mpg_percentile =</span> <span class="fu">percentile</span>(mpg, <span class="fu">array</span>(<span class="dv">0</span>, <span class="fl">0.25</span>, <span class="fl">0.5</span>, <span class="fl">0.75</span>, <span class="dv">1</span>))) <span class="sc">%&gt;%</span></span>
+<span id="cb21-3"><a href="#cb21-3" aria-hidden="true" tabindex="-1"></a>  <span class="fu">mutate</span>(<span class="at">mpg_percentile =</span> <span class="fu">explode</span>(mpg_percentile))</span></code><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></pre></div>
 <ul>
 <li><span class="var-text">cars</span> is a reference object</li>
 <li><code>percentile</code> returns a list so <code>explode</code> (unnesting/flattening) coerces it into a vector
@@ -2549,16 +2743,16 @@ pre > code.sourceCode > span > a:first-child::before { text-decoration: underlin
 <h2 class="unnumbered anchored" data-anchor-id="sec-apache-spark-spsql">Spark SQL</h2>
 <ul>
 <li><p>Get sql query from a dplyr operations</p>
-<div class="sourceCode" id="cb17"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb17-1"><a href="#cb17-1" aria-hidden="true" tabindex="-1"></a><span class="fu">count</span>(ref_obj) <span class="sc">%&gt;%</span></span>
-<span id="cb17-2"><a href="#cb17-2" aria-hidden="true" tabindex="-1"></a>  <span class="fu">show_query</span>()</span></code><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></pre></div>
+<div class="sourceCode" id="cb22"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb22-1"><a href="#cb22-1" aria-hidden="true" tabindex="-1"></a><span class="fu">count</span>(ref_obj) <span class="sc">%&gt;%</span></span>
+<span id="cb22-2"><a href="#cb22-2" aria-hidden="true" tabindex="-1"></a>  <span class="fu">show_query</span>()</span></code><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></pre></div>
 <ul>
 <li>Can use mutate, group_by, summarize, across, etc.</li>
 </ul></li>
 <li><p>Use SQL to query spark object</p>
-<div class="sourceCode" id="cb18"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb18-1"><a href="#cb18-1" aria-hidden="true" tabindex="-1"></a>DBI<span class="sc">::</span><span class="fu">dbGetQuery</span>(</span>
-<span id="cb18-2"><a href="#cb18-2" aria-hidden="true" tabindex="-1"></a>  <span class="at">conn =</span> sc,</span>
-<span id="cb18-3"><a href="#cb18-3" aria-hidden="true" tabindex="-1"></a>  <span class="at">statement =</span> <span class="st">"SELECT COUNT(*) AS 'n' FROM `full_product`"</span></span>
-<span id="cb18-4"><a href="#cb18-4" aria-hidden="true" tabindex="-1"></a>)</span></code><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></pre></div>
+<div class="sourceCode" id="cb23"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb23-1"><a href="#cb23-1" aria-hidden="true" tabindex="-1"></a>DBI<span class="sc">::</span><span class="fu">dbGetQuery</span>(</span>
+<span id="cb23-2"><a href="#cb23-2" aria-hidden="true" tabindex="-1"></a>  <span class="at">conn =</span> sc,</span>
+<span id="cb23-3"><a href="#cb23-3" aria-hidden="true" tabindex="-1"></a>  <span class="at">statement =</span> <span class="st">"SELECT COUNT(*) AS 'n' FROM `full_product`"</span></span>
+<span id="cb23-4"><a href="#cb23-4" aria-hidden="true" tabindex="-1"></a>)</span></code><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></pre></div>
 <ul>
 <li>Where <span class="var-text">full_product</span> is the name of the table <em>in the cluster</em></li>
 </ul></li>
@@ -2575,26 +2769,26 @@ pre > code.sourceCode > span > a:first-child::before { text-decoration: underlin
 <li>Not sure if <span class="var-text">partition_iris</span> is in the cluster, but I think when the “registering” occurs is when the splitting takes place inside the cluster and separate objects are created.</li>
 </ul></li>
 <li><p><code>tbl</code> creates a separate reference object for train data in R</p>
-<div class="sourceCode" id="cb19"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb19-1"><a href="#cb19-1" aria-hidden="true" tabindex="-1"></a>partition_iris <span class="ot">&lt;-</span> <span class="fu">sdf_partition</span>(iris_ref, <span class="at">training =</span> <span class="fl">0.8</span>, <span class="at">testing =</span> <span class="fl">0.2</span>)</span>
-<span id="cb19-2"><a href="#cb19-2" aria-hidden="true" tabindex="-1"></a><span class="fu">sdf_register</span>(partition_iris, <span class="fu">c</span>(<span class="st">"spark_training_iris"</span>, <span class="st">"spark_testing_iris"</span>))</span>
-<span id="cb19-3"><a href="#cb19-3" aria-hidden="true" tabindex="-1"></a>tidy_iris <span class="ot">&lt;-</span> </span>
-<span id="cb19-4"><a href="#cb19-4" aria-hidden="true" tabindex="-1"></a>  <span class="fu">tbl</span>(sc, <span class="st">"spark_iris_training"</span>) <span class="sc">%&gt;%</span></span>
-<span id="cb19-5"><a href="#cb19-5" aria-hidden="true" tabindex="-1"></a>      <span class="fu">select</span>(Species, Petal_Length, Petal_Width)</span></code><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></pre></div></li>
+<div class="sourceCode" id="cb24"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb24-1"><a href="#cb24-1" aria-hidden="true" tabindex="-1"></a>partition_iris <span class="ot">&lt;-</span> <span class="fu">sdf_partition</span>(iris_ref, <span class="at">training =</span> <span class="fl">0.8</span>, <span class="at">testing =</span> <span class="fl">0.2</span>)</span>
+<span id="cb24-2"><a href="#cb24-2" aria-hidden="true" tabindex="-1"></a><span class="fu">sdf_register</span>(partition_iris, <span class="fu">c</span>(<span class="st">"spark_training_iris"</span>, <span class="st">"spark_testing_iris"</span>))</span>
+<span id="cb24-3"><a href="#cb24-3" aria-hidden="true" tabindex="-1"></a>tidy_iris <span class="ot">&lt;-</span> </span>
+<span id="cb24-4"><a href="#cb24-4" aria-hidden="true" tabindex="-1"></a>  <span class="fu">tbl</span>(sc, <span class="st">"spark_iris_training"</span>) <span class="sc">%&gt;%</span></span>
+<span id="cb24-5"><a href="#cb24-5" aria-hidden="true" tabindex="-1"></a>      <span class="fu">select</span>(Species, Petal_Length, Petal_Width)</span></code><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></pre></div></li>
 </ol></li>
 <li><p>Train Basic Spark ML model</p>
-<div class="sourceCode" id="cb20"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb20-1"><a href="#cb20-1" aria-hidden="true" tabindex="-1"></a>model_iris <span class="ot">&lt;-</span> </span>
-<span id="cb20-2"><a href="#cb20-2" aria-hidden="true" tabindex="-1"></a>  tidy_iris <span class="sc">%&gt;%</span></span>
-<span id="cb20-3"><a href="#cb20-3" aria-hidden="true" tabindex="-1"></a>    <span class="fu">ml_decision_tree</span>(<span class="at">response =</span> <span class="st">"Species"</span>, </span>
-<span id="cb20-4"><a href="#cb20-4" aria-hidden="true" tabindex="-1"></a>                     <span class="at">features =</span> <span class="fu">c</span>(<span class="st">"Petal_Width"</span>, <span class="st">"Petal_Length"</span>))</span>
-<span id="cb20-5"><a href="#cb20-5" aria-hidden="true" tabindex="-1"></a>test_iris <span class="ot">&lt;-</span> <span class="fu">tbl</span>(sc, <span class="st">"spark_testing_iris"</span>)</span></code><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></pre></div>
+<div class="sourceCode" id="cb25"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb25-1"><a href="#cb25-1" aria-hidden="true" tabindex="-1"></a>model_iris <span class="ot">&lt;-</span> </span>
+<span id="cb25-2"><a href="#cb25-2" aria-hidden="true" tabindex="-1"></a>  tidy_iris <span class="sc">%&gt;%</span></span>
+<span id="cb25-3"><a href="#cb25-3" aria-hidden="true" tabindex="-1"></a>    <span class="fu">ml_decision_tree</span>(<span class="at">response =</span> <span class="st">"Species"</span>, </span>
+<span id="cb25-4"><a href="#cb25-4" aria-hidden="true" tabindex="-1"></a>                     <span class="at">features =</span> <span class="fu">c</span>(<span class="st">"Petal_Width"</span>, <span class="st">"Petal_Length"</span>))</span>
+<span id="cb25-5"><a href="#cb25-5" aria-hidden="true" tabindex="-1"></a>test_iris <span class="ot">&lt;-</span> <span class="fu">tbl</span>(sc, <span class="st">"spark_testing_iris"</span>)</span></code><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></pre></div>
 <ul>
 <li><span class="var-text">test_iris</span> and <span class="var-text">tidy_iris</span> are reference objects</li>
 <li>I don’t think <span class="var-text">model_iris</span> is a reference object. It’s a spark class objecti but I believe it’s in your environment and not on the cluster</li>
 </ul></li>
 <li><p>Predict</p>
-<div class="sourceCode" id="cb21"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb21-1"><a href="#cb21-1" aria-hidden="true" tabindex="-1"></a>pred_iris <span class="ot">&lt;-</span> </span>
-<span id="cb21-2"><a href="#cb21-2" aria-hidden="true" tabindex="-1"></a>  <span class="fu">ml_predict</span>(model_iris, test_iris) <span class="sc">%&gt;%</span></span>
-<span id="cb21-3"><a href="#cb21-3" aria-hidden="true" tabindex="-1"></a>    dplyr<span class="sc">::</span><span class="fu">collect</span>()</span></code><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></pre></div></li>
+<div class="sourceCode" id="cb26"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb26-1"><a href="#cb26-1" aria-hidden="true" tabindex="-1"></a>pred_iris <span class="ot">&lt;-</span> </span>
+<span id="cb26-2"><a href="#cb26-2" aria-hidden="true" tabindex="-1"></a>  <span class="fu">ml_predict</span>(model_iris, test_iris) <span class="sc">%&gt;%</span></span>
+<span id="cb26-3"><a href="#cb26-3" aria-hidden="true" tabindex="-1"></a>    dplyr<span class="sc">::</span><span class="fu">collect</span>()</span></code><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></pre></div></li>
 <li><p>Summary - <code>summary(model)</code></p></li>
 <li><p>Models</p>
 <ul>
@@ -2624,10 +2818,10 @@ pre > code.sourceCode > span > a:first-child::before { text-decoration: underlin
 <li>Might have to stop connection to spark server with <code>spark_disconnect_all()</code></li>
 </ul></li>
 <li><p><span class="ribbon-highlight">Example</span>:</p>
-<div class="sourceCode" id="cb22"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb22-1"><a href="#cb22-1" aria-hidden="true" tabindex="-1"></a>stream <span class="ot">&lt;-</span> <span class="fu">stream_read_csv</span>(sc, <span class="st">"stream_input/"</span>)</span>
-<span id="cb22-2"><a href="#cb22-2" aria-hidden="true" tabindex="-1"></a>stream <span class="sc">%&gt;%</span></span>
-<span id="cb22-3"><a href="#cb22-3" aria-hidden="true" tabindex="-1"></a>&nbsp; &nbsp; <span class="fu">select</span>(mpg, cyl, disp) <span class="sc">%&gt;%</span></span>
-<span id="cb22-4"><a href="#cb22-4" aria-hidden="true" tabindex="-1"></a>&nbsp; &nbsp; <span class="fu">stream_write_csv</span>(<span class="st">"stream_output/"</span></span></code><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></pre></div></li>
+<div class="sourceCode" id="cb27"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb27-1"><a href="#cb27-1" aria-hidden="true" tabindex="-1"></a>stream <span class="ot">&lt;-</span> <span class="fu">stream_read_csv</span>(sc, <span class="st">"stream_input/"</span>)</span>
+<span id="cb27-2"><a href="#cb27-2" aria-hidden="true" tabindex="-1"></a>stream <span class="sc">%&gt;%</span></span>
+<span id="cb27-3"><a href="#cb27-3" aria-hidden="true" tabindex="-1"></a>&nbsp; &nbsp; <span class="fu">select</span>(mpg, cyl, disp) <span class="sc">%&gt;%</span></span>
+<span id="cb27-4"><a href="#cb27-4" aria-hidden="true" tabindex="-1"></a>&nbsp; &nbsp; <span class="fu">stream_write_csv</span>(<span class="st">"stream_output/"</span></span></code><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></pre></div></li>
 </ul>
 </section>
 <section id="sec-apache-spark-mon" class="level2 unnumbered">
@@ -2745,12 +2939,12 @@ pre > code.sourceCode > span > a:first-child::before { text-decoration: underlin
 <li>May require some extra information on the location of the databricks spark location</li>
 </ul></li>
 <li><p><span class="ribbon-highlight">Example</span>:</p>
-<div class="sourceCode" id="cb23"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb23-1"><a href="#cb23-1" aria-hidden="true" tabindex="-1"></a>databricks_connect_spark_home <span class="ot">&lt;-</span> <span class="fu">system</span>(<span class="st">"databricks-connect get-spark-home"</span>, <span class="at">intern =</span> <span class="cn">TRUE</span>)</span>
-<span id="cb23-2"><a href="#cb23-2" aria-hidden="true" tabindex="-1"></a>sc <span class="ot">&lt;-</span> <span class="fu">spark_connect</span>(</span>
-<span id="cb23-3"><a href="#cb23-3" aria-hidden="true" tabindex="-1"></a>&nbsp; &nbsp; <span class="at">method =</span> <span class="st">"databricks"</span>,</span>
-<span id="cb23-4"><a href="#cb23-4" aria-hidden="true" tabindex="-1"></a>&nbsp; &nbsp; <span class="at">spark_home =</span> databricks_connect_spark_home,</span>
-<span id="cb23-5"><a href="#cb23-5" aria-hidden="true" tabindex="-1"></a>&nbsp; &nbsp; <span class="at">config =</span> conf</span>
-<span id="cb23-6"><a href="#cb23-6" aria-hidden="true" tabindex="-1"></a>)</span></code><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></pre></div></li>
+<div class="sourceCode" id="cb28"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb28-1"><a href="#cb28-1" aria-hidden="true" tabindex="-1"></a>databricks_connect_spark_home <span class="ot">&lt;-</span> <span class="fu">system</span>(<span class="st">"databricks-connect get-spark-home"</span>, <span class="at">intern =</span> <span class="cn">TRUE</span>)</span>
+<span id="cb28-2"><a href="#cb28-2" aria-hidden="true" tabindex="-1"></a>sc <span class="ot">&lt;-</span> <span class="fu">spark_connect</span>(</span>
+<span id="cb28-3"><a href="#cb28-3" aria-hidden="true" tabindex="-1"></a>&nbsp; &nbsp; <span class="at">method =</span> <span class="st">"databricks"</span>,</span>
+<span id="cb28-4"><a href="#cb28-4" aria-hidden="true" tabindex="-1"></a>&nbsp; &nbsp; <span class="at">spark_home =</span> databricks_connect_spark_home,</span>
+<span id="cb28-5"><a href="#cb28-5" aria-hidden="true" tabindex="-1"></a>&nbsp; &nbsp; <span class="at">config =</span> conf</span>
+<span id="cb28-6"><a href="#cb28-6" aria-hidden="true" tabindex="-1"></a>)</span></code><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></pre></div></li>
 </ul></li>
 <li><u>Monitoring</u>
 <ul>
@@ -2867,9 +3061,9 @@ pre > code.sourceCode > span > a:first-child::before { text-decoration: underlin
 <h3 class="unnumbered anchored" data-anchor-id="sec-apache-spark-cloud-gcp">Google Cloud Platform (GCP)</h3>
 <ul>
 <li><p>Read data from cloud storage to local spark cluster</p>
-<div class="sourceCode" id="cb24"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb24-1"><a href="#cb24-1" aria-hidden="true" tabindex="-1"></a>bucket_name <span class="ot">&lt;-</span> <span class="st">"ndir-metis-bucket"</span></span>
-<span id="cb24-2"><a href="#cb24-2" aria-hidden="true" tabindex="-1"></a>path <span class="ot">&lt;-</span> glue<span class="sc">::</span><span class="fu">glue</span>(<span class="st">"gs://{bucket_name}/asteroid/Asteroid_Updated.csv"</span>)</span>
-<span id="cb24-3"><a href="#cb24-3" aria-hidden="true" tabindex="-1"></a>df <span class="ot">&lt;-</span> <span class="fu">spark_read_csv</span>(path, <span class="at">sep=</span><span class="st">','</span>, <span class="at">inferSchema=</span>True, <span class="at">header=</span>True)</span></code><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></pre></div>
+<div class="sourceCode" id="cb29"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb29-1"><a href="#cb29-1" aria-hidden="true" tabindex="-1"></a>bucket_name <span class="ot">&lt;-</span> <span class="st">"ndir-metis-bucket"</span></span>
+<span id="cb29-2"><a href="#cb29-2" aria-hidden="true" tabindex="-1"></a>path <span class="ot">&lt;-</span> glue<span class="sc">::</span><span class="fu">glue</span>(<span class="st">"gs://{bucket_name}/asteroid/Asteroid_Updated.csv"</span>)</span>
+<span id="cb29-3"><a href="#cb29-3" aria-hidden="true" tabindex="-1"></a>df <span class="ot">&lt;-</span> <span class="fu">spark_read_csv</span>(path, <span class="at">sep=</span><span class="st">','</span>, <span class="at">inferSchema=</span>True, <span class="at">header=</span>True)</span></code><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></pre></div>
 <ul>
 <li>I adapted this from a pyspark example but should be similar for R</li>
 </ul></li>
