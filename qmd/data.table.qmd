@@ -2,7 +2,27 @@
 
 ## Misc {#sec-dt-misc .unnumbered}
 
--   `setDT(df)`- fast conversion of a data frame or list to a data.table without copying
+-   Syntax
+
+    ``` r
+    DT[i, j, by]
+
+    ##   R:                 i                 j        by
+    ## SQL:  where | order by   select | update  group by
+    ```
+
+    -   Take data.table DT, subset rows using i, and manipulate columns with j, grouped according to by.
+
+-   Resources
+
+    -   [Docs](https://rdatatable.gitlab.io/data.table/) but it's difficult to find anything.
+        -   The philosophy of the package is highly dependent on syntax, so the reference page is not very useful in finding out how to perform certain operations as it usually is with other packages.
+        -   The search doesn't include the articles which contain a lot of information.
+        -   Also, it's an old package, and *every* old article, changelog, etc. is in the docs. So, if you find something you think answers your question, it may be that that syntax is outdated.
+    -   [Introduction to data.table](https://rdatatable.gitlab.io/data.table/articles/datatable-intro.html) (vignette)
+    -   Syntax Reference ([link](https://rdatatable.gitlab.io/data.table/reference/data.table.html))
+
+-   `setDT(df)`- Fast conversion of a data frame or list to a data.table without copying
 
     -   Use when working with larger data sets that take up a considerable amount of RAM (several GBs) because the operation will modify each object in place, conserving memory.
     -   `as.data.table(matrix)` should be used for matrices
@@ -21,7 +41,54 @@
 
     -   The `_` placeholder allows you to use R's native pipe.
 
-## Keys {.unnumbered}
+## Basic Usage
+
+### Using i
+
+-   We can subset rows similar to a `data.frame`- except you don’t have to use `DT$` repetitively since columns within the frame of a `data.table` are seen as if they are *variables*.
+-   We can also sort a `data.table` using `order()`, which internally uses `data.table`’s fast order for performance.
+-   We can do much more in `i` by keying a `data.table`, which allows blazing fast subsets and joins. We will see this in the *“Keys and fast binary search based subsets”* and *“Joins and rolling joins”* vignette.
+
+### Using j
+
+-   Select columns the `data.table` way: `DT[, .(colA, colB)]`.
+-   Select columns the `data.frame` way: `DT[, c("colA", "colB")]`.
+-   Compute on columns: `DT[, .(sum(colA), mean(colB))]`.
+-   Provide names if necessary: `DT[, .(sA =sum(colA), mB = mean(colB))]`.
+-   Combine with `i`: `DT[colA > value, sum(colB)]`.
+
+### Using by
+
+-   Using `by`, we can group by columns by specifying a *list of columns* or a *character vector of column names* or even *expressions*. The flexibility of `j`, combined with `by` and `i` makes for a very powerful syntax.
+-   `by` can handle multiple columns and also *expressions*.
+-   We can `keyby` grouping columns to automatically sort the grouped result.
+-   We can use `.SD` and `.SDcols` in `j` to operate on multiple columns using already familiar base functions. Here are some examples:
+    -   `DT[, lapply(.SD, fun), by = ..., .SDcols = ...]` - applies `fun` to all columns specified in `.SDcols` while grouping by the columns specified in `by`.
+    -   `DT[, head(.SD, 2), by = ...]` - return the first two rows for each group.
+    -   `DT[col > val, head(.SD, 1), by = ...]` - combine `i` along with `j` and `by`.
+
+## Columns
+
+-   Rename Columns
+
+    ``` r
+    setnames(DT, 
+             old = c("SIMD2020v2_Income_Domain_Rank",
+                     "SIMD2020_Employment_Domain_Rank",  
+                     "SIMD2020_Health_Domain_Rank",
+                     "SIMD2020_Education_Domain_Rank", 
+                     "SIMD2020_Access_Domain_Rank", 
+                     "SIMD2020_Crime_Domain_Rank",    
+                     "SIMD2020_Housing_Domain_Rank",
+                     "CP_Name"),
+
+             new = c("Income", "Employment", 
+                     "Health",   "Education",
+                     "Access",  "Crime", 
+                     "Housing", "areaname"))
+    ```
+
+## Filtering {#sec-dt-filter .unnumbered}
 
 -   Fast filtering mechanism; reorders rows (increasing) to group by the values in the key columns. Reordered rows make them easier to find and subset.
 
@@ -125,6 +192,26 @@
 
     -   Filtering by more than one key value returns combinations of the first key and second key
     -   Remember setting a key reorders (increasing)
+
+## Joins
+
+-   Left Equal Join
+
+    ``` r
+    DT <- lookup[DT, on = .(DataZone = Data_Zone)]
+    DT <- merge(lookup, DT, by.x = "DataZone", by.y = "Data_Zone")
+    ```
+
+    -   [DT]{.var-text}: A datatable where the id column is [Data_Zone]{.var-text}
+    -   [lookup]{.var-text}: A datatable where the id column is [DataZone]{.var-text}
+    -   Both datatables have the same number of rows so that makes this an Equal Join
+    -   [DT]{.var-text} is joined to [lookup]{.var-text}, so the columns of [lookup]{.var-text} appear first (farthest left) then [DT's]{.var-text} columns (farthest right) of the joined datatable.
+    -   Subset Notation: The output datatable has the id column, [DataZone]{.var-text}, which is from [lookup]{.var-text} but the rows are ordered the same way as the input table, [DT]{.var-text}.
+        -   It's weird that the output's rows are ordered according to the input datatable
+    -   `merge`: The output datatable has the id column, [DataZone]{.var-text}, which is from [lookup]{.var-text}, and the rows are ordered according to [lookup]{.var-text}
+    -   The subset way is the "data.table" way, because you perform calculations on the output using the j position whereas with `merge`, it would require a chain or an extra line of code. But if the order of rows of the output matters, then I can't find a way to reproduce the `merge` ordering using the subset method.
+
+## Conditionals {#sec-dt-cond .unnumbered}
 
 -   Ifelse using [hour]{.var-text}
 
