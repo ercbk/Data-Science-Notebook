@@ -10,8 +10,37 @@
 -   [{rpolars}]{style="color: #990000"}: arrow product; uses SIMD which is a low-level vectorization that can be used to speed up simple operations like addition, subtraction, division, and multiplication
 
     -   Resources
+
         -   [Cookbook Polars for R](https://ddotta.github.io/cookbook-rpolars/)
+
     -   Also see collapse \>\> vs arrow/polars
+
+    -   [Example]{.ribbon-highlight}: groupby state + min, max, mean
+
+        ``` r
+        # polars sql
+        lf <- polars::pl$LazyFrame(D) 
+        polars::pl$SQLContext(frame = lf)$execute(
+          "select min(measurement) as min_m, 
+                  max(measurement) as max_m, 
+                  avg(measurement) as mean_m 
+          from frame 
+          group by state")$collect()
+
+        # polars
+        polars::pl$
+          DataFrame(D)$
+          group_by("state")$
+          agg(polars::pl$
+                col("measurement")$
+                min()$alias("min_m"),
+              polars::pl$
+                col("measurement")$
+                max()$alias("max_m"),
+              polars::pl$
+                col("measurement")$
+                mean()$alias("mean_m"))
+        ```
 
 -   [{collapse}]{style="color: #990000"}: Fast grouped & weighted statistical computations, time series and panel data transformations, list-processing, data manipulation functions, summary statistics and various utilities such as support for variable labels. Class-agnostic framework designed to work with vectors, matrices, data frames, lists and related classes i.e. *xts*, *data.table*, *tibble*, *pdata.frame*, *sf*.\
 
@@ -21,14 +50,65 @@
     ```
 
     -   Code chunk above can optimize any script. No other changes necessary. Quick [demo](https://gist.github.com/grantmcdermott/f9af3b7ce3e4aaa6ec6e02443af41a71).
+
     -   vs arrow/polars ([benchmark](https://github.com/SebKrantz/collapse/blob/master/misc/arrow%20benchmark/arrow_benchmark.md))
+
         -   Depends on the data/groups ratio
             -   If you have "many groups and little data in each group" then use collapse
         -   If your calculations involve "more complex statistics algorithms like the median (involving selection) or mode or distinct value count (involving hashing)(cannot, to my knowledge, benefit from SIMD)" then use collapse.
 
+    -   [Example]{.ribbon-highlight}: groupby state + min, max, mean
+
+        ``` r
+        D |>
+          fgroup_by(state) |> 
+          fsummarise(min = fmin(measurement), 
+                     max = fmax(measurement), 
+                     mean = fmean(measurement)) |>
+          fungroup()
+        ```
+
 -   [{r2c}]{style="color: #990000"}: Fast grouped statistical computation; currently limited to a few functions, sometimes faster than [{collapse}]{style="color: #990000"}
 
 -   [{data.table}]{style="color: #990000"}: Enhanced data frame class with concise data manipulation framework offering powerful aggregation, extremely flexible split-apply-combine computing, reshaping, joins, rolling statistics, set operations on tables, fast csv read/write, and various utilities such as transposition of data.
+
+    -   [Example]{.ribbon-highlight}: groupby state + min, max, mean
+
+        ``` r
+        D[ ,.(mean = mean(measurement),
+              min = min(measurement),
+              max = max(measurement)),
+           by=state]
+
+        # Supposedly faster
+        rbindlist(lapply(unique(D$state), 
+                         \(x) data.table(state = x, 
+                                         y[state == x, 
+                                           .(mean(measurement), 
+                                             min(measurement), 
+                                             max(measurement))
+                                           ]
+                                         )))
+        ```
+
+-   [{]{style="color: #990000"}[rfast](https://github.com/RfastOfficial/Rfast/){style="color: #990000"}[}]{style="color: #990000"}: A collection of fast (utility) functions for data analysis. Column- and row- wise means, medians, variances, minimums, maximums, many t, F and G-square tests, many regressions (normal, logistic, Poisson), are some of the many fast functions
+
+    -   The vast majority of the functions accept matrices only, not data.frames.
+
+    -   Do not have matrices or vectors with have missing data (i.e NAs). There are no checks and C++ internally transforms them into zeros (0), so you may get wrong results.
+
+    -   [Example]{.ribbon-highlight}: groupby state + min, max, mean
+
+        ``` r
+        lev_int <- as.numeric(D$state)
+        minmax <- Rfast::group(D$measurement, lev_int, method = "min.max")
+        data.frame(
+            state = levels(D$state),
+            mean = Rfast::group(D$measurement, lev_int, method = "mean"),
+            min = minmax[1, ],
+            max = minmax[2, ]
+        )
+        ```
 
 -   [{matrixStats}]{style="color: #990000"}: Efficient row-and column-wise (weighted) statistics on matrices and vectors, including computations on subsets of rows and columns.
 
