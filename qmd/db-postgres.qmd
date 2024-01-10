@@ -1,4 +1,4 @@
-# postgres {#sec-db-pstgr .unnumbered}
+# PostgreSQL {#sec-db-pstgr .unnumbered}
 
 ## Misc {#sec-db-pstgr-misc .unnumbered}
 
@@ -39,12 +39,12 @@
                 -   \*\* Note the "14" in the path which is the current version. Therefore, when postgres is updated, this path will have to be updated \*\*
         -   `psql --host localhost --port 5432 --dbname postgres --username postgres`
             -   Note these are all default values, so this is equivalent to `psql -U postgres`
-            -   \--host (-h) is the ip address or computer name that you want to connect to
+            -   --host (-h) is the ip address or computer name that you want to connect to
                 -   localhost is for the docker container that's running
             -   5432 is the default --port (-p) for a postgres container
-            -   \--dbname (-d) is the name of the database on the server
+            -   --dbname (-d) is the name of the database on the server
                 -   "postgres" is a db that ships with postgres
-            -   \--username (-U) is a username that has permission to access the db
+            -   --username (-U) is a username that has permission to access the db
                 -   "postgres" is the default super-user name
         -   A prompt will then ask you for that username's password
             -   The container above has the password ericb2022
@@ -446,3 +446,92 @@
                 ```
 
                 -   Similar to other code above
+
+## Distributed Architectures
+
+-   [Misc]{.underline}
+    -   Notes from [An Overview of Distributed PostgreSQL Architectures](https://www.crunchydata.com/blog/an-overview-of-distributed-postgresql-architectures)
+    -   Features to achieve single node availability, durability, and performance - Replication - Place copies of data on different machines - Distribution - Place partitions of data on different machines - Decentralization - Place different DBMS activities on different machines
+    -   If transactions take on average 20ms, then a single (interactive) session can only do 50 transactions per second. You then need a lot of concurrent sessions to actually achieve high throughput. Having many sessions is not always practical from the application point-of-view, and each session uses significant resources like memory on the database server. Most PostgreSQL set ups limit the maximum number of sessions in the hundreds or low thousands, which puts a hard limit on achievable transaction throughput when network latency is involved.
+-   [Network-Attached Block Storage]{.underline} (e.g. EBS)\
+    ![](_resources/DB-PostgreSQL.resources/distr-net-att-1.avif){width="332"}
+    -   Common technique in cloud-based architectures
+    -   Database server typically runs in a virtual machine in a Hypervisor, which exposes a block device to the VM. Any reads and writes to the block device will result in network calls to a block storage API. The block storage service internally replicates the writes to 2-3 storage nodes.
+    -   Pros
+        -   Higher durability (replication)
+        -   Higher uptime (replace VM, reattach)
+        -   Fast backups and replica creation (snapshots)
+        -   Disk is resizable
+    -   Cons
+        -   Higher disk latency (\~20μs -\> \~1000μs)
+        -   Lower IOPS (\~1M -\> \~10k IOPS)
+        -   Crash recovery on restart takes time
+        -   Cost can be high
+    -   Guideline: The durability and availability benefits of network-attached storage usually outweigh the performance downsides, but it’s worth keeping in mind that PostgreSQL can be much faster.
+-   [Read Replicas]{.underline}\
+    ![](_resources/DB-PostgreSQL.resources/distr-read-rep-1.avif){width="332"}
+    -   The most common way of using a replica is to set it up as a hot standby that takes over when the primary fails in a high availability set up.
+    -   Helps you scale read throughput when reads are CPU or I/O bottlenecked by load balancing queries across replicas, which achieves linear scalability of reads and also offloads the primary, which speeds up writes!
+        -   The primary usually does not wait for replication when committing a write, which means read replicas are always slightly behind. That can become an issue when your application does a read that, from the user’s perspective, depends on a write that happened earlier.
+        -   For example, a user clicks “Add to cart”, which adds the item to the shopping cart and immediately sends the user to the shopping cart page. If reading the shopping cart contents happens on the read replica, the shopping cart might then appear empty. Hence, you need to be very careful about which reads use a read replica.
+    -   When load balancing between different nodes, clients might repeatedly get connected to different replica and see a different state of the database
+    -   Powerful tool for scaling reads, but you should consider whether your workload is really appropriate for it.
+    -   Pros
+        -   Read throughput scales linearly
+        -   Low latency stale reads if read replica is closer than primary
+        -   Lower load on primary
+    -   Cons
+        -   Eventual read-your-writes consistency
+        -   No monotonic read consistency
+        -   Poor cache usage
+    -   Guideline: Consider using read replicas when you need \>100k reads/sec or observe a CPU bottleneck due to reads, best avoided for dependent transactions and large working sets.
+-   [DBMS-Optimized Cloud Storage\
+    ]{.underline}![](_resources/DB-PostgreSQL.resources/distr-dbms-opt-1.avif){width="532"}
+    -   Where DBMS is Database Management Software. (e.g. Aurora)
+    -   PostgreSQL is not optimized for this architecture
+    -   While the theory behind DBMS-optimized storage is sound. In practice, the performance benefits are often not very pronounced (and can be negative), and the cost can be much higher than regular network-attached block storage. It does offer a greater degree of flexibility to the cloud service provider, for instance in terms of attach/detach times, because storage is controlled in the data plane rather than the hypervisor.
+    -   Pros
+        -   Potential performance benefits by avoiding page writes from primary
+        -   Replicas can reuse storage, incl. hot standby
+        -   Can do faster reattach, branching than network-attached storage
+    -   Cons
+        -   Write latency is high by default
+        -   High cost / pricing
+        -   PostgreSQL is not designed for it, not OSS
+    -   Guideline: Can be beneficial for complex workloads, but important to measure whether price-performance under load is actually better than using a bigger machine.
+-   [Active-Active]{.underline} (e.g. BDR)\
+    ![](_resources/DB-PostgreSQL.resources/distr-active-active-1.avif){width="432"}
+    -   Any node can locally accept writes without coordination with other nodes.
+    -   It is typically used with replicas in multiple sites, each of which will then see low read and write latency, and can survive failure of other sites.
+    -   Active-active systems do not have a linear history, even at the row level, which makes them very hard to program against.
+    -   Pros
+        -   Very high read and write availability
+        -   Low read and write latency
+        -   Read throughput scales linearly
+    -   Cons
+        -   Eventual read-your-writes consistency
+        -   No monotonic read consistency
+        -   No linear history (updates might conflict after commit)
+    -   Guideline: Consider only for very simple workloads (e.g. queues) and only if you really need the benefits.
+-   [Transparent Sharding]{.underline} (e.g. Citus)\
+    ![](_resources/DB-PostgreSQL.resources/distr-trans-shard-1.avif){width="432"}
+    -   Pros
+        -   Scale throughput for reads & writes (CPU & IOPS)
+        -   Scale memory for large working sets
+        -   Parallelize analytical queries, batch operations
+    -   Cons
+        -   High read and write latency
+        -   Data model decisions have high impact on performance
+        -   Snapshot isolation concessions
+    -   Guideline: Use for multi-tenant apps, otherwise use for large working set (\>100GB) or compute heavy queries.
+-   [Distributed Key-Value Stores With SQL]{.underline} (e.g. Yugabyte)\
+    ![](_resources/DB-PostgreSQL.resources/distr-distr-key-1.avif){width="432"}
+    -   Pros
+        -   Good read and write availability (shard-level failover)
+        -   Single table, single key operations scale well
+        -   No additional data modeling steps or snapshot isolation concessions
+    -   Cons
+        -   Many internal operations incur high latency
+        -   No local joins in current implementations
+        -   Not actually PostgreSQL, and less mature and optimized
+    -   Guideline: Just use PostgreSQL. For simple applications, the availability and scalability benefits can be useful.
