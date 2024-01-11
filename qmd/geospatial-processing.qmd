@@ -1,126 +1,218 @@
-# Processing
+# Processing {#sec-geo-proc .unnumbered}
 
-## Misc
-
--   D/L and Load a shapefile
-    -   May need API key from Census Bureau (see [{tigris}]{style="color: #990000"} docs)
-    -   Example: Counties in California
-
-```         
-tbl <- tigris::counties(state = "CA") %>%
-    st_set_crs(4326)
-```
-
--   Write data to geojson
-
-```         
-data %>%
-    st_write("mb_shapes.geojson")
-```
+## Misc {#sec-geo-proc-misc .unnumbered}
 
 -   Beware statistical computations of tibbles/sf_tibbles with geometry columns
     -   Could result in an expensive union operation over identical geometries and an R session crash
+
         -   Example with 100K rows crashed R.
+
     -   Notes from [thread](https://twitter.com/kyle_e_walker/status/1559568087942172673)
-    -   Option 1 (slower): Use summarize's arg, do_union = FALSE![](./_resources/Geospatial,_Processing.resources/image.png)
-    -   Option 2 (faster): Perform calculation without geometries then join![](./_resources/Geospatial,_Processing.resources/image.1.png)
-        -   [{tidycensus}]{style="color: #990000"} has an arg to bypass d/ling the geometries, "geometry = FALSE" and a separate `tracts` function to get the census tract geometries
 
-## Loading and Reading Shape Files
+    -   Option 1 (slower): Set [do_union = FALSE]{.arg-text} in `summarize`
 
--   [{]{style="color: #990000"}[tigris](https://github.com/walkerke/tigris){style="color: #990000"}[}]{style="color: #990000"} - US data
+        ``` r
+        tx_income_groups <- 
+          get_acs(
+            geography = "tract",
+            table = "B19001",
+            state = "TX",
+            year = 2020,
+            geometry = TRUE
+          ) |> 
+          filter(variable != "B19001_001") |> 
+          mutate(bracket = case_when(
+            variable > "B19001_012" ~ "Above $100k",
+            TRUE ~ "Below $100k"
+          )) |> 
+          group_by(GEOID, bracket) |> 
+          summarize(n_households = sum(estimate, na.rm = TRUE),
+                    do_union = FALSE)
+        ```
 
-```         
-library(tigris)
+    -   Option 2 (faster): Perform calculation without geometries then join
 
-us_states <- states(resolution = "20m", year = 2022, cb = TRUE)
+        ``` r
+        tx_tracts <- tracts("TX", cb = TRUE, year = 2020) |> 
+          select(GEOID)
 
-lower_48 <- us_states %>%
-  filter(!(NAME %in% c("Alaska", "Hawaii", "Puerto Rico")))
-```
+        tx_income_groups <- 
+          get_acs(
+            geography = "tract",
+            table = "B19001",
+            state = "TX",
+            year = 2020,
+            geometry = TRUE
+          ) |> 
+          filter(variable != "B19001_001") |> 
+          mutate(bracket = case_when(
+            variable > "B19001_012" ~ "Above $100k",
+            TRUE ~ "Below $100k"
+          )) |> 
+          group_by(GEOID, bracket) |> 
+          summarize(n_households = sum(estimate, na.rm = TRUE))
 
--   [[{rnaturalearth}](https://github.com/ropensci/rnaturalearth)]{style="color: #990000"} - World data
+        tx_income_groups <- tx_tracts |> 
+          left_join(tx_income_groups, by = "GEOID")
+        ```
 
-```         
-# Via URL
-# Medium scale data, 1:50m Admin 0 - Countries
-# Download from https://www.naturalearthdata.com/downloads/50m-cultural-vectors/
-world_map <- read_sf("ne_50m_admin_0_countries/ne_50m_admin_0_countries.shp") %>%
-  filter(iso_a3 != "ATA")  # Remove Antarctica
+        -   [{tidycensus}]{style="color: #990000"} has an arg to bypass d/ling the geometries, [geometry = FALSE]{.arg-text} and a separate `tracts` function to get the census tract geometries
 
-# Via Package
-library(rnaturalearth)
+## File Types {#sec-geo-proc-filtyp .unnumbered}
 
-# rerturnclass = "sf" makes it so the resulting dataframe has the special
-# sf-enabled geometry column
-world_map <- ne_countries(scale = 50, returnclass = "sf") %>%
-  filter(iso_a3 != "ATA")  # Remove Antarctica
-```
+-   Shape Files
 
-## Projections
+    -   D/L and Load a shapefile
+
+    -   May need API key from Census Bureau (see [{tigris}]{style="color: #990000"} docs)
+
+    -   [Example]{.ribbon-highlight}: Counties in California
+
+        ``` r
+        tbl <- tigris::counties(state = "CA") %>%
+            st_set_crs(4326)
+        ```
+
+    -   [{]{style="color: #990000"}[tigris](https://github.com/walkerke/tigris){style="color: #990000"}[}]{style="color: #990000"} - US data
+
+        ``` r
+        library(tigris)
+
+        us_states <- states(resolution = "20m", year = 2022, cb = TRUE)
+
+        lower_48 <- us_states %>%
+          filter(!(NAME %in% c("Alaska", "Hawaii", "Puerto Rico")))
+        ```
+
+    -   [{]{style="color: #990000"}[rnaturalearth](https://github.com/ropensci/rnaturalearth){style="color: #990000"}[}]{style="color: #990000"} - World data
+
+        ``` r
+        # Via URL
+        # Medium scale data, 1:50m Admin 0 - Countries
+        # Download from https://www.naturalearthdata.com/downloads/50m-cultural-vectors/
+        world_map <- read_sf("ne_50m_admin_0_countries/ne_50m_admin_0_countries.shp") %>%
+          filter(iso_a3 != "ATA")  # Remove Antarctica
+
+        # Via Package
+        library(rnaturalearth)
+
+        # rerturnclass = "sf" makes it so the resulting dataframe has the special
+        # sf-enabled geometry column
+        world_map <- ne_countries(scale = 50, returnclass = "sf") %>%
+          filter(iso_a3 != "ATA")  # Remove Antarctica
+        ```
+
+-   GeoJSON
+
+    -   Write data to geojson
+
+        ``` r
+        data %>%
+            st_write("mb_shapes.geojson")
+        ```
+
+## Projections {#sec-geo-proc-proj .unnumbered}
 
 -   WGS 84
+
     -   Google "epsg code" + "your region name" to find a reasonable projection code to use
         -   Standard projection is 4326 aka WGS84 (required by leaflet)
+
         -   Transform shapefile
 
-```         
-mb_shapes <- read_sf(download_folder)
-mb_shapes %>%
-  st_transform(4326)
-```
+            ``` r
+            mb_shapes <- read_sf(download_folder)
+            mb_shapes %>%
+              st_transform(4326)
+            ```
 
 -   Transform latitude and longitude then visualize
 
-```         
-new_tbl <- old_tbl # contains latitude and longitude variables
-    # convert to simple features object
-    sf::st_as_sf(
-        coords = c("<longitude_var>", "<latitude_var>"), # order matters
-        crs = 4326 # standard crs
-    ) %>%
-    mapviw::mapview()
-```
+    ``` r
+    new_tbl <- old_tbl # contains latitude and longitude variables
+        # convert to simple features object
+        sf::st_as_sf(
+            coords = c("<longitude_var>", "<latitude_var>"), # order matters
+            crs = 4326 # standard crs
+        ) %>%
+        mapviw::mapview()
+    ```
 
 -   WGS 84 projection, which is what Google Maps (and all GPS systems) use
 
-```         
-us_states <- us_states %>% # df with geometries
-  sf::st_transform(st_crs("EPSG:4326"))  # WGS 84
-```
+    ``` r
+    us_states <- us_states %>% # df with geometries
+      sf::st_transform(st_crs("EPSG:4326"))  # WGS 84
+    ```
 
--   [NAD83](https://geodesy.noaa.gov/datums/horizontal/north-american-datum-1983.shtml), [Albers](https://epsg.io/102003), Mercator, Robinson![](./_resources/Geospatial,_Processing.resources/image.2.png)
+-   [NAD83](https://geodesy.noaa.gov/datums/horizontal/north-american-datum-1983.shtml), [Albers](https://epsg.io/102003), Mercator, Robinson\
+    ![](./_resources/Geospatial,_Processing.resources/image.2.png){width="432"}
 
-```         
-library(patchwork)
+    ``` r
+    library(patchwork)
 
-p1 <- ggplot() +
-  geom_sf(data = lower_48, fill = "#0074D9", color = "white", linewidth = 0.25) +
-  coord_sf(crs = st_crs("EPSG:4269")) +  # NAD83
-  labs(title = "NAD83 projection") +
-  theme_void() +
-  theme(plot.title = element_text(hjust = 0.5, family = "Overpass Light"))
+    p1 <- ggplot() +
+      geom_sf(data = lower_48, fill = "#0074D9", color = "white", linewidth = 0.25) +
+      coord_sf(crs = st_crs("EPSG:4269")) +  # NAD83
+      labs(title = "NAD83 projection") +
+      theme_void() +
+      theme(plot.title = element_text(hjust = 0.5, family = "Overpass Light"))
 
-p2 <- ggplot() +
-  geom_sf(data = lower_48, fill = "#0074D9", color = "white", linewidth = 0.25) +
-  coord_sf(crs = st_crs("ESRI:102003")) +  # Albers
-  labs(title = "Albers projection") +
-  theme_void() +
-  theme(plot.title = element_text(hjust = 0.5, family = "Overpass Light"))
+    p2 <- ggplot() +
+      geom_sf(data = lower_48, fill = "#0074D9", color = "white", linewidth = 0.25) +
+      coord_sf(crs = st_crs("ESRI:102003")) +  # Albers
+      labs(title = "Albers projection") +
+      theme_void() +
+      theme(plot.title = element_text(hjust = 0.5, family = "Overpass Light"))
 
-p3 <- ggplot() +
-  geom_sf(data = world_map, fill = "#FF4136", color = "white", linewidth = 0.1) +
-  coord_sf(crs = st_crs("EPSG:3395")) +  # Mercator
-  labs(title = "Mercator projection") +
-  theme_void() +
-  theme(plot.title = element_text(hjust = 0.5, family = "Overpass Light"))
+    p3 <- ggplot() +
+      geom_sf(data = world_map, fill = "#FF4136", color = "white", linewidth = 0.1) +
+      coord_sf(crs = st_crs("EPSG:3395")) +  # Mercator
+      labs(title = "Mercator projection") +
+      theme_void() +
+      theme(plot.title = element_text(hjust = 0.5, family = "Overpass Light"))
 
-p4 <- ggplot() +
-  geom_sf(data = world_map, fill = "#FF4136", color = "white", linewidth = 0.1) +
-  coord_sf(crs = st_crs("ESRI:54030")) +  # Robinson
-  labs(title = "Robinson projection") +
-  theme_void() +
-  theme(plot.title = element_text(hjust = 0.5, family = "Overpass Light"))
+    p4 <- ggplot() +
+      geom_sf(data = world_map, fill = "#FF4136", color = "white", linewidth = 0.1) +
+      coord_sf(crs = st_crs("ESRI:54030")) +  # Robinson
+      labs(title = "Robinson projection") +
+      theme_void() +
+      theme(plot.title = element_text(hjust = 0.5, family = "Overpass Light"))
 
-(p1 | p2) / (p3 | p4)
-```
+    (p1 | p2) / (p3 | p4)
+    ```
+
+## Python {#sec-geo-proc-py .unnumbered}
+
+-   [Example]{.ribbon-highlight}: Filter Data based on a polygon using latitude and longitude data
+
+    -   Get California's polygon
+
+        ``` python
+        import osmnx
+        import geopandas as gpd
+
+        place = "California, USA"
+        gdf = osmnx.geocode_to_gdf(place)
+        # Get the target geometry
+        gdf = gdf[["geometry", "bbox_north", "bbox_south", "bbox_east", "bbox_west"]]
+        ```
+
+    -   Filter data according the polygon geometry
+
+        ``` python
+        from shapely.geometry import Point
+
+        # Convert to a GeoDataFrame with Point geometry
+        geometry = [Point(xy) for xy in zip(df['Longitude'], df['Latitude'])]
+        earthquake_gdf = gpd.GeoDataFrame(df, geometry=geometry, crs='EPSG:4326')
+
+        # Filter to keep only points within the California bounding box
+        points_within_california = gpd.sjoin(earthquake_gdf, gdf, how='inner', predicate='within')
+
+        # Select latitude, longitude etc. columns
+        df = points_within_california[['id', 'Latitude', 'Longitude', 'datetime', 'properties.mag']]
+        ```
+
+        -   Latitude and longitude are converted to point geometry to match the polygon point geometry
+        -   An inner join is used on the data and california polygon to get the points that are only in California.
