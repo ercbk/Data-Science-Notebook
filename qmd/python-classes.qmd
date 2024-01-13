@@ -14,10 +14,11 @@
     -   Encapsulation
         -   When you want to separate external and internal interfaces in order to (ostensibly) hide internal code from the user.
         -   Keeps excess complexity from the user
--   Use camel case for class names
--   Use snake case for methods and attributes
--   Always use self as the first argument of a method
--   Write docstrings for your classes so that your code is more understandable to potential collaborators and future you.
+-   Best Practices
+    -   Use camel case for class names
+    -   Use snake case for methods and attributes
+    -   Always use self as the first argument of a method
+    -   Write docstrings for your classes so that your code is more understandable to potential collaborators and future you.
 -   Create a Class that allows method chaining\
     ![](./_resources/Python,_Classes.resources/image.png){width="280"}
     -   `return self` is what allows the chaining to happen
@@ -1028,7 +1029,118 @@
         # code that might fail
     ```
 
+## Optimizations {#sec-py-class-opt .unnumbered}
+
+-   Misc
+    -   Notes from [How to Write Memory-Efficient Classes in Python](https://towardsdatascience.com/how-to-write-memory-efficient-classes-in-python-beb90811abfa)
+-   [Use `__slots__` when creating large numbers of instances]{.underline}\
+    ![](_resources/Python,_Classes.resources/opt-slots-memory-1.webp){width="332"}
+    -   By default, Python classes store their instance attributes in a private dictionary (`__dict__`), which dictionary allows you to add, modify, or delete the class attributes at runtime, but it creates a large memory burden when substantial numbers of instances are created.
+
+    -   Slots reserves only a fixed amount of space for the specified attributes directly in each instance, instead of using the default dictionary.
+
+    -   Any attempt to assign an attribute that is not listed in `__slots__` will raise an `AttributeError`.
+
+        -   This can help prevent creating accidental attributes due to typos, but it can also be restrictive if you need to add additional attributes later in development.
+
+    -   [Example]{.ribbon-highlight}:
+
+        ``` python
+        class Ant:
+          __slots__ = ['worker_id', 'role', 'colony']
+
+          def __init__(self, worker_id, role, colony):
+              self.worker_id = worker_id
+              self.role = role
+              self.colony = colony
+        ```
+-   [Lazy Initialization for memory intensive operations]{.underline}
+    -   Scenario: Data Loading in an app
+
+        -   User wants to look at map or examine features before analyzing data.
+        -   Without Lazy Loading, the entire dataset is loaded upfront, leading to slower startup and potentially exceeding memory limits.
+
+    -   Caching is also a good idea if you're performing the same intensive computation more than once.
+
+    -   [Example]{.ribbon-highlight}: Lazy Loader
+
+        ``` python
+        from functools import cached_property
+
+        class DataLoader:
+
+            def __init__(self, path):
+                self.path = path
+
+            @cached_property
+            def dataset(self):
+                # load the dataset here
+                # this will only be executed once when the dataset property is first accessed
+                return self._load_dataset()
+
+            def _load_dataset(self):
+                print("Loading the dataset...")
+
+                # load a big dataset here
+                df = pd.read_csv(self.path)
+                return df
+
+        class DataProcessor:
+            def __init__(self, path):
+                  self.path = path
+                self.data_loader = DataLoader(self.path)
+
+            def process_data(self):
+                dataset = self.data_loader.dataset
+                print("Processing the dataset...")
+                # Perform complex data processing steps on the loaded dataset
+                ...
+
+        # instantiate the DataLoader class
+        path = "/[path_to_dataset]/mnist.csv"
+
+        # instantiate the DataProcessor class with the data file path
+        # 👉 no data will be loaded at this stage! ✅
+        processor = DataProcessor(path)
+
+        # trigger the processing
+        processor.process_data()  # The dataset will be loaded and processed when needed
+        ```
+-   [Use generators to reduce memory usage of loops]{.underline}
+    -   See [Python, General \>\> Loops \>\> Generators](python-general.qmd#sec-py-gen-loops-gen){style="color: green"}
+
+        -   Also, in Loops \>\> Misc, there's a chart that shows the memory benefits to using a generator vs list comprehension.
+
 ## Examples {#sec-py-class-examp .unnumbered}
+
+-   Read file chunks, process, and write to parquet
+
+    ``` python
+    import pandas as pd
+
+    class PandasChunkProcessor:
+        def __init__(self, filepath, chunk_size, verbose=True):
+            self.filepath = filepath
+            self.chunk_size = chunk_size
+            self.verbose = verbose
+
+        def process_data(self):
+            for chunk_id, chunk in enumerate(pd.read_csv(self.filepath, chunksize=self.chunk_size)):
+                processed_chunk = self.process_chunk(chunk)
+                self.save_chunk(processed_chunk, chunk_id)
+
+        def process_chunk(self, chunk):
+            # process each chunk of data
+            processed_chunk = processing_function(chunk)
+            return processed_chunk
+
+        def save_chunk(self, chunk, chunk_id):
+            # save each processed chunk to a parquet file
+            chunk_filepath = f"./output_chunk_{chunk_id}.parquet"
+            chunk.to_parquet(chunk_filepath)
+            if self.verbose:
+                print(f"saved {chunk_filepath}")
+    ```
 
 -   Transforms variables by logging, can add 1 if necessary, back-transform
 
