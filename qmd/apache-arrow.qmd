@@ -8,9 +8,11 @@
     -   [Apache Arrow R Cookbook](https://arrow.apache.org/cookbook/r/)
     -   [Cheatsheet](https://github.com/apache/arrow/blob/master/r/cheatsheet/arrow-cheatsheet.pdf)
 
--   Feather format built for speed, not compression. so slightly larger files than parquet
+-   Arrow/Feather format built for speed, not compression. so larger files than parquet
 
     -   Feature for short term storage and parquet for longer term storage
+    -   The arrow format requires \~ten times more storage space.
+        -   e.g. For `nyc-taxi` data set, parquet takes around \~38GB, but arrow would take around 380GB. Although with arrow, you could see \~10x speed increase in operations.
 
 -   Even with S3 support enabled, network speed will be a bottleneck unless your machine is located in the same AWS region as the data.
 
@@ -116,7 +118,7 @@
 -   `read_csv_arrow(<csv_file>, as_data_frame = FALSE)`
 
     -   Reads csv into memory as an Arrow table
-    -   [as_data_frame]{.arg-text} - if TRUE (default), reads into memory as a dataframe
+    -   [as_data_frame]{.arg-text} - if TRUE (default), reads into memory as a tibble which takes up more space instead of an [Arrow Table](https://arrow.apache.org/docs/r/articles/data_objects.html?q=table#tables)
 
 -   `write_parquet`
 
@@ -147,9 +149,40 @@
 
     -   Reduces size of data stored substantially (e.g. 15 GB csv to 9.5 GB parquet)
 
+-   Lazily download subsetted dataset from S3 and locally convert to parquet with partitions
+
+    ``` r
+    data_nyc = "data/nyc-taxi"
+    open_dataset("s3://voltrondata-labs-datasets/nyc-taxi") |>
+        dplyr::filter(year %in% 2012:2021) |> 
+        write_dataset(data_nyc, partitioning = c("year", "month"))
+    ```
+
+    -   `open_dataset` doesn't used RAM, so subsetting a large dataset (e.g. 40GB) before writing is safe.
+
+    -   [format = "arrow"]{.arg-text} also available
+
 ## Partitioning {#sec-apache-arrow-part .unnumbered}
 
 -   Partitioning increases the number of files and it creates a directory structure around the files.
+
+-   [**Hive Partitioning**]{style="color: #009499"} - Folder/file structure based on partition keys (i.e. grouping variable). Within each folder, the key has a value determined by the name of the folder. By partitioning the data in this way, it makes it faster to do queries on data slices.
+
+    -   [Example]{.ribbon-highlight}: Folder structure when partitioning on [year]{.var-text} and [month]{.var-text}
+
+        ```         
+        taxi-data
+           year=2018
+             month=01
+              file01.parquet
+             month=02
+              file02.parquet
+              file03.parquet
+             ...  
+           year=2019
+             month=01
+             ...
+        ```
 
 -   [Pros]{.underline}
 
@@ -199,11 +232,13 @@
         write_dataset(<output_dir>, format = "feather") # <3>
     ```
 
-    1.  Pass the file path to `open_dataset()`
+    -   Pass the file path to `open_dataset()`
 
-    2.  Use `group_by()` to partition the Dataset into manageable chunks
+    -   Use `group_by()` to partition the Dataset into manageable chunks
 
-    3.  Use `write_dataset()` to write each chunk to a separate Parquet file---all without needing to read the full CSV file into R
+        -   Can also use [partitioning]{.arg-text} in `write_dataset`
+
+    -   Use `write_dataset()` to write each chunk to a separate Parquet file---all without needing to read the full CSV file into R
 
     -   `open_dataset` is fast because it only reads the metadata of the file system to determine how it can construct queries
 
