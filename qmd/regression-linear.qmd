@@ -96,11 +96,149 @@
 -   Log
     -   Taking the log of a measure translates the measure into magnitudes. So by using the logarithm of a predictor, we're saying that we suspect that the magnitude of the predictor is related to outcome, in a linear fashion.
 
+## Contrasts {#sec-reg-lin-contrasts .unnumbered}
+
+-   Misc
+
+    -   Notes from [Centering in Moderation Analysis: A Guide](https://blog.msbstats.info/posts/2024-01-21-centering-101/#sum-to-zero-contrasts)
+
+-   [Three Ways to Change Contrasts]{.underline}
+
+    ``` r
+    # 1. assign to the contrasts() function
+    contrasts(data$G) <- contr.sum
+
+    # 2. The C() function (BIG C!)
+    data$G <- C(data$G, contr = contr.sum)
+
+    # 3. In the model
+    lm(Y ~ G,
+       data = data,
+       contrasts = list(G = contr.sum))
+    ```
+
+-   [Treatment Contrasts]{.underline}
+
+    -   Default contrasts used by R, `stats::contr.treatment()`
+
+    -   For a factor variable, it constructs each dummy variable to be 0 for all but the first level of the factor, with the 1st level being left out.
+
+    -   [Example]{.ribbon-highlight}: Dummy variables for a factor variable with 3 levels
+
+        ``` r
+        contr.treatment(levels(data$G))
+        #>    g2 g3
+        #> g1  0  0
+        #> g2  1  0
+        #> g3  0  1
+        ```
+
+        -   Where [g1]{.var-text} is the *reference level*.
+
+    -   [Example]{.ribbon-highlight}: Interpretation for a factor variable with 3 levels
+
+        ``` r
+        parameters::model_parameters(model)
+        #> Parameter   | Coefficient |   SE |          95% CI |  t(7) |      p
+        #> -------------------------------------------------------------------
+        #> (Intercept) |       23.33 | 0.96 | [ 21.05, 25.61] | 24.21 | < .001
+        #> G [g2]      |       -3.19 | 1.22 | [ -6.08, -0.31] | -2.62 | 0.034 
+        #> G [g3]      |       -6.83 | 1.52 | [-10.44, -3.23] | -4.49 | 0.003
+
+        (predicted_means <- predict(model, 
+                                    newdata = data.frame(G = c("g1", "g2", "g3"))))
+        #>        1        2        3 
+        #> 23.33333 20.14000 16.50000
+        predicted_means[2] - predicted_means[1]
+        #>         2 
+        #> -3.193333
+        predicted_means[3] - predicted_means[1]
+        #>         3 
+        #> -6.833333
+        ```
+
+        -   Shows how the dummy variable coefficients are the difference in predicted means between a given factor level and the reference level.
+
+-   [Sum-to-Zero Contrasts]{.underline}
+
+    -   The intercept represents the grand mean which is the average of all group means of the factor variable.
+
+    -   [Example]{.ribbon-highlight}: Factor variable with 3 levels
+
+        ``` r
+        contr.sum(levels(data$G))
+        #>    [,1] [,2]
+        #> g1    1    0
+        #> g2    0    1
+        #> g3   -1   -1
+        ```
+
+    -   [Example]{.ribbon-highlight}: Interpretation for a factor variable with 3 levels
+
+        ``` r
+        model_parameters(model7)
+        #> Parameter   | Coefficient |   SE |         95% CI |  t(7) |      p
+        #> ------------------------------------------------------------------
+        #> (Intercept) |       19.99 | 0.57 | [18.65, 21.33] | 35.35 | < .001
+        #> G [1]       |        3.34 | 0.79 | [ 1.47,  5.22] |  4.21 | 0.004 
+        #> G [2]       |        0.15 | 0.71 | [-1.53,  1.83] |  0.21 | 0.840
+
+        (predicted_means <- predict(model6, 
+                                    newdata = data.frame(G = c("g1", "g2", "g3"))))
+        #>        1        2        3 
+        #> 23.33333 20.14000 16.50000
+        predicted_means[1] - mean(predicted_means)
+        #>        1 
+        #> 3.342222
+        predicted_means[2] - mean(predicted_means)
+        #>         2 
+        #> 0.1488889
+        ```
+
+        -   Each factor level coefficient is the difference between that level's group mean and the grand mean.
+
+-   [Deviation Contrasts]{.underline}
+
+    -   Combination of Treatment Contrasts and Sum-to-Zero Contrasts
+
+        -   Coefficients are the same as in Treatment Contrasts
+        -   Intercept is the grand mean as in Sum-to-Zero Contrasts
+
+    -   Available via [{]{style="color: #990000"}[datawizard::contr.deviation](https://easystats.github.io/datawizard/reference/contr.deviation.html){style="color: #990000"}[}]{style="color: #990000"}
+
+    -   [Example]{.ribbon-highlight}:
+
+        ``` r
+        model8 <- lm(Y ~ G,
+                     data = data,
+                     contrasts = list(G = contr.deviation))
+
+        model_parameters(model8)
+        #> Parameter   | Coefficient |   SE |          95% CI |  t(7) |      p
+        #> -------------------------------------------------------------------
+        #> (Intercept) |       19.99 | 0.57 | [ 18.65, 21.33] | 35.35 | < .001
+        #> G [g2]      |       -3.19 | 1.22 | [ -6.08, -0.31] | -2.62 | 0.034 
+        #> G [g3]      |       -6.83 | 1.52 | [-10.44, -3.23] | -4.49 | 0.003
+
+        (predicted_means <- predict(model6, 
+                                    newdata = data.frame(G = c("g1", "g2", "g3"))))
+        #>        1        2        3 
+        #> 23.33333 20.14000 16.50000
+        mean(predicted_means)
+        #> [1] 19.99111
+        predicted_means[2] - predicted_means[1]
+        #>         2 
+        #> -3.193333
+        predicted_means[3] - predicted_means[1]
+        #>         3 
+        #> -6.833333
+        ```
+
 ## Model Selection {#sec-reg-lin-modsel .unnumbered}
 
--   Harrell says use all variables unless number of variables , p  \> (nrow(df) / 15), then use Regularized Regression
+-   Harrell says use all variables unless number of variables , p \> (nrow(df) / 15), then use Regularized Regression
 -   See Harrell sample size biostat paper (above). Has overview of approaches (I think).
--   Use best subsets with Mallow's CP, AIC, and BIC as metrics for choosing best model. See R notebook, pg 121 and bkmk regression --\> multivariable folder for PSU stat 501
+-   Use best subsets with Mallow's CP, AIC, and BIC as metrics for choosing best model. See R notebook, pg 121 and bkmk regression $\rightarrow$ multivariable folder for PSU stat 501
 -   Check for partial correlations between predictor variables and outcome variable (see notebook and bookmarks) as a possible avenue of feature reduction and as a way of gauging true strength of the relationship between the predictor variables and outcome variable
 
 ## Interpretation {#sec-reg-lin-interp .unnumbered}
