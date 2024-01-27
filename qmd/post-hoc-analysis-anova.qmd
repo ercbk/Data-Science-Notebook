@@ -65,7 +65,7 @@
                     -   This reminds me of a dual path DAG where [group]{.var-text} is influenced by [X]{.var-text}. Here [X's]{.var-text} variance contribution is included in [group's]{.var-text} contribution since [X]{.var-text} is not conditioned upon. (See [Causal Inference \>\> Dual Path DAGs](causal-inference.qmd#sec-causinf-dualpath){style="color: green"}
                 -   The effect of [X]{.var-text} represents only what [X]{.var-text} explains after removing the contribution of [group]{.var-text} --- the variance attributed to X is strictly the variance that can be *uniquely* attributed to [X]{.var-text}, controlling for [group]{.var-text}
     -   [Type II: Simultaneous Sum of Squares]{.underline}
-        -   The variance attributed to each variable is its *unique* contribution --- variance after controlling for the other variables. Order of terms does not matter.
+        -   The variance attributed to each variable is its *unique* contribution — variance after controlling for the other variables. Order of terms does not matter.
 
         -   [Example]{.ribbon-highlight}
 
@@ -83,12 +83,76 @@
             ```
 
             -   Sum of Squares values are equal to values of the Type 1 results when each variable is last.
+            -   Note that factor variables, e.g. [group]{.var-text}, are treated as 1 term and not broken down into dummy variables for each level.
 
         -   With interactions, the method of calculation could be called, Sequential-Simultaneous.
 
             -   Terms are evaluated simultaneously in groups based on type of term, e.g. main effects, 2-way interactions, 3-way interactions, etc., but sequentially according to the *order* of that term where the order of main effects \< 2-way interactions \< 3-way interactions, etc.
             -   All main effects (1st order) are tested *simultaneously* (accounting for one another), then all 2-way interactions (2nd order) are tested *simultaneously* (accounting for the main effects *and* one another), and finally the 3-way interaction is tested (accounting for all main effects and 2-way interactions).
             -   So, if you use this way to test a model with interactions, only the highest order term's Sum of Squares represents a unique variance contribution.
+    -   [Type III: Simultaneous-Simultaneous Sum of Squares]{.underline}
+        -   The Sum-of-Squares for each main effect and interaction is calculated as its unique contribution (i.e. takes into account all other terms of the model).
+        -   Unlike Type II, it allows you compare variance contributions for every term in your model.
+        -   Without centering continuous variables and applying sum-to-zero contrasts to categorical variables, tests results can change depending on the categorical level of the moderator
+            -   [Example]{.ribbon-highlight}
+                -   No Centering, No Sum-to-Zero Contrasts
+
+                    ``` r
+                    m_int <- lm(Y ~ group * X, data = d)
+
+                    d$group <- relevel(d$group, ref = "Gb")
+                    m_int2 <- lm(Y ~ group * X, data = d)
+
+                    car::Anova(m_int, type = 3)
+                    #>             Sum Sq Df F value    Pr(>F)    
+                    #> (Intercept) 538630  1 22.9922 6.994e-05 ***
+                    #> group       738108  2 15.7536 4.269e-05 ***
+                    #> X           101495  1  4.3325   0.04823 *  
+                    #> group:X     682026  2 14.5566 7.246e-05 ***
+                    #> Residuals   562240 24     
+
+                    car::Anova(m_int2, type = 3)
+                    #>             Sum Sq Df F value    Pr(>F)    
+                    #> (Intercept) 219106  1  9.3528  0.005402 ** 
+                    #> group       738108  2 15.7536 4.269e-05 ***
+                    #> X           910646  1 38.8722 1.918e-06 ***
+                    #> group:X     682026  2 14.5566 7.246e-05 ***
+                    #> Residuals   562240 24  
+                    ```
+
+                    -   The sum of squares and p-value change for [X]{.var-text} when the categorical variable's reference level changed which shouldn't matter given this is an omnibus test (i.e. the categorical variable is treated as 1 entity and not set of dummy variables).
+
+                -   Centered, Sum-to-Zero Contrasts Applied
+
+                    ``` r
+                    # center, contr.sum
+                    d_contr_sum <- d |> 
+                      mutate(X_c = scale(X, scale = FALSE))
+                    contrasts(d_contr_sum$group) <- contr.sum
+                    m_int_cont_sum <- lm(Y ~ group * X_c, data = d_contr_sum)
+                    car::Anova(m_int_cont_sum, type = 3)
+                    #>              Sum Sq Df  F value    Pr(>F)    
+                    #> (Intercept) 4743668  1 202.4902 3.401e-13 ***
+                    #> group         19640  2   0.4192   0.66231    
+                    #> X_c          143772  1   6.1371   0.02067 *  
+                    #> group:X_c    682026  2  14.5566 7.246e-05 ***
+                    #> Residuals    562240 24
+
+                    # change reference level
+                    d_rl <- d_contr_sum |> 
+                      mutate(group_rl = relevel(group, ref = "Gb"))
+                    contrasts(d_rl$group_rl) <- contr.sum
+                    car::Anova(lm(Y ~ group_rl * X_c, data = d_rl),
+                               type = 3)
+                    #>               Sum Sq Df  F value    Pr(>F)    
+                    #> (Intercept)  4743668  1 202.4902 3.401e-13 ***
+                    #> group_rl       19640  2   0.4192   0.66231    
+                    #> X_c           143772  1   6.1371   0.02067 *  
+                    #> group_rl:X_c  682026  2  14.5566 7.246e-05 ***
+                    #> Residuals     562240 24   
+                    ```
+
+                    -   Now when the reference level is changed, the sum-of-squares and p-value for [X]{.var-text} remain the same.
 
 ## Assumptions
 
