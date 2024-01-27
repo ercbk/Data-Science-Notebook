@@ -4,70 +4,10 @@
 
 -   High performance embedded database for analytics which provides a few enhancements over SQLite such as increased speed and allowing a larger number of columns
     -   Faster than sqlite for most analytics queries (sums, aggregates etc).
-
         -   Vectorizes query executions (columnar-oriented), while other DBMSs (SQLite, PostgreSQL...) process each row sequentially
-
-    -   Also has fast [JSON extension](https://duckdb.org/docs/extensions/json.html)
-
-        -   [Example](.ribbon-highlight): from hrbrmstr [drop](https://dailyfinds.hrbrmstr.dev/i/125012827/duckdb-json)
-
-            ``` sql
-            INSTALL 'json';
-            LOAD 'json';
-
-            COPY (
-              SELECT * FROM (
-                SELECT DISTINCT
-                  cve_id,
-                  unnest(
-                    regexp_split_to_array(
-                      concat_ws(
-                        ',',
-                        regexp_extract(case when cweId1 IS NOT NULL THEN cweId1 ELSE regexp_replace(json_extract_string(problem1, '$.description'), '[: ].*$', '') END, '^(CWE-[0-9]+)', 0),
-                        regexp_extract(case when cweId2 IS NOT NULL THEN cweId2 ELSE regexp_replace(json_extract_string(problem2, '$.description'), '[: ].*$', '') END, '^(CWE-[0-9]+)', 0)
-                      ),
-                      ','
-                    )
-                  ) AS cwe_id
-                FROM (
-                  SELECT 
-                    json_extract_string(cveMetadata, '$.cveId') AS cve_id, 
-                    json_extract(containers, '$.cna.problemTypes[0].descriptions[0]') AS problem1,
-                    json_extract(containers, '$.cna.problemTypes[0].descriptions[1]') AS problem2,
-                    json_extract_string(containers, '$.cna.problemTypes[0].cweId[0]') AS cweId1,
-                    json_extract_string(containers, '$.cna.problemTypes[0].cweId[1]') AS cweId2
-                  FROM 
-                    read_json_auto("/data/cvelistV5/cves/*/*/*.json", ignore_errors = true) 
-                )
-                WHERE 
-                  (json_extract_string(problem1, '$.type') = 'CWE' OR
-                   json_extract_string(problem2, '$.type') = 'CWE')
-                )
-              WHERE cwe_id LIKE 'CWE-%'
-            ) TO '/data/summaries/cve-to-cwe.csv' (HEADER, DELIMETER ',')
-            ```
-
-            -   Processes a nested json
-            -   Clones the CVE list repo, modify the directory paths and run it. It burns through nearly 220K hideous JSON files in mere seconds, even with some complex JSON operations.
-
-    -   Unlike some other big data tools it is entirely self-contained. (aka embedded, in-process)
-
-        -   no external dependencies, or server software to install, update, or maintain
+-   Unlike some other big data tools it is entirely self-contained. (aka embedded, in-process)
+    -   No external dependencies, or server software to install, update, or maintain
 -   Can directly run queries on [Parquet files](https://duckdb.org/docs/data/parquet), [CSV files](https://duckdb.org/docs/data/csv), [SQLite files](https://github.com/duckdblabs/sqlite_scanner), [postgres files](https://duckdb.org/2022/09/30/postgres-scanner.html), [Pandas](https://duckdb.org/docs/guides/python/sql_on_pandas), [R](https://duckdb.org/docs/api/r#efficient-transfer) and [Julia](https://duckdb.org/docs/api/julia#scanning-dataframes) data frames as well as [Apache Arrow sources](https://duckdb.org/docs/guides/python/sql_on_arrow)
--   VS Code [extension](https://marketplace.visualstudio.com/items?itemName=RandomFractalsInc.duckdb-sql-tools)
-    -   Connect to a local DuckDB instance
-    -   Create new in-memory DuckDB instance
-    -   View DuckDB tables, columns, and views
-    -   Run SQL queries on open DuckDB connections
-    -   Attach SQLite database files to in-memory DuckDB instances
-    -   Query remote CSV and Parquet data files with DuckDB HTTPFS extension
-    -   Create in-memory DuckDB tables from remote data sources and query results
-    -   Manage DuckDB connections in SQLTools Database Explorer
-    -   Autocomplete SQL keywords, table names, column names, and view names on open database connections in VSCode SQL editor
-    -   Save named SQL query Bookmarks
-    -   Use SQL Query History
-    -   Export SQL query results in CSV and JSON data formats
-    -   integrate with the equally spiffy [SQL Tools](https://vscode-sqltools.mteixeira.dev/en/home/) extension
 
 ## Set-up {#sec-db-duckdb-setup .unnumbered}
 
@@ -121,7 +61,7 @@
 
 -   Benefits
 
-    -   utilization of a parallel vectorized execution engine without requiring any extra data copying
+    -   Utilization of a parallel vectorized execution engine without requiring any extra data copying
     -   Larger Than Memory Analysis: Since both libraries support streaming query results, we are capable of executing on data without fully loading it from disk. Instead, we can execute one batch at a time. This allows us to execute queries on data that is bigger than memory.
     -   Complex Data Types: DuckDB can efficiently process complex data types that can be stored in Arrow vectors, including arbitrarily nested structs, lists, and maps.
     -   Advanced Optimizer: DuckDB's state-of-the-art optimizer can push down filters and projections directly into Arrow scans. As a result, only relevant columns and partitions will be read, allowing the system to e.g., take advantage of partition elimination in Parquet files. This significantly accelerates query execution.
@@ -226,9 +166,7 @@
 ## SQL {#sec-db-duckdb-sql .unnumbered}
 
 -   Misc
-
 -   Star Expressions
-
     -   Allows you dynamically select columns
 
         ``` sql
@@ -246,15 +184,12 @@
         SELECT COLUMNS('number\d+') FROM addresses;
         ```
 
-## Remote Connections
+## Remote Connections {#sec-db-duckdb-remcon .unnumbered}
 
 -   Misc
-
     -   Notes from
         -   [Query Remote Parquet Files with DuckDB](https://rfsaldanha.github.io/posts/query_remot_parquet_file.html)
-
 -   [httpfs](https://duckdb.org/docs/extensions/httpfs.html) Extension
-
     -   Create a db in memory since the data is stored remotely.
 
         ``` r
@@ -302,9 +237,7 @@
         ```
 
     -   Close connection: `DBI::dbDisconnect(conn, shutdown = TRUE)`
-
 -   [{]{style="color: #990000"}[duckdbfs](https://cboettig.github.io/duckdbfs/){style="color: #990000"}[}]{style="color: #990000"}
-
     -   Create dataset object
 
         ``` r
@@ -321,3 +254,137 @@
           ungroup() %>%
           collect()
         ```
+
+## Extensions {#sec-db-duckdb-ext .unnumbered}
+
+-   [VS Code]{.underline} [extension](https://marketplace.visualstudio.com/items?itemName=RandomFractalsInc.duckdb-sql-tools)
+    -   Connect to a local DuckDB instance
+    -   Create new in-memory DuckDB instance
+    -   View DuckDB tables, columns, and views
+    -   Run SQL queries on open DuckDB connections
+    -   Attach SQLite database files to in-memory DuckDB instances
+    -   Query remote CSV and Parquet data files with DuckDB HTTPFS extension
+    -   Create in-memory DuckDB tables from remote data sources and query results
+    -   Manage DuckDB connections in SQLTools Database Explorer
+    -   Autocomplete SQL keywords, table names, column names, and view names on open database connections in VSCode SQL editor
+    -   Save named SQL query Bookmarks
+    -   Use SQL Query History
+    -   Export SQL query results in CSV and JSON data formats
+    -   integrate with the equally spiffy [SQL Tools](https://vscode-sqltools.mteixeira.dev/en/home/) extension
+-   [JSON]{.underline} [extension](https://duckdb.org/docs/extensions/json.html)
+    -   [Example]{.ribbon-highlight}: From hrbrmstr [drop](https://dailyfinds.hrbrmstr.dev/i/125012827/duckdb-json)
+
+        ``` sql
+        INSTALL 'json';
+        LOAD 'json';
+
+        COPY (
+          SELECT * FROM (
+            SELECT DISTINCT
+              cve_id,
+              unnest(
+                regexp_split_to_array(
+                  concat_ws(
+                    ',',
+                    regexp_extract(case when cweId1 IS NOT NULL THEN cweId1 ELSE regexp_replace(json_extract_string(problem1, '$.description'), '[: ].*$', '') END, '^(CWE-[0-9]+)', 0),
+                    regexp_extract(case when cweId2 IS NOT NULL THEN cweId2 ELSE regexp_replace(json_extract_string(problem2, '$.description'), '[: ].*$', '') END, '^(CWE-[0-9]+)', 0)
+                  ),
+                  ','
+                )
+              ) AS cwe_id
+            FROM (
+              SELECT 
+                json_extract_string(cveMetadata, '$.cveId') AS cve_id, 
+                json_extract(containers, '$.cna.problemTypes[0].descriptions[0]') AS problem1,
+                json_extract(containers, '$.cna.problemTypes[0].descriptions[1]') AS problem2,
+                json_extract_string(containers, '$.cna.problemTypes[0].cweId[0]') AS cweId1,
+                json_extract_string(containers, '$.cna.problemTypes[0].cweId[1]') AS cweId2
+              FROM 
+                read_json_auto("/data/cvelistV5/cves/*/*/*.json", ignore_errors = true) 
+            )
+            WHERE 
+              (json_extract_string(problem1, '$.type') = 'CWE' OR
+               json_extract_string(problem2, '$.type') = 'CWE')
+            )
+          WHERE cwe_id LIKE 'CWE-%'
+        ) TO '/data/summaries/cve-to-cwe.csv' (HEADER, DELIMETER ',')
+        ```
+
+        -   Processes a nested json
+        -   Clones the CVE list repo, modify the directory paths and run it. It burns through nearly 220K hideous JSON files in mere seconds, even with some complex JSON operations.
+
+    -   [DBs]{.underline}
+
+        -   [MySQL](https://duckdb.org/docs/extensions/mysql), [Postgres](#0), [SQLite](#0)
+
+            -   Might need to use `FORCE INSTALL postgres`
+
+        -   Allows DuckDB to connect to those systems and operate on them in the same way that it operates on its own native storage engine.
+
+        -   Use Cases
+
+            -   Export data from SQLite to JSON
+            -   Read data from Parquet into Postgres
+            -   Move data from MySQL to Postgres
+            -   Deleting rows, updating values, or altering the schema of a table in another DB
+
+        -   Notes from
+
+            -   [Multi-Database Support in DuckDB](https://duckdb.org/2024/01/26/multi-database-support-in-duckdb)
+                -   Has other examples including transaction operations
+
+        -   [Example]{.ribbon-highlight}: Open SQLite db file
+
+            ``` sql
+            ATTACH 'sakila.db' AS sakila (TYPE sqlite);
+            SELECT title, release_year, length FROM sakila.film LIMIT 5;
+            ```
+
+            -   `ATTACH` opens the db file and `TYPE` says that it's a SQLite db file
+
+            -   Multiple dbs without using `TYPE`
+
+                ``` sql
+                ATTACH 'sqlite:sakila.db' AS sqlite;
+                ATTACH 'postgres:dbname=postgresscanner' AS postgres;
+                ATTACH 'mysql:user=root database=mysqlscanner' AS mysql;
+                ```
+
+            -   In python
+
+                ``` python
+                import duckdb
+                con = duckdb.connect('sqlite:file.db')
+                ```
+
+        -   [Example]{.ribbon-highlight}: Switch between attached dbs
+
+            ``` sql
+            USE sakila;
+            SELECT first_name, last_name FROM actor LIMIT 5;
+            ```
+
+            -   `USE` switches from the previous db to the "sakila" db
+
+        -   [Example]{.ribbon-highlight}: View all attached dbs
+
+            ``` sql
+            SELECT database_name, path, type FROM duckdb_databases;
+            ```
+
+        -   [Example]{.ribbon-highlight}: Copy table from one db type to another
+
+            ``` sql
+            CREATE TABLE mysql.film AS FROM sqlite.film;
+            CREATE TABLE postgres.actor AS FROM sqlite.actor;
+            ```
+
+        -   [Example]{.ribbon-highlight}: Joins
+
+            ``` sql
+            SELECT first_name, last_name
+            FROM mysql.film
+            JOIN sqlite.film_actor ON (film.film_id = film_actor.film_id)
+            JOIN postgres.actor ON (actor.actor_id = film_actor.actor_id)
+            WHERE title = 'ACE GOLDFINGER';
+            ```
