@@ -21,6 +21,7 @@
         -   Also, it's an old package, and *every* old article, changelog, etc. is in the docs. So, if you find something you think answers your question, it may be that that syntax is outdated.
     -   [Introduction to data.table](https://rdatatable.gitlab.io/data.table/articles/datatable-intro.html) (vignette)
     -   Syntax Reference ([link](https://rdatatable.gitlab.io/data.table/reference/data.table.html))
+    -   Symbol Reference ([link](https://rdatatable.gitlab.io/data.table/reference/special-symbols.html))
 
 -   `setDT(df)`- Fast conversion of a data frame or list to a data.table without copying
 
@@ -40,6 +41,39 @@
     ```
 
     -   The `_` placeholder allows you to use R's native pipe.
+
+-   Symbols
+
+    -   `.SD` is a data.table containing the **S**ubset of DT's **D**ata for each group, excluding any columns used in `by` (or `keyby`). Its usage is still confusing to me.
+
+    -   `:=` is the walrus operator. `let` is an alias. Think it acts like `dplyr::mutate` or maybe `dplyr::summarize`. ([Docs](https://rdatatable.gitlab.io/data.table/reference/assign.html))
+
+        ``` r
+        DT[i, colC := mean(colB), by = colA]
+        DT[i,
+           `:=`(colC = sum(colB),
+                colD = sum(colE))
+           by = colF]
+        DT[i,
+           let(colC = sum(colB),
+               colD = sum(colE)),
+           by = colF] 
+        ```
+
+    -   `.I` is the row index. It's an integer vector equal to `seq_len(nrow(x))`
+
+        ``` r
+        dt <- data.table(
+          a = 1:3,
+          b = 4:6
+        )
+        dt[, .(a, b, rowsum = sum(.SD)), by = .I]
+        #>        I     a     b rowsum
+        #>    <int> <int> <int>  <int>
+        #> 1:     1     1     4      5
+        #> 2:     2     2     5      7
+        #> 3:     3     3     6      9
+        ```
 
 ## Basic Usage
 
@@ -261,40 +295,36 @@
 -   Multiple variables stored in column names
 
     ``` r
-    who |>
-        pivot_longer(
-          cols = new_sp_m014:newrel_f65,
-          names_to = c("diagnosis", "gender", "age"),
-          names_pattern = "new_?(.*)_(.)(.*)", # Whoa
-          values_to = "count"
-        )
-    DT[,melt(.SD, measure.vars = 5:60, value.name = "count")
-    # returns a new variable column, which needs splitting up into more columns
-                ][,variable := gsub("new_?","", variable)
-    # get rid of "new_" using gsub and replace it with nothing at all
-                  ][,c("diagnosis", "temp") := tstrsplit(variable,"_", fixed = TRUE)
-    # create a diagnosis column and a “temp” column, which will be split up
-                    ][, gender := tstrsplit(temp, "[^mf]+", fixed = FALSE)
-    # split out the gender column from the new temp column that has values “m” or “f”.
-                      ][, age := tstrsplit(temp, "[mf]+", fixed = FALSE, keep = 2)
-    # retrieve age from the temp column. This generates two vectors, but only want the second one, hence the keep = 2
-                        ][, !c("variable","temp")
-                          ][,c(1:4,6:8,5)][]
-    # last two lines discard the variable and temp columns, and sort the columns into the same order as that returned by pivot_longer
+    who <- data.table(id = 1, new_sp_m5564 = 2, newrel_f65 = 3)
+    #         id new_sp_m5564 newrel_f65
+    #      <num>        <num>      <num>
+    #   1:     1            2          3
 
-    ##            country iso2 iso3 year diagnosis gender age count
-    ##      1: Afghanistan  AF  AFG 1980        sp      m 014    NA
-    ##      2: Afghanistan  AF  AFG 1981        sp      m 014    NA
-    ##      3: Afghanistan  AF  AFG 1982        sp      m 014    NA
-    ##      4: Afghanistan  AF  AFG 1983        sp      m 014    NA
-    ##      5: Afghanistan  AF  AFG 1984        sp      m 014    NA
-    ##    ---                                                     
-    ## 405436:    Zimbabwe  ZW  ZWE 2009       rel      f  65    NA
-    ## 405437:    Zimbabwe  ZW  ZWE 2010       rel      f  65    NA
-    ## 405438:    Zimbabwe  ZW  ZWE 2011       rel      f  65    NA
-    ## 405439:    Zimbabwe  ZW  ZWE 2012       rel      f  65    NA
-    ## 405440:    Zimbabwe  ZW  ZWE 2013       rel      f  65   725
+    melt(who,
+         measure.vars = measure(diagnosis,
+                                gender,
+                                ages,
+                                pattern = "new_?(.*)_(.)(.*)"))
+    #       id diagnosis gender   ages value
+    #    <num>    <char> <char> <char> <num>
+    # 1:     1        sp      m   5564     2
+    # 2:     1       rel      f     65     3
+
+    # with tidyr 
+    who |> 
+      tidyr::pivot_longer(
+        cols = !id,
+        names_to = c("diagnosis", "gender", "age"),
+        names_pattern = "new_?(.*)_(.)(.*)",
+        values_to = "count")
+    # # A tibble: 2 × 5
+    #           id diagnosis gender age   count
+    #        <dbl> <chr>     <chr>  <chr> <dbl>
+    # 1          1 sp        m      5564      2
+    # 2          1 rel       f      65        3
     ```
+
+    -   `tstrsplit` is DT's `tidyr::separate`
 
 -   Matrix to long
 
@@ -441,6 +471,77 @@
     ```
 
     -   Alternative: Rather than have the [DT]{.var-text} inside `dcast`, we can use .SD and have `dcast` inside [DT]{.var-text}, which is helpful for further chaining. (see applied to `melt` above)
+
+## tidyr
+
+-   `separate` via `tstrsplit`
+
+    ``` r
+    dt <- data.table(x = c("00531725 Male 2021 Neg", "07640613 Female 2020 Pos"))
+    #                           x
+    #                      <char>
+    # 1:   00531725 Male 2021 Neg
+    # 2: 07640613 Female 2020 Pos
+
+    cols <- c("personID", "gender", "year", "covidTest")
+
+    dt[, tstrsplit(x,
+                   split = " ",
+                   names = cols,
+                   type.convert = TRUE)]
+    #    personID gender  year covidTest
+    #       <int> <char> <int>    <char>
+    # 1:   531725   Male  2021       Neg
+    # 2:  7640613 Female  2020       Pos
+
+
+    dt[, tstrsplit(x,
+                   split = " ",
+                   names = cols,
+                   type.convert = list(as.character = 1,
+                                       as.factor = c(2, 4),
+                                       as.integer = 3)
+                   )]
+    #    personID gender   year covidTest
+    #      <char> <fctr>  <int>    <fctr>
+    # 1: 00531725   Male   2021       Neg
+    # 2: 07640613 Female   2020       Pos
+    ```
+
+## User Defined Functions
+
+-   [env]{.arg-text}
+
+    ``` r
+
+    iris_dt <- as.data.table(iris)
+    square = function(x) x^2
+
+    iris_dt[filter_col %in% filter_val,
+            .(var1, var2, out = outer(inner(var1) + inner(var2))),
+            by = by_col,
+            env = list(
+              outer = "sqrt",
+              inner = "square",
+              var1 = "Sepal.Length",
+              var2 = "Sepal.Width",
+              out = "Sepal.Hypotenuse",
+              filter_col = "Species",
+              filter_val = I("versicolor"),
+              by_col =  "Species"
+            )] |> 
+      head(n = 3)
+    #       Species Sepal.Length Sepal.Width Sepal.Hypotenuse
+    #        <fctr>        <num>       <num>            <num>
+    # 1: versicolor          7.0         3.2         7.696753
+    # 2: versicolor          6.4         3.2         7.155418
+    # 3: versicolor          6.9         3.1         7.564390
+    ```
+
+    -   Variables are included in the standard i, j, and by syntax
+    -   [env]{.arg-text} contains the (quoted) variable values
+        -   i.e. argument values in the typical R udf syntax (`function(x = val1)`)
+        -   Can use other UDFs as values which is demonstrated by [inner = "square"]{.arg-text}
 
 ## Recipes {#sec-dt-rec .unnumbered}
 
