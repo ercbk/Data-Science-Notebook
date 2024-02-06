@@ -318,7 +318,64 @@
 
 ### Update Table
 
--   Update Target Table with Source Data
+-   Update target table by transaction id (BQ)([link](https://towardsdatascience.com/advanced-sql-techniques-for-beginners-211851a28488))
+
+    ``` sql
+    insert target_table (transaction_id)
+      select transaction_id 
+      from source_table 
+      where transaction_id > (select max(transaction_id) from target_table)
+    ;
+    ```
+
+    -   Might not be possible with denormalized star-schema datasets in modern data warehouses.
+
+-   Update Target Table by transaction date (BQ) ([link](https://towardsdatascience.com/advanced-sql-techniques-for-beginners-211851a28488))
+
+    ``` sql
+    merge last_online t
+    using (
+      select
+          user_id,
+          last_online
+      from
+        (
+            select
+                user_id,
+                max(timestamp) as last_online
+
+            from 
+                connection_data
+            where
+                date(_partitiontime) >= date_sub(current_date(), 
+                                                 interval 1 day)
+            group by
+                user_id
+
+        ) y
+
+    ) s
+    on t.user_id = s.user_id
+    when matched then
+      update set last_online = s.last_online, 
+                 user_id = s.user_id
+    when not matched then
+      insert (last_online, user_id) 
+        values (last_online, user_id)
+    ;
+    select * from last_online
+    ;
+    ```
+
+    -   `MERGE` performs `UPDATE`, `DELETE`, and `INSERT`
+
+        -   UPDATE or DELETE clause can be used when two or more data match.
+        -   INSERT clause can be used when two or more data are different and do not match.
+        -   The UPDATE or DELETE clause can also be used when the given data does not match the source.
+
+    -   [\_partitiontime]{.arg-text} is a field BQ creates to record the row's ingestion time (See [Google, Big Query \>\> Optimization](google-bigquery.qmd#sec-goog-bigq-opt){style="color: green"} \>\> Partitions
+
+-   Update Target Table with Source Data ([link](https://towardsdatascience.com/data-warehouse-design-patterns-d7c1c140c18b))
 
     ``` sqlpostgresql
     MERGE INTO target_table tgt
@@ -341,11 +398,6 @@
     -   The `WHEN MATCHED THEN` clause specifies the update actions for matching rows.
     -   The `WHEN NOT MATCHED THEN` clause specifies the insert actions for rows that don't have a match in the target table.
     -   The `::DATE` cast ensures that the `updated_date` value is treated as a date.
-    -   This statement works for
-        -   Microsoft SQL Server (Transact-SQL)
-        -   Oracle Database
-        -   PostgreSQL (version 9.5 and later)
-        -   SQLite (version 3.24.0 and later)
 
 ### Subqueries {#sec-sql-basics-subq .unnumbered}
 
