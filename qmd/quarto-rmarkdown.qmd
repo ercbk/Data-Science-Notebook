@@ -2,6 +2,10 @@
 
 ## Misc {#sec-quarto-misc .unnumbered}
 
+-   Packages
+
+    -   [{]{style="color: #990000"}[quarto](https://quarto-dev.github.io/quarto-r/){style="color: #990000"}[}]{style="color: #990000"}
+
 -   Resources
 
     -   [Docs](https://quarto.org/docs/guide/)
@@ -191,6 +195,8 @@
 -   Footnote
 
     ``` markdown
+    words [^1]
+
     [^1]: Data from https://github.com/rfordatascience/tidytuesday
     ```
 
@@ -520,30 +526,57 @@
 
 ## Automation {#sec-quarto-auto .unnumbered}
 
--   Iteration
+-   Iteration and Parameterization
+
+    -   Notes from
+
+        -   Velásquez R-Ladies Nairobi: [Code](https://github.com/ivelasq/reports-with-quarto-exercises/tree/main), [Slides](https://ivelasq.quarto.pub/getting-started-with-report-writing-using-quarto/#/title-slide), [Video](https://www.youtube.com/watch?v=Sf__ERCSgIA&ab_channel=R-LadiesNairobi)
 
     -   It involves having a “child” document as a template and running it repeatedly with different parameters
 
-    -   The “main” document “knits” or includes the output from the child document
+    -   The “main” document includes the output from the child document
 
-    -   Main Document
+    -   Rendering Options
+
+        -   CLI: e.g. `quarto render polling-places-report.qmd -P state:'California'`
+
+        -   [{quarto}]{style="color: #990000"}:
+
+            ``` r
+            quarto::quarto_render(
+              input = here::here("polling-places-report.qmd"),
+              execute_params = list(state = "California")
+            )
+            ```
+
+    -   Example: Create a report for each parameter value. In each report, use the parameter value (e.g. state) to iterate through a template file that makes a tables (1 for each county) based on that value.
+
+    -   Main Report Document
 
         ```` markdown
+        ---
+        title: "Polling Places Report - `r params$state`"
+        params:
+          state: "California"
+        ---
+
         ```{{r}}
         #| results: hide
 
+        library(dplyr)
+
         counties <- polling_places |> 
-          filter(state == "Alabama") |> 
+          filter(state == params$state) |> 
           distinct(county_name) |> 
           pull()
 
         expanded_child <- 
           counties |> 
-            map(\(county) {
+            purrr::map(\(county) {
               knitr::knit_expand("../_template.qmd", 
                                  current_county = county))
               }|> 
-            flatten()
+            purrr::flatten()
 
         parsed_child <- knitr::knit_child(text = unlist(expanded_child))
         ```
@@ -551,15 +584,16 @@
         `{{r}} parsed_child`
         ````
 
+        -   The document that gets published, emailed, etc.
+        -   [params]{.arg-text} specified in YAML
+            -   Value can also be used in the title of the document via inline R code
+        -   Each [county]{.var-text} is iterated through the child document (\_template.qmd) via [current_county]{.arg-text} variable and `knit_expand`
+        -   [parsed_child]{.var-text} is a list of the template file outputs.
+        -   Then, [parsed_child]{.var-text} is converted to a character vector by `unlist` and *all* the results are printed in the document by the inline R code
+
     -   Child Document (i.e. Template)
 
         ```` markdown
-        ---
-        params:
-          state: "Alabama"
-        ---
-
-        ```{{r}}
         ### {{current_county}} COUNTY
 
         -   Total Polling Places: `{{r}} polling_places |> filter(state == params$state, county_name == "{{current_county}}") |> count()`
@@ -575,7 +609,44 @@
         ```
         ````
 
-        -   File named "\_template.qmd"
+        -   Parameter value is used to get county data and create tables for each.
+        -   No YAML is necessary in child document
+            -   [params]{.arg-text} values are automatically available through `knitr::knit_expand` that's executed in the Main document
+        -   The [county]{.var-text} variable is utilized by the template file using the double curly braces, `{{{current_county}}}`
+        -   `kbl` outputs in markdown format so the table is correctly rendered in the Main document.
+
+    -   Rendering Script
+
+        ``` r
+        polling_places <-
+          readr::read_csv(here::here("data", "geocoded_polling_places.csv"))
+
+        # create quarto::render arguments df
+        polling_places_reports <-
+          polling_places |>
+          dplyr::distinct(state) |>
+          dplyr::slice_head(n = 5) |>
+          dplyr::mutate(
+            output_format = "html",
+            output_file = paste0(tolower(state),
+                                 "-polling-places"),
+            execute_params = purrr::map(state,
+                                        \(state) list(state = state))
+          ) |>
+          # default output is html, so that variable not selected
+          dplyr::select(output_file, execute_params) 
+
+        # iterate through args and create reports
+        purrr::pwalk(
+          .l = polling_places_reports,
+          .f = quarto::quarto_render,
+          input = here::here("main_report_document.qmd"),
+          .progress = TRUE
+        )
+        ```
+
+        -   Creates a report for each [params]{.arg-text} value (e.g. [state]{.var-text})
+        -   Generates a dataframe for each set of arguments to be fed to `quarto::quarto_render`.
 
 ## WebR {#sec-quarto-webr .unnumbered}
 
