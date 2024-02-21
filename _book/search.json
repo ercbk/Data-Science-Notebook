@@ -3030,5 +3030,93 @@
       "NLP",
       "<span class='chapter-number'>33</span>  <span class='chapter-title'>NLP, LLMs</span>"
     ]
+  },
+  {
+    "objectID": "qmd/db-duckdb.html",
+    "href": "qmd/db-duckdb.html",
+    "title": "DuckDB",
+    "section": "",
+    "text": "Misc",
+    "crumbs": [
+      "Databases",
+      "DuckDB"
+    ]
+  },
+  {
+    "objectID": "qmd/db-duckdb.html#sec-db-duckdb-misc",
+    "href": "qmd/db-duckdb.html#sec-db-duckdb-misc",
+    "title": "DuckDB",
+    "section": "",
+    "text": "High performance embedded database for analytics which provides a few enhancements over SQLite such as increased speed and allowing a larger number of columns\n\nFaster than sqlite for most analytics queries (sums, aggregates etc).\n\nVectorizes query executions (columnar-oriented), while other DBMSs (SQLite, PostgreSQL…) process each row sequentially\n\n\nUnlike some other big data tools it is entirely self-contained. (aka embedded, in-process)\n\nNo external dependencies, or server software to install, update, or maintain\n\nCan directly run queries on Parquet files, CSV files, SQLite files, postgres files, Pandas, R and Julia data frames as well as Apache Arrow sources\nExtensions\n\nDocs, List of Official Extensions\n\nTools\n\nSQL Workbench - Query parquet files locally or remotely. Can also produce charts of results. Uses DuckDB-WASM so browser based.\n\nTutorial\nFor visualizations, click the configure button on the right side of the Results sections (bottom main), click Data Grid, choose a chart type, drag column names from the bottom to various areas (similar to Tableau). Click the Reset button in the toolbar close to the configure button to return to Table mode.",
+    "crumbs": [
+      "Databases",
+      "DuckDB"
+    ]
+  },
+  {
+    "objectID": "qmd/db-duckdb.html#sec-db-duckdb-setup",
+    "href": "qmd/db-duckdb.html#sec-db-duckdb-setup",
+    "title": "DuckDB",
+    "section": "Set-up",
+    "text": "Set-up\n\nInstallation: install.packages(\"duckdb\")\nCreate db and populate table from csv\n\nExample \nExample\n# includes filename/id\nwithr::with_dir(\"data-raw/files/\", {\n  dbSendQuery(\n    con, \"\n    CREATE TABLE files AS\n    SELECT *, regexp_extract(filename, '\\\\d{7}') AS file_number\n    FROM read_csv_auto('*Control*File-*.txt', FILENAME = TRUE);\"\n  )\n})",
+    "crumbs": [
+      "Databases",
+      "DuckDB"
+    ]
+  },
+  {
+    "objectID": "qmd/db-duckdb.html#sec-db-duckdb-dbplyr",
+    "href": "qmd/db-duckdb.html#sec-db-duckdb-dbplyr",
+    "title": "DuckDB",
+    "section": "dbplyr",
+    "text": "dbplyr\n\nExample Connect to db; Write a df to table; Query it\nlibrary(dbplyr)\n\nduck = DBI::dbConnect(duckdb::duckdb(), dbdir=\"duck.db\", read_only=FALSE)\nDBI::dbWriteTable(duck, name = \"sales\", value = sales)\nsales_duck &lt;- tbl(duck, \"sales\")\n\nsales_duck %&gt;%\n  group_by(year, SKU) %&gt;%\n  mutate(pos_sales = case_when(\n          sales_units &gt; 0 ~ sales_units,\n          TRUE ~ 0)) %&gt;%\n  summarize(total_revenue = sum(sales_units * item_price_eur),\n            max_order_price = max(pos_sales * item_price_eur),\n            avg_price_SKU = mean(item_price_eur),\n            items_sold = n())\n\nDBI::dbDisconnect(duck)",
+    "crumbs": [
+      "Databases",
+      "DuckDB"
+    ]
+  },
+  {
+    "objectID": "qmd/db-duckdb.html#sec-db-duckdb-arrow",
+    "href": "qmd/db-duckdb.html#sec-db-duckdb-arrow",
+    "title": "DuckDB",
+    "section": "Apache Arrow",
+    "text": "Apache Arrow\n\nto_duckdb() and to_arrow(): Converts between using {arrow} engine and {duckdb} engieg in workflow without paying any cost to (re)serialize the data when you pass it back and forth\n\nUseful in cases where something is supported in one of Arrow or DuckDB but not the other\n\nBenefits\n\nUtilization of a parallel vectorized execution engine without requiring any extra data copying\nLarger Than Memory Analysis: Since both libraries support streaming query results, we are capable of executing on data without fully loading it from disk. Instead, we can execute one batch at a time. This allows us to execute queries on data that is bigger than memory.\nComplex Data Types: DuckDB can efficiently process complex data types that can be stored in Arrow vectors, including arbitrarily nested structs, lists, and maps.\nAdvanced Optimizer: DuckDB’s state-of-the-art optimizer can push down filters and projections directly into Arrow scans. As a result, only relevant columns and partitions will be read, allowing the system to e.g., take advantage of partition elimination in Parquet files. This significantly accelerates query execution.\n\nExample (using a SQL Query; method 1)\n# open dataset\nds &lt;- arrow::open_dataset(dir_out, partitioning = \"species\")\n# open connection to DuckDB\ncon &lt;- dbConnect(duckdb::duckdb())\n# register the dataset as a DuckDB table, and give it a name\nduckdb::duckdb_register_arrow(con, \"my_table\", ds)\n# query\ndbGetQuery(con, \"\n  SELECT sepal_length, COUNT(*) AS n\n  FROM my_table\n  WHERE species = 'species=setosa'\n  GROUP BY sepal_length\n\")\n\n# clean up\nduckdb_unregister(con, \"my_table\")\ndbDisconnect(con)\n\nfiltering using a partition, the WHERE format is ‘&lt;partition_variable&gt;=&lt;partition_value&gt;’\n\nExample (using SQL Query; method 2)\nlibrary(duckdb)\nlibrary(arrow)\nlibrary(dplyr)\n\n# Reads Parquet File to an Arrow Table\narrow_table &lt;- arrow::read_parquet(\"integers.parquet\", as_data_frame = FALSE)\n\n# Gets Database Connection\ncon &lt;- dbConnect(duckdb::duckdb())\n\n# Registers arrow table as a DuckDB view\narrow::to_duckdb(arrow_table, table_name = \"arrow_table\", con = con)\n\n# we can run a SQL query on this and print the result\nprint(dbGetQuery(con, \"SELECT SUM(data) FROM arrow_table WHERE data &gt; 50\"))\n\n# Transforms Query Result from DuckDB to Arrow Table\nresult &lt;- dbSendQuery(con, \"SELECT * FROM arrow_table\")\nExample (using dplyr)\nlibrary(duckdb)\nlibrary(arrow)\nlibrary(dplyr)\n\n# Open dataset using year,month folder partition\nds &lt;- arrow::open_dataset(\"nyc-taxi\", partitioning = c(\"year\", \"month\"))\n\nds %&gt;%\n  # Look only at 2015 on, where the number of passenger is positive, the trip distance is\n  # greater than a quarter mile, and where the fare amount is positive\n  filter(year &gt; 2014 & passenger_count &gt; 0 & trip_distance &gt; 0.25 & fare_amount &gt; 0) %&gt;%\n  # Pass off to DuckDB\n  to_duckdb() %&gt;%\n  group_by(passenger_count) %&gt;%\n  mutate(tip_pct = tip_amount / fare_amount) %&gt;%\n  summarize(\n    fare_amount = mean(fare_amount, na.rm = TRUE),\n    tip_amount = mean(tip_amount, na.rm = TRUE),\n    tip_pct = mean(tip_pct, na.rm = TRUE)\n  ) %&gt;%\n  arrange(passenger_count) %&gt;%\n  collect()\n\nIn the docs, the example has to_duckdb after the group_by. Not sure if that makes a difference in speed. \n\nExample (Streaming Data)\n# Reads dataset partitioning it in year/month folder\nnyc_dataset = open_dataset(\"nyc-taxi/\", partitioning = c(\"year\", \"month\"))\n\n# Gets Database Connection\ncon &lt;- dbConnect(duckdb::duckdb())\n\n# We can use the same function as before to register our arrow dataset\nduckdb::duckdb_register_arrow(con, \"nyc\", nyc_dataset)\n\nres &lt;- dbSendQuery(con, \"SELECT * FROM nyc\", arrow = TRUE)\n# DuckDB's queries can now produce a Record Batch Reader\nrecord_batch_reader &lt;- duckdb::duckdb_fetch_record_batch(res)\n\n# Which means we can stream the whole query per batch.\n# This retrieves the first batch\ncur_batch &lt;- record_batch_reader$read_next_batch()",
+    "crumbs": [
+      "Databases",
+      "DuckDB"
+    ]
+  },
+  {
+    "objectID": "qmd/db-duckdb.html#sec-db-duckdb-sql",
+    "href": "qmd/db-duckdb.html#sec-db-duckdb-sql",
+    "title": "DuckDB",
+    "section": "SQL",
+    "text": "SQL\n\nMisc\nStar Expressions\n\nAllows you dynamically select columns\n-- select all columns present in the FROM clause\nSELECT * FROM table_name;\n-- select all columns from the table called \"table_name\"\nSELECT table_name.* FROM table_name JOIN other_table_name USING (id);\n-- select all columns except the city column from the addresses table\nSELECT * EXCLUDE (city) FROM addresses;\n-- select all columns from the addresses table, but replace city with LOWER(city)\nSELECT * REPLACE (LOWER(city) AS city) FROM addresses;\n-- select all columns matching the given expression\nSELECT COLUMNS(c -&gt; c LIKE '%num%') FROM addresses;\n-- select all columns matching the given regex from the table\nSELECT COLUMNS('number\\d+') FROM addresses;",
+    "crumbs": [
+      "Databases",
+      "DuckDB"
+    ]
+  },
+  {
+    "objectID": "qmd/db-duckdb.html#sec-db-duckdb-remcon",
+    "href": "qmd/db-duckdb.html#sec-db-duckdb-remcon",
+    "title": "DuckDB",
+    "section": "Remote Connections",
+    "text": "Remote Connections\n\nMisc\n\nNotes from\n\nQuery Remote Parquet Files with DuckDB\n\n\nhttpfs Extension\n\nCreate a db in memory since the data is stored remotely.\nconn &lt;- \n  DBI::dbConnect(\n    duckdb::duckdb(),\n    dbdir = \":memory:\"\n  )\nInstall and Load httpfs extension\nDBI::dbExecute(conn, \"INSTALL httpfs;\")\nDBI::dbExecute(conn, \"LOAD httpfs;\")\n\nCurrently not available for Windows\n\nQuery\nparquet_url &lt;- \"url_to_parquet_files\"\nres &lt;- DBI::dbGetQuery(\n  conn, \n  glue::glue(\"SELECT carrier, flight, tailnum, year FROM '{parquet_url}' WHERE year = 2013 LIMIT 100\")\n)\n\nQueries that needs more data and return more rows takes longer to run, especially transmitting data over the Internet. Craft carefully your queries with this in mind.\n\nTo use {dplyr}, a View must first be created\nDBI::dbExecute(conn, \n               glue::glue(\"CREATE VIEW flights AS SELECT * FROM PARQUET_SCAN('{parquet_url}')\"))\nDBI::dbListTables(conn)\n#&gt; [1] \"flights\"\n\ntbl(conn, \"flights\") %&gt;%\n  group_by(month) %&gt;%\n  summarise(freq = n()) %&gt;%\n  ungroup() %&gt;%\n  collect()\nClose connection: DBI::dbDisconnect(conn, shutdown = TRUE)\n\n{duckdbfs}\n\nCreate dataset object\nparquet_url &lt;- \"url_to_parquet_files\" #e.g. AWS S3\nds &lt;- duckdbfs::open_dataset(parquet_url)\nQuery\nds %&gt;%\n  group_by(month) %&gt;%\n  summarise(freq = n()) %&gt;%\n  ungroup() %&gt;%\n  collect()",
+    "crumbs": [
+      "Databases",
+      "DuckDB"
+    ]
+  },
+  {
+    "objectID": "qmd/db-duckdb.html#sec-db-duckdb-ext",
+    "href": "qmd/db-duckdb.html#sec-db-duckdb-ext",
+    "title": "DuckDB",
+    "section": "Extensions",
+    "text": "Extensions\n\nVS Code extension\n\nConnect to a local DuckDB instance\nCreate new in-memory DuckDB instance\nView DuckDB tables, columns, and views\nRun SQL queries on open DuckDB connections\nAttach SQLite database files to in-memory DuckDB instances\nQuery remote CSV and Parquet data files with DuckDB HTTPFS extension\nCreate in-memory DuckDB tables from remote data sources and query results\nManage DuckDB connections in SQLTools Database Explorer\nAutocomplete SQL keywords, table names, column names, and view names on open database connections in VSCode SQL editor\nSave named SQL query Bookmarks\nUse SQL Query History\nExport SQL query results in CSV and JSON data formats\nintegrate with the equally spiffy SQL Tools extension\n\nJSON extension\n\nExample: From hrbrmstr drop\nINSTALL 'json';\nLOAD 'json';\n\nCOPY (\n  SELECT * FROM (\n    SELECT DISTINCT\n      cve_id,\n      unnest(\n        regexp_split_to_array(\n          concat_ws(\n            ',',\n            regexp_extract(case when cweId1 IS NOT NULL THEN cweId1 ELSE regexp_replace(json_extract_string(problem1, '$.description'), '[: ].*$', '') END, '^(CWE-[0-9]+)', 0),\n            regexp_extract(case when cweId2 IS NOT NULL THEN cweId2 ELSE regexp_replace(json_extract_string(problem2, '$.description'), '[: ].*$', '') END, '^(CWE-[0-9]+)', 0)\n          ),\n          ','\n        )\n      ) AS cwe_id\n    FROM (\n      SELECT \n        json_extract_string(cveMetadata, '$.cveId') AS cve_id, \n        json_extract(containers, '$.cna.problemTypes[0].descriptions[0]') AS problem1,\n        json_extract(containers, '$.cna.problemTypes[0].descriptions[1]') AS problem2,\n        json_extract_string(containers, '$.cna.problemTypes[0].cweId[0]') AS cweId1,\n        json_extract_string(containers, '$.cna.problemTypes[0].cweId[1]') AS cweId2\n      FROM \n        read_json_auto(\"/data/cvelistV5/cves/*/*/*.json\", ignore_errors = true) \n    )\n    WHERE \n      (json_extract_string(problem1, '$.type') = 'CWE' OR\n       json_extract_string(problem2, '$.type') = 'CWE')\n    )\n  WHERE cwe_id LIKE 'CWE-%'\n) TO '/data/summaries/cve-to-cwe.csv' (HEADER, DELIMETER ',')\n\nProcesses a nested json\nClones the CVE list repo, modify the directory paths and run it. It burns through nearly 220K hideous JSON files in mere seconds, even with some complex JSON operations.\n\nDBs\n\nMySQL, Postgres, SQLite\n\nMight need to use FORCE INSTALL postgres\n\nAllows DuckDB to connect to those systems and operate on them in the same way that it operates on its own native storage engine.\nUse Cases\n\nExport data from SQLite to JSON\nRead data from Parquet into Postgres\nMove data from MySQL to Postgres\nDeleting rows, updating values, or altering the schema of a table in another DB\n\nNotes from\n\nMulti-Database Support in DuckDB\n\nHas other examples including transaction operations\n\n\nExample: Open SQLite db file\nATTACH 'sakila.db' AS sakila (TYPE sqlite);\nSELECT title, release_year, length FROM sakila.film LIMIT 5;\n\nATTACH opens the db file and TYPE says that it’s a SQLite db file\nMultiple dbs without using TYPE\nATTACH 'sqlite:sakila.db' AS sqlite;\nATTACH 'postgres:dbname=postgresscanner' AS postgres;\nATTACH 'mysql:user=root database=mysqlscanner' AS mysql;\nIn python\nimport duckdb\ncon = duckdb.connect('sqlite:file.db')\n\nExample: Switch between attached dbs\nUSE sakila;\nSELECT first_name, last_name FROM actor LIMIT 5;\n\nUSE switches from the previous db to the “sakila” db\n\nExample: View all attached dbs\nSELECT database_name, path, type FROM duckdb_databases;\nExample: Copy table from one db type to another\nCREATE TABLE mysql.film AS FROM sqlite.film;\nCREATE TABLE postgres.actor AS FROM sqlite.actor;\nExample: Joins\nSELECT first_name, last_name\nFROM mysql.film\nJOIN sqlite.film_actor ON (film.film_id = film_actor.film_id)\nJOIN postgres.actor ON (actor.actor_id = film_actor.actor_id)\nWHERE title = 'ACE GOLDFINGER';",
+    "crumbs": [
+      "Databases",
+      "DuckDB"
+    ]
   }
 ]
