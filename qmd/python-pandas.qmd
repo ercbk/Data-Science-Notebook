@@ -491,11 +491,36 @@ df.rename({'variable': 'Year', 'value': 'GDP'}, axis=1, inplace=True)
 
 ### Filtering {#sec-py-pandas-ops-filter .unnumbered}
 
--   Also see [Indexes](python-pandas.qmd#sec-py-pandas-ops-index){style="color: green"}
+-   Misc
+
+    -   Also see [Indexes](python-pandas.qmd#sec-py-pandas-ops-index){style="color: green"}
+
+    -   Grouped and regular pandas data frames have different APIs, so it's not a guarantee that a method with the same name will do the same thing. 🙃
 
 -   On value: `df_filtered = data[data.col1 == "A"]`
 
 -   Via query: `df_filtered = data.query("col1 == 'A'")`
+
+    -   More complicated
+
+        ``` python
+        purchases
+          .query("amount <= amount.median() * 10")
+        # or
+        .loc[lambda df: df["amount"] <= df["amount"].median() * 10]
+        ```
+
+-   By group
+
+    ``` python
+    purchases
+      .groupby("country")                                               
+      .apply(lambda df: df[df["amount"] <= df["amount"].median() * 10]) 
+      .reset_index(drop=True)
+    ```
+
+    -   FIlters each [country]{.var-text} by the `median` of its [amount]{.var-text} times 10.
+    -   The result of `apply` is a dataframe, but that dataframe has the index, [country]{.var-text} (i.e. rownames). The problem is that the result also has a [country]{.var-text} column. Therefore using `reset_index` would move the index to a column, but since there's already a country column, it will give you a [ValueError]{.arg-text}. Including [drop=True]{.arg-text} fixes this by dropping the index entirely.
 
 -   On multiple values: `df_filtered = data[(data.col1 == "A") | (data.col1 == "B")]`
 
@@ -591,17 +616,31 @@ df.rename({'variable': 'Year', 'value': 'GDP'}, axis=1, inplace=True)
     df = df.assign(col3 = df["col1"] + df["col2"])
     ```
 
--   `apply`  a function to column(s)
+-   `apply`  an operation to column(s)
 
-    ``` python
-    df[['colA', 'colB']] = df[['colA', 'colB']].apply(np.sqrt)
-    df["col3"] = df.apply(my_func, axis=1)
-    ```
+    -   Function
 
-    -   docs: [Series](https://pandas.pydata.org/docs/reference/api/pandas.Series.apply.html), [DataFrame](https://pandas.pydata.org/docs/reference/api/pandas.DataFrame.apply.html)
-    -   axis - arg for applying a function across rowwise or columnwise (default is 0, which is for columnwise)
-    -   The fact that mutated columns are assigned to the columns of the df are what keeps it from being like summarize
-        -   If np.sum were the function, then the output would be two numbers and this probably wouldn't work.
+        ``` python
+        df[['colA', 'colB']] = df[['colA', 'colB']].apply(np.sqrt)
+        df["col3"] = df.apply(my_func, axis=1)
+        ```
+
+        -   docs: [Series](https://pandas.pydata.org/docs/reference/api/pandas.Series.apply.html), [DataFrame](https://pandas.pydata.org/docs/reference/api/pandas.DataFrame.apply.html)
+        -   axis - arg for applying a function across rowwise or columnwise (default is 0, which is for columnwise)
+        -   The fact that mutated columns are assigned to the columns of the df are what keeps it from being like summarize
+            -   If np.sum were the function, then the output would be two numbers and this probably wouldn't work.
+
+    -   Within a chain
+
+        ``` python
+        purchases
+          .groupby("country")
+          .apply(lambda df: (df["amount"] - df["discount"]).sum())
+          .reset_index()
+          .rename(columns={0: "total"})
+        ```
+
+        -   When the result of the `apply` function is coerced to a dataframe by `reset_index`, the column will be named "0". `rename` is used to rename it [total]{.var-text}.
 
 -   `map`
 
@@ -711,6 +750,8 @@ pd.concat([top_df, more_df], axis=1)
 
 ### Group_By {#sec-py-pandas-ops-groupby .unnumbered}
 
+-   To get a dataframe, instead of a series, after performing a grouped calculation, apply `reset_index()` to the result.
+
 -   Find number of groups
 
     ``` python
@@ -802,12 +843,14 @@ pd.concat([top_df, more_df], axis=1)
 
 ### Summarize {#sec-py-pandas-ops-summ .unnumbered}
 
+-   `agg` can only operate on one column at time, so for transformations involving multiple columns (e.g. col3 = col1 - col2), see [Mutate](python-pandas.qmd#sec-py-pandas-ops-mutate){style="color: green"} section.
+
 -   With groupby and agg
 
     -   `df.groupby("cat_col_name").agg(new_col_name = ("num_col_name", "func_name"))`
         -   To reset the index  (i.e. ungroup)
             -   use `.groupby` arg, as_index=False
-            -   use `.reset_index()` at the end of the chain
+            -   use `.reset_index()` at the end of the chain (outputs a dataframe instead of a series)
                 -   arg: drop=TRUE ...does something (maybe drops grouping columns)
 
 -   Group aggregate with more than 1 function
@@ -816,7 +859,7 @@ pd.concat([top_df, more_df], axis=1)
     df.groupby("Product_Category")[["Quantity"]].agg([min,max,sum,'mean'])
     ```
 
-    -   when you mention 'mean' (with quotes), .aggregate() searches for a function mean belonging to pd.Series i.e. pd.Series.mean().
+    -   When you mention 'mean' (with quotes), .aggregate() searches for a function mean belonging to pd.Series i.e. pd.Series.mean().
     -   Whereas, if you mention mean (without quotes), .aggregate() will search for function named mean in default Python, which is unavailable and will throw an NameError exception.
 
 -   Use a different aggregate function on specific columns
@@ -825,6 +868,42 @@ pd.concat([top_df, more_df], axis=1)
     function_dictionary = {'OrderID':'count','Quantity':'mean'}
     df.groupby("Product_Category").aggregate(function_dictionary)
     ```
+
+-   Filter by Group, then Summarize by Group ([link](https://www.sumsar.net/blog/pandas-feels-clunky-when-coming-from-r/))
+
+    -   Option 1
+
+        ``` python
+        purchases
+          .groupby("country")                                               
+          .apply(lambda df: df[df["amount"] <= df["amount"].median() * 10]) 
+          .reset_index(drop=True)                                           
+          .groupby("country")
+          .apply(lambda df: (df["amount"] - df["discount"]).sum())
+          .reset_index()
+          .rename(columns={0: "total"})
+        ```
+
+        -   FIlters each [country]{.var-text} by the `median` of its [amount]{.var-text} times 10.
+        -   For each [country]{.var-text}, subtracts a [discount]{.var-text} from [amount]{.var-text}, then `sums` and `renames` the column from "0" to [total]{.var-text}.
+
+    -   Option 2
+
+        ``` python
+        purchases
+          .assign(country_median=lambda df:                         
+              df.groupby("country")["amount"].transform("median")   
+          )
+          .query("amount <= country_median * 10")                                  
+          .groupby("country")
+          .apply(lambda df: (df["amount"] - df["discount"]).sum())
+          .reset_index()
+          .rename(columns={0: "total"})
+        ```
+
+        -   Here the `median` [amount]{.var-text} per [country]{.var-text} is calculated first and assigned to each row in [purchases]{.var-text}.
+        -   `query` is used to filter by each country's median.
+        -   Then, `apply` and `groupby` are used in the same manner as option 1.
 
 ### Join {#sec-py-pandas-ops-join .unnumbered}
 
