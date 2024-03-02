@@ -319,6 +319,113 @@
 -   Undo uncommitted changes: `git stash` followed by `git stash drop`
     -   "but only use if you commit often" - guessing this is not good if your commit is somehow large and/or involves multiple files
 -   Search commits by string: `git log --grep <string>`
+-   Pinpoint bugs in your commit history
+    -   Instead of sequentially searching each previous commit to look for the bad commit, `git bisect` helps you perform a bisect search for the commit which saves time.
+
+    -   Scenario: A bug is introduced in a codebase, but it is not discovered until later. The feature used to work, but now, it does not. The feature was definitely known to work 3 weeks ago.
+
+    -   Manual Workflow
+
+        1.  Make sure you're in the current commit that's bad and start `git bisect`
+
+            ``` bash
+            git bisect start
+            git bisect bad # <1>
+            git log --before="3 weeks" # <2>
+            git checkout 3348b0 # <3>
+            ```
+
+            1.  This labels the current commit as bad (i.e. bug is present)
+            2.  This lists every commit for last 3 weeks
+            3.  Switch to the commit that's the version of the project that was 3 weeks ago when supposedly the feature was working. The first commit listed (i.e. top) will be the commit closest to 3 weeks ago --- with older commits below it. You only need to use the first 6 or so digits of the commit hash.
+
+        2.  Recompile code and test commit for bug
+
+            ``` r
+            devtools::load_all()
+            ```
+
+            -   `load_all` will recompile your package using this current version's code
+            -   After recompiling code, use your reproducible examplet to see if the bug is present in this version
+            -   If the bug is stil present, then go to the next older commit and repeat process. Keep loading older commits until you find one that doesn't have the bug.
+                -   If ths is the case and assuming you don't have to go back too much further to find a "good" commit, then you can stop here since you'll have found the bad commit that introduced the bug.
+                -   If you don't find a good commit around this time period, then quit the current `git bisect` session using `git bisect reset` and choose whichever commit you stop at as the new starting point for a new `git bisect` session and repeat this whole workflow.
+
+        3.  Go to terminal and mark this commit as good
+
+            ``` bash
+            git bisect good
+            ```
+
+            -   Git will automatically switch you to commit that's the midway point between the "start" commit and the commit you labeled as "good."
+            -   It tells you how many commits that are currently between you and the "start" commit which is the same amount as between this midway commit and the commit you labelled as "good.
+            -   It also tells you how many more bisections ("steps") you'll have to go through to find the commit resposible for the bug.
+
+        4.  Repeat Step 2 and test verstion for the bug. Then label commit as good or bad
+
+            ``` bash
+            git bisect bad
+            ```
+
+            -   Afterwards, git will automatically `checkout` to the commit that is either midway between this commit and "start" or the *end* commit based on whether you label this current commit as good or bad.
+
+        5.  Continue labelling commits until git's message is "\<some commit hash\> is the first bad commit."
+
+            -   Git will also show you the commit message and a list of files that were changed.
+
+        6.  Use `git show <commit hash>` to see the diff
+
+        7.  (Optional) Use `git bisect log > file-name` to save the session to a file.
+
+        8.  Use `git bisect reset` to exit and return you to where you were at the start of this workflow (HEAD)
+
+    -   Automatic Workflow
+
+        1.  Write script that includes you reproducible exaample and have it return an error code of **0** if it *does not* contain the bug or return an **non-zero** error if it *does* contain the bug.
+
+            -   [Example]{.ribbon-highlight}
+
+                ``` r
+                devtools::load_all()
+
+                if (nr != nrow(df)) {
+                  stop("error")
+                }
+                ```
+
+                -   `load_all`will recompile your package using this current version's code
+                -   Returns non-zero error code if condition *is not* triggered (i.e. False) and a 0 error code when the condition *is* triggered (i.e. True).
+                -   Could also use `stopifnot` here.
+
+        2.  (Optional) If you already know the commit hash of commit from 3 weeks ago and that *does not* have the bug, you can bypass the step 3.
+
+            ``` r
+            # Make sure you're in the current commit that's got the bug
+            git bisect start
+            git bisect bad # <1>   
+            git bisect good 3348b0 # <2>
+            ```
+
+            1.  This labels the current commit as bad (i.e. bug is present)
+            2.  This labels the commit from 3 weeks ago that you **know** doesn't have the bug
+
+        3.  Do steps 1, 2, and 3 of the Manual Workflow
+
+        4.  Run auto-bisect
+
+            ``` r
+            git bisect run Rscript test.R
+            ```
+
+            -   test.R is the script from step 1 that determines whether the version (i.e. commit hash) of your code has the bug.
+            -   This run through all the steps of the Manual Workflow and determine with the version of the code is "good" or "bad" by whether the script returns an error code of zero or non-zero.
+
+        5.  Read final message to get the commit hash with bug in it.
+
+            -   Message will be "\<some commit hash\> is the first bad commit."
+            -   Git will also show you the commit message and a list of files that were changed.
+
+        6.  See steps 6, 7, and 8 of the Manual Workflow
 
 ## Pulling
 
