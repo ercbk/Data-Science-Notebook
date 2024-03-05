@@ -12,6 +12,9 @@
 -   [Comments]{.underline}: `<# comment #>`
 -   Clear terminal: `clear` or `cls` or `Clear-Host`
 -   Before you'll be able to run a script, you need to open PowerShell *as administrator* and execute this command: `Set-ExecutionPolicy RemoteSigned`
+-   Shortcuts
+    -   Run selected PowerShell code in current terminal using F8
+    -   Launch online help for the symbol under the cursor using Ctrl + F1
 
 ### Loops {#sec-cli-win-powsh-loop .unnumbered}
 
@@ -65,6 +68,8 @@
 
 -   Uses a typical for-loop structure
 
+-   See [Snippets](cli-windows.qmd#sec-cli-win-powsh-snip){style="color: green"} for an example of iterating over the output of `Get-ChildItem`
+
 -   Iterate over an array
 
     ``` powershell
@@ -79,39 +84,6 @@
 
     -   \$[i]{.arg-text} is the for-loop variable and [\$folders]{.arg-text} is the iterable
     -   `Add-Content` creates a text file in each of the folders in the array.
-
--   Iterate over the output of `Get-ChildItem`
-
-    ``` powershell
-    # Define the directory containing the files
-    $directory = "C:\Path\To\Files"
-
-    # Define the FFmpeg argument string
-    $ffmpegArg = "-i {0}.mp4 -c:v libx265 -crf 28 -preset medium -vf scale=-1:720 -c:a copy Documents\temp-storage\{1}.mp4"
-
-    # Get all files in the directory
-    $files = Get-ChildItem -Path $directory -Filter "*.mp4"
-
-    # Loop through each file and apply the FFmpeg command
-    foreach ($file in $files) {
-      # Construct the full argument string with the current file path
-      $fullArg = $ffmpegArg -f [string]::Format($file.FullName, $file.Name)
-
-      # Execute the FFmpeg command
-      Start-Process -FilePath "ffmpeg.exe" -ArgumentList $fullArg -Wait -NoNewWindow
-    }
-
-    Write-Host "Finished processing files!"
-    ```
-
-    -   `Get-ChildItem` retrieves files from the specified directory (`$directory`).
-        -   [-Filter]{.arg-text} filters files that match the pattern (e.g., `*.mp4`).
-    -   The `foreach` loop iterates through each file (`$file`) in the `$files` collection.
-    -   [-f]{.arg-text} flag stands for format. Says to replace [{0}]{.arg-text} and [{1}]{.arg-text} in the `$ffmpegCommand` template with these properties.
-        -   `[string]::Format` casts the file properties, [FullName]{.arg-text} and [Name]{.arg-text}, into strings.
-    -   `Start-Process` launches `ffmpeg.exe` with the constructed `$fullCommand` arguments.
-        -   `-Wait` ensures the command finishes before continuing.
-        -   `-NoNewWindow` hides the ffmpeg console window.
 
 #### ForEach-Object {#sec-cli-win-powsh-loop-feachobj}
 
@@ -137,7 +109,7 @@
     ``` powershell
     $folders = @('C:\Folder','C:\Program Files\Folder2','C:\Folder3')
     $folders.ForEach({
-    	Add-Content -Path "$_\SampleFile.txt" -Value "This is the content of the file"
+        Add-Content -Path "$_\SampleFile.txt" -Value "This is the content of the file"
     })
     ```
 
@@ -310,21 +282,79 @@
     $servers = Get-Content .\servers.txt
 
     foreach ($server in $servers) {
-    	try {
-    		$null = Test-Connection -ComputerName $server -Count 1 -ErrorAction STOP
-    		Write-Output "$server - OK"
-    	}
-    	catch {
-    		Write-Output "$server - $($_.Exception.Message)"
-    	}
+        try {
+            $null = Test-Connection -ComputerName $server -Count 1 -ErrorAction STOP
+            Write-Output "$server - OK"
+        }
+        catch {
+            Write-Output "$server - $($_.Exception.Message)"
+        }
     }
     ```
 
     -   `Get-Content` reads the server names from each line in the the server.txt file
     -   `foreach` iterates through the server names
     -   `try` tests the connection and `catch` outputs an error message if a server fails.
-        -   The error message line has an interesting syntax that I don't quite understand. I think [\$server]{.arg-text} is the input for [\$\_]{.arg-text}.
-    -   I guess `Test-Connection` output has to be stored into a variable even though that variable isn't used for anything
+    -   If `Test-Connection` fails the error message is stored in the `$null` variable
+    -   The error message line has an interesting syntax
+        -   `$_` is an automatic variable that represents `$null` which contains the error message which is selected by `.Exception-Message`.
+        -   `$()` evaluates the expression
+
+-   Take files from a directory and iterate them as inputs to a function.
+
+    ``` powershell
+    $directory = "C:\Users\me\Documents\AnyCap Screen Recorder"
+
+    # Define the FFmpeg command
+    $ffmpegCommand = '-i {0} ' +
+                     '-c:v libx265 ' +
+                     '-crf 28 ' +
+                     '-preset medium ' +
+                     '-vf scale=-1:720 ' +
+                     '-c:a copy ' +
+                     'C:\Users\me\Documents\temp-storage\{1}'
+
+    # Get all files in the directory
+    $files = Get-ChildItem -Path $directory `
+                           -Filter "*.mp4" 
+
+    # Loop through each file and apply the FFmpeg command
+    foreach ($file in $files) {
+      # Construct the full command with the current file path
+      $fullCommand = $ffmpegCommand -f "`"$($file.FullName)`"", $file.Name
+      # Execute the FFmpeg command
+      Start-Process -FilePath "ffmpeg.exe" `
+                    -ArgumentList $fullCommand `
+                    -Wait `
+                    -NoNewWindow
+    }
+
+    Write-Host "Finished processing files!"
+    ```
+
+    -   `$ffmpegCommand` variable is a concantenated string using multiple lines for readability. `{0}` and `{1}` are placeholders to be filled in later.
+        -   Note the space included at the end of each argument before the single quote since there's no space included during concantenation.
+    -   `Get-ChildItem` retrieves files from the specified directory (`$directory`).
+        -   [-Filter]{.arg-text} filters files that match the pattern (e.g., `*.mp4`).
+    -   The `foreach` loop iterates through each file (`$file`) in the `$files` collection.
+        -   [-f]{.arg-text} flag stands for format. Says to replace [{0}]{.arg-text} and [{1}]{.arg-text} in the `$ffmpegCommand` template with these properties.
+
+            ``` powershell
+            "`"$($file.FullName)`""
+            ```
+
+            -   Since the directory name has spaces in it, extra quotes must included in order for the path to be quoted within the output string. A quoted file path in necessary for`ffmpeg` to be able to read a directory name with spaces in it.
+            -   `$file.FullName`: This is the full path of the current file. It is enclosed in `$()` to ensure that the property is properly evaluated and its value is included in the string.
+                -   If there were *no* spaces in the directory name, then `$file.FullName` is only thing that would be required. Everything else in this description could be discarded
+            -   `` `"$($file.FullName)`" ``: The double quotes **`"..."`** are used to create a **string literal**. Placing the entire expression `$($file.FullName)` within these double quotes ensures that the value of `$file.FullName` is treated as a single string, even if it contains spaces or special characters.
+                -   The backticks are escape characters in PowerShell and indicate that the double quotes should be treated as **literal characters** and *not* as operators formatting a string.
+            -   `` "`"\$(\$file.FullName)`"" ``: The additional double quotes at the beginning and end are used to format the expression as string for when it's used as an argument in `Start-Process`.
+            -   The resulting path in the ffmpeg argument will look like: `"<full file path>"`.
+
+        -   `Start-Process` launches `ffmpeg.exe` with the constructed `$fullCommand` arguments.
+
+            -   `-Wait` ensures the command finishes before continuing.
+            -   `-NoNewWindow` says run ffmpeg in the same console window and don't open a new one.
 
 ## Batch Scripting {#sec-cli-win-batscri .unnumbered}
 
