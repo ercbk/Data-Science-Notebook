@@ -77,6 +77,7 @@
     ![](./_resources/Surveys,_Census_Data.resources/Screenshot%20(696).png){.lightbox group="geo" width="432"}
 
     -   Misc
+        -   Regular zip codes are problematic — can cross state lines.
         -   [{]{style="color: #990000"}[crosswalkZCTA](https://cran.r-project.org/web/packages/zctaCrosswalk/index.html){style="color: #990000"}[}]{style="color: #990000"} - Contains the US Census Bureau's 2020 ZCTA to County Relationship File, as well as convenience functions to translate between States, Counties and ZIP Code Tabulation Areas (ZCTAs)
     -   Approximate USPS Code distribution for housing units
         -   The most frequently occurring zip code within an census block is assigned to a census block
@@ -87,19 +88,36 @@
 
 ## American Community Survey (ACS) {#sec-surv-cens-acs .unnumbered}
 
+-   Misc
+
+    -   Default MOE is a 90%CI
+    -   For variables, `vars <- load_variables(2022, "acs5")`
+        -   For the 2022 5-year ACS,
+            -   `"acs5"` for the Detailed Tables;
+            -   `"acs5/profile"` for the Data Profile; aggregated statistics for acs5
+                -   p (suffix): Percentage with appropriate denominator
+            -   `"acs5/subject"` for the Subject Tables; and
+            -   `"acs5/cprofile"` for the Comparison Profile
+        -   Geographies only shown for 5-year ACS
+
 -   About
+
     -   Yearly estimates based on *samples* of the population over a 5yr period
         -   Therefore a Margin of Error (MoE) is included with the estimates.
     -   Detailed social, economic, housing, and demographic characteristics
     -   [census.gov/acs](http://census.gov/acs)
+
 -   ACS Release Schedule ([releases](https://census.gov/programs-surveys/acs/news/data-releases.html))
+
     -   September - 1-Year Estimates (from previous year's collection)
         -   Estimates for areas with populations of \>65K
     -   October - 1-Year Supplemental Estimates
         -   Estimates for areas with populations between 20K-64999
     -   December - 5-Year Estimates
         -   Estimates for areas including census tract and block groups
+
 -   Data Collected
+
     -   Population
         -   Social
             -   Ancestry, Citizenship, Citizen Voting Age  Population, Disability, Education Attainment, Fertility, Grandparents, Language, Marital Status, Migration, School Enrollment, Veterans
@@ -109,6 +127,106 @@
             -   Class of worker, Commuting, Employment Status, Food Stamps (SNAP), Health Insurance, Hours/Week, Weeks/Year, Income, Industry & Occupation
     -   Housing
         -   Computer & Internet Use, Costs (Mortgage, Taxes, Insurance), Heating Fuel, Home Value, Occupancy, Plumbing/Kitchen Facilities, Structure, Tenure (Own/Rent), Utilities, Vehicles, Year Built/Year Movied In
+
+-   Example: Median Household Income for Texas Counties
+
+    ``` r
+    texas_income <- get_acs(
+      geography = "county",
+      variables = "B19013_001", # median household income
+      state = "TX",
+      year = 2022
+    )
+    ```
+
+    -   Default MOE is a 90%CI (i.e. estimate $\pm$ MOE)
+
+-   Example: Census Tract for Multiple Counties in NY
+
+    ``` r
+    nyc_income <- get_acs(
+      geography = "tract",
+      variables = "B19013_001",
+      state = "NY",
+      county = c("New York", "Kings", "Queens",
+                 "Bronx", "Richmond"),
+      year = 2022,
+      geometry = TRUE
+    )
+    mapview(nyc_income, zcol = "estimate")
+    ```
+
+-   Example: Multiple Races Percentages for San Diego County
+
+    ``` r
+    san_diego_race_wide <- get_acs(
+      geography = "tract",
+      variables = c(
+        Hispanic = "DP05_0073P",
+        White = "DP05_0079P",
+        Black = "DP05_0080P",
+        Asian = "DP05_0082P"
+      ),
+      state = "CA",
+      county = "San Diego",
+      geometry = TRUE,
+      output = "wide",
+      year = 2022
+    )
+    faceted_choro <- ggplot(san_diego_race, aes(fill = estimate)) + 
+      geom_sf(color = NA) + 
+      theme_void() + 
+      scale_fill_viridis_c(option = "rocket") + 
+      facet_wrap(~variable) + 
+      labs(title = "Race / ethnicity by Census tract",
+           subtitle = "San Diego County, California",
+           fill = "ACS estimate (%)",
+           caption = "2018-2022 ACS | tidycensus R package")
+    ```
+
+    -   Allows for comparison, but for groups with less variation as compared to other groups since scaled according to *all* groups
+        -   You'd want to make a separate map for the Black population in order to compare variation between counties.
+
+-   Migrations Flows
+
+    -   Example:
+
+        ``` r
+        fulton_inflow <- get_flows(
+          geography = "county",
+          state = "GA",
+          county = "Fulton",
+          geometry = TRUE,
+          year = 2020
+        ) %>%
+          filter(variable == "MOVEDIN") %>%
+          na.omit()
+
+        fulton_top_origins <- fulton_inflow %>%
+          slice_max(estimate, n = 30) 
+
+        library(rdeck)
+
+        Sys.setenv("MAPBOX_ACCESS_TOKEN")
+
+        fulton_top_origins$centroid1 <- st_transform(fulton_top_origins$centroid1, 4326)
+        fulton_top_origins$centroid2 <- st_transform(fulton_top_origins$centroid2, 4326)
+
+        flow_map <- rdeck(map_style = mapbox_light(), 
+              initial_view_state = view_state(center = c(-98.422, 38.606), zoom = 3, 
+                                              pitch = 45)) %>%
+          add_arc_layer(get_source_position = centroid2,
+                  get_target_position = centroid1,
+                  data = as_tibble(fulton_top_origins),
+                  get_source_color = "#274f8f",
+                  get_target_color = "#274f8f",
+                  get_height = 1,
+                  get_width = scale_linear(estimate, range = 1:5),
+                  great_circle = TRUE
+                  )
+        ```
+
+        -   Width of lines is scaled to counts
 
 ## Dicennial US Census {#sec-surv-cens-dic .unnumbered}
 
@@ -348,10 +466,14 @@
 ## tidycensus {#sec-surv-cens-dic-tidyc .unnumbered}
 
 -   Get an API key
+
     -   Request a key, then activate the key from the link in your email.(<https://api.census.gov/data/key_signup.html>)
+        -   Required for hitting the census API over 500 times per day which isn't as hard as you'd think.
     -   Set as an environment variable: `census_api_key("<api key>", install = TRUE)`
         -   Or add this line to [.Renviron]{.arg-text} file, [CENSUS_API_KEY='\<api key']{.arg-text}
+
 -   Search Variables
+
     -   Columns
 
         -   [Name]{.arg-text} - ID of the variable (Use this in the survey functions)
@@ -390,7 +512,9 @@
         ```
 
         -   View table, click filter, and then search for parameters (e.g. Age, Median, etc.) with the Label, Context boxes, and overall search box
+
 -   [summary_var]{.arg-text} - Argument for supplying an additional variable that you need to calculate some kind of summary statistic
+
     -   [Example]{.ribbon-highlight}: Race Percentage per Congressional District
 
         ``` r
@@ -418,7 +542,9 @@
             mutate(percent = 100 * (value / summary_value)) %>% 
             select(NAME, variable, percent)
         ```
+
 -   [geometry = TRUE]{.arg-text}- Joins shapefile with data and returns a SF (Simple Features) dataframe for mapping
+
     -   Misc
 
         -   You can create a discrete color palette with the [at]{.arg-text} argument in the `mapview` function.
@@ -460,6 +586,8 @@
                   col.regions = inferno(100, direction = -1))
         ```
 
+        -   {mapview} is interactive and great for exploration of data
+
     -   Export as an HTML file
 
         ``` r
@@ -467,3 +595,106 @@
         ```
 
         -   Can embed it elsewhere (html report or website) by adding it as an asset
+
+    -   In {ggplot}
+
+        ``` r
+        texas_income_sf <- get_acs(
+          geography = "county",
+          variables = "B19013_001",
+          state = "TX",
+          year = 2022,
+          geometry = TRUE
+        )
+
+        plot(texas_income_sf['estimate'])
+        ```
+
+-   Remove water from geographies
+
+    ``` r
+    nyc_income_tiger <- get_acs(
+      geography = "tract",
+      variables = "B19013_001",
+      state = "NY",
+      county = c("New York", "Kings", "Queens",
+                 "Bronx", "Richmond"),
+      year = 2022,
+      cb = FALSE,
+      geometry = TRUE
+    )
+
+    library(tigris)
+    library(sf)
+    sf_use_s2(FALSE)
+
+    nyc_erase <- erase_water(
+      nyc_income_tiger,
+      area_threshold = 0.5,
+      year = 2022
+    )
+
+
+    mapview(nyc_erase, zcol = "estimate")
+    ```
+
+-   Bubble Maps are better for better for counts
+
+    ``` r
+
+    san_diego_race_counts <- get_acs(
+      geography = "tract",
+      variables = c(
+        Hispanic = "DP05_0073",
+        White = "DP05_0079",
+        Black = "DP05_0080",
+        Asian = "DP05_0082"
+      ),
+      state = "CA",
+      county = "San Diego",
+      geometry = TRUE,
+      year = 2022
+    )
+
+    san_diego_hispanic <- filter(
+      san_diego_race_counts, 
+      variable == "Hispanic"
+    )
+
+    centroids <- st_centroid(san_diego_hispanic)
+
+
+    grad_symbol <- ggplot() + 
+      geom_sf(data = san_diego_hispanic, color = "black", fill = "lightgrey") + 
+      geom_sf(data = centroids, aes(size = estimate),
+              alpha = 0.7, color = "navy") + 
+      theme_void() + 
+      labs(title = "Hispanic population by Census tract",
+           subtitle = "2018-2022 ACS, San Diego County, California",
+           size = "ACS estimate") + 
+      scale_size_area(max_size = 6) 
+    ```
+
+-   Dot Density to show heterogeneity and mixing between groups
+
+    ``` r
+    san_diego_race_dots <- as_dot_density(
+      san_diego_race_counts,
+      value = "estimate",
+      values_per_dot = 200,
+      group = "variable"
+    )
+
+    san_diego_race_dots
+
+    dot_density_map <- ggplot() + 
+      geom_sf(data = san_diego_hispanic, color = "lightgrey", fill = "white") + 
+      geom_sf(data = san_diego_race_dots, aes(color = variable), size = 0.01) + 
+      scale_color_brewer(palette = "Set1") + 
+      guides(color = guide_legend(override.aes = list(size = 3))) + 
+      theme_void() + 
+      labs(color = "Race / ethnicity",
+           caption = "2018-2022 ACS | 1 dot = approximately 200 people")
+    ```
+
+-   

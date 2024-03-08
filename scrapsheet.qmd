@@ -18,6 +18,248 @@ title: "Scrapsheet"
     -   dinner
 -   Orange Juice
 
+## tidycensus 3
+
+-   acs
+
+    -   variables covering e.g. income, education, language, housing characteristics)
+
+    -   Available as 1-year estimates (for geographies of population 65,000 and greater) and 5-year estimates (for geographies down to the block group)
+
+-   Remove Water Boundaries (1:02)
+
+    -   Get before and after pics; descriptions
+
+    -   works specifically with census tigris
+
+    -   Can take a couple minutes to run
+
+    -   cb = FALSE avoid sliver poly
+
+    -   erase_water
+
+        -   area_threshold = 0.5 - water areas in 50th percentile in terms of size are removed
+
+-   Map types
+
+    -   tmap in ch 6 of walker's book
+
+    -   rates or percentages - choropleths
+
+    -   counts - bubble maps or circle maps - need to convert data to centroids
+
+        -   dot density for hetergeneity (1:45)
+
+            -   get descriptions of shuffling, aes_legend
+
+        -   basemap (1:47)
+
+            ``` r
+            dot_density_with_basemap <- ggplot() + 
+              annotation_map_tile(type = "cartolight", zoom = 9) + 
+              geom_sf(data = san_diego_race_dots, aes(color = variable), size = 0.01) + 
+              scale_color_brewer(palette = "Set1") + 
+              guides(color = guide_legend(override.aes = list(size = 3))) + 
+              theme_void() + 
+              labs(color = "Race / ethnicity",
+                   caption = "2018-2022 ACS | 1 dot = approximately 200 people")
+            ```
+
+            -   get pros and code
+
+-   mapview
+
+    -   m1 + m2 creates layers
+
+    -   m1 \| m2 creates swipe map (need leaflet.extras2)
+
+    -   {leafsync} side by side maps zooms and syncs cursor `sync(m1, m2)`
+
+-   rdeck
+
+    -   visualize large amounts of data
+
+    -   migration flows
+
+        -   tidycensus::get_flows
+
+        -   only for \> 2020 5-yr ACS
+
+    -   map type also good for mapping commuting patterns
+
+-   Automated Mapping
+
+    -   Memory intensive
+
+    -   https://walker-data.com/posts/iterative-mapping/ for more advanced Metro exampleThank
+
+        -   Shows how to export too
+
+    -   geographic patterns in remote work for 100 largest counties by population in US. (2:17)
+
+        -   important for office space real estate
+
+        -   Maps per County
+
+        -   Generate list of 100 largest counties
+
+            ``` r
+            library(tidycensus)
+            library(tidyverse)
+
+            top100counties <- get_acs(
+              geography = "county",
+              variables = "B01003_001",
+              year = 2022,
+              survey = "acs1"
+            ) %>%
+              slice_max(estimate, n = 100)
+            ```
+
+            -   MOE is NA which means this is true value
+
+                -   Plus ACS more recent
+
+        -   pull remote work data at county level for those counties
+
+            -   Need to get tract data for remote work data
+
+                ``` r
+
+                wfh_tract_list <- top100counties %>%
+                 split(~NAME) %>% # splits into a list with each element per county
+                 map(function(county) {
+                   state_fips <- str_sub(county$GEOID, 1, 2) # extract first 2 chars (state)
+                   county_fips <- str_sub(county$GEOID, 3, 5) # extract next 3 chars (county)
+
+                   get_acs(
+                     geography = "tract",
+                     variables = "DP03_0024P",
+                     state = state_fips,
+                     county = county_fips,
+                     year = 2022,
+                     geometry = TRUE
+                   )
+                 })
+                ```
+
+                -   need census key since hitting api 100s of times
+
+        -   Make 100 Maps
+
+            ``` r
+            library(mapview)
+
+            wfh_maps <- map(wfh_tract_list, function(county) {
+              mapview(
+                county, 
+                zcol = "estimate",
+                layer.name = "% working from home"
+              ) 
+            })
+            ```
+
+-   Small Area Time Series Analysis (2:40)
+
+    -   Where has remote work increased the most in Salt Lake City, Utah
+
+        -   5yr acs represent overlapping samples
+
+        -   For 2018-2022
+
+            -   Compare 2008-2012 to
+
+        -   Comparison Profile only at county level
+
+            ``` r
+            utah_wfh_compare <- get_acs(
+              geography = "county",
+              variables = c(
+                work_from_home17 = "CP03_2017_024",
+                work_from_home22 = "CP03_2022_024"
+              ),
+              state = "UT",
+              year = 2022
+            )
+            ```
+
+        -   Census Tract (neighborhood-leve)
+
+            -   Issue: geographies change
+
+                -   get more details
+
+            -   Aerial Interpolation (see book for more details)
+
+                -   Check for incongruent boundaries
+
+                    ``` r
+                    library(sf)
+
+                    wfh_17 <- get_acs(geography = "tract", variables = "B08006_017", year = 2017,
+                                      state = "UT", county = "Salt Lake", geometry = TRUE) %>%
+                      st_transform(6620)
+
+                    wfh_22 <- get_acs(geography = "tract", variables = "B08006_017", year = 2022,
+                                      state = "UT", county = "Salt Lake", geometry = TRUE) %>%
+                      st_transform(6620)
+                    ```
+
+                    -   get details on crs projection
+
+                    -   get details on how he found incongruent boundaries
+
+                -   Use st_interpolate_aw
+
+                    ``` r
+                    library(sf)
+
+                    wfh_22_to_17 <- wfh_22 %>%
+                      select(estimate) %>%
+                      st_interpolate_aw(to = wfh_17, extensive = TRUE)
+                    ```
+
+                    -   rolls backwards
+
+                    -   Uses area weighting (get details
+
+                -   Population weighted roll forward method
+
+                    ``` r
+                    library(tigris)
+                    options(tigris_use_cache = TRUE)
+
+                    salt_lake_blocks <- blocks(
+                      "UT", 
+                      "Salt Lake", 
+                      year = 2020
+                    )
+
+                    wfh_17_to_22 <- interpolate_pw(
+                      from = wfh_17,
+                      to = wfh_22,
+                      to_id = "GEOID",
+                      weights = salt_lake_blocks,
+                      weight_column = "POP20",
+                      crs = 6620,
+                      extensive = TRUE
+                    )
+
+                    # calculate change over time
+                    wfh_shift <- wfh_17_to_22 %>%
+                      select(GEOID, estimate17 = estimate) %>%
+                      left_join(
+                        select(st_drop_geometry(wfh_22), 
+                               GEOID, estimate22 = estimate), by = "GEOID"
+                      ) %>%
+                      mutate(
+                        shift = estimate22 - estimate17,
+                        pct_shift = 100 * (shift / estimate17)
+                      )
+
+                    mapview(wfh_shift, zcol = "shift")
+                    ```
+
 ## lab 91
 
 -   clvtools for prob type, h2o::automl for ML
