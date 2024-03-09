@@ -4,6 +4,9 @@
 
 -   Notes from
     -   [Tidycensus Workshop 2024](https://github.com/walkerke/umich-workshop-2024)
+-   Resources
+    -   [Analyzing Census Data: Methods, Maps, and Models in R](https://walker-data.com/census-r/index.html) by Kyle Walker
+-   For details on joining census data to other data, see [Chapter 7.2](https://walker-data.com/census-r/spatial-analysis-with-us-census-data.html#spatial-joins) in Analyzing Census Data
 -   FIPS GEOID\
     ![](./_resources/Surveys,_Census_Data.resources/image.png){.lightbox width="332"}
 -   [popular variable calculations from variables in ACS](https://stats.andrewheiss.com/zany-zebra/notebook/acs-data.html)
@@ -104,7 +107,8 @@
 
     -   Yearly estimates based on *samples* of the population over a 5yr period
         -   Therefore a Margin of Error (MoE) is included with the estimates.
-    -   Detailed social, economic, housing, and demographic characteristics
+    -   Available as 1-year estimates (for geographies of population 65,000 and greater) and 5-year estimates (for geographies down to the block group)
+    -   Detailed social, economic, housing, and demographic characteristics. Variables covering e.g. income, education, language, housing characteristics
     -   [census.gov/acs](http://census.gov/acs)
 
 -   ACS Release Schedule ([releases](https://census.gov/programs-surveys/acs/news/data-releases.html))
@@ -128,7 +132,7 @@
     -   Housing
         -   Computer & Internet Use, Costs (Mortgage, Taxes, Insurance), Heating Fuel, Home Value, Occupancy, Plumbing/Kitchen Facilities, Structure, Tenure (Own/Rent), Utilities, Vehicles, Year Built/Year Movied In
 
--   Example: Median Household Income for Texas Counties
+-   [Example]{.ribbon-highlight}: Median Household Income for Texas Counties
 
     ``` r
     texas_income <- get_acs(
@@ -141,7 +145,7 @@
 
     -   Default MOE is a 90%CI (i.e. estimate $\pm$ MOE)
 
--   Example: Census Tract for Multiple Counties in NY
+-   [Example]{.ribbon-highlight}: Census Tract for Multiple Counties in NY
 
     ``` r
     nyc_income <- get_acs(
@@ -156,7 +160,8 @@
     mapview(nyc_income, zcol = "estimate")
     ```
 
--   Example: Multiple Races Percentages for San Diego County
+-   [Example]{.ribbon-highlight}: Multiple Races Percentages for San Diego County\
+    ![](_resources/Surveys,_Census_Data.resources/acs-facet-race-1.png){.lightbox width="532"}
 
     ``` r
     san_diego_race_wide <- get_acs(
@@ -192,38 +197,48 @@
     -   Example:
 
         ``` r
-        fulton_inflow <- get_flows(
-          geography = "county",
-          state = "GA",
-          county = "Fulton",
-          geometry = TRUE,
-          year = 2020
-        ) %>%
+        fulton_inflow <- 
+          get_flows(
+            geography = "county",
+            state = "GA",
+            county = "Fulton",
+            geometry = TRUE,
+            year = 2020
+          ) %>%
           filter(variable == "MOVEDIN") %>%
           na.omit()
 
-        fulton_top_origins <- fulton_inflow %>%
-          slice_max(estimate, n = 30) 
+        fulton_top_origins <- 
+          fulton_inflow %>%
+            slice_max(estimate, 
+                      n = 30) 
 
         library(rdeck)
 
-        Sys.setenv("MAPBOX_ACCESS_TOKEN")
+        Sys.getenv("MAPBOX_ACCESS_TOKEN")
 
-        fulton_top_origins$centroid1 <- st_transform(fulton_top_origins$centroid1, 4326)
-        fulton_top_origins$centroid2 <- st_transform(fulton_top_origins$centroid2, 4326)
+        fulton_top_origins$centroid1 <- 
+          st_transform(fulton_top_origins$centroid1, 4326)
+        fulton_top_origins$centroid2 <- 
+          st_transform(fulton_top_origins$centroid2, 4326)
 
-        flow_map <- rdeck(map_style = mapbox_light(), 
-              initial_view_state = view_state(center = c(-98.422, 38.606), zoom = 3, 
-                                              pitch = 45)) %>%
-          add_arc_layer(get_source_position = centroid2,
-                  get_target_position = centroid1,
-                  data = as_tibble(fulton_top_origins),
-                  get_source_color = "#274f8f",
-                  get_target_color = "#274f8f",
-                  get_height = 1,
-                  get_width = scale_linear(estimate, range = 1:5),
-                  great_circle = TRUE
-                  )
+        flow_map <- 
+          rdeck(
+            map_style = mapbox_light(), 
+            initial_view_state = view_state(center = c(-98.422, 38.606), 
+                                            zoom = 3, 
+                                            pitch = 45)
+          ) %>%
+          add_arc_layer(
+            get_source_position = centroid2,
+            get_target_position = centroid1,
+            data = as_tibble(fulton_top_origins),
+            get_source_color = "#274f8f",
+            get_target_color = "#274f8f",
+            get_height = 1,
+            get_width = scale_linear(estimate, range = 1:5),
+            great_circle = TRUE
+          )
         ```
 
         -   Width of lines is scaled to counts
@@ -463,7 +478,7 @@
     -   Distribution shape remains pretty much the same, but decreasing for most age cohorts, i.e. people are leaving the state across most age groups.
         -   e.g. The large hump representing the group of people in there mid-40s in 2000 steadily decreases over time.
 
-## tidycensus {#sec-surv-cens-dic-tidyc .unnumbered}
+## tidycensus {#sec-surv-cens-tidyc .unnumbered}
 
 -   Get an API key
 
@@ -543,102 +558,139 @@
             select(NAME, variable, percent)
         ```
 
--   [geometry = TRUE]{.arg-text}- Joins shapefile with data and returns a SF (Simple Features) dataframe for mapping
+## Mapping {#sec-surv-cens-map .unnumbered}
 
-    -   Misc
+### Misc {#sec-surv-cens-map-misc .unnumbered}
 
-        -   You can create a discrete color palette with the [at]{.arg-text} argument in the `mapview` function.
-            -   [Example]{.ribbon-highlight}
+-   Use [geometry = TRUE]{.arg-text} for any of the `get_*` [{tidycensus}]{style="color: #990000"} functions, and it'll join the shapefile with the census data. Returns a SF (Simple Features) dataframe for mapping.
 
-                ``` r
-                # check min and max of your data to select range of bins
-                min(iowa_over_65, na.rm = TRUE) # 0
-                max(iowa_over_65, na.rm = TRUE) # 38.4
+-   If you only want the shape files without the demographic data, see [{]{style="color: #990000"}[tigris](https://github.com/walkerke/tigris){style="color: #990000"}[}]{style="color: #990000"}
 
-                m1 <- 
-                  mapview(iowa_over_65, 
-                          zcol = "value",
-                          layer.name = "% age 65 and up<br>Census tracts in Iowa",
-                          col.regions = inferno(100, direction = -1),
-                          at = c(0, 10, 20, 30, 40))
-                ```
+-   For examples with [{]{style="color: #990000"}[tmap](https://r-tmap.github.io/tmap/){style="color: #990000"}[}]{style="color: #990000"}, see [Chapter 6.3](https://walker-data.com/census-r/mapping-census-data-with-r.html#map-making-with-tmap) of Analyzing US Census Data
 
-                -   This will result in a discrete palette with bins of 0-10, 10-20, etc. Looks like an overlap, so I'm sure which bin contains the endpoints.
+-   Remove water from geographies\
 
-    -   [Example]{.ribbon-highlight}: Over 65 in Iowa by census tract\
-        ![](_resources/Surveys,_Census_Data.resources/tidycensus-iowa-65-1.png){.lightbox width="432"}
+    ::: {layout-ncol="2"}
+    ![](_resources/Surveys,_Census_Data.resources/map-rm-water-before-1.png){.lightbox group="rmwat" fig-align="left" width="332"}\
 
-        ``` r
-        library(mapviw); library(viridisLite)
-
-        iowa_over_65 <- 
-          get_decennial(
-            geography = "tract",
-            variables = "DP1_0024P",
-            state = "IA",
-            geometry = TRUE,
-            sumfile = "dp",
-            year = 2020
-          )
-        m1 <- 
-          mapview(iowa_over_65, zcol = "value",
-                  layer.name = "% age 65 and up<br>Census tracts in Iowa",
-                  col.regions = inferno(100, direction = -1))
-        ```
-
-        -   {mapview} is interactive and great for exploration of data
-
-    -   Export as an HTML file
-
-        ``` r
-        htmlwidgets::saveWidget(m1@map, "iowa_over_65.html")
-        ```
-
-        -   Can embed it elsewhere (html report or website) by adding it as an asset
-
-    -   In {ggplot}
-
-        ``` r
-        texas_income_sf <- get_acs(
-          geography = "county",
-          variables = "B19013_001",
-          state = "TX",
-          year = 2022,
-          geometry = TRUE
-        )
-
-        plot(texas_income_sf['estimate'])
-        ```
-
--   Remove water from geographies
+    ![](_resources/Surveys,_Census_Data.resources/map-rm-water-after-1.png){.lightbox group="rmwat" fig-align="left" width="332"}
+    :::
 
     ``` r
-    nyc_income_tiger <- get_acs(
-      geography = "tract",
-      variables = "B19013_001",
-      state = "NY",
-      county = c("New York", "Kings", "Queens",
-                 "Bronx", "Richmond"),
-      year = 2022,
-      cb = FALSE,
-      geometry = TRUE
+    nyc_income_tiger <- 
+      get_acs(
+        geography = "tract",
+        variables = "B19013_001",
+        state = "NY",
+        county = c("New York", "Kings", "Queens",
+                   "Bronx", "Richmond"),
+        year = 2022,
+        cb = FALSE,
+        geometry = TRUE
     )
 
     library(tigris)
     library(sf)
     sf_use_s2(FALSE)
 
-    nyc_erase <- erase_water(
-      nyc_income_tiger,
-      area_threshold = 0.5,
-      year = 2022
+    nyc_erase <- 
+      erase_water(
+        nyc_income_tiger,
+        area_threshold = 0.5,
+        year = 2022
     )
-
 
     mapview(nyc_erase, zcol = "estimate")
     ```
 
--   Bubble Maps are better for better for counts
+    -   The left figure is before and the right figure is after water removal
+        -   At the center-bottom, you can see how a sharp point is exposed where it was squared off before
+        -   At the top-left, the point along the border which are piers/docks are now exposed.
+        -   At the upper-middle, extraneous boundary lines have been removed and islands in the waterway are more clearly visible.
+    -   Works **only** with regular tigris shapefiles from the US census bureau --- so not OpenStreetMaps, etc. For other shapefiles, you'd need to do the manual overlay, see [Chapter 7.1](https://walker-data.com/census-r/spatial-analysis-with-us-census-data.html?q=overlay#spatial-overlay) in Analyzing US Census Data for details.
+    -   Can take a couple minutes to run
+    -   [cb = FALSE]{.arg-text} says get the regular tigris line files which avoid sliver polygons which are caused by slight misalignment of layers (?)
+    -   [area_threshold = 0.5]{.arg-text} says that water areas below the 50^th^ percentile in terms of size are removed. Probably a value you'll have to play around with.
+
+### Choropleths {#sec-surv-cens-map-choro .unnumbered}
+
+-   Best for continuous data like rates and percentages, but you can use for discrete variables
+
+    -   You can create a discrete color palette with the [at]{.arg-text} argument in the `mapview` function.
+        -   [Example]{.ribbon-highlight}
+
+            ``` r
+            # check min and max of your data to select range of bins
+            min(iowa_over_65, 
+                na.rm = TRUE) # 0
+            max(iowa_over_65, 
+                na.rm = TRUE) # 38.4
+
+            m1 <- 
+              mapview(
+                iowa_over_65, 
+                zcol = "value",
+                layer.name = "% age 65 and up<br>Census tracts in Iowa",
+                col.regions = inferno(100, direction = -1),
+                at = c(0, 10, 20, 30, 40)
+              )
+            ```
+
+            -   This will result in a discrete palette with bins of 0-10, 10-20, etc. Looks like an overlap, so I'm sure which bin contains the endpoints.
+
+-   [Example]{.ribbon-highlight}: Over 65 in Iowa by census tract\
+    ![](_resources/Surveys,_Census_Data.resources/tidycensus-iowa-65-1.png){.lightbox width="432"}
+
+    ``` r
+    library(mapviw); library(viridisLite)
+
+    iowa_over_65 <- 
+      get_decennial(
+        geography = "tract",
+        variables = "DP1_0024P",
+        state = "IA",
+        geometry = TRUE,
+        sumfile = "dp",
+        year = 2020
+      )
+    m1 <- 
+      mapview(
+        iowa_over_65, zcol = "value",
+        layer.name = "% age 65 and up<br>Census tracts in Iowa",
+        col.regions = inferno(100, 
+                              direction = -1))
+    ```
+
+    -   {mapview} is interactive and great for exploration of data
+
+-   Export as an HTML file
+
+    ``` r
+    htmlwidgets::saveWidget(m1@map, "iowa_over_65.html")
+    ```
+
+    -   Can embed it elsewhere (html report or website) by adding it as an asset
+
+-   In [{ggplot}]{style="color: #990000"}
+
+    ``` r
+    texas_income_sf <- 
+      get_acs(
+        geography = "county",
+        variables = "B19013_001",
+        state = "TX",
+        year = 2022,
+        geometry = TRUE
+    )
+
+    plot(texas_income_sf['estimate'])
+    ```
+
+### Bubble Maps {#sec-surv-cens-map-circ .unnumbered}
+
+-   Better for count data
+
+-   [Example]{.ribbon-highlight}
 
     ``` r
 
@@ -656,45 +708,62 @@
       year = 2022
     )
 
-    san_diego_hispanic <- filter(
-      san_diego_race_counts, 
-      variable == "Hispanic"
-    )
+    san_diego_hispanic <- 
+      filter(
+        san_diego_race_counts, 
+        variable == "Hispanic"
+      )
 
     centroids <- st_centroid(san_diego_hispanic)
 
-
-    grad_symbol <- ggplot() + 
-      geom_sf(data = san_diego_hispanic, color = "black", fill = "lightgrey") + 
-      geom_sf(data = centroids, aes(size = estimate),
-              alpha = 0.7, color = "navy") + 
+    grad_symbol <- 
+      ggplot() + 
+      geom_sf(
+        data = san_diego_hispanic, 
+        color = "black", 
+        fill = "lightgrey") + 
+      geom_sf(
+        data = centroids, 
+        aes(size = estimate),
+        alpha = 0.7, 
+        color = "navy") + 
       theme_void() + 
-      labs(title = "Hispanic population by Census tract",
-           subtitle = "2018-2022 ACS, San Diego County, California",
-           size = "ACS estimate") + 
+      labs(
+        title = "Hispanic population by Census tract",
+        subtitle = "2018-2022 ACS, San Diego County, California",
+        size = "ACS estimate") + 
       scale_size_area(max_size = 6) 
     ```
 
--   Dot Density to show heterogeneity and mixing between groups
+### Dot Density {#sec-surv-cens-map-dot .unnumbered}
+
+-   Useful to show heterogeneity and mixing between groups
+
+-   [Example]{.ribbon-highlight}
 
     ``` r
-    san_diego_race_dots <- as_dot_density(
-      san_diego_race_counts,
-      value = "estimate",
-      values_per_dot = 200,
-      group = "variable"
-    )
+    san_diego_race_dots <- 
+      as_dot_density(
+        san_diego_race_counts,
+        value = "estimate",
+        values_per_dot = 200,
+        group = "variable"
+      )
 
-    san_diego_race_dots
-
-    dot_density_map <- ggplot() + 
-      geom_sf(data = san_diego_hispanic, color = "lightgrey", fill = "white") + 
-      geom_sf(data = san_diego_race_dots, aes(color = variable), size = 0.01) + 
+    dot_density_map <- 
+      ggplot() + 
+      geom_sf(
+        data = san_diego_hispanic, 
+        color = "lightgrey", 
+        fill = "white") + 
+      geom_sf(
+        data = san_diego_race_dots, 
+        aes(color = variable), 
+        size = 0.01) + 
       scale_color_brewer(palette = "Set1") + 
       guides(color = guide_legend(override.aes = list(size = 3))) + 
       theme_void() + 
-      labs(color = "Race / ethnicity",
-           caption = "2018-2022 ACS | 1 dot = approximately 200 people")
+      labs(
+        color = "Race / ethnicity",
+        caption = "2018-2022 ACS | 1 dot = approximately 200 people")
     ```
-
--   
