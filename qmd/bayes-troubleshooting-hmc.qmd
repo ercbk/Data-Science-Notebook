@@ -1,7 +1,5 @@
 # Troubleshooting HMC {#sec-bayes-trblhmc .unnumbered}
 
-## Misc {#sec-bayes-bayes-trblhmc-misc .unnumbered}
-
 ## Divergent Transitions {#sec-bayes-trblhmc-divtrans .unnumbered}
 
 -   "divergent transitions after warmup"
@@ -19,146 +17,149 @@
 
 ## Chains Not Mixing {#sec-bayes-trblhmc-chnmix .unnumbered}
 
--   Misc
+### Misc {#sec-bayes-trblhmc-chnmix-misc .unnumbered}
 
-    -   Notes from [When MCMC fails: The advice we're giving is wrong. Here's what we you should be doing instead. (Hint: it's all about the folk theorem.)](https://statmodeling.stat.columbia.edu/2021/06/10/when-mcmc-fails-the-advice-were-giving-is-wrong-heres-what-we-you-should-be-doing-instead-hint-its-all-about-the-folk-theorem/)
+-   Notes from [When MCMC fails: The advice we're giving is wrong. Here's what we you should be doing instead. (Hint: it's all about the folk theorem.)](https://statmodeling.stat.columbia.edu/2021/06/10/when-mcmc-fails-the-advice-were-giving-is-wrong-heres-what-we-you-should-be-doing-instead-hint-its-all-about-the-folk-theorem/)
 
--   Potential issues
+### Minor Issues {#sec-bayes-trblhmc-chnmix-min .unnumbered}
 
-    -   Priors on some parameters are weak or nonexistent or the data are too weak to identify all the parameters in the model.
-        -   Signs: Chains are exploring extreme regions of the parameter space. Check out the y-axis range in trace and see how high or low the values are.
-        -   Examples: elasticity parameters of -20 or people with 8 kg livers
-    -   Coding mistake
-        -   Stan examples:
-            -   You can forget to use a log link or set a prior using variance instead sd
-            -   Array indices and for loops don't match
-    -   Minor modes in the tails of the posterior distribution
-        -   Your posterior is multimodal and all but one of the modes have near-zero mass
-        -   Signs: different chains will cluster in different places
-        -   Solutions:
-            -   Using starting values near the main mode (brms init arg; see \[Statistical Rethinking \>\> Ch 4\]((https://ercbk.github.io/Statistical-Rethinking-Notebook/qmd/chapter-4.html){style="color: green"}
-                -   Can also be used in general cases where you're getting bad mixing from you chains
-                    -   e.g. divergent transitions, large numbers of transitions, high R-hat values, and/or very low effective sample size estimates
-                -   Diagnostic example
-                    -   Check the intercept warm-up (For real-world models, it's good to look at the trace plots for all major model parameters)\
-                        ![](./_resources/Bayes,_Troubleshooting_HMC.resources/unnamed-chunk-11-1.png)
+-   Priors on some parameters are weak or nonexistent or the data are too weak to identify all the parameters in the model.
 
-                        ``` r
-                        geom_trace <- 
-                          function(subtitle = NULL, 
-                                   xlab = "iteration", 
-                                   xbreaks = 0:4 * 500) {
-                            list(
-                              annotate(geom = "rect", 
-                                       xmin = 0, 
-                                       xmax = 1000, 
-                                       ymin = -Inf, 
-                                       ymax = Inf,
-                                       fill = fk[16], 
-                                       alpha = 1/2, 
-                                       size = 0),
-                              geom_line(size = 1/3),
-                              scale_color_manual(values = fk[c(3, 8, 27, 31)]),
-                              scale_x_continuous(xlab, 
-                                                 breaks = xbreaks, 
-                                                 expand = c(0, 0)),
-                              labs(subtitle = subtitle),
-                              theme(panel.grid = element_blank())
-                            )   
-                        }
-                        p1 <-
-                          ggmcmc::ggs(fit1, burnin = TRUE) %>%
-                          filter(Parameter == "b_Intercept") %>% 
-                          mutate(chain = factor(Chain),
-                                 intercept = value) %>%   
-                          ggplot(aes(x = Iteration, 
-                                     y = intercept, 
-                                     color = chain)) +
-                          geom_trace(subtitle = "fit1 (default settings)") +
-                          scale_y_continuous(breaks = c(0, 650, 1300), 
-                                             limits = c(NA, 1430)) 
-                        p1
-                        ```
+    -   Signs: Chains are exploring extreme regions of the parameter space. Check out the y-axis range in trace and see how high or low the values are.
+    -   Examples: elasticity parameters of -20 or people with 8 kg livers
 
--   One of our chains eventually made its way to the posterior, three out of the four stagnated near their starting values (lines near zero).
+-   Coding mistake
 
--   Set starting values manually. Same values to all 4 chains.
+    -   Stan examples:
+        -   You can forget to use a log link or set a prior using variance instead sd
+        -   Array indices and for loops don't match
 
-    ``` r
-    inits <- list(
-      Intercept = 1300,
-      sigma    = 150,
-      beta      = 520
-    )
-    list_of_inits <- list(inits, inits, inits, inits)
-    fit2 <- brm(
-      data = dat,
-      family = exgaussian(),
-      formula = rt ~ 1 + (1 | id),
-      cores = 4, seed = 1,
-      inits = list_of_inits
-    )
-    ```
+### Multi-Modal Posterior {#sec-bayes-trblhmc-chnmix-multimod .unnumbered}
 
--   ![](./_resources/Bayes,_Troubleshooting_HMC.resources/Screenshot%20(241).png)
+-   Minor modes in the tails of the posterior distribution
+-   Your posterior is multimodal and all but one of the modes have near-zero mass
+-   When the posterior distribution is multimodal, it means that there are multiple distinct regions of high probability density, separated by regions of low probability density. This can lead to poor mixing of the MCMC chains, as the chains may get stuck in one of the modes and have difficulty exploring the other modes.
+-   Signs: different chains will cluster in different places
 
--   Much mo' better, but not evidence of chain convergence since all started at the same value
+#### Solutions {#sec-bayes-trblhmc-chnmix-multimod-sol .unnumbered}
 
--   No practical for large models with many parameters
+-   Pathfinder
+    -   [Paper](https://jmlr.org/papers/volume23/21-0889/21-0889.pdf), [Github](https://github.com/LuZhangstat/Pathfinder)
+    -   Gets rid of lots of these minor modes automatically
+    -   A Variational Inference (VI) method that locates approximations to the target density along a quasi-Newton optimization path. Starting from a random initialization in the tail of the posterior distribution, the quasi-Newton optimization trajectory can quickly move from the tail, through the body of the distribution, to a mode or pole.
+        -   Variational inference searches for a tractable approximate distribution that minimizes Kullback-Leibler (KL) divergence to the posterior and is typically faster than Monte Carlo sampling.
+-   Use starting values near the main mode
+    -   [{brms}]{style="color: #990000"} [init]{.arg-text} argument (See [Statistical Rethinking \>\> Ch 4](https://ercbk.github.io/Statistical-Rethinking-Notebook/qmd/chapter-4.html){style="color: green"})
+    -   Can also be used in general cases where you're getting bad mixing from you chains
+        -   e.g. divergent transitions, large numbers of transitions, high R-hat values, and/or very low effective sample size estimates
+    -   [Example]{.ribbon-highlight}:
+        -   Diagnose Issue: Check the intercept warm-up (For real-world models, it's good to look at the trace plots for all major model parameters)\
+            ![](./_resources/Bayes,_Troubleshooting_HMC.resources/unnamed-chunk-11-1.png)
 
--   Set starting values (somewhat) randomly by function
+            ``` r
+            geom_trace <- 
+              function(subtitle = NULL, 
+                       xlab = "iteration", 
+                       xbreaks = 0:4 * 500) {
+                list(
+                  annotate(geom = "rect", 
+                           xmin = 0, 
+                           xmax = 1000, 
+                           ymin = -Inf, 
+                           ymax = Inf,
+                           fill = fk[16], 
+                           alpha = 1/2, 
+                           size = 0),
+                  geom_line(size = 1/3),
+                  scale_color_manual(values = fk[c(3, 8, 27, 31)]),
+                  scale_x_continuous(xlab, 
+                                     breaks = xbreaks, 
+                                     expand = c(0, 0)),
+                  labs(subtitle = subtitle),
+                  theme(panel.grid = element_blank())
+                )   
+            }
+            p1 <-
+              ggmcmc::ggs(fit1, burnin = TRUE) %>%
+              filter(Parameter == "b_Intercept") %>% 
+              mutate(chain = factor(Chain),
+                     intercept = value) %>%   
+              ggplot(aes(x = Iteration, 
+                         y = intercept, 
+                         color = chain)) +
+              geom_trace(subtitle = "fit1 (default settings)") +
+              scale_y_continuous(breaks = c(0, 650, 1300), 
+                                 limits = c(NA, 1430)) 
+            p1
+            ```
 
-    ``` r
-    set_inits <- function(seed = 1) {
-      set.seed(seed)
-      list(
-        # posterior for the intercept often looks gaussian
-        Intercept = rnorm(n = 1, mean = 1300, sd = 100),
-        # posteriors for sigma and beta need to nonnegative (alt:rgamma)
-        sigma    = runif(n = 1, min = 100, max = 200),
-        beta      = runif(n = 1, min = 450, max = 550)
-      )
-    }
+            -   One of our chains eventually made its way to the posterior, three out of the four stagnated near their starting values (lines near zero).
 
-    list_of_inits <- list(
-      # different seed values will return different results
-      set_inits(seed = 1),
-      set_inits(seed = 2),
-      set_inits(seed = 3),
-      set_inits(seed = 4)
-    )
-    ```
+        -   Set starting values manually. Same values to all 4 chains\
+            ![](./_resources/Bayes,_Troubleshooting_HMC.resources/Screenshot%20(241).png)
 
--   ![](./_resources/Bayes,_Troubleshooting_HMC.resources/Screenshot%20(243).png)
+            ``` r
+            inits <- list(
+              Intercept = 1300,
+              sigma    = 150,
+              beta      = 520
+            )
+            list_of_inits <- list(inits, inits, inits, inits)
+            fit2 <- brm(
+              data = dat,
+              family = exgaussian(),
+              formula = rt ~ 1 + (1 | id),
+              cores = 4, seed = 1,
+              inits = list_of_inits
+            )
+            ```
 
-    -   Chains are mixing and evidence of convergence since we started at different starting values
-    -   Need to also check sigma and beta
+            -   Much mo' better, but not evidence of chain convergence since all started at the same value
 
--   Fitting multiple models and averaging predictions (stacking). Don't fully understand but this is from a section 5.6 of Gelman's Bayesian Workflow [paper](http://www.stat.columbia.edu/~gelman/research/unpublished/Bayesian_Workflow_article.pdf)
+            -   No practical for large models with many parameters
 
-    -   "divide the model into pieces by introducing a strong mixture prior and then fitting the model separately given each of the components of the prior. Other times the problem can be addressed using strong priors that have the effect of ruling out some of the possible modes"
+        -   Set starting values (somewhat) randomly by function\
+            ![](./_resources/Bayes,_Troubleshooting_HMC.resources/Screenshot%20(243).png)
 
--   Also "Soon we should have Pathfinder implemented and this will get rid of lots of these minor modes automatically"
+            ``` r
+            set_inits <- function(seed = 1) {
+              set.seed(seed)
+              list(
+                # posterior for the intercept often looks gaussian
+                Intercept = rnorm(n = 1, mean = 1300, sd = 100),
+                # posteriors for sigma and beta need to nonnegative (alt:rgamma)
+                sigma    = runif(n = 1, min = 100, max = 200),
+                beta      = runif(n = 1, min = 450, max = 550)
+              )
+            }
 
--   The model can be reparameterized
+            list_of_inits <- list(
+              # different seed values will return different results
+              set_inits(seed = 1),
+              set_inits(seed = 2),
+              set_inits(seed = 3),
+              set_inits(seed = 4)
+            )
+            ```
 
+            -   Chains are mixing and evidence of convergence since we started at different starting values
+
+            -   Need to also check sigma and beta
+-   Fit multiple models and average predictions (stacking). Don't fully understand but this is from a section 5.6 of Gelman's Bayesian Workflow [paper](http://www.stat.columbia.edu/~gelman/research/unpublished/Bayesian_Workflow_article.pdf)
+    -   "Divide the model into pieces by introducing a strong mixture prior and then fitting the model separately given each of the components of the prior. Other times the problem can be addressed using strong priors that have the effect of ruling out some of the possible modes"
+-   Reparameterize the Model
     -   Think this had to do with Divergent Transitions
     -   Signs: You have coefficients like 0.000002
     -   Solutions:
         -   Use variables that have been log transformed or scaled (e.g. per million). For some reason, itt's difficult for the sampler when parameters values are on vastly different scales.
         -   Reparameterize to "unit scale"
             -   I think scale in "unit scale" refers to scale as a distribution parameter like sd is the scale parameter in a Normal distribution, and "unit scale" is scale = 1 (e.g. sd = 1 in standardization). But there's more to this, and I haven't read S.R. ch 13 yet
-
--   Common (misguided?) solutions
-
+-   Common (misguided?) Solutions
     -   Increase iterations
-    -   Tweak adapt_delta and max_treedepth parameters to make it explore the space more carefully
-
+    -   Tweak [adapt_delta]{.arg-text} and [max_treedepth]{.arg-text} parameters to make it explore the space more carefully
 -   Other
-
     -   Sequential Monte Carlo (SMC) is a potential solution multimodal posterior problem (Stan's NUTS sampler may already do this to some extent. See Ch. 9 Statistical Rethinking)
-        -   BayesTools PKG implements a SMC sampler
-        -   Algorithm details - https://docs.pymc.io/notebooks/SMC2_gaussians.html?highlight=smc
+        -   Algorithm details - <https://docs.pymc.io/notebooks/SMC2_gaussians.html?highlight=smc>
 
 ## Reparameterization {#sec-bayes-trblhmc-reparam .unnumbered}
 
