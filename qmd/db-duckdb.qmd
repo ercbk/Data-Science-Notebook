@@ -97,6 +97,75 @@
     DBI::dbDisconnect(duck)
     ```
 
+## duckplyr
+
+-   Misc
+
+    -   [Docs](https://duckdblabs.github.io/duckplyr/)
+
+-   Show query plan with `explain`
+
+    ``` r
+    library("duckplyr")
+    as_duckplyr_df(data.frame(n=1:10)) |> 
+      mutate(m = n + 1) |> 
+      filter (m > 5) |> 
+      count() |> 
+      explain()
+
+    #> ┌───────────────────────────┐
+    #> │         PROJECTION        │
+    #> │   ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─   │
+    #> │             n             │
+    #> └─────────────┬─────────────┘                             
+    #> ┌─────────────┴─────────────┐
+    #> │    UNGROUPED_AGGREGATE    │
+    #> │   ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─   │
+    #> │        count_star()       │
+    #> └─────────────┬─────────────┘                            
+    #> ┌─────────────┴─────────────┐
+    #> │           FILTER          │
+    #> │   ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─   │
+    #> │(+(CAST(n AS DOUBLE), 1.0) │
+    #> │           > 5.0)          │
+    #> │   ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─   │
+    #> │           EC: 10          │
+    #> └─────────────┬─────────────┘                             
+    #> ┌─────────────┴─────────────┐
+    #> │     R_DATAFRAME_SCAN      │
+    #> │   ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─   │
+    #> │         data.frame        │
+    #> │   ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─   │
+    #> │             n             │
+    #> │   ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─   │
+    #> │           EC: 10          │
+    #> └───────────────────────────┘
+    ```
+
+    -   Query plan consists of a scan, a filter, projections and an aggregate.
+
+-   Expressions that aren't support won't have "Projection" in the query plan
+
+    ``` r
+    as_duckplyr_df(data.frame(n=1:10)) |> 
+      mutate(m=(\(x) x+1)(n)) |> 
+      explain()
+
+    #> ┌───────────────────────────┐
+    #> │     R_DATAFRAME_SCAN      │
+    #> │   ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─   │
+    #> │         data.frame        │
+    #> │   ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─   │
+    #> │             n             │
+    #> │             m             │
+    #> │   ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─   │
+    #> │           EC: 10          │
+    #> └───────────────────────────┘
+    ```
+
+    -   The translation of the anonymous function failed which caused it to fallback to the computation happening in the R engine.
+    -   There will usually be a performance hit from the fallback due to – for example – the lack of automatic parallelization
+
 ## Apache Arrow {#sec-db-duckdb-arrow .unnumbered}
 
 -   `to_duckdb()` and `to_arrow()`: Converts between using {arrow} engine and {duckdb} engieg in workflow without paying any cost to (re)serialize the data when you pass it back and forth
