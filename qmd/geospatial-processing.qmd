@@ -62,7 +62,7 @@
 
 -   [PMTiles](https://github.com/protomaps/PMTiles) - A single-file archive format for tiled data. A PMTiles archive can be hosted on a commodity storage platform such as S3, and enables low-cost, zero-maintenance map applications that are "serverless" - free of a custom tile backend or third party provider. ([Docs](https://docs.protomaps.com/))
 
-    -   Run your interactive, smooth-zooming vector map from any storage like S3 that supports http requests; a Caddy server running on your Wi-Fi router, or even GitHub pages (if tiles < 1GB).
+    -   Run your interactive, smooth-zooming vector map from any storage like S3 that supports http requests; a Caddy server running on your Wi-Fi router, or even GitHub pages (if tiles \< 1GB).
     -   Cloudflare R2 is the recommended storage platform for PMTiles because it does not have bandwidth fees, only per-request fees: see [R2 Pricing](https://developers.cloudflare.com/r2/platform/pricing/#r2-pricing).
 
 -   Shape Files
@@ -115,6 +115,86 @@
         data %>%
             st_write("mb_shapes.geojson")
         ```
+
+## Big Data {#sec-geo-proc-bd .unnumbered}
+
+-   Reduce Size Via SQL Query
+
+    -   Uses [OGR SQL](https://gdal.org/user/ogr_sql_dialect.html) (SQLite might also be accepted)
+
+    -   Choose Layer
+
+        ``` r
+        library("sf")
+        st_layers("data/Lower_layer_Super_Output_Areas_2021_EW_BGC_V3.gpkg")
+        ## Driver: GPKG 
+        ## Available layers:
+        ##            layer_name geometry_type features fields crs_name
+        ## 1 LSOA_2021_EW_BGC_V3 Multi Polygon    35672      7  OSGB36 / British National Grid         
+        ```
+
+        -   This file only has one layer
+
+    -   Get an idea of the columns in the layer by looking at the first row.
+
+        ``` r
+        st_read("data/Lower_layer_Super_Output_Areas_2021_EW_BGC_V3.gpkg",
+                             query = "SELECT * FROM LSOA_2021_EW_BGC_V3 WHERE FID = 1",
+                quiet = TRUE)
+
+        ## Simple feature collection with 1 feature and 7 fields
+        ## Geometry type: MULTIPOLYGON
+        ## Dimension:     XY
+        ## Bounding box:  xmin: 531948.3 ymin: 181263.5 xmax: 532308.9 ymax: 182011.9
+        ## Projected CRS: OSGB36 / British National Grid
+        ##    LSOA21CD            LSOA21NM  BNG_E  BNG_N     LONG      LAT
+        ## 1 E01000001 City of London 001A 532123 181632 -0.09714 51.51816
+        ##                                 GlobalID                          SHAPE
+        ## 1 {1A259A13-A525-4858-9CB0-E4952BA01AF6} MULTIPOLYGON (((532105.3 18...
+        ```
+
+        -   [FID = 1]{.arg-text} says look at the first row. FID is the feature ID attribute. I don't think it's actual column in the dataset.
+
+    -   Query the layer and filter
+
+        ``` r
+        st_read("data/Lower_layer_Super_Output_Areas_2021_EW_BGC_V3.gpkg",
+                query = "SELECT * FROM LSOA_2021_EW_BGC_V3 WHERE LSOA21CD LIKE 'W%'",
+                quiet = TRUE)
+        ```
+
+        -   [W%]{.arg-text} says looks for values that start with "W" (Wales) in the [LSOA21CD]{.var-text} column
+            -   Based on the OCR SQL docs I think `%` is wildcard for multiple characters.
+
+-   Use a bounding box to filter overlapping geometries
+
+    -   [Example]{.ribbon-highlight}: Filter polygons overlapping the boundaries of Wales
+
+        -   Filter Wales from a UK shapefile dataset
+
+            ``` r
+            uk <- sf::st_read("data/Countries_December_2022_GB_BGC.gpkg")
+            wales <- dplyr::filter(uk, CTRY22NM == "Wales")
+            ```
+
+        -   Create Wales polygon
+
+            ``` r
+            wales_wkt <-  
+              wales |>
+              sf::st_geometry() |>
+              sf::st_as_text()
+            ```
+
+        -   Filter overlapping geometries
+
+            ``` r
+            wales_lsoa <- 
+              sf::st_read("data/Lower_layer_Super_Output_Areas_2021_EW_BGC_V3.gpkg",
+                      wkt_filter = wales_wkt)
+            ```
+
+            -   Some English LSOAs along the Wales/England border in addition to the Welsh LSOAs are read in, because these technically overlap with the Wales polygon on the border itself. Not perfect but still reduces the data being read into memory.
 
 ## Projections {#sec-geo-proc-proj .unnumbered}
 
