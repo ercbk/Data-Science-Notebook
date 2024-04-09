@@ -113,6 +113,29 @@
       pretty_print()
     ```
 
+-   Extract training times\
+    ![](_resources/Model_Building,_tidymodels.resources/extract-fit-time-1.png){.lightbox width="332"}
+
+    -   `extract_fit_time` doesn't include the overhead associated with {tidymodels} — only training time performed by the engine
+
+    -   Allows you to choose a much faster model that is almost as good as the best predictive model.
+
+    -   Currently only available in development versions of tidymodels
+
+    -   Also see [Tune](model-building-tidymodels.qmd#sec-modbld-tidymod-tune){style="color: green"} for xgboost example
+
+    -   [Example]{.ribbon-highlight}
+
+        ``` r
+        taxi_fit <- fit(boost_tree(mode = "classification"), tip ~ ., taxi)
+        extract_fit_time(taxi_fit)
+
+        #> # A tibble: 1 × 2
+        #>   stage_id   elapsed
+        #>   <chr>        <dbl>
+        #> 1 boost_tree   0.120
+        ```
+
 ## Steps {#sec-modbld-tidymod-steps .unnumbered}
 
 1.  set-up
@@ -284,6 +307,10 @@
     ```
 
 ## Tune {#sec-modbld-tidymod-tune .unnumbered}
+
+-   Misc
+
+    -   Every column in a tuning result that’s prefixed with a `.` has a `collect_*()` function associated with it that helps to summarize that column
 
 -   CV and Tune Model with Multiple Recipes ([article](https://juliasilge.com/blog/project-feederwatch/))
 
@@ -484,6 +511,74 @@
             -   With a pure lasso model (i.e., mixture = 1), the Austin station predictor is selected out in each resample. With a mixture of both penalties, its influence increases.
                 -   Also, as the penalty increases, the uncertainty in this coefficient decreases.
             -   The Harlem predictor is either quickly selected out of the model or goes from negative to positive.
+
+-   Select a faster model that's almost as predictive as the best model ([article](https://www.simonpcouch.com/blog/2024-04-08-fit-time/))
+
+    -   Currently only available in development versions of tidymodels
+
+    -   Also see [Misc](model-building-tidymodels.qmd#sec-modlbld-tidymod-misc){style="color: green"} for extracting training times from a single model
+
+    -   See article for visualizations
+
+    -   For large datasets, the [trees]{.arg-text} hyperparameter can substantially effect the training time for a boosted tree model or bagged tree model.
+
+    -   Fit model
+
+        ``` r
+        bt_res <- 
+          tune_grid(
+            boosted_tree_mod, 
+            tip ~ ., 
+            taxi_folds, 
+            control = control_grid(extract = extract_fit_time)
+          )
+        ```
+
+    -   Extract predictive metrics and training times
+
+        ``` r
+        # mean GOF metrics for tuning combos
+        bt_metrics <- collect_metrics(bt_res)
+        # fit times across folds and tuning combos
+        bt_extracts_unnested <- bt_extracts %>% unnest(cols = ".extracts")
+        ```
+
+    -   Calculate mean training times and join with GOF metrics
+
+        ``` r
+        bt_metrics_extracts <-
+          left_join(
+            # summarized metrics across resamples
+            bt_metrics,
+            # summarize fit times across resamples
+            summarize(
+              bt_extracts_unnested, 
+              elapsed = mean(elapsed),
+              .by = c(trees, learn_rate, .config)
+            ),
+            by = c("trees", "learn_rate", ".config")
+          ) %>%
+          relocate(elapsed, .before = everything())
+        ```
+
+    -   Select fastest model that's within 1 standard deviation of most predictive model
+
+        ``` r
+        best_fit <-
+          bt_metrics_extracts %>%
+          filter(.metric == "roc_auc") %>%
+          arrange(desc(mean)) %>%
+          select(mean, std_err, elapsed, .config)
+
+        best_speedy_fit <- 
+          bt_metrics_extracts %>%
+          filter(.metric == "roc_auc") %>%
+          filter(mean >= best_fit$mean - best_fit$std_err) %>%
+          arrange(elapsed) %>%
+          slice(1)
+
+        best_speedy_fit
+        ```
 
 ## Finalize {#sec-modbld-tidymod-final .unnumbered}
 
