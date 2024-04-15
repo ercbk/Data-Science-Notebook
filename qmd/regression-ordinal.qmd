@@ -61,12 +61,17 @@
 
 ## EDA {#sec-reg-ord-eda .unnumbered}
 
--   Examine distributions of the variables to get an idea of potential relationships
+-   Misc
 
-    -   Crosstabs for ordinal response and categorical explanatory variables
+    -   Descriptive stats for numeric explanatory variables
+
+-   Crosstabs
+
+    -   [Example]{.ribbon-highlight}: Aggregated Counts
 
         ``` r
-        ftable(xtabs(~ public + apply + pared, data = dat))
+        ftable(xtabs(~ public + apply + pared, 
+                     data = dat))
 
         ##                        pared   0   1
         ## public apply                       
@@ -82,15 +87,70 @@
 
         -   Empty cells or small cells: If a cell has very few cases, the model may become unstable or it might not run at all.
 
-    -   Can plot a histogram or compute percentages for each level of the variable
+    -   [Example]{.ribbon-highlight}: Observation Level ([article](https://tdunn.ca/posts/2020-03-15-ordinal-regression-in-r-part-1/))\
+        ![](_resources/Regression,_Ordinal.resources/eda-4factor-gt-1.png){.lightbox width="268"}
 
-        -   The shape can help you choose a link function (See [Cumalative Link Models (CLM)](regression-ordinal.qmd#sec-reg-ord-clm){style="color: green"} \>\> Link Functions)
-        -   [Example]{.ribbon-highlight}: $\mbox{lvl}_1 = \mbox{lvl}_{1/N} = 0.2219$, $\mbox{lvl}_2 = 0.2488$, $\mbox{lvl}_3 = 0.25$, and $\mbox{lvl}_4 = 0.2794$
-            -   Skewed and monotonicly increasing
-        -   [Example]{.ribbon-highlight}
-            -   If distributions of a pre-treatment/baseline (outcome) variable looks substantially different than the (post-treatment) outcome variable, then the treatment likely had an effect
+        ``` r
+        wine %>%
+          transmute(temp, contact, bottle, judge, rating = as.numeric(rating)) %>%
+          pivot_wider(names_from = judge, values_from = rating) %>%
+          gt() %>%
+          tab_spanner(columns = `1`:`9`, label = "judge") %>%
+          data_color(
+            columns = `1`:`9`,
+            colors = scales::col_numeric(
+              palette = c("white", wine_red), domain = c(1, 5)
+            )
+          )
+        ```
 
-    -   Descriptive stats for numeric explanatory variables
+        -   Data from [Proportional Odds (PO)](regression-ordinal.qmd#sec-reg-ord-po){style="color: green"} \>\> Example 1
+        -   Most [judges]{.var-text} seem to [rate]{.var-text} [warm]{.var-text} bottles highest especially when [contact = yes]{.var-text}.
+
+-   Histograms
+
+    -   The shape can help you choose a link function (See [Cumalative Link Models (CLM)](regression-ordinal.qmd#sec-reg-ord-clm){style="color: green"} \>\> Link Functions)
+
+    -   If distributions of a pre-treatment/baseline (outcome) variable looks substantially different than the (post-treatment) outcome variable, then the treatment likely had an effect
+
+    -   [Example]{.ribbon-highlight}: Simple Percentages\
+        $\mbox{lvl}_1 = \mbox{lvl}_{1/N} = 0.2219$, $\mbox{lvl}_2 = 0.2488$, $\mbox{lvl}_3 = 0.25$, and $\mbox{lvl}_4 = 0.2794$
+
+        -   Monotonicly increasing, so skewing left
+
+    -   [Example]{.ribbon-highlight}: Histogram, Cumulative Proportion, Log Cumulative Proportion ([article](https://tdunn.ca/posts/2020-03-15-ordinal-regression-in-r-part-1/))\
+        ![](_resources/Regression,_Ordinal.resources/eda-hist-cum-logcum-1.png){.lightbox}
+
+        ``` r
+        wine_prop <- wine %>%
+          count(rating) %>%
+          mutate(p = n / sum(n), cumsum_p = cumsum(p))
+
+        (
+          ggplot(wine_prop, aes(x = rating, y = p)) +
+            geom_col(fill = wine_red) +
+            scale_y_continuous(labels = scales::percent, expand = c(0, 0)) +
+            labs(x = "j", y = "proportion")
+        ) +
+          (
+            ggplot(wine_prop, aes(x = as.integer(rating), y = cumsum_p)) +
+              geom_point(size = 2) +
+              geom_line(size = 1) +
+              labs(x = "j", y = "cumulative proportion")
+          ) +
+          (
+            ggplot(wine_prop,
+                aes(x = as.integer(rating), y = log(cumsum_p) - log(1 - cumsum_p))) +
+              geom_point(size = 2) +
+              geom_line(size = 1) +
+              labs(x = "j", y = "logit(cumulative proportion)")
+          )
+        ```
+
+        -   Data from [Proportional Odds (PO)](regression-ordinal.qmd#sec-reg-ord-po){style="color: green"} \>\> Example 1
+        -   Proportions are used since the response is from a multinomial distribution
+            -   See [Cumulative Link Models (CLM)](regression-ordinal.qmd#sec-reg-ord-clm){style="color: green"} \>\> Response variable follows the Multinomial distribution
+        -   Distribution looks a little right-skewed.
 
 -   Bi-variate boxplots
 
@@ -134,7 +194,32 @@
         -   The mean score of the pre-treatment outcome doesn't change much given these two explanatory variables.
         -   I think this shows that for the most part that assignment of the two different treatments was balanced in terms of the scores of the baseline variable.
 
+-   Dot Plots
+
+    -   [Example]{.ribbon-highlight}: 4 explanatory factor variables ([article](https://tdunn.ca/posts/2020-03-15-ordinal-regression-in-r-part-1/))\
+        ![](_resources/Regression,_Ordinal.resources/eda-4factor-dot-1.png){.lightbox width="332"}
+
+        ``` r
+        wine %>%
+          count(contact, rating, temp) %>%
+          mutate(temp = fct_rev(temp)) %>%
+          ggplot(aes(x = temp, y = rating, color = temp)) +
+          geom_point(aes(group = temp, size = n)) +
+          facet_wrap(~contact, scales = "free_x",
+                     labeller = labeller(contact = label_both)) +
+          scale_size(breaks = c(1, 2, 4, 6, 8)) +
+          add_facet_borders()
+        ```
+
+        -   Data from [Proportional Odds (PO)](regression-ordinal.qmd#sec-reg-ord-po){style="color: green"} \>\> Example 1
+        -   Most [judges]{.var-text} seem to [rate]{.var-text} [warm]{.var-text} bottles highest especially when [contact = yes]{.var-text}.
+        -   Compared to the crosstab, I think this more clearly shows that there is an effect present between [temp]{.var-text} and [rating]{.var-text} especially when moderated by [contact]{.var-text}.
+
 ## Diagnostics {#sec-reg-ord-diag .unnumbered}
+
+-   [cond.H]{.arg-text} - Located in top row of GOF metrics. The condition number of the Hessian is a measure of how identifiable the model is.
+
+    -   Values larger than [1e4]{.arg-text} indicate that the model may be ill defined
 
 -   Deviance: $-2 \cdot (\mbox{LogLik Reduced Model} - \mbox{LogLik Saturated model})$
 
@@ -213,6 +298,7 @@
     #> contact 1   194.03 11.043 0.0008902 ***
     #> temp    1   209.91 26.928 2.112e-07 ***
 
+    # fit null model
     fm0 <- 
       ordinal::clm(rating ~ 1, 
                    data = wine)
@@ -229,15 +315,11 @@
     -   For [fm1]{.var-text} model, see [Proportional Odds (PO)](regression-ordinal.qmd#sec-reg-ord-po){style="color: green"} \>\> Example 1
     -   `drop1`
         -   Tests the same thing as the Wald tests in the summary except with $\chi^2$ instead of t-tests
-            -   i.e. Whether the estimates, while controlling for the other variables, differ from 0, except with LR tests.
+            -   i.e. Whether the estimates, while *controlling* for the other variables, differ from 0, except with LR tests.
         -   In this case, LR tests slightly more significant than the Wald tests
     -   `add1`
-        -   Tests variables where they're the only explanatory variable in the model
+        -   Tests variables where they're the only explanatory variable in the model (i.e. *ingores* other variables)
         -   Both variables still significant even without controlling for the other variable
-
-## Logistic Regression {#sec-reg-ord-log .unnumbered}
-
--   Skipped this for now.
 
 ## Cumulative Link Models (CLM) {#sec-reg-ord-clm .unnumbered}
 
@@ -246,19 +328,15 @@
 -   [Types]{.underline}
 
     -   **Proportional Odds Model**: CLM with a logit link
-
     -   **Proportional Hazards Model**: CLM with a log-log link, for grouped survival times\
         $$
         -\log(1-\gamma_j(\boldsymbol{x}_i)) = e^{\theta_j - \boldsymbol{x}_i^T \boldsymbol{\beta}}
         $$
-
         -   Link Function: $\log(− \log(1 − \gamma))$
         -   Inverse Link: $1 − e^{− e^\eta}$
         -   Distribution: $\mbox{Gumbel} (\min)^b$ (?)
         -   $1 − \gamma_j(x_i)$ is the probability or survival beyond category $j$ given $x_i$.
-
     -   **Partial Proportional Odds**: Also referred to as **Unequal Slopes**, **Partial Effects**, and **Nominal Effects**
-
     -   **Cumulative Link Mixed Models (CLMM)**: CLMs with normally distributed random effects
 
 -   [Link Functions]{.underline}\
@@ -289,6 +367,7 @@
 
     -   The output is the probability that the response is the j^th^ category or lower.
     -   $\pi_{i,j}$ denotes the probability that the i^th^ observation falls in response category $j$
+    -   This distribution can be visualized by looking at the cumulative proportions in the observed data (See [EDA](regression-ordinal.qmd#sec-reg-ord-eda){style="color: green"} \>\> Histograms)
 
 -   [Cumulative Logits (Logit Link)]{.underline}\
     ![](./_resources/Regression,_Ordinal.resources/Screenshot%20(1129).png){.lightbox width="632"}
@@ -303,16 +382,16 @@
     -   "To motivate the ordinal regression model, it is often assumed that there is an unobservable latent variable ( $y^*$ ) which is related to the actual response through the "**threshold concept**." An example of this is when respondents are asked to rate their agreement with a given statement using the categories "Disagree," "Neutral," "Agree." These three options leave no room for any other response, though one can argue that these are three possibilities along a continuous scale of agreement that would also make provision for "Strongly Agree" and "Disagree somewhat." The ordinal responses captured in $y$ and the latent continuous variable $y^*$ are linked through some fixed, but unknown, thresholds."
     -   A response occurs in category $j$ ($Y = j$) if the latent response process $y^*$ exceeds the threshold value, $\theta_{j-1}$ , but does not exceed the threshold value, $\theta_j$ .
         -   I think $y^*$ is continous on the scale of logits. $\theta_j$s are also intercepts in the model equations and also on the scale of logits (see [Proportional Odds (PO)](regression-ordinal.qmd#sec-reg-ord-po){style="color: green"} \>\> Example 3)
-    -   The cumulative probabilities are given in terms of the cumulative logits with \$J −1 \$strictly increasing model thresholds $\theta_1, \theta_2, \ldots , \theta_{J-1}$.
+    -   The cumulative probabilities are given in terms of the cumulative logits with $J−1$ strictly increasing model thresholds $\theta_1, \theta_2, \ldots , \theta_{J-1}$.
         -   With $J = 4$, we would have $J −1 = 3$ cumulative probabilities, given in terms of 3 thresholds $\theta_1$, $\theta_2$, and $\theta_3$ . The thresholds represent the marginal response probabilities in the $J$ categories.
-        -   Each cumulative logit is a model equation with a threshold for an intercept
-    -   To set the *location* of the latent variable, it is common to set a threshold to zero. Usually, the first of the threshold parameters( $\theta_1$) is set to zero.
+        -   **Each cumulative logit is a model equation with a threshold for an intercept**
+    -   To set the *location* of the latent variable, it is common to set a threshold to zero. Usually, the first of the threshold parameters ( $\theta_1$) is set to zero.
         -   Alternatively, the model intercept ($\beta_0$) is set to zero and $J −1$ thresholds are estimated. (Think this is the way [{ordinal}]{style="color: #990000"} does it.)
 
 -   [Structured Thresholds]{.underline}
 
     -   If ratings are the response variable, placing restrictions on thresholds and fitting a model allows us to test assumptions on how the judges are using the response scale
-    -   An advantage of applying additional restrictions on the thresholds is model has fewer parameters to estimate which increases model sensitivity.
+    -   An advantage of applying additional restrictions on the thresholds is that the model has fewer parameters to estimate which increases model sensitivity.
     -   Threshold distances are affected by the shape of the latent variable distribution which is determined by the link function used
         -   i.e. If it's determined that threshold distances are equidistant under a normal distribution (logit link) assumption, then they will not be equidistant if a different link function is used.
     -   [Example]{.ribbon-highlight}: Is the reponse scale being treated by judges as equidistant between values.
@@ -323,20 +402,23 @@
         -   Fit equidistant model
 
             ``` r
-            fm.equi <- clm(rating ~ temp + contact, data = wine, threshold = "equidistant")
+            fm.equi <- 
+              clm(rating ~ temp + contact, 
+                  data = wine, 
+                  threshold = "equidistant")
             summary(fm.equi)
 
-            link  threshold  nobs  logLik  AIC    niter  max.grad  cond.H
-            logit equidistant 72  -87.86  183.73 5(0)  4.80e-07  3.2e+01
-
-                      Estimate Std.Error z.value Pr(>|z|)
-            tempwarm  2.4632  0.5164    4.77    1.84e-06 ***
-            contactyes 1.5080  0.4712    3.20    0.00137 **
-
-            Threshold coefficients:
-                        Estimate Std.Error z.value
-            threshold.1 -1.0010  0.3978  -2.517
-            spacing      2.1229  0.2455    8.646
+            #> link  threshold   nobs  logLik  AIC    niter  max.grad  cond.H
+            #> logit equidistant 72   -87.86   183.73 5(0)   4.80e-07  3.2e+01
+            #> 
+            #>            Estimate Std.Error z.value Pr(>|z|)
+            #> tempwarm   2.4632   0.5164    4.77    1.84e-06 ***
+            #> contactyes 1.5080   0.4712    3.20    0.00137 **
+            #> 
+            #> Threshold coefficients:
+            #>              Estimate Std.Error z.value
+            #> threshold.1 -1.0010   0.3978   -2.517
+            #> spacing      2.1229   0.2455    8.646
             ```
 
             -   [spacing]{.arg-text}: Average distance between consecutive thresholds
@@ -345,10 +427,10 @@
 
             ``` r
             mean(diff(coef(fm1)[1:4]))
-            2.116929
+            #> 2.116929
             ```
 
-            -   [fm1]{.var-text} is from an example in the Proportional Odds (PO) section
+            -   [fm1]{.var-text} is from [Proportional Odds (PO)](regression-ordinal.qmd#sec-reg-ord-po){style="color: green"} \>\> Example 1
 
             -   Result: [fm1]{.var-text} spacing is very close to [fm.equi]{.var-text} spacing. Judges are likely applying the response scale as having equal distance between rating values.
 
@@ -356,9 +438,10 @@
 
             ``` r
             anova(fm1, fm.equi)
-                    no.par AIC    logLik LR.stat df Pr(>Chisq)
-            fm.equi 4      183.73 -87.865
-            fm1    6      184.98 -86.492 2.7454  2  0.2534
+
+            #>         no.par AIC     logLik LR.stat df Pr(>Chisq)
+            #> fm.equi 4      183.73 -87.865
+            #> fm1     6      184.98 -86.492 2.7454  2  0.2534
             ```
 
             -   No statistical difference in log-likelihoods. Fewer parameters to estimate is better, so keep the equidistant thresholds
@@ -471,58 +554,130 @@
 
 -   [Example 1]{.ribbon-highlight}: Basic
 
-    ``` r
-    fm1 <- 
-      ordinal::clm(rating ~ contact + temp, 
-                   data = wine)
-    summary(fm1)
+    -   Data
 
-    #> formula: rating ~ contact + temp
-    #> data: wine
-    #> 
-    #> link threshold nobs logLik  AIC    niter max.grad  cond.H
-    #> logit flexible 72  -86.49  184.98  6(0)  4.01e-12  2.7e+01
-    #> 
-    #> Coefficients:
-    #>            Estimate  Std.Error  z value  Pr(>|z|)
-    #> contactyes 1.5278    0.4766     3.205    0.00135 **
-    #> tempwarm   2.5031    0.5287     4.735    2.19e-06 ***
-    #> ---
-    #> Signif. codes: 0 ‘***’ 0.001 ‘**’ 0.01 ‘*’ 0.05 ‘.’ 0.1 ‘ ’ 1
-    #> 
-    #> Threshold coefficients:
-    #>     Estimate Std.Error z value
-    #> 1|2 -1.3444  0.5171    -2.600
-    #> 2|3  1.2508  0.4379     2.857
-    #> 3|4  3.4669  0.5978     5.800
-    #> 4|5  5.0064  0.7309     6.850
-    #> 
-    #> confint(fm1)
-    #>            2.5 %     97.5 %
-    #> tempwarm   1.5097627 3.595225
-    #> contactyes 0.6157925 2.492404
-    ```
+        ``` r
+        data(wine, package = "ordinal")
+        glimpse(as_tibble(wine))
 
-    -   Model: $\mbox{logit}(P(Y_i \le j)) = \theta_j − \beta_1(\mbox{temp}_i ) − \beta_2(\mbox{contact}_i)$
-    -   Response is wine [rating]{.var-text} (1 to 5 = most [bitter]{.var-text})
-        -   **The response variable should be an ordered factor class**
-            -   In this example, both explanatory variables were factor variables.
-    -   [cond.H]{.arg-text} - Located in top row of GOF metrics. The condition number of the Hessian is a measure of how identifiable the model is.
-        -   Values larger than \[1e4\]{arg-text} indicate that the model may be ill defined
-    -   Regression Coefficients
-        -   [temp]{.var-text}: $\beta_1(\mbox{warm} − \mbox{cold}) = 2.50$
-            -   The reference level is [cold]{.var-text}, and this is the effect of moving from [cold]{.var-text} to [warm]{.var-text}
-        -   [contact]{.var-text}: $\beta_2(\mbox{yes} − \mbox{no}) = 1.53$
-            -   The odds ratio of [bitterness]{.var-text} being rated in category $j$ or above ($\mbox{OR}(Y ≥ j)$) is $e^{\beta_2(\mbox{yes − no})} = e^{1.53} = 4.61$.
-                -   Note: this is $\mbox{Pr}(Y \ge j)$ which is why we're using the positive $\beta$
-            -   The reference level is [no]{.var-text}, and this is the effect of moving from [no]{.var-text} to [yes]{.var-text}
-        -   Interpretation:
-            -   [contact]{.var-text} and [warm temperature]{.var-text} both lead to higher probabilities of observations in the high categories
-            -   Me: The odds of the [rating]{.var-text} being higher are $4.61$ times greater when [contact = yes]{.var-text} than when [contact = no]{.var-text}.
-    -   Thresholds (aka intercepts)
-        -   $\{\theta_j\} = \{−1.34, 1.25, 3.47, 5.01\}$
-        -   Often the thresholds are not of primary interest, but they are an integral part of the model. .
-        -   It is not relevant to test whether the thresholds are equal to zero, so no p-values are provided for this test.
+        #> Rows: 72
+        #> Columns: 6
+        #> $ response <dbl> 36, 48, 47, 67, 77, 60, 83, 90, 17, 22, 14, 50, 30, 51, 90, 7…
+        #> $ rating   <ord> 2, 3, 3, 4, 4, 4, 5, 5, 1, 2, 1, 3, 2, 3, 5, 4, 2, 3, 3, 2, 5…
+        #> $ temp     <fct> cold, cold, cold, cold, warm, warm, warm, warm, cold, cold, c…
+        #> $ contact  <fct> no, no, yes, yes, no, no, yes, yes, no, no, yes, yes, no, no,…
+        #> $ bottle   <fct> 1, 2, 3, 4, 5, 6, 7, 8, 1, 2, 3, 4, 5, 6, 7, 8, 1, 2, 3, 4, 5…
+        #> $ judge    <fct> 1, 1, 1, 1, 1, 1, 1, 1, 2, 2, 2, 2, 2, 2, 2, 2, 3, 3, 3, 3, 3…
+        ```
+
+        -   Other variables
+
+            -   [response]{.var-text}: alternative outcome; wine bitterness rating on a 0-100 scale
+            -   Random Effects
+                -   [bottle]{.var-text} with 8 levels
+                -   [judge]{.var-text} with 9 levels
+
+    -   Model
+
+        ``` r
+        fm1 <- 
+          ordinal::clm(rating ~ contact + temp, 
+                       data = wine)
+        summary(fm1)
+
+        #> formula: rating ~ contact + temp
+        #> data: wine
+        #> 
+        #> link threshold nobs logLik  AIC    niter max.grad  cond.H
+        #> logit flexible 72  -86.49  184.98  6(0)  4.01e-12  2.7e+01
+        #> 
+        #> Coefficients:
+        #>            Estimate  Std.Error  z value  Pr(>|z|)
+        #> contactyes 1.5278    0.4766     3.205    0.00135 **
+        #> tempwarm   2.5031    0.5287     4.735    2.19e-06 ***
+        #> ---
+        #> Signif. codes: 0 ‘***’ 0.001 ‘**’ 0.01 ‘*’ 0.05 ‘.’ 0.1 ‘ ’ 1
+        #> 
+        #> Threshold coefficients:
+        #>     Estimate Std.Error z value
+        #> 1|2 -1.3444  0.5171    -2.600
+        #> 2|3  1.2508  0.4379     2.857
+        #> 3|4  3.4669  0.5978     5.800
+        #> 4|5  5.0064  0.7309     6.850
+        #> 
+        #> confint(fm1)
+        #>            2.5 %     97.5 %
+        #> tempwarm   1.5097627 3.595225
+        #> contactyes 0.6157925 2.492404
+        ```
+
+        -   Model: $\mbox{logit}(P(Y_i \le j)) = \theta_j − \beta_1(\mbox{temp}_i ) − \beta_2(\mbox{contact}_i)$
+        -   Response is wine [rating]{.var-text} (1 to 5 = most [bitter]{.var-text})
+            -   **The response variable should be an ordered factor class**
+                -   In this example, both explanatory variables were factor variables.
+        -   [cond.H]{.arg-text} - Located in top row of GOF metrics. The condition number of the Hessian is a measure of how identifiable the model is.
+            -   Values larger than [1e4]{.arg-text} indicate that the model may be ill defined
+        -   Regression Coefficients
+            -   [temp]{.var-text}: $\beta_1(\mbox{warm} − \mbox{cold}) = 2.50$
+                -   The reference level is [cold]{.var-text}, and this is the effect of moving from [cold]{.var-text} to [warm]{.var-text}
+            -   [contact]{.var-text}: $\beta_2(\mbox{yes} − \mbox{no}) = 1.53$
+                -   The odds ratio of [bitterness]{.var-text} being rated in category $j$ or above ($\mbox{OR}(Y ≥ j)$) is $e^{\beta_2(\mbox{yes − no})} = e^{1.53} = 4.61$.
+                    -   Note: this is $\mbox{Pr}(Y \ge j)$ which is why we're using the positive $\beta$
+                -   The reference level is [no]{.var-text}, and this is the effect of moving from [no]{.var-text} to [yes]{.var-text}
+            -   Interpretation:
+                -   [contact]{.var-text} and [warm temperature]{.var-text} both lead to higher probabilities of observations in the high categories
+                -   Me: The odds of the [rating]{.var-text} being higher are $4.61$ times greater when [contact = yes]{.var-text} than when [contact = no]{.var-text}.
+        -   Thresholds (aka intercepts)
+            -   $\{\theta_j\} = \{−1.34, 1.25, 3.47, 5.01\}$
+            -   Often the thresholds are not of primary interest, but they are an integral part of the model. .
+            -   It is not relevant to test whether the thresholds are equal to zero, so no p-values are provided for this test.
+
+    -   Visualize Effects and Thresholds\
+        ![](_resources/Regression,_Ordinal.resources/po-ex1-errorbars-1.png){.lightbox width="382"}
+
+        ``` r
+        tidy(fm1, 
+             conf.int = TRUE, 
+             conf.type = "Wald") %>%
+          ggplot(aes(y = term, x = estimate)) +
+          geom_point(size = 2) +
+          geom_linerange(size = 1, 
+                         aes(xmin = conf.low, xmax = conf.high))
+        ```
+
+        -   Effect sizes are logits and thresholds are also on the log scale.
+
+    -   Exponentiate and Summarize\
+        ![](_resources/Regression,_Ordinal.resources/po-ex1-ortbl.png){.lightbox width="220"}
+
+        ``` r
+        gtsummary::tbl_regression(fm1, 
+                                  exponentiate = TRUE,
+                                  intercept = TRUE)
+        ```
+
+    -   Test for interaction
+
+        ``` r
+        fm1_inter <-
+          clm(rating ~ contact * temp, 
+              data = wine, 
+              link = "logit")
+
+        #drop1(fm1_inter, test = "Chisq") accomplishes the same thing as anova
+        anova(fm1, fm1_inter)
+        #> Likelihood ratio tests of cumulative link models:
+        #>  
+        #>           formula:                link: threshold:
+        #> fm1       rating ~ contact + temp logit flexible  
+        #> fm1_inter rating ~ contact * temp logit flexible  
+        #> 
+        #>           no.par    AIC  logLik LR.stat df Pr(>Chisq)
+        #> fm1            6 184.98 -86.492                      
+        #> fm1_inter      7 186.83 -86.416  0.1514  1     0.6972
+        ```
+
+        -   No interaction which doesn't totally surprise me given the EDA plot (See [EDA](regression-ordinal.qmd#sec-reg-ord-eda){style="color: green"} \>\> Dot Plots), but I did think it'd be closer.
 
 -   [Example 2]{.ribbon-highlight}: Weighted Complimentary Log-Log Link, Comparing Links
 
@@ -665,6 +820,7 @@
     -   CIs:
 
         -   Profile CIs: `confint(m)`
+            -   Wald CIs(?)
         -   Assuming normality: `confint.default(m)`
 
     -   Interpretation:
@@ -714,7 +870,11 @@
 
 -   $\beta$s are allowed to vary with $j$ (ordinal outcome levels) or equivalently, the threshold parameters $\{\theta_j\}$ are allowed to depend on regression variables.
 
+    -   i.e In PO, it was assumed that the independent variable effect is the same for all levels of the ordinal outcome variable. The PPO model allows that effect to vary according to the outcome variable level.
+
 -   Two sets of thresholds are applied at conditions with and without an explanatory variable
+
+-   See [Cumulative Link Models (CLM)](regression-ordinal.qmd#sec-reg-ord-clm){style="color: green"} \>\> Model for how the PPO term fits into the model equation (e.g. $\tilde \beta$)
 
 -   [Example 1]{.ribbon-highlight}: [{ordinal}]{style="color: #990000"}
 
@@ -801,6 +961,8 @@
 
     -   Using scale effects is often a better approach, and it uses fewer parameters which often lead to more sensitive tests than nominal effects
 
+-   See [Cumulative Link Models (CLM)](regression-ordinal.qmd#sec-reg-ord-clm){style="color: green"} \>\> Model for how scale effects fit into the model equation
+
 -   Something about allowing the scale parameter of the latent variable distribution to depend on explanatory variables.
 
     -   Latent distribution is determined by the choice of link function
@@ -876,3 +1038,44 @@
 ## Generalized Ordinal Regression {#sec-reg-ord-gor .unnumbered}
 
 -   Todo
+
+## Mixed Effects {#sec-reg-ord-me .unnumbered}
+
+-   [Example]{.ribbon-highlight}
+
+    ``` r
+    clmm_rating_contact_temp <-
+      clmm(
+        rating ~ temp + contact + (1|judge),
+        data = wine, link = "logit"
+      )
+    # This is an older function, which we need to run stats::profile later
+    clmm2_rating_contact_temp <-
+      clmm2(
+        rating ~ temp + contact, random = judge,
+        data = wine, link = "logistic"
+      )
+    summary(clmm_rating_contact_temp)
+
+    #>  link  threshold nobs logLik AIC    niter    max.grad cond.H 
+    #>  logit flexible  72   -81.57 177.13 332(999) 1.03e-05 2.8e+01
+    #> 
+    #> Random effects:
+    #>  Groups Name        Variance Std.Dev.
+    #>  judge  (Intercept) 1.279    1.131   
+    #> Number of groups:  judge 9 
+    #> 
+    #> Coefficients:
+    #>            Estimate Std. Error z value Pr(>|z|)    
+    #> tempwarm     3.0630     0.5954   5.145 2.68e-07 ***
+    #> contactyes   1.8349     0.5125   3.580 0.000344 ***
+    #> ---
+    #> Signif. codes:  0 '***' 0.001 '**' 0.01 '*' 0.05 '.' 0.1 ' ' 1
+    #> 
+    #> Threshold coefficients:
+    #>     Estimate Std. Error z value
+    #> 1|2  -1.6237     0.6824  -2.379
+    #> 2|3   1.5134     0.6038   2.507
+    #> 3|4   4.2285     0.8090   5.227
+    #> 4|5   6.0888     0.9725   6.261
+    ```
