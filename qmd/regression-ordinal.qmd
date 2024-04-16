@@ -21,14 +21,13 @@
     -   [Ordinal regression in R: part 1](https://tdunn.ca/posts/2020-03-15-ordinal-regression-in-r-part-1/)
 -   Packages
     -   Cumulative Link Models (CLMs)
-        -   [{]{style="color: #990000"}[ordinal](https://cran.r-project.org/web/packages/ordinal/index.html){style="color: #990000"}[}]{style="color: #990000"}
+        -   [{]{style="color: #990000"}[ordinal](https://cran.r-project.org/web/packages/ordinal/index.html){style="color: #990000"}[}]{style="color: #990000"} ([Vignette](https://cran.r-project.org/web/packages/ordinal/vignettes/clm_article.pdf))
             -   CLMs and CLMMs with location, scale and nominal effects (aka partial proportional odds), structured thresholds and flexible link functions
             -   Methods for marginal means, tests of functions of the coefficients, goodness-of-fit tests
-            -   [Vignette](https://cran.r-project.org/web/packages/ordinal/vignettes/clm_article.pdf)
             -   \*Response variable should be an ordered factor class\*
-            -   Compatible with {marginaleffects}, {emmeans}, {ggeffects}
-            -   Package owner doesn't seem to do much with the package except basically doing enough to keep it on CRAN. Still has plenty of functionality, but it can take extra effort to get certain metrics and external packages to work with certain models models (e.g. `clmm`, `clmm2` for mixed effects)
-            -   Would check issues on its github for extra functionality, since some users have added code there.
+            -   Compatible with [{marginaleffects}]{style="color: #990000"}, [{emmeans}]{style="color: #990000"}, [{ggeffects}]{style="color: #990000"}
+            -   Package owner doesn't seem to be developing the package further except for keeping on CRAN. Still has plenty of functionality, but it can take extra effort to get certain metrics and external packages to work with certain models (e.g. `clmm`, `clmm2` for mixed effects)
+            -   Check issues on its github for extra functionality since some users have added code there.
         -   [{]{style="color: #990000"}[MASS::polr](https://cran.r-project.org/web/packages/MASS/index.html){style="color: #990000"}[}]{style="color: #990000"}
             -   Standard CLMs allowing for the 5 standard link functions but no further extensions
         -   [{]{style="color: #990000"}[VGAM::vglm](https://cran.r-project.org/web/packages/VGAM/index.html){style="color: #990000"}[}]{style="color: #990000"}
@@ -845,6 +844,7 @@
     -   CIs:
 
         -   Profile CIs: `confint(m)`
+            -   Also see [Confidence & Prediction Intervals \>\> Misc](confidence-and-prediction-intervals.qmd#sec-cipi-misc){style="color: green"}
         -   Assuming normality: `confint.default(m)`
 
     -   Interpretation:
@@ -1073,13 +1073,17 @@
         clmm_mod <-
           clmm(
             rating ~ temp + contact + (1|judge),
-            data = wine, link = "logit"
+            data = wine, 
+            link = "logit"
           )
         # older function
         clmm2_mod <-
           clmm2(
-            rating ~ temp + contact, random = judge,
-            data = wine, link = "logistic"
+            rating ~ temp + contact, 
+            random = judge,
+            data = wine, 
+            link = "logistic",
+            Hess = TRUE
           )
         summary(clmm_mod)
 
@@ -1140,4 +1144,40 @@
         ```
 
         -   The mixed model produces the better fit.
-        -   Not sure the PO model threshold CIs weren't calculated
+        -   Not sure why the PO model threshold CIs weren't calculated by [{gtsummary}]{style="color: #990000"}
+
+    -   Get Profile CIs
+
+        ``` r
+        profile(clmm2_mod,
+                nSteps = 30) |> 
+          confint()
+
+        #>           2.5 %   97.5 %
+        #> stDev 0.5014978 2.266741
+        ```
+
+        -   Also see [Confidence & Prediction Intervals \>\> Misc](confidence-and-prediction-intervals.qmd#sec-cipi-misc){style="color: green"}
+        -   Package has only implemented the profile method for the variance estimate of the mixed model and can't be used with the newer `clmm` function
+        -   You either need to set [Hess = TRUE]{.arg-text} in the model function or specify a [range]{style=".arg-text"} for the estimate in the `profile` function.
+
+    -   Get Conditional Modes\
+        ![](_resources/Regression,_Ordinal.resources/mix-ex1-cond-modes-1.png){.lightbox width="332"}
+
+        ``` r
+        tibble(
+          judge_effect = clmm_rating_contact_temp$ranef,
+          cond_var = clmm_rating_contact_temp$condVar
+        ) |> 
+          mutate(
+            judge = fct_reorder(factor(1:n()), 
+                                judge_effect),
+            conf.low = judge_effect - qnorm(0.975) * sqrt(cond_var),
+            conf.high = judge_effect + qnorm(0.975) * sqrt(cond_var)
+          ) |> 
+          ggplot(aes(y = judge, x = judge_effect)) +
+          geom_point(size = 2) +
+          geom_linerange(size = 1, 
+                         aes(xmin = conf.low, xmax = conf.high)) +
+          theme(panel.grid.major.x = element_line(color = "grey"))
+        ```
