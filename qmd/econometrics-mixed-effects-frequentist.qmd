@@ -1,3 +1,7 @@
+---
+fig-cap-location: top
+---
+
 # Mixed Effects {#sec-econ-me-freq .unnumbered}
 
 ## Misc {#sec-econ-me-freq-misc .unnumbered}
@@ -44,8 +48,26 @@
 
 -   [Motivation for using a Random Effects model]{.underline}
     -   You think the little subgroups are part of some bigger group with a common mean effect
-        -   e.g. multiple observations of a single person, or multiple people in a school, or multiple schools in a district, or multiple varieties of a single kind of fruit, or multiple kinds of vegetable from the same harvest, or multiple harvests of the same kind of vegetable, etc.
+        -   e.g. Multiple observations of a single person, or multiple people in a school, or multiple schools in a district, or multiple varieties of a single kind of fruit, or multiple kinds of vegetable from the same harvest, or multiple harvests of the same kind of vegetable, etc.
     -   These subgroup means significantly *deviate* from the big group mean.
+        -   i.e. We suspect there to be between-subject variance and not just within-subject variance (linear model).
+
+            ::: {layout-ncol="2"}
+            ![Within-Subject](./_resources/Econometrics,_Mixed_Effects,_Frequentist.resources/consid-withinsub-1.png){.lightbox group="consid-var" width="432"}
+
+            ![Between-Subject](./_resources/Econometrics,_Mixed_Effects,_Frequentist.resources/consid-btsub-1.png){.lightbox group="consid-var" width="432"}
+            :::
+
+            -   The **Between-Subject Variance** isn't clearly depicted IMO. It captures the differences between individual subjects or groups in their average responses or outcomes.
+
+                $$
+                \text{Between-Subject Variance} = \frac{\sum_{i=1}^{k} n_i (\bar{X}_i - \bar{X})^2}{k-1}
+                $$
+
+                -   $k$ is the number of groups or levels of the independent variable.
+                -   $n_i$ is the number of observations in the i^th^ group.
+                -   $\bar X_i$ is the mean of the observations in the i^th^ group.
+                -   $\bar X$ is the overall mean of all observations pooled across groups.
     -   These *deviations* follow a distribution, typically Gaussian.
         -   That's where the "random" in **random effects** comes in: we're assuming the *deviations* of subgroups from a parent follow the distribution of a *random* (Gaussian) variable
             -   The variation between subgroups is assumed to have a normal distribution with a 0 mean and constant variance (variance estimated by the model).
@@ -127,6 +149,64 @@
         -   If the random effects are correlated with variables of interest (fixed effects), leaving them out could lead to biased fixed effects. Including them can help more reliably isolate the influence of the fixed effects of interest and more accurately model a clustered system.
         -   To see individual random effects: `lme4::ranef(lme_mod)` or `lme4::ranef(tidy_mod$fit)`
 
+## Model Equation {#sec-econ-me-freq-modeq .unnumbered}
+
+-   Notes from Video Playlist: [Mixed Model Series](https://www.youtube.com/playlist?list=PLB2iAtgpI4YEAUiEQ1ZnfMXY-yewNzn9z)
+
+-   It's useful to consider the model in two stages even though all the parameters are estimated at the same time (See Combined equation)
+
+-   2-stage model
+
+    -   1^st^ Stage\
+        $$
+        Y_i = \beta_iZ_i + \epsilon_i, \quad \epsilon \sim \mathcal N (0, \sigma^2I_{n_i})
+        $$
+        -   $\beta_i Z_i$ is the slope and intercept times the design matrix for subject $i$
+        -   $\epsilon$ is the within-subject error
+        -   $\sigma^2I_{n_i}$ is the within-subject variance matrix which is just a diagonal matrix with $\sigma^2$s along the diagonal.
+            -   In this case $\sigma^2$ is constant for all subjects. (i.e. the variance is pooled). Preferred method when you have small data which makes estimation of subject-level variance difficult. For
+        -   $\beta_i$ says that there's a slope for each subject which makes sense if there's repeated measures
+    -   2^nd^ Stage\
+        $$
+        \beta_i = \beta A_i + b_i, \quad b_i \sim \mathcal N (0, G)
+        $$
+        -   $\beta$ is a group parameter estimate (i.e. avarage intercept and average slope across all subjects)
+        -   $A_i$ is a design matrix
+            -   Typically an identity matrix it's a more complex model
+        -   $b_i$ is the between-subject error. Isn't actually a subject-level vector of residuals. It's an estimated distribution.
+        -   $G$ is a 2 $\times$ 2 Covariance matrix (in this case). Same for all subjects.
+            -   Upper-Left: Between-Subject Intercept Variance
+            -   Bottom-Right: Between-Subject Slope Variance
+            -   Upper-Right: Covariance between slope and intercept (i.e. a dependence between slope and intercept)
+                -   Same for Bottom-Left.
+    -   Combined: $Y_i = \beta Z_i A_i + b_i Z_i + \epsilon_i$
+
+-   Term Estimates
+
+    ``` r
+    library(lme4); library(Matrix)
+    data("sleepstudy")
+    # varying slopes and varying intercepts
+    lmer_mod <- 
+      lmer(Reaction ~ 1 + Days + (1 + Days | Subject),
+           sleepstudy,
+           REML = 0)
+    summary(lmer_mod)
+
+    #> Random effects:
+    #>  Groups   Name        Variance Std.Dev. Corr
+    #>  Subject  (Intercept) 565.48   23.780       
+    #>           Days         32.68    5.717   0.08
+    #>  Residual             654.95   25.592       
+    #> Number of obs: 180, groups:  Subject, 18
+    ```
+
+    -   $\sigma^2$ is [Residual = 654.95]{.arg-text} (variance of the within-subject error)
+    -   $G$
+        -   [Subject (Intercept) = 565.52 (Variance)]{.arg-text} (Upper-Left: Between-Subject Intercept Variance)
+        -   [Days = 32.48 (Variance)]{.arg-text} (Between-Subject Slope Variance)
+        -   [Days = 0.08 (Corr)]{.arg-text} (Upper-Right: Covariance between slope and intercept)
+
 ## Assumptions {#sec-econ-me-freq-assum .unnumbered}
 
 -   [No Time-Constant Unobserved Heterogeneity]{.underline}: $\mathbb{E}(\alpha_i\;|\;x_{it}) = 0$
@@ -155,6 +235,12 @@
 
 ## Specifications and Notation {#sec-econ-me-freq-specnot .unnumbered}
 
+-   Every variable within the parentheses is for the random effects. Variables outside the parentheses are fixed effects
+-   Random Effects Variables
+    -   Intercepts variables (e.g. v1) should be grouping variables (i.e. discrete or categorical) (e.g school, department)
+    -   Slopes variables (e.g. v2) should be continuous within-subject variables (e.g time)
+        -   These variables should also be included in the fixed effects
+-   Fixed Effects should include within-subject variables (e.g slope variables) and between-subject variables (e.g. gender)
 -   [Varying Intercepts]{.underline}: `(1 | v1)`
     -   AKA [Random Intercepts]{.underline}, where each level of the random variable (our random effect) had an adjustment to the overall intercept
 
@@ -232,10 +318,48 @@
 -   Also see
 
     -   [Diagnostics, Mixed Effects](diagnostics-mixed-effects.qmd#sec-diag-me){style="color: green"}
-
     -   [BMLR Ch.8 \>\> Model Building Workflow \>\> Unconditional Means](econometrics-mixed-effects-frequentist.qmd#sec-econ-me-freq-bmlrch8-mbwkfw-ri){style="color: green"} for an ICC example
-
     -   [Examples](econometrics-mixed-effects-frequentist.qmd#sec-econ-me-freq-examp){style="color: green"} \>\> Random Intercept-Only model for an ICC example
+
+-   Check Degrees of Freedom in Fixed Effects Estimates
+
+    -   The degrees of freedom for the estimates should be close to the number of subjects (aka units)
+
+    -   Large degrees of freedom in comparison to the number of subjects indicates a misspecification of the model. (e.g. 60 subjects and dofs are close to the number of observations)
+
+    -   Also papers should report the dofs.
+
+    -   Example
+
+        ``` r
+        library(lmerTest)
+        data("sleepstudy")
+        lmer_mod <- 
+          lmer(Reaction ~ 1 + Days + (1 + Days | Subject),
+               sleepstudy,
+               REML = 0)
+        summary(lmer_mod)
+
+        #> Fixed effects:
+        #>             Estimate Std. Error      df t value Pr(>|t|)    
+        #> (Intercept)  251.405      6.632  18.001  37.907  < 2e-16 ***
+        #> Days          10.467      1.502  18.000   6.968 1.65e-06 ***
+
+        lmer_mod2 <- 
+          lmer(Reaction ~ 1 + Days + (1 | Subject),
+               sleepstudy,
+               REML = 0)
+        summary(lmer_mod2)
+        #> Fixed effects:
+        #>             Estimate Std. Error       df t value Pr(>|t|)    
+        #> (Intercept) 251.4051     9.5062  24.4905   26.45   <2e-16 ***
+        #> Days         10.4673     0.8017 162.0000   13.06   <2e-16 ***
+        ```
+
+        -   There are 18 subjects, so the first model is a well-specified model
+        -   The dof spikes to [162]{.arg-text} for the [Days]{.var-text} fixed effect which is close to the number of total observations at 180. This indicates a misspecified model.
+            -   The [24.4905]{.arg-text} is actually okay the intercept.
+        -   Note that you need to used {lmerTest} and not {lme4} to fit the model in order to get the dofs and pvals. Although there's probably a helper function in {lmerTest} since it loads {lme4} that will give the same results if you fit the model using {lme4}
 
 -   **InterClass Coefficient (ICC)**: The proportion of variation that is between-cases\
 
