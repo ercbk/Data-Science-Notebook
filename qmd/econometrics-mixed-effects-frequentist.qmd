@@ -112,6 +112,7 @@ fig-cap-location: top
         -   This can be a nice compromise between estimating an effect by completely pooling all groups, which masks group-level variation, and estimating an effect for all groups completely separately, which could give poor estimates for low-sample groups.
         -   If you have few data points in a group, the group's effect estimate will be based partially on the more abundant data from other groups. (2 min [video](https://www.youtube.com/watch?v=qMe7qwNMe-s))
             -   This is called **Regularization**. Subjects with fewer data points will have their estimates pulled to the grand mean more than subjects with more data points.
+                -   The grand mean will be the [(Intercept)]{.arg-text} value in the Fixed Effects section of the `summary`.
             -   You can visualize the amount of regularization by comparing the conditional modes (see [Model Equation](econometrics-mixed-effects-frequentist.qmd#sec-econ-me-freq-modeq){style="color: green"} \>\> Conditional Modes) to the group means in the observed data.
                 -   [Example]{.ribbon-highlight} ([link](https://jeanettemumford.org/MixedModelSeries/v4-introduction-to-regularization-in-mixed-models.html))\
                     ![](_resources/Econometrics,_Mixed_Effects,_Frequentist.resources/cond-modes-obs-comp-3.png){.lightbox width="432"}
@@ -135,18 +136,11 @@ fig-cap-location: top
                         values_to = "estimate"
                       )
 
-                    grand_mean <-   
-                      dat |>
-                      summarize(avg_rt = mean(rt), 
-                                .by = subid) |> 
-                      summarize(mean(avg_rt)) |> 
-                      pull(1)
-
                     ggplot(comparison_dat,
                            aes(x = subid, y = estimate, color = type)) +
                       geom_point() +
                       scale_color_manual(values = c("#195198", "#BD9865")) +
-                      geom_hline(yintercept = grand_mean) +
+                      geom_hline(yintercept = lme4::fixef(rt_lme_mod)[[1]]) + # overall intercept/grand mean
                       scale_x_continuous(breaks = seq(0 , 10, 1), 
                                          minor_breaks=seq(0, 10,1)) +
                       theme_notebook()
@@ -157,7 +151,7 @@ fig-cap-location: top
                     -   The conditional modes (gold) are all closer to the horizontal line which represents the grand mean.
                     -   There are few data points for each of the first five subjects, so in general, they are *pulled* more than the last five subjects which have many more data points.
                         -   i.e. The differences between the observed means (blue) and conditional modes (gold) are greater in the first five subjects than the last five subjects
-                        -   Points already close to the grand mean can't be *pulled* as much since they're already very close to the grand mean (e.g. subjects 3 and 5)
+                        -   Points already close to the grand mean can't be *pulled* as much since they're already very close to the grand mean (e.g. subject 1)
         -   Partial pooling is typically accomplished through hierarchical models. Hierarchical models directly model the population of units. From a population model perspective, no pooling corresponds to infinite population variance, whereas complete pooling corresponds to zero population variance.
 -   [Variable Assignment]{.underline}
     -   Questions ([article](https://rlbarter.github.io/Practical-Statistics/2017/03/03/fixed-mixed-and-random-effects/) has examples)
@@ -205,11 +199,15 @@ fig-cap-location: top
 
 -   Notes from Video Playlist: [Mixed Model Series](https://www.youtube.com/playlist?list=PLB2iAtgpI4YEAUiEQ1ZnfMXY-yewNzn9z)
 
+    -   Companion [resource](https://jeanettemumford.org/MixedModelSeries/index.html) to the videos. Contains more details, code, and references.
+
 -   Also see the [BMLR Chapter 8](econometrics-mixed-effects-frequentist.qmd#sec-econ-me-freq-bmlrch8){style="color: green"} section for a similar description
 
 -   It's useful to consider the model in two stages even though all the parameters are estimated at the same time (See Combined equation)
 
--   Issues with actually using a 2-stage approach
+    -   If all subjects have the same number of observations, the 2-Stage approach and Mixed Model should have very similar results.
+
+-   Issues with *only* using a 2-stage approach
 
     -   Not all random effects structures can be modelling using 2 stages
     -   The variance estimate in the 2^nd^ stage will be incorrect
@@ -233,12 +231,12 @@ fig-cap-location: top
         -   $\beta$ is a group parameter estimate (i.e. avarage intercept and average slope across all subjects)
         -   $A_i$ is a design matrix
             -   Typically an identity matrix unless it's a more complex model
-        -   $b_i$ is the between-subject error. Isn't actually a subject-level vector of residuals. It's an estimated distribution.
-        -   $G$ is a 2 $\times$ 2 Covariance matrix (in this case). Same for all subjects.
-            -   Upper-Left: Between-Subject Intercept Variance
-            -   Bottom-Right: Between-Subject Slope Variance
-            -   Upper-Right: Covariance between slope and intercept (i.e. a dependence between slope and intercept)
-                -   Same for Bottom-Left.
+        -   $b_i$ is the **random effect** between-subject error. Isn't actually a subject-level vector of residuals. It's an estimated distribution — typically Gaussian.
+            -   $G$ is a 2 $\times$ 2 Covariance matrix (in this case). Same for all subjects.
+                -   Upper-Left: Between-Subject Intercept Variance
+                -   Bottom-Right: Between-Subject Slope Variance
+                -   Upper-Right: Covariance between slope and intercept (i.e. a dependence between slope and intercept)
+                    -   Same for Bottom-Left.
     -   Combined: $Y_i = \beta Z_i A_i + b_i Z_i + \epsilon_i$
 
 -   Term Estimates
@@ -269,13 +267,22 @@ fig-cap-location: top
 
 -   Conditional Modes
 
-    -   Subject (aka unit) based esimates (e.g. the average rating (response) for judge 5 (grouping variable))
+    -   Subject (aka unit) based esimates (e.g. the average rating (response) for judge 5 (grouping variable)). The predicted value for subject $i$ from the mixed model.
     -   aka BLUPs (Best Linear Unbiased Predictor). Often see this terminology despised by academics though.
     -   Process
         -   Condition on Y to the distribution for $\beta$
         -   Use the *mode* of that distribution as a prediction for subject $i$'s $\beta$
             -   If it's a symmetric distribution, then the mode will equivalent the mean.
     -   Get conditional modes from model: `coef(lmer_mod)$grouping_var`
+    -   Relationship to Means\
+        $$
+        \begin{align}
+        &\hat\beta_i = W_i\hat\beta_i^{OLS}+(I_q-W_i)A_i\hat\beta \\
+        &\text{where} \quad W_i= \frac{G}{G+\sigma^2(Z_i'Z_i)^{-1}}
+        \end{align}
+        $$
+        -   The top equation shows that if the weight $W$ is large (e.g. $1$), then the OLS estimate (subject-level means) will be close the mixed effects estimate
+        -   The bottom equation shows that if the Between-Subject Variance ($G$) is much larger than the Within-Subjects Variance ($\sigma^2$), then the weight will be large (i.e. close to $1$).
 
 ## Assumptions {#sec-econ-me-freq-assum .unnumbered}
 
