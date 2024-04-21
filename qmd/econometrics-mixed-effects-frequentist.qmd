@@ -207,12 +207,16 @@ fig-cap-location: top
 
     -   If all subjects have the same number of observations, the 2-Stage approach and Mixed Model should have very similar results.
     -   A use case for the 2-Stage approach is comparing the correlation between a dependent variable and two independent variables (i.e. $Y \sim X_1$ and $Y \sim X_2$) when the data is repeated measures.
+        -   Subjects (aka units) should be balanced if you want valid standard errors (See Issues)
         -   Execute the 2-Stage approach for both model formulas and the 2nd Stage's coefficient will be the Pearson Correlation coefficient. ([Code](https://jeanettemumford.org/MixedModelSeries/v4-introduction-to-regularization-in-mixed-models.html#stage-summary-statistics-approach-compared-to-conditional-modes) from MMS Resource, also mentioned at the end of video 4 or 5)
 
 -   Issues with *only* using a 2-stage approach
 
     -   Not all random effects structures can be modelling using 2 stages
     -   The variance estimate in the 2^nd^ stage will be incorrect
+        -   The standard errors will be too small which will inflate the type I error rate.
+        -   This is most prevalent is designs with an imbalanced binary group variable fixed effect (e.g. treatment/control) where one group has fewer subjects than the other group (See MMS resource/video 6)
+        -   There is a loss of power in designs that have an imbalance in the binary group variable and imbalance in the number of observations per subject. (See MMS resource/video 6)
     -   Mixed Effects models have built-in regularization.
 
 -   2-stage model
@@ -230,7 +234,7 @@ fig-cap-location: top
         $$
         \beta_i = \beta A_i + b_i, \quad b_i \sim \mathcal N (0, G)
         $$
-        -   $\beta$ is a group parameter estimate (i.e. avarage intercept and average slope across all subjects)
+        -   $\beta$ is a group parameter estimate (i.e. avarage intercept and average slope across all subjects). The intercept will be the grand mean and other coefficients are the fixed effects coefficients.
         -   $A_i$ is a design matrix
             -   Typically an identity matrix unless it's a more complex model
         -   $b_i$ is the **random effect** between-subject error. Isn't actually a subject-level vector of residuals. It's an estimated distribution — typically Gaussian.
@@ -269,22 +273,56 @@ fig-cap-location: top
 
 -   Conditional Modes
 
-    -   Subject (aka unit) based esimates (e.g. the average rating (response) for judge 5 (grouping variable)). The predicted value for subject $i$ from the mixed model.
-    -   aka BLUPs (Best Linear Unbiased Predictor). Often see this terminology despised by academics though.
-    -   Process
-        -   Condition on Y to the distribution for $\beta$
-        -   Use the *mode* of that distribution as a prediction for subject $i$'s $\beta$
-            -   If it's a symmetric distribution, then the mode will equivalent the mean.
-    -   Get conditional modes from model: `coef(lmer_mod)$grouping_var`
-    -   Relationship to Means\
+    -   These are essentially just fitted values for a mixed effects model. The difference is having a different intercept value for each subject id and/or a different slope for each subject id.
+
+    -   aka BLUPs (Best Linear Unbiased Predictor). I've seen this terminology discouraged a couple different places though.
+
+        -   I think BLUPs comes from the original paper and Conditional Modes comes from the author of {lme4}. Both should be lost to history.
+
+    -   Conditional Modes ($\hat \beta$) as function of OLS and the Mixed Model Grand Mean (aka fixed effects intercept)
+
         $$
         \begin{align}
         &\hat\beta_i = W_i\hat\beta_i^{OLS}+(I_q-W_i)A_i\hat\beta \\
         &\text{where} \quad W_i= \frac{G}{G+\sigma^2(Z_i'Z_i)^{-1}}
         \end{align}
         $$
+
+        -   Not essential to know this but it gives you insight to how the 2-Stage model and the Mixed Model estimates will differ. It also gives insight into what affects the amount of Regularization. (See [Considerations](econometrics-mixed-effects-frequentist.qmd#sec-econ-me-freq-consid){style="color: green"} \>\> Partial Pooling)
         -   The top equation shows that if the weight $W$ is large (e.g. $1$), then the OLS estimate (subject-level means) will be close the mixed effects estimate
         -   The bottom equation shows that if the Between-Subject Variance ($G$) is much larger than the Within-Subjects Variance ($\sigma^2$), then the weight will be large (i.e. close to $1$).
+        -   For a simple varying intercepts model $Z'Z$ is just $\frac{1}{N_i}$. For a small, $N_i$, $W$ will be small which leads to the grand mean estimate, $\hat\beta$, dominating the conditional mode equation which means more regularization for that subject.
+
+    -   Get the conditional modes
+
+        -   [Example]{.ribbon-highlight}
+
+            ``` r
+            glimpse(dat.mod)
+            #> Rows: 1,500
+            #> Columns: 3
+            #> $ id      <fct> 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 2, 2, 2, 2, 2…
+            #> $ y       <dbl> -18.5954522, -0.3249434, 12.8352423, -6.1749271, 7.1217294, 14.5693488, -2.4363220, -23.1468863, -4.016…
+            #> $ grp.all <dbl> 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1…
+
+            mod.lmer <-  lmer(y ~ grp.all + (1 | id), 
+                            dat.mod)
+
+            # Using the model equation
+            group.vec <- rep(c(1, 0), each = 25) # distinct group.all values/num of subjects
+            cond.modes <- coef(mod.lmer)$id[, 1] + coef(mod.lmer)$id[, 2]*group.vec
+
+            # Using predict()
+            new_dat <- dat.mod |> 
+              distinct(id, grp.all)
+            me_preds <- predict(mod.lmer2, new_dat)
+
+            head(cond.modes); head(as.numeric(me_preds))
+            #> [1] 10.425813 14.724778 12.815295  8.282038  4.234039  9.870040
+            #> [1] 10.425813 14.724778 12.815295  8.282038  4.234039  9.870040 
+            ```
+
+            -   In a basic RCT design, [grp.all]{.var-text} would be your treatment/control variable and id would be your subject (aka unit) id.
 
 ## Assumptions {#sec-econ-me-freq-assum .unnumbered}
 
