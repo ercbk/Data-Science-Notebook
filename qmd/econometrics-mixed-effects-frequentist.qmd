@@ -273,9 +273,14 @@ fig-cap-location: top
 
 -   Conditional Modes
 
-    -   These are essentially just fitted values for a mixed effects model. The difference is having a different intercept value for each subject id and/or a different slope for each subject id.
+    -   Currently I'm not sure what these are. I've read/watched a few different things that state or imply different definitions of the term.
 
-    -   aka BLUPs (Best Linear Unbiased Predictor). I've seen this terminology discouraged a couple different places though.
+        -   Fitted Values: These are essentially just fitted values for a mixed effects model. The difference is having a different intercept value for each subject id and/or a different slope for each subject id. (Mumford from Mixed Models Series)
+            -   Mumford is following a book on Longitudinal data. I'm leaning towards this definition.
+        -   Random Slopes/Intercepts: These take each subject's random effect and adds it the fixed effect (model avereage) (Michael Clark implies this in Mixed Models in R)
+        -   Random Effects: {lme4}'s functional documentation and vignette imply that these are conditional modes through their function defintions (Bates et al)
+
+    -   AKA BLUPs (Best Linear Unbiased Predictor). I've seen this terminology discouraged a couple different places though.
 
         -   I think BLUPs comes from the original paper and Conditional Modes comes from the author of {lme4}. Both should be lost to history.
 
@@ -293,36 +298,106 @@ fig-cap-location: top
         -   The bottom equation shows that if the Between-Subject Variance ($G$) is much larger than the Within-Subjects Variance ($\sigma^2$), then the weight will be large (i.e. close to $1$).
         -   For a simple varying intercepts model $Z'Z$ is just $\frac{1}{N_i}$. For a small, $N_i$, $W$ will be small which leads to the grand mean estimate, $\hat\beta$, dominating the conditional mode equation which means more regularization for that subject.
 
-    -   Get the conditional modes
+    -   Get the conditional modes whatever they might be:
 
-        -   [Example]{.ribbon-highlight}
+        -   Fitted Values:
 
             ``` r
-            glimpse(dat.mod)
-            #> Rows: 1,500
-            #> Columns: 3
-            #> $ id      <fct> 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 2, 2, 2, 2, 2…
-            #> $ y       <dbl> -18.5954522, -0.3249434, 12.8352423, -6.1749271, 7.1217294, 14.5693488, -2.4363220, -23.1468863, -4.016…
-            #> $ grp.all <dbl> 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1…
-
-            mod.lmer <-  lmer(y ~ grp.all + (1 | id), 
-                            dat.mod)
-
-            # Using the model equation
-            group.vec <- rep(c(1, 0), each = 25) # distinct group.all values/num of subjects
-            cond.modes <- coef(mod.lmer)$id[, 1] + coef(mod.lmer)$id[, 2]*group.vec
-
-            # Using predict()
-            new_dat <- dat.mod |> 
-              distinct(id, grp.all)
-            me_preds <- predict(mod.lmer2, new_dat)
-
-            head(cond.modes); head(as.numeric(me_preds))
-            #> [1] 10.425813 14.724778 12.815295  8.282038  4.234039  9.870040
-            #> [1] 10.425813 14.724778 12.815295  8.282038  4.234039  9.870040 
+            fitted(lme_mod)
+            # or
+            predict(lme_mod,
+                    new_data)
             ```
 
-            -   In a basic RCT design, [grp.all]{.var-text} would be your treatment/control variable and id would be your subject (aka unit) id.
+        -   Random Slopes or Intercepts:
+
+            ``` r
+            rand_int <- ranef(lme_mod)$group_var$`(Intercept)` + fixef(lme_mod$group_var$`(Intercept)`)
+            rand_slope <- ranef(lme_mod)$group_var$slope_var + fixef(lme_mod$group_var$slope_var)
+            ```
+
+            -   If conditonal modes are just the random effects then `ranef(lme_mod)`
+
+    -   [Examples]{.ribbon-highlight}: Manual Method (Assumes Fitted Values are Conditional Modes)
+
+        ::: panel-tabset
+        ## Fixed Effect + Varying Intercepts
+
+        ``` r
+        glimpse(dat.mod)
+        #> Rows: 1,500
+        #> Columns: 3
+        #> $ id      <fct> 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 2, 2, 2, 2, 2…
+        #> $ y       <dbl> -18.5954522, -0.3249434, 12.8352423, -6.1749271, 7.1217294, 14.5693488, -2.4363220, -23.1468863, -4.016…
+        #> $ grp.all <dbl> 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1…
+
+        mod.lmer <-  lmer(y ~ grp.all + (1 | id), 
+                          dat.mod)
+
+        # Using the model equation
+        group.vec <- rep(c(1, 0), each = 25) # distinct group.all values/num of subjects
+        cond.modes <- coef(mod.lmer)$id[, 1] + coef(mod.lmer)$id[, 2]*group.vec
+
+        # Using predict()
+        new_dat <- 
+          dat.mod |> 
+          distinct(id, grp.all)
+        me_preds <- predict(mod.lmer2, 
+                            new_dat)
+
+        head(cond.modes); head(as.numeric(me_preds))
+        #> [1] 10.425813 14.724778 12.815295  8.282038  4.234039  9.870040
+        #> [1] 10.425813 14.724778 12.815295  8.282038  4.234039  9.870040 
+        ```
+
+        -   In a basic RCT design, [grp.all]{.var-text} would be your treatment/control variable and id would be your subject (aka unit) id.
+
+        ## Varying Slopes and Intercepts
+
+        ``` r
+        fm1 <- 
+          lmer(Reaction ~ Days + (Days|Subject), 
+               sleepstudy)
+
+        # random effects
+        re_intercepts <- ranef(fm1)$Subject$`(Intercept)`
+        re_slopes <- ranef(fm1)$Subject$`Days`
+        # fixed effects
+        fe_intercept <- fixef(fm1)[1] # grand mean
+        fe_slope <- fixef(fm1)[2] # average slope for Days
+
+        random_intercepts <- fe_intercept + re_intercepts
+        random_slopes <- fe_slope + re_slopes
+
+        random_df <- tibble(
+          Subject = as.factor(levels(sleepstudy$Subject)),
+          random_slopes = random_slopes,
+          random_intercepts = random_intercepts
+        )
+
+        # Join each random_* to the repeated measures rows for Subject
+        random_df_full <- 
+          sleepstudy |> 
+          select(Subject) |> 
+          left_join(random_df,
+                    by = "Subject")
+
+        cond_modes <- random_df_full$random_intercepts + (random_df_full$random_slopes * sleepstudy$Days)
+        fitted_values <- fitted(fm1)
+        head(cond_modes); head(as.numeric(fitted_values))
+        #> [1] 253.6637 273.3299 292.9962 312.6624 332.3287 351.9950
+        #> [1] 253.6637 273.3299 292.9962 312.6624 332.3287 351.9950
+        ```
+
+        -   Shows how random effects are used to get the conditional modes.\
+            $$
+            \begin{aligned}
+            \text{Conditional Modes}_i &= (\text{Random Effect}_{\text{intercept}_i} + \text{Fixed Effect}_{\text{intercept}}) \\ &+ (\text{Random Effect}_{\text{Days}_i} + \text{Fixed Effect}_{\text{Days}}) \times \text{Days}_{i,j}
+            \end{aligned}
+            $$
+
+            -   [Days]{.var-text} is the repeated measures id so to speak. In this study, each [Subject]{.var-text} ($i$) has 10 [Days]{.var-text} ($j$) of follow-up measurements
+        :::
 
 ## Assumptions {#sec-econ-me-freq-assum .unnumbered}
 
