@@ -24,23 +24,22 @@ fig-cap-location: top
         -   Fixed and random effects models can be specified for the conditional and zero-inflated components of the model, as well as fixed effects for the dispersion parameter.
     -   [{]{style="color: #990000"}[spaMM](https://cran.r-project.org/web/packages/spaMM/index.html){style="color: #990000"}[}]{style="color: #990000"} - Inference based on models with or without spatially-correlated random effects, multivariate responses, or non-Gaussian random effects (e.g., Beta).
     -   [{]{style="color: #990000"}[merTools](https://cran.r-project.org/web/packages/merTools/index.html){style="color: #990000"}[}]{style="color: #990000"} - Allows construction of prediction intervals efficiently from large scale linear and generalized linear mixed-effects models
-        -   Clark uses the package in his ebook Mixed Models in R, but it also has some nice vignettes.
         -   Also has tools for analyzing multiply imputed mixed efffects models
         -   Comes with a shiny app to explore the model
+    -   [{]{style="color: #990000"}[mixedup](https://m-clark.github.io/mixedup/){style="color: #990000"}[}]{style="color: #990000"} - Helper functions to extract certain estimates (e.g. random and fixed effects, variance components, correlation structures, heterogeneous variances, etc.)
+        -   Supports lme4, glmmTMB, nlme, mgcv, rstanarm, brms
 -   Advantages of a mixed model ($y \sim x + (x \;|\; g)$) vs a linear model with an interaction ($y \sim x \ast g$)
     -   From T.J. Mahr [tweet](https://twitter.com/tjmahr/status/1504124329319096323)
     -   Conceptual: Assumes participant means are drawn from the same latent population
     -   Computational: partial pooling / smoothing
     -   Both will have very similar parameter estimates when the data is balanced with few to no outliers
-        -   linear least squares regression can overstate precision, producing t-statistics for each fixed effect that tend to be larger than they should be; the number of significant results in LLSR are then too great and not reflective of the true structure of the data
-        -   Standard errors are underestimated in the interaction model though.
+        -   Linear least squares regression can overstate precision, producing t-statistics for each fixed effect that tend to be larger than they should be; the number of significant results in LLSR are then too great and not reflective of the true structure of the data
+        -   Standard errors are underestimated in the interaction model.
             -   Doesn't account for dependence in the repeated measure for each subject
         -   For unbalanced data w/some group categories having few data points or with outliers, the mixed effects model regularizes/shrinks/smooths the estimates to the overall group (i.e. population) mean
     -   Example of model formula interpretation\
         ![](./_resources/Econometrics,_Mixed_Effects,_Frequentist.resources/FLvupd_WYAQPIzA.png){.lightbox width="490"}
 -   Mixed Effects and Longitudinal Data
-    -   **Mixed Effects Models** = Fixed Effects *and* Random Effects
-        -   i.e. variation within the unit and between the units
     -   Harrell ([article](https://www.fharrell.com/post/re/))
         -   Says that Mixed Models models can capture within-subject correlation of repeated measures over very short time intervals but not over extended time intervals where autocorrelation comes into play
             -   Example of a short interval is a series of tests on a subject over minutes when the subject does not fatigue
@@ -469,7 +468,7 @@ fig-cap-location: top
 
         -   Where j\[i\] is the index for [department]{.var-text}
         -   See above for descriptions of each type of variation this strategy captures
--   [Nested effects]{.underline}
+-   [Nested Effects]{.underline}
     -   e.g. Studying [test scores]{.var-text} (outcome variable) within [schools]{.var-text} (random variable) that are within [districts]{.var-text} (random variable)
     -   Notation: `(1 | v1 / v2)` says intercepts varying among v1 *and* v2 *within* v1.
         -   e.g. [schools]{.var-text} is v2 and [districts]{.var-text} is v1
@@ -478,6 +477,15 @@ fig-cap-location: top
             -   The random effect at this level is the combination of [school]{.var-text} and [student_id]{.var-text}, which is unique.
             -   You can verify this by calling `ranef` on the fitted model. It'll show you the unique combinations of [student_ids]{.var-text} within [schools]{.var-text} used in the model.
     -   If you take the fixed effects values shown in `summary(model)` then add the `ranef(model)` values to them, that's what `coef(model)` gives.
+-   [Crossed Effects]{.underline}
+    -   Use when you have more than one grouping variable, but those grouping variables aren't nested within each other.
+    -   Such models are common in item response theory, where subject and item factors are fully crossed
+    -   Notation: `(1 | v1) + (1 | v2)` says there's an intercept for each level of each grouping variable.
+-   [Uncorrelated Random Effects]{.underline}
+    -   If you have model where slopes and intercepts aren't very correlated and would like to reduce the complexity (i.e. fewer dofs), then specifying an uncorrelated model means fewer parameters have to be estimated which lowers your degrees of freeedom.
+    -   Notation: `(x || g)` or `(1 | g) + (0 + x | g)`
+    -   Ideally these models should be restricted to cases where the predictor is measured on a ratio scale (i.e., the zero point on the scale is meaningful, not just a location defined by convenience or convention).
+        -   This is from a [{lme4}]{style="color: #990000"} vignette. They used a [Day]{.var-tgext} variable that was used as a varying slope variable as an example that meets the condition since [Day = 0]{.var-text} is meaningful (even though it's not a *ratio* I guess).
 
 ## Strategy {#sec-econ-me-freq-strat .unnumbered}
 
@@ -807,20 +815,30 @@ fig-cap-location: top
     ![](./_resources/Econometrics,_Mixed_Effects,_Frequentist.resources/staticunnamed-chunk-6-1.png){.lightbox width="432"}
 
     ``` r
-    library(ggeffects)
-    library(ggplot2)
+    library(ggeffects); library(ggplot2)
     # create plot dataframe
     # Has 95% CIs for fixed effects and lists random effects
-    plot_data <- ggpredict(fit, terms = c("Season"))
+    plot_data <- 
+      ggpredict(
+        fit, 
+        terms = c("Season")
+      )
 
     #create plot
-    plot_data %>%
+    plot_data |> 
       #reorder factor levels for plotting
-      mutate(x = ordered(x, levels = c("Preseason", "Inseason", "Postseason"))) %>%
+      mutate(
+        x = ordered(
+              x, 
+              levels = c("Preseason", "Inseason", "Postseason")
+            )
+      ) |> 
       #use plot function with ggpredict objects
-      plot() + 
+      plot() +
       #add ggplot2 as needed
-      theme_blank() + ylim(c(3000,7000)) + ggtitle("Session Distance by Season Phase")
+      theme_blank() + 
+      ylim(c(3000,7000)) + 
+      ggtitle("Session Distance by Season Phase")
     ```
 
     -   Description:
