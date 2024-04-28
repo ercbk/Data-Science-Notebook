@@ -230,7 +230,8 @@ fig-cap-location: top
         -   $\beta_i Z_i$ is the slope and intercept times the design matrix for subject $i$
         -   $\epsilon$ is the within-subject error
         -   $\sigma^2I_{n_i}$ is the within-subject variance matrix which is just a diagonal matrix with $\sigma^2$s along the diagonal which is the within-subject variation.
-            -   In this case $\sigma^2$ is constant for all subjects. (i.e. the variance is pooled). Preferred method when you have small data which makes estimation of subject-level variance difficult. For
+            -   In this case $\sigma^2$ is constant for all subjects. (i.e. the variance is pooled). Preferred method when you have small data which makes estimation of subject-level variance difficult.
+            -   The remaining unexplained variance at the subject-level after accounting for the between-subject variance.
         -   $\beta_i$ says that there's a slope for each subject which makes sense if there's repeated measures
     -   2^nd^ Stage\
         $$
@@ -475,6 +476,7 @@ fig-cap-location: top
     -   e.g. Studying [test scores]{.var-text} (outcome variable) within [schools]{.var-text} (random variable) that are within [districts]{.var-text} (random variable)
     -   \*For [{lme4}]{style="color: #990000"}, using Nested or Crossed notation is NOT important for parameter estimation. Both specifications will produce exactly the same results.\*
         -   See [link](https://m-clark.github.io/mixed-models-with-R/extensions.html#hierarchical-structure) for more details and references
+        -   The interpretation of the results are also the same
         -   The only situation where it does matter is if the nested variable (e.g. `v2`) does not have unique values.
             -   For example, if wards are nested within hospitals and there's a ward named 11 that's in more than one hospital except that they're obviously different wards.
             -   In that situation, you can either create a unique ward id or use the nested notation.
@@ -489,6 +491,7 @@ fig-cap-location: top
     -   Use when you have more than one grouping variable, but those grouping variables aren't nested within each other.
     -   \*For [{lme4}]{style="color: #990000"}, using Nested or Crossed notation is NOT important for parameter estimation. Both specifications will produce exactly the same results.\*
         -   See [link](https://m-clark.github.io/mixed-models-with-R/extensions.html#hierarchical-structure) for more details and references
+        -   The interpretation of the results are also the same
         -   The only situation where it does matter is if the nested variable (e.g. `v2`) does not have unique values.
             -   For example, if wards are nested within hospitals and there's a ward named 11 that's in more than one hospital except that they're obviously different wards.
             -   In that situation, you can either create a unique ward id or use the nested notation.
@@ -883,6 +886,13 @@ fig-cap-location: top
 
 -   [Example]{.ribbon-highlight}: Crossed or Nested Effects ([link](https://m-clark.github.io/mixed-models-with-R/extensions.html#hierarchical-structure))
 
+    -   [Data](https://github.com/m-clark/mixed-models-with-R/blob/master/data/nurses.RData), [Description](https://m-clark.github.io/mixed-models-with-R/appendix.html#data)
+        -   [stress]{.var-text} is job-related stress for nurses
+        -   [treatment]{.var-text} is a training program to deal with [stress]{.var-text}
+
+    ::: panel-tabset
+    ## Model
+
     ``` r
     mod_stress_nested <- 
       lmer(
@@ -914,17 +924,62 @@ fig-cap-location: top
     #> ---
     ```
 
-    -   [Misc]{.underline}
-        -   As noted in [Specifations and Notation](econometrics-mixed-effects-frequentist.html#sec-econ-me-freq-specnot){style="color: green"} \>\> Nested Efects, Crossed Effects, either specification in [{lme4}]{style="color: #990000"} outputs the same results with the stipulation that the nesting variable ([ward]{.var-text}) is unique.
-            -   It is *not* unique in this case, so in order to use the crossed specification, you'd have to use [wardid]{.var-text}.
-        -   [Data](https://github.com/m-clark/mixed-models-with-R/blob/master/data/nurses.RData), [Description](https://m-clark.github.io/mixed-models-with-R/appendix.html#data)
-        -   There are no random effects correlations. This is a nested effects specification, so nested effects are being treated as crossed effects which are independent.
-    -   [Interpretation]{.underline}
-        -   [ward:hospital (Intercept) = 0.3366]{.arg-text}
-            -   [ward:hospital]{.arg-text} is essentially just [ward]{.var-text} for intepretation purposes
-            
-        -   [Residual = 0.4662]{.arg-text}
-            -   Possible sources of variability would include: skill level, levels of training, attention to detail, mood, fatigue, etc.
+    -   As noted in [Specifations and Notation](econometrics-mixed-effects-frequentist.html#sec-econ-me-freq-specnot){style="color: green"} \>\> Nested Efects, Crossed Effects, either specification in [{lme4}]{style="color: #990000"} outputs the same results with the stipulation that the nesting variable ([ward]{.var-text}) is unique.
+        -   It is *not* unique in this case, so in order to use the crossed specification, you'd have to use [wardid]{.var-text}.
+        -   \*The interpretations are also the same.\*
+    -   There are no random effects correlations. This is a nested effects specification, so nested effects are being treated as crossed effects which are assumed independent.
+
+    ## Fixed Effects
+
+    The intercept seems to be the grand mean at the [ward-level]{.var-text}, which is the base level of this hierarchical structure. It's not the sample grand mean exactly, but it's close. And it's closer than any of the other group averages I tried. Also, there are multiple measures (i.e. multiple nurses) for each [ward]{.var-text}, so it isn't the overall mean either.
+
+    ``` r
+    mod_stress_nested_basic <- 
+      lmer(stress ~ 1 + (1 | hospital / ward),
+           data = nurses)
+    fixef(mod_stress_nested_basic)
+    #> (Intercept) 
+    #>    5.000986 
+
+    avg_per_ward <- nurses |> 
+      summarize(avg_ward = mean(stress), 
+                .by = ward) # ward or wardid = same results
+    mean(avg_per_ward$avg_ward)
+    #> [1] 5.001627
+    ```
+
+    -   BTW, taking the average for each [ward]{.var-text} within each [hospital]{.var-text}, then averaging by [hospital]{.var-text} is the same as just averaging by [ward]{.var-text} (I always have to prove this to myself).
+
+    ## Random Effects
+
+    [Interpretation]{.underline}
+
+    -   [ward:hospital (Intercept) = 0.3366]{.arg-text}
+        -   [ward:hospital]{.arg-text} is essentially just [ward]{.var-text} for intepretation purposes
+        -   Between-Subject variance in the [stress]{.var-text} levels among different [wards]{.var-text} within the same [hospital]{.var-text}.
+        -   A larger [ward]{.var-text} variance says there are significant differences in the average [stress]{.var-text} between different [wards]{.var-text} while in the same [hospital]{.var-text}.
+        -   Ward-level factors such as workload, team dynamics, patient acuity, etc. may explain such effects
+    -   [hospital (Intercept) = 0.1194]{.arg-text}
+        -   Between-Subject variance for [hospitals]{.var-text} after accounting for [wards]{.var-text}.
+        -   A larger [hospital]{.var-text} variance says there are substantial differences in the average [stress]{.var-text} levels between [hospitals]{.var-text}, even after controlling for the [ward]{.var-text} effects.
+        -   Hospital-level factors such as hospital policies, resources, management, etc. may explain such effects.
+    -   [Residual = 0.2174]{.arg-text}
+        -   Within-Subject variance that remains after accounting for [wards]{.var-text} and [hospital]{.var-text} between-subject variance
+        -   Possible sources of variability would include: skill level, levels of training, attention to detail, mood, fatigue, etc.
+    -   [Ward's]{.var-text} variance is 50% of the total variance so it is more important than subject-level factors or [hospital-level]{.var-text} factors in explaining stress.
+
+    [Visualize Random Effects]{.underline}\
+    ![](_resources/Econometrics,_Mixed_Effects,_Frequentist.resources/ex-nested-crossed-re-1.png){.lightbox width="532"}
+
+    ``` r
+    library(merTools)
+    REsim(mod_stress_nested) |> 
+      plotREsim() +
+      theme_notebook()
+    ```
+
+    -   The visual makes it apparent there's much more variance in the random effects for [ward]{.var-text} than there is for [hospital]{.var-text}.
+    :::
 
 -   [Example]{.ribbon-highlight}: [{ggeffects}]{style="color: #990000"} Error Bar Plot\
     ![](./_resources/Econometrics,_Mixed_Effects,_Frequentist.resources/staticunnamed-chunk-6-1.png){.lightbox width="432"}

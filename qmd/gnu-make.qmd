@@ -2,6 +2,14 @@
 
 ## Misc {#sec-make-misc .unnumbered}
 
+-   Benefits
+    -   Detects changes in files (source $\rightarrow$ binary)
+    -   Manages dependencies
+    -   Manages default values for variables much easier than Bash
+    -   Allows to build in parallel
+    -   OS detection
+    -   The binary is only \~16kB in size
+    -   Available on any OS
 -   Notes from
     -   [article](https://easter.ai/post/make-life-easy/)
     -   [project](https://github.com/SeanEaster/make_life_easy)
@@ -215,3 +223,157 @@
     ```
 
     -   Takes all text files in the raw directory, removes some rows (sed 1,20d), outputs (\>) the processed file into target with the same file name (\$\@)
+
+## Scripts {#sec-make-scripts .unnumbered}
+
+-   Notes from
+
+    -   [How I stopped worrying and loved Makefiles](https://gagor.pro/2024/02/how-i-stopped-worrying-and-loved-makefiles/)
+
+-   Python project using pip
+
+    ``` makefile
+    .PHONY: requirements test
+
+    .venv:
+        python3 -m venv .venv
+
+    requirements:
+        source .venv/bin/activate && \
+            python3 -m pip install -r requirements.txt && \
+            python3 -m pip install pytest
+
+    test: .venv requirements dev-requirements
+        source .venv/bin/activate && \
+            pytest
+    ```
+
+    -   `.PHONY: requirements test`: Declares `requirements` and `test` as phony targets to ensure they are always executed regardless of file existence.
+    -   `.venv:`: Creates a Python virtual environment named `.venv` if it doesn’t already exist.
+    -   `requirements:`: Installs Python packages listed in `requirements.txt` into the virtual environment created earlier. Additionally, it installs the `pytest` package globally.
+    -   `test: .venv requirements dev-requirements`: Sets up dependencies for testing, including the virtual environment and specified requirements. Then, it activates the virtual environment and runs the tests using `pytest`.
+
+-   Python project using poetry
+
+    ``` makefile
+    .PHONY: requirements test
+
+    requirements:
+        poetry install
+
+    test: requirements
+        poetry run pytest
+    ```
+
+-   Terraform project
+
+    ``` makefile
+    .PHONY: init
+    SHELL=/bin/bash
+
+    # those variables you should initialize outside of this script
+    # and export, Make will just set then based on what you will
+    # have set in your environment. You can use for eg. `aws sts`
+    AWS_ACCESS_KEY_ID ?=
+    AWS_SECRET_ACCESS_KEY ?=
+    AWS_REGION ?= "us-west-2"
+
+    # dev by default
+    ENVIRONMENT ?= dev
+    STATE_FILE_BUCKET ?= s3-bucket-$(AWS_ACCESS_KEY_ID)-$(ENVIRONMENT)-terraform-state
+    STATE_FILE_KEY ?= state/some_service/$(ENVIRONMENT)/terraform.tfstate
+
+    # make some variable available in Terraform
+    export TF_VAR_something ?= something1
+    export TF_VAR_something_else ?= something-else
+
+    .terraform:
+        terraform init \
+            -reconfigure \
+            -backend-config='key=$(STATE_FILE_KEY)' \
+            -backend-config='bucket=$(STATE_FILE_BUCKET)' \
+            -var-file=environments/$(ENVIRONMENT)/variables.tfvars \
+            -out terraform.plan
+
+        terraform get
+
+    # this will switch Terraform version to the one that your project needs
+    # https://github.com/tfutils/tfenv
+    init: .terraform
+        tfenv install
+
+    plan: init
+        terraform plan
+
+    apply: plan
+        terraform apply \
+            -auto-approve \
+            terraform.plan
+
+    destroy:
+        terraform destroy \
+            -auto-approve \
+            -var-file=environments/$(ENVIRONMENT)/variables.tfvars
+
+    dev-plan: export AWS_ACCESS_KEY_ID=dev-key
+    dev-plan: plan
+
+    dev-apply: export AWS_ACCESS_KEY_ID=dev-key
+    dev-apply: apply
+
+    dev-destroy: export AWS_ACCESS_KEY_ID=dev-key
+    dev-destroy: destroy
+
+    prod-plan: export AWS_ACCESS_KEY_ID=prod-key
+    prod-plan: plan
+
+    prod-apply: export AWS_ACCESS_KEY_ID=prod-key
+    prod-apply: apply
+
+    clean:
+        @rm -rf .terraform/modules
+        @rm -f terraform.*
+    ```
+
+    -   Fetch latest version of the modules
+
+    -   `prod` and `dev` are production and development branches respectively
+
+    -   This is a partial backend configuration. Allows you to use same codebase for all the environments. All customizations have to be listed as variables in `variables.tfvars` files. It can be easily extended to support 4 or 6 environments
+
+    -   Execute:
+
+        ``` bash
+        make dev-plan
+        make dev-apply
+        ```
+
+    -   Expect this file structure
+
+        ```         
+        $ tree example/
+        .
+        ├── main.tf
+        ├── variables.tf
+        ├── provider.tf
+        ├── backend.tf
+        ├── outputs.tf
+        ├── ...
+        ├── environments/
+        │   ├── dev
+        │   │   ├── variables.tfars
+        │   ├── prod/
+        │   │   ├── variables.tfars
+        │   ├── .../
+        ```
+
+    -   `backend.tf`
+
+        ``` json
+        terraform {
+        	backend "s3" {
+        		region = "us-west-2"
+        		encrypt = true
+        	}
+        }
+        ```
