@@ -7,10 +7,14 @@
     -   Mastering Shiny, [Ch. 19](https://mastering-shiny.org/scaling-modules.html)
     -   [Engineering Production-Grade Shiny Apps](https://engineering-shiny.org/) - [{golem}]{style="color: #990000"} book
     -   Simple app packaged, modules, etc.
-        -   https://github.com/2DegreesInvesting/scenarioSelector#learning-shiny
+        -   <https://github.com/2DegreesInvesting/scenarioSelector#learning-shiny>
 -   Packages
     -   [{]{style="color: #990000"}[golem](https://thinkr-open.github.io/golem/){style="color: #990000"}[}]{style="color: #990000"} - also has many example apps and resources
     -   [{]{style="color: #990000"}[rhino](https://appsilon.github.io/rhino/){style="color: #990000"}[}]{style="color: #990000"} - appsilon package
+-   Differences between monolith apps and using modules
+    -   Functions: the `ui` and `server` are *both* written as functions.
+    -   Id: [id]{.arg-text} is the first argument in the module function. The unique id tells the server function call which ui function call.
+    -   Namespace: Input IDs from different modules can have the same name, because they're associated with the unique id for their specific module. This can be useful if multiple people are creating modules for the app. (The has to do with usage of `NS`)
 
 ## Workflow {#sec-shiny-mod-wkflw .unnumbered}
 
@@ -35,11 +39,13 @@
         # call module components
         ui <- fluidPage(module_ui("x"))
         server <- function(input, output, session) {
-            module_server("x", reactive([{df}]{style='color: #990000'}))
+            module_server("x", reactive({df}))
         }
         shinyApp(ui, server)
     }
     ```
+
+    -   When testing modules, use `source("./modules/my-module.R")` to load the module.
 
 -   [Example]{.ribbon-highlight}:\
     ![](./_resources/Shiny,_Modules.resources/image.png){width="532"}
@@ -59,7 +65,7 @@
 
           moduleServer(id, function(input, output, session) {
 
-            n <- reactive({sum(df()[[vbl]] > threshhold){style='color: #990000'}[}]{style='color: #990000'})
+            n <- reactive({sum(df()[[vbl]] > threshhold)})
 
             output$text <- renderText({
               paste("In this month",
@@ -75,7 +81,7 @@
           df <- data.frame(day = 1:30, arr_delay = 1:30)
           ui <- fluidPage(text_ui("x"))
           server <- function(input, output, session) {
-            text_server("x", reactive([{df}]{style='color: #990000'}), "arr_delay", 15)
+            text_server("x", reactive({df}), "arr_delay", 15)
           }
           shinyApp(ui, server)
         }
@@ -96,11 +102,11 @@
         plot_server <- function(id, df, vbl, threshhold = NULL) {
 
           moduleServer(id, function(input, output, session) {
-            plot <- reactive({viz_monthly(df(), vbl, threshhold){style='color: #990000'}[}]{style='color: #990000'})
-            output$plot <- renderPlot({plot(){style='color: #990000'}[}]{style='color: #990000'})
+            plot <- reactive({viz_monthly(df(), vbl, threshhold)})
+            output$plot <- renderPlot({plot()})
             output$dnld <- downloadHandler(
-              filename = function() {paste0(vbl, '.png'){style='color: #990000'}[}]{style='color: #990000'},
-              content = function(file) {ggsave(file, plot()){style='color: #990000'}[}]{style='color: #990000'}
+              filename = function() {paste0(vbl, '.png')},
+              content = function(file) {ggsave(file, plot())}
             )
           })
 
@@ -110,7 +116,7 @@
             df <- data.frame(day = 1:30, arr_delay = 1:30)
             ui <- fluidPage(plot_ui("x"))
             server <- function(input, output, session) {
-                plot_server("x", reactive([{df}]{style='color: #990000'}), "arr_delay")
+                plot_server("x", reactive({df}), "arr_delay")
             }
             shinyApp(ui, server)
         }
@@ -142,7 +148,7 @@
             df <- data.frame(day = 1:30, arr_delay = 1:30)
             ui <- fluidPage(metric_ui("x"))
             server <- function(input, output, session) {
-            metric_server("x", reactive([{df}]{style='color: #990000'}), "arr_delay", 15)
+            metric_server("x", reactive({df}), "arr_delay", 15)
             }
             shinyApp(ui, server)
 
@@ -175,8 +181,8 @@
         )
         server <- function(input, output, session) {
 
-            output$title <- renderText({paste(month.abb[as.integer(input$month)], "Report"){style='color: #990000'}[}]{style='color: #990000'})
-            df_month <- reactive({filter(ua_data, month == input$month){style='color: #990000'}[}]{style='color: #990000'})
+            output$title <- renderText({paste(month.abb[as.integer(input$month)], "Report")})
+            df_month <- reactive({filter(ua_data, month == input$month)})
             metric_server("dep_delay", df_month, vbl = "dep_delay", threshhold = 10)
             metric_server("arr_delay", df_month, vbl = "arr_delay", threshhold = 10)
             metric_server("ind_arr_delay", df_month, vbl = "ind_arr_delay", threshhold = 0.5)
@@ -193,39 +199,36 @@
     -   [Example]{.ribbon-highlight}: Bad module calling
 
         ``` r
-            observe({
-              # Process data before sending it into the module
-              if (input$filterTo != "special") {
-                myModuleServer(
-                  data %>% 
-                    filter(val == input$filterTo)
-                )
-              } else {
-                # Handle special case 
-                myModuleServer(
-                  data %>% 
-                    ...
-                )
-              }
-            })
+        observe({
+          # Process data before sending it into the module
+          if (input$filterTo != "special") {
+            myModuleServer(
+              data %>% 
+                filter(val == input$filterTo)
+            )
+          } else {
+            # Handle special case 
+            myModuleServer(
+              data %>% 
+                ...
+            )
+          }
+        })
         ```
 
     -   [Example]{.ribbon-highlight}: Good module calling
 
         ``` r
-            server <- function(input, output, session) {
-
-              # initialise the app state...
-              app_state <- reactiveValues(...)
-
-              ... 
-
-              # add server logic
-              mod_commute_mode("mode", app_state)
-              mod_commute_map("map", app_state)
-              mod_commute_table("table", app_state)
-              mod_commute_filter("filter", app_state)
-            }
+        server <- function(input, output, session
+          # initialise the app state...
+          app_state <- reactiveValues(.
+          .
+          # add server logic
+          mod_commute_mode("mode", app_state)
+          mod_commute_map("map", app_state)
+          mod_commute_table("table", app_state)
+          mod_commute_filter("filter", app_state)
+        }
         ```
 
 -   Liberally use reactive variables and your code becomes much cleaner, faster, and more maintainable
