@@ -6,7 +6,7 @@
 
     -   [{]{style="color: #990000"}[sparklyr](https://spark.rstudio.com/){style="color: #990000"}[}]{style="color: #990000"}
     -   [{]{style="color: #990000"}[sparklyr.nested](https://github.com/mitre/sparklyr.nested){style="color: #990000"}[}]{style="color: #990000"} - Extension for nested data
-    -   [{]{style="color: #990000"}[sparkxgb](https://spark.rstudio.com/packages/sparkxgb/latest/){style="color: #990000"}[}]{style="color: #990000"} - XGBoost in Spark
+    -   [{]{style="color: #990000"}[sparkxgb](https://spark.posit.co/packages/sparkxgb/){style="color: #990000"}[}]{style="color: #990000"} - XGBoost in Spark
     -   [{]{style="color: #990000"}[sparklyr.flint](https://github.com/r-spark/sparklyr.flint){style="color: #990000"}[}]{style="color: #990000"} - Time Series Computation
     -   [{]{style="color: #990000"}[multiplyr](https://multidplyr.tidyverse.org/){style="color: #990000"}[}]{style="color: #990000"}
         -   Alternative option for data with \> 10M rows and you only have access to one machine
@@ -670,7 +670,7 @@
     -   [sc]{.var-text} is the connection object
     -   [products_tbl]{.var-text} is the name we want for the table inside spark
     -   Last part is the path to the file
-    
+
 -   Read multiple files
 
     ``` r
@@ -794,6 +794,37 @@
     -   OLS - `ml_linear_regression(cars, mpg ~ hp)`
         -   Where [cars]{.var-text} is a reference object
 
+-   XGBoost
+
+    ``` r
+    library(sparkxgb)
+    library(sparklyr)
+
+    sc <- spark_connect(master = "local")
+    iris_tbl <- copy_to(sc, iris)
+
+    xgb_model <- xgboost_classifier(
+      iris_tbl,
+      Species ~ .,
+      num_class = 3,
+      num_round = 50,
+      max_depth = 4
+    )
+
+    xgb_model %>% 
+      ml_predict(iris_tbl) %>% 
+      select(Species, predicted_label, starts_with("probability_")) %>% 
+      dplyr::glimpse()
+    #> Rows: ??
+    #> Columns: 5
+    #> Database: spark_connection
+    #> $ Species                <chr> "setosa", "setosa", "setosa", "setosa", "setosa…
+    #> $ predicted_label        <chr> "setosa", "setosa", "setosa", "setosa", "setosa…
+    #> $ probability_setosa     <dbl> 0.9971547, 0.9948581, 0.9968392, 0.9968392, 0.9…
+    #> $ probability_versicolor <dbl> 0.002097376, 0.003301427, 0.002284616, 0.002284…
+    #> $ probability_virginica  <dbl> 0.0007479066, 0.0018403779, 0.0008762418, 0.000…
+    ```
+
 ## Streaming {#sec-apache-spark-stream .unnumbered}
 
 -   [Intro to Spark Streaming with sparklyr](https://spark.rstudio.com/guides/streaming.html)
@@ -882,6 +913,8 @@
 -   [Misc]{.underline}
     -   Free community edition available
     -   {sparkR} and [{sparklyr}]{style="color: #990000"} are already installed on a databricks instance
+    -   Databricks Connect is now able to run regular Python code inside Spark. [{sparklyr}]{style="color: #990000"} takes advantage of this capability by having Python transport and run the R code. It does this via the [{{rpy2}}]{style="color: goldenrod"}.
+        -   [{{rpy2}}]{style="color: goldenrod"} will have to be manually installed on the Spark cluster. (See [docs](https://docs.databricks.com/en/libraries/cluster-libraries.html) for instructions)
     -   Using RStudio and databricks
         -   Via driver node
             -   R runtime including required packages installed on every node in the cluster while RStudio Server only runs on the driver node where also the web UI is provided
@@ -907,6 +940,30 @@
             config = conf
         )
         ```
+-   [UDFs]{.underline}
+    -   `spark_apply`
+
+        ``` r
+        spark_apply(
+          tbl_mtcars,
+          nrow,
+          group_by = "am", 
+          columns = "am double, x long"
+        )
+        #> # Source:   table<`sparklyr_tmp_table_87ef961e_1009_42f8_abdb_2a04c2a5ad38`> [2 x 2]
+        #> # Database: spark_connection
+        #>      am     x
+        #>   <dbl> <dbl>
+        #> 1     0    19
+        #> 2     1    13
+        ```
+
+        -   [columns]{.arg-text}: Specifying a schema makes it run faster. Otherwise, it looks at the first 10 rows and tries to figure out what the column types are.
+        -   [arrow_max_records_per_batch]{.arg-text}: Controls then number of parallel jobs.
+            -   Arrow is installed on all clusters by default. So instead of using [group_by]{.arg-text} to determine how the data will be partitioned, it will controlled by this argument.
+            -   The equivalent Spark setting is [spark.sql.execution.arrow.maxRecordsPerBatch]{.arg-text}
+        -   Currently only works on Databricks “Single Access” mode and not “Shared Access” mode.
+            -   If `mapInPandas` and `applyInPandas` are ever implemented in Shared Access, then this will mean `spark_apply` will also.
 -   [Monitoring]{.underline}
     -   Databricks workspace provides through its UI a fairly easy and intuitive way of visualizing the run history of individual jobs
     -   Databricks REST API can be used to extract you jobs data
