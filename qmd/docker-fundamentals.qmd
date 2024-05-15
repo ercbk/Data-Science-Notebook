@@ -27,6 +27,7 @@ Misc
     -   Notes from the course, "A Cloud Guru: Docker Fundamentals"
     -   Resources
         -   [The Ultimate Docker Cheatsheet](https://devopscycle.com/blog/the-ultimate-docker-cheat-sheet/)
+        -   Docs: [Guides](https://docs.docker.com/guides/), [Manuals](https://docs.docker.com/manuals/), and [Reference](https://docs.docker.com/reference/)
         -   Course: [Container Essentials: Build, Deploy, Scale](https://taggartinstitute.org/p/container-essentials)
             -   More advanced topics: swarm config, multi-container, app deployment, security, alt docker runtime
     -   To start a Docker project, run `docker init`
@@ -88,23 +89,73 @@ Misc
         -   Using a dockerfile
     -   images on docker hub
         -   mdancho/h2o-verse
-            -   h20, tidyverse, tensorflow, keras 
+            -   h20, tidyverse, tensorflow, keras
             -   \~2 GB
 
 -   **Creating a dockerfile** (example of a toy python flask app)
 
-    -   Architecture 
+    -   Architecture
         -   start with `FROM` base:tag
             -   Essentially copy-pastes the base image
             -   usually good to start with a base image
                 -   FROM python:2.7-alpine
                     -   python is the base image and 2.7-alpine is the tag
+        -   [ARG]{.arg-text}: Defines a variable that users can pass at build-time to the builder with the docker build command using the `--build-arg <varname>=<value>` flag.
+            -   Don't use for secrets since build arguments are visible in the docker history command and in max mode provenance attestations, which are attached to the image by default if you use the Buildx GitHub Actions and your GitHub repository is public. See `RUN --mount=type=secret` [docs](https://docs.docker.com/reference/dockerfile/#run---mounttypesecret) for the secure way to use secrets.
+
+            -   ARG variables placed *before* the FROM instruction will not be available after the FROM instruction
+
+            -   [Example]{.ribbon-highlight}: Variables with defaults
+
+                ``` dockerfile
+                FROM busybox
+                ARG user1=someuser
+                ARG buildno=1
+                # ...
+                ```
+
+            -   [Example]{.ribbon-highlight}: Before and After [FROM]{.arg-text}
+
+                -   Before
+
+                    ``` dockerfile
+                    # syntax=docker/dockerfile:1
+
+                    ARG DEBVER="10"
+                    ARG CAPVER="7.8"
+                    FROM debian:${DEBVER}
+
+                    RUN printf "DEB=${DEBVER}\nCAP=${CAPVER}\n" > /tmp/log
+                    ```
+
+                    -   [DEBVER="10"]{.arg-text} can be used to specify the debian version you want, but it will not be written to the log file since it is before the [FROM]{.arg-text} instruction
+
+                -   After
+
+                    ``` dockerfile
+                    # syntax=docker/dockerfile:1
+
+                    ARG DEBVER="10"
+                    FROM debian:${DEBVER}
+                    ARG DEBVER
+                    ARG CAPVER="7.8"
+
+                    RUN printf "DEB=${DEBVER}\nCAP=${CAPVER}\n" > /tmp/log
+                    ```
+
+                    -   I guess the [ARG DEBVAR]{.arg-text} after the [FROM]{.arg-text} instruction pulls its value from the [FROM]{.arg-text} instruction when no value is specified with [–build-arg]{.arg-text}
+
+                    -   Run image and check value in log file
+
+                        ``` bash
+                        docker run --rm <tag> cat /tmp/log
+                        ```
         -   `RUN` executes commands or scripts as if you were in the container's OS
             -   RUN mkdir /app
                 -   makes a directory called "app"
         -   `WORKDIR` sets the working directory for everything that happens after this command
             -   WORKDIR /app
-        -   `COPY` has source path+file (local) and a destination path+file (container) as args
+        -   `COPY` has source path+file (local) and a destination path+file (container) as args
             -   COPY requirements.txt requirements.txt
                 -   the first requirements.txt is in the same dir as the docker file so no "/other-dir/" required
                 -   the second "requirements.txt" says the file is to be placed into the /app dir
