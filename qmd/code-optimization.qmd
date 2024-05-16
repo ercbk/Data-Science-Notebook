@@ -61,7 +61,7 @@
     -   Misc
 
         -   Automatically checks that each approach gives the same output, so that you don't mistakenly compare apples and oranges
-        -   `bench::mark` creates a very large output object. The one in [Vectorization Workflows](code-optimization.qmd#sec-code-opt-vecopt){style="color: green"} >> Example 1 was 400MB. RStudio `View` locked up when I tried to look at it. There are large dataframes nested within the [memory]{.var-text} and [result]{.var-text} columns. Setting the option [memory = FALSE]{.arg-text} only decreases the size of the object very little. Compilation of this object will take a minute or two after the benchmark has technically finished.
+        -   `bench::mark` creates a very large output object. The one in [Vectorization Workflows](code-optimization.qmd#sec-code-opt-vecopt){style="color: green"} \>\> Example 1 was 400MB. RStudio `View` locked up when I tried to look at it. There are large dataframes nested within the [memory]{.var-text} and [result]{.var-text} columns. Setting the option [memory = FALSE]{.arg-text} only decreases the size of the object very little. Compilation of this object will take a minute or two after the benchmark has technically finished.
 
     -   [Example]{.ribbon-highlight}: Basic
 
@@ -541,10 +541,10 @@ head(path10k, n = 10)
 
 1.  [retbl]{.var-text} input in the function that gets joined with [path10k]{.var-text} in the dplyr version and is used to create the look-up vector.
 
-## dplyr
+## Left-Join
 
 ``` r
-dplyr_attr <- function(path_str, date_str, outcome, value, retbl){
+join_attr <- function(path_str, date_str, outcome, value, retbl){
   
   # Will remain the same in base R
   touches <- stringr::str_split_1(path_str, ">") # <1>
@@ -575,7 +575,7 @@ dplyr_attr <- function(path_str, date_str, outcome, value, retbl){
 2.  Remove empty values in [dates]{.var-text} and [touches]{.var-text}
 3.  Create an output dataframe that shows the fraction of a [lead]{.var-text} due to [touches]{.var-text}/[channel_name]{.var-text}
 
-## base R
+## Vector Look-Up
 
 ``` r
 lu <- setNames( # <1>
@@ -586,7 +586,7 @@ lu
 #>     fb tiktok    gda     yt     gs    rtl   blog 
 #>   0.20   0.10   0.30   0.10   0.60   0.05   0.09
 
-base_r_attr <- function(path_str, date_str, outcome, value, lu) {
+look_attr <- function(path_str, date_str, outcome, value, lu) {
 
   touches <- stringr::str_split_1(path_str,">")
   dates <- stringr::str_split_1(date_str,">")
@@ -610,34 +610,40 @@ base_r_attr <- function(path_str, date_str, outcome, value, lu) {
 
 1.  A look-up vector (i.e. named numeric vector), which is similar to how [retbl]{.var-text} is used in the `left_join`, is preferable to the join since only a df with a name and value column was being joined.
 2.  These are the values for the look-up vector
-3.  These are the namees for the look-up vector
+3.  These are the names for the look-up vector
 4.  Pulls the [re]{.var-text} value from the look-up vector based on the [touch]{.var-text} name
 
-## data.table
+-   This solution still requires loopling through each row. See Benchmark Section.
+
+## Vectorized Expansion + Vector Look-Up
 
 ``` r
 lu <- setNames( 
   removal_effects_table[["removal_effects_conversion"]],
   removal_effects_table[["channel_name"]]
-) # see base R section for details
+) # See base R section for details
 
-dt_attr <- function(path_str, date_str, outcome, value, lu) {
+vec_look_attr <- function(.data, .lu) {
   
-  touches <- strsplit(path_str, ">", fixed = TRUE)
-  lt <- lengths(touches)
+  touches <- strsplit(.data$path, # <1>
+                      ">", 
+                      fixed = TRUE)
+  lt <- lengths(touches) # <2>
   
-  groups <- rep.int(seq_along(touches), lt)
-  outcome <- rep.int(outcome, lt)
-  value <- rep.int(value, lt) 
+  groups <- rep.int(seq_along(touches), lt) # <3>
+  outcome <- rep.int(.data$leads, lt) # <4>
+  value <- rep.int(.data$value, lt) 
   
-  touches <- unlist(touches)
-  dates <- unlist(strsplit(date_str, ">", fixed = TRUE))
+  touches <- unlist(touches) # <5>
+  dates <- unlist(strsplit(.data$dates, 
+                           ">", 
+                           fixed = TRUE))
   
   not_empty <- touches != ''
   dates <- dates[not_empty] 
   touches <- touches[not_empty]
   
-  re <- lu[touches]
+  re <- .lu[touches]
   
   DT <- data.table(
     channel_name = touches,
@@ -648,39 +654,42 @@ dt_attr <- function(path_str, date_str, outcome, value, lu) {
     groups
   )
   
-  DT[, re_tot := sum(re, na.rm = TRUE), by = groups]
-  DT[, `:=`(conversion = outcome * re / re_tot, value = value * re / re_tot)]
+  DT[, 
+     re_tot := sum(re, na.rm = TRUE), 
+     by = groups]
+  DT[, `:=`(conversion = outcome * re / re_tot, 
+            value = value * re / re_tot)]
   DT[,.(channel_name, re, conversion, value, date)]
-
+  
 }
 ```
+
+1.  Split all the strings in all the rows all at once. This creates a large list of character vectors --- one for each row of the dataset.
+2.  Calculates the length of each character vector of the list.
+3.  Creates an index variable that specifies which character vector (i.e. row of dataset) that each element of the vectors belongs. For example, if the 2^nd^ character vector had 5 elements, then there will be a sequence of five 2s in this index variable. This will be grouping variable that will be needed for group calculations. It seems to represent a session or user in this context.
+4.  There is no `seq_along` here, so each value of the vector (e.g. [lead]{.var-text}, [value]{.var-text}) gets repeated the number of times that is the length of the character vector associated with it in the [touches]{.var-text} list.
+5.  Unlisting [touches]{.var-text} combines all the character vectors in the list into one long character vector. The same processing is also done for [dates]{.var-text} since it also has multiple values per row. Now all the variables are ready to be put into the expanded df.
+
+-   Steps 3 and 4 are in a sense acting like a manual version of `expand.grid`. We want each string in [touches]{.var-text} (formally [path]{.var-text}) to eventually get its own row in the resultant df. These steps repeat the values of the other vectors in the original dataset in order to fill out the rows of this larger df.
+-   With the expanded df, there is no need to loop through rows, and we can perform column operations like normal which gives us peak performance in R.
+-   Along with this vectorized expansion, the look-up vector is also employed.
 
 ## Benchmark
 
 ``` r
 bm <- bench::mark(
-  base_r = data.table::rbindlist(
+  look = data.table::rbindlist(
     purrr::pmap(
       list(path_str=path_data$path,
            date_str=path_data$dates,
            outcome=path_data$leads,
            value=path_data$value),
-      base_r_attr,
+      look_attr,
       lu,
       .progress = 'base_r_level'
     )
   ),
-  dt = data.table::rbindlist(
-    purrr::pmap(
-      list(path_str=path_data$path,
-           date_str=path_data$dates,
-           outcome=path_data$leads,
-           value=path_data$value),
-      dt_attr,
-      lu,
-      .progress = 'dt_level'
-    )
-  )
+  vec_look = vec_look_attr(path_data, lu)
 )
 
 bm |> 
@@ -689,13 +698,16 @@ bm |>
     times_faster = as.double(dplyr::lag(median, 1) / median)
     )
 
-#>     expression   min median    itr/sec mem_alloc times_faster
-#> 1       base_r 18.4s  18.4s 0.05426719   43.85MB           NA
-#> 2           dt 25.1s  25.1s 0.03986556    1.15GB    0.7346163
+#>   expression      min   median `itr/sec` mem_alloc times_faster
+#>   <bch:expr> <bch:tm> <bch:tm>     <dbl> <bch:byt>        <dbl>
+#> 1 look          18.5s    18.5s    0.0542   43.52MB          NA 
+#> 2 vec_look     14.5ms     17ms   52.6       9.03MB        1082.
 ```
 
--   I didn't include the dplyr version because it wasn't going to win. If you want to see the comparison, see video or github links. 
+-   I didn't include the Left-Join version because it wasn't going to win. If you want to see the comparison, see the video or github links. (It was about 7 times slower than the Look-Up version)
 -   I also didn't include the Rust version, because I currently don't know enough about Rust to fool with it right now.
--   According to Josiah and the dude who wrote the data.table version, the data.table version is supposed to be the fastest out of all of them (including Rust). I didn't get those results --- not sure why ¯\\\_(ツ)_/¯.
--   Not only did the base R version win, it had a *substantially* smaller memory allocation.
+-   The Expansion+Look-Up version was a 1000 times faster than the base R version.
+    -   The Look-Up version only partially vectorizes using the look-up vector, but also has to complete slow row operations.
+    -   The Expansion+Look-Up version vectorizes the expansion of the string values in the [path]{.var-text} and [dates]{.var-text} variables, and also uses the look-up vector.
+-   Not only did the Expansion+Look-Up version win, it had a *substantially* smaller memory allocation (5 times smaller).
 :::
