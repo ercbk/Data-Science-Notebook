@@ -497,3 +497,152 @@
     -   `paste0()` has some tricky recycling behavior. `vec_paste0` is a middle ground in terms of both performance and safety.
     -   Use `glue()` for errors, when the function will stop executing anyway.
     -   For simple pastes that are intended to be called repeatedly, use `vec_paste0()`.
+
+## Vectorization Workflows {#sec-code-opt-vecopt .unnumbered}
+
+-   [Example]{.ribbon-highlight}: Lookup Vectors vs Left Joins
+    -   From Making R 300x times faster! ([Video](https://www.youtube.com/watch?v=-v9qaqaj4Ug&ab_channel=JosiahParry), [Github](https://github.com/JosiahParry/pathattr))
+    -   Data seems to be about channel attribution
+
+::: panel-tabset
+## Data
+
+``` r
+removal_effects_table <-  # <1>
+  dplyr::tibble (
+    channel_name = c("fb","tiktok","gda","yt","gs","rtl","blog"),
+    removal_effects_conversion = c(.2,.1,.3,.1,.6,.05,.09)
+  )
+
+head(path10k, n = 10)
+#> # A tibble: 10 × 4
+#>    path                   dates                                                  leads value
+#>    <chr>                  <chr>                                                  <dbl> <dbl>
+#>  1 tiktok>blog>gs>fb>rtl  2023-04-17>2023-02-25>2023-01-24>2023-03-12>2023-03-09     1 6794.
+#>  2 yt>blog>gs>fb>gda      2023-01-18>2023-01-27>2023-02-19>2023-01-01>2023-04-30     1 5981.
+#>  3 fb>gs>yt               2023-04-21>2023-02-20>2023-03-23                           1 5801.
+#>  4 gda>yt>tiktok>blog     2023-04-24>2023-03-01>2023-05-03>2023-04-29                1 4583.
+#>  5 rtl                    2023-02-20                                                 1 6735.
+#>  6 gda>yt>rtl>tiktok      2023-02-04>2023-02-26>2023-01-09>2023-03-22                1 7238.
+#>  7 tiktok>blog            2023-03-06>2023-04-20                                      1 9041.
+#>  8 gda>tiktok>rtl>yt>gs   2023-05-02>2023-03-25>2023-04-26>2023-03-19>2023-03-28     1 8560.
+#>  9 tiktok>rtl>blog>gda>gs 2023-04-16>2023-04-24>2023-03-31>2023-02-10>2023-01-05     1 4653.
+#> 10 gda>fb                 2023-01-23>2023-05-05                                      1 7125.
+
+# Desired Output
+#>    channel_name   re conversion     value      dates
+#> 1:       tiktok 0.10 0.09615385  653.2879 2023-04-17
+#> 2:         blog 0.09 0.08653846  587.9591 2023-02-25
+#> 3:           gs 0.60 0.57692308 3919.7273 2023-01-24
+#> 4:           fb 0.20 0.19230769 1306.5758 2023-03-12
+#> 5:          rtl 0.05 0.04807692  326.6439 2023-03-09
+```
+
+1.  [retbl]{.var-text} input in the function that gets joined with [path10k]{.var-text}
+
+## dplyr
+
+``` r
+attribute_path <- function(path_str, date_str, outcome, value, retbl){
+  
+  # Will remain the same in base R
+  touches <- stringr::str_split_1(path_str, ">") # <1>
+  dates <- stringr::str_split_1(date_str, ">")
+  dates <- dates[touches != ''] # <2>
+  touches <- touches[touches != '']
+
+  tidyr::tibble(channel_name = touches,
+                date = dates) |> # <3>
+    dplyr::left_join(
+      retbl |> 
+        dplyr::select(channel_name,
+                      removal_effects_conversion),
+      by = 'channel_name'
+    ) |> 
+    dplyr::rename(
+      re = removal_effects_conversion
+    ) |>
+    dplyr::mutate(
+      conversion = outcome * re / sum(re, na.rm = T),
+      value = value * re / sum(re, na.rm = T)
+    )
+}
+```
+
+1.  Break the [path_str]{.var-text} and [date_str]{.var-text} character vectors into vectors of touch points and dates
+2.  Remove empty values in [dates]{.var-text} and [touches]{.var-text}
+3.  Create an output dataframe that shows the fraction of a [lead]{.var-text} due to [touches]{.var-text}/[channel_name]{.var-text}
+
+## base R
+
+``` r
+lu <- setNames( # <1>
+  removal_effects_table[["removal_effects_conversion"]], # <2>
+  removal_effects_table[["channel_name"]] # <3>
+)
+lu
+#>     fb tiktok    gda     yt     gs    rtl   blog 
+#>   0.20   0.10   0.30   0.10   0.60   0.05   0.09
+
+attr_path2 <- function(path_str, date_str, outcome, value, lu) {
+
+  touches <- stringr::str_split_1(path_str,">")
+  dates <- stringr::str_split_1(date_str,">")
+  dates <- dates[touches != '']
+  touches <- touches[touches != '']
+
+  re <- lu[touches] # <4>
+  re_tot <- sum(re, na.rm = TRUE)
+  conversion <- outcome * re / re_tot
+  value <- value * re / re_tot
+
+  tibble::tibble(
+    channel_name = touches,
+    re,
+    conversion,
+    value,
+    date = dates
+  )
+}
+```
+
+1.  A look-up vector (i.e. named numeric vector), which is similar to how [retbl]{.var-text} is used in the `left_join`, is preferable to the join since only a df with a name and value column was being joined.
+2.  These are the values for the look-up vector
+3.  These are the namees for the look-up vector
+4.  Pulls the re value from the look-up vector based on the touch name
+
+## data.table
+
+``` r
+lu <- c(fb = 0.2, tiktok = 0.1, gda = 0.3, yt = 0.10, gs = 0.60, rtl = 0.05, blog = 0.09)
+
+touches <- strsplit(path_data$path, ">", fixed = TRUE)
+lt <- lengths(touches)
+
+groups <- rep.int(seq_along(touches), lt)
+outcome <- rep.int(path_data$leads, lt)
+value <- rep.int(path_data$value, lt) 
+
+touches <- unlist(touches)
+dates <- unlist(strsplit(path_data$dates, ">", fixed = TRUE))
+
+not_empty <- touches != ''
+dates <- dates[not_empty] 
+touches <- touches[not_empty]
+
+re <- lu[touches]
+
+DT <- data.table(
+    channel_name = touches,
+    outcome = outcome,
+    date = dates,
+    re,
+    value,
+    groups
+)
+
+DT[, re_tot := sum(re, na.rm = TRUE), by = groups]
+DT[, `:=`(conversion = outcome * re / re_tot, value = value * re / re_tot)]
+DT[,.(channel_name, re, conversion, value, date)]
+```
+:::
