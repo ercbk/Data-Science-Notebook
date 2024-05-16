@@ -61,6 +61,7 @@
     -   Misc
 
         -   Automatically checks that each approach gives the same output, so that you don't mistakenly compare apples and oranges
+        -   `bench::mark` creates a very large output object. The one in [Vectorization Workflows](code-optimization.qmd#sec-code-opt-vecopt){style="color: green"} >> Example 1 was 400MB. RStudio `View` locked up when I tried to look at it. There are large dataframes nested within the [memory]{.var-text} and [result]{.var-text} columns. Setting the option [memory = FALSE]{.arg-text} only decreases the size of the object very little. Compilation of this object will take a minute or two after the benchmark has technically finished.
 
     -   [Example]{.ribbon-highlight}: Basic
 
@@ -500,7 +501,7 @@
 
 ## Vectorization Workflows {#sec-code-opt-vecopt .unnumbered}
 
--   [Example]{.ribbon-highlight}: Lookup Vectors vs Left Joins
+-   [Example 1]{.ribbon-highlight}: Lookup Vectors vs Left Joins
     -   From Making R 300x times faster! ([Video](https://www.youtube.com/watch?v=-v9qaqaj4Ug&ab_channel=JosiahParry), [Github](https://github.com/JosiahParry/pathattr))
     -   Data seems to be about channel attribution
 
@@ -538,12 +539,12 @@ head(path10k, n = 10)
 #> 5:          rtl 0.05 0.04807692  326.6439 2023-03-09
 ```
 
-1.  [retbl]{.var-text} input in the function that gets joined with [path10k]{.var-text}
+1.  [retbl]{.var-text} input in the function that gets joined with [path10k]{.var-text} in the dplyr version and is used to create the look-up vector.
 
 ## dplyr
 
 ``` r
-attribute_path <- function(path_str, date_str, outcome, value, retbl){
+dplyr_attr <- function(path_str, date_str, outcome, value, retbl){
   
   # Will remain the same in base R
   touches <- stringr::str_split_1(path_str, ">") # <1>
@@ -563,6 +564,7 @@ attribute_path <- function(path_str, date_str, outcome, value, retbl){
       re = removal_effects_conversion
     ) |>
     dplyr::mutate(
+      # re/sum(re) normalizes value
       conversion = outcome * re / sum(re, na.rm = T),
       value = value * re / sum(re, na.rm = T)
     )
@@ -584,7 +586,7 @@ lu
 #>     fb tiktok    gda     yt     gs    rtl   blog 
 #>   0.20   0.10   0.30   0.10   0.60   0.05   0.09
 
-attr_path2 <- function(path_str, date_str, outcome, value, lu) {
+base_r_attr <- function(path_str, date_str, outcome, value, lu) {
 
   touches <- stringr::str_split_1(path_str,">")
   dates <- stringr::str_split_1(date_str,">")
@@ -609,40 +611,91 @@ attr_path2 <- function(path_str, date_str, outcome, value, lu) {
 1.  A look-up vector (i.e. named numeric vector), which is similar to how [retbl]{.var-text} is used in the `left_join`, is preferable to the join since only a df with a name and value column was being joined.
 2.  These are the values for the look-up vector
 3.  These are the namees for the look-up vector
-4.  Pulls the re value from the look-up vector based on the touch name
+4.  Pulls the [re]{.var-text} value from the look-up vector based on the [touch]{.var-text} name
 
 ## data.table
 
 ``` r
-lu <- c(fb = 0.2, tiktok = 0.1, gda = 0.3, yt = 0.10, gs = 0.60, rtl = 0.05, blog = 0.09)
+lu <- setNames( 
+  removal_effects_table[["removal_effects_conversion"]],
+  removal_effects_table[["channel_name"]]
+) # see base R section for details
 
-touches <- strsplit(path_data$path, ">", fixed = TRUE)
-lt <- lengths(touches)
-
-groups <- rep.int(seq_along(touches), lt)
-outcome <- rep.int(path_data$leads, lt)
-value <- rep.int(path_data$value, lt) 
-
-touches <- unlist(touches)
-dates <- unlist(strsplit(path_data$dates, ">", fixed = TRUE))
-
-not_empty <- touches != ''
-dates <- dates[not_empty] 
-touches <- touches[not_empty]
-
-re <- lu[touches]
-
-DT <- data.table(
+dt_attr <- function(path_str, date_str, outcome, value, lu) {
+  
+  touches <- strsplit(path_str, ">", fixed = TRUE)
+  lt <- lengths(touches)
+  
+  groups <- rep.int(seq_along(touches), lt)
+  outcome <- rep.int(outcome, lt)
+  value <- rep.int(value, lt) 
+  
+  touches <- unlist(touches)
+  dates <- unlist(strsplit(date_str, ">", fixed = TRUE))
+  
+  not_empty <- touches != ''
+  dates <- dates[not_empty] 
+  touches <- touches[not_empty]
+  
+  re <- lu[touches]
+  
+  DT <- data.table(
     channel_name = touches,
     outcome = outcome,
     date = dates,
     re,
     value,
     groups
+  )
+  
+  DT[, re_tot := sum(re, na.rm = TRUE), by = groups]
+  DT[, `:=`(conversion = outcome * re / re_tot, value = value * re / re_tot)]
+  DT[,.(channel_name, re, conversion, value, date)]
+
+}
+```
+
+## Benchmark
+
+``` r
+bm <- bench::mark(
+  base_r = data.table::rbindlist(
+    purrr::pmap(
+      list(path_str=path_data$path,
+           date_str=path_data$dates,
+           outcome=path_data$leads,
+           value=path_data$value),
+      base_r_attr,
+      lu,
+      .progress = 'base_r_level'
+    )
+  ),
+  dt = data.table::rbindlist(
+    purrr::pmap(
+      list(path_str=path_data$path,
+           date_str=path_data$dates,
+           outcome=path_data$leads,
+           value=path_data$value),
+      dt_attr,
+      lu,
+      .progress = 'dt_level'
+    )
+  )
 )
 
-DT[, re_tot := sum(re, na.rm = TRUE), by = groups]
-DT[, `:=`(conversion = outcome * re / re_tot, value = value * re / re_tot)]
-DT[,.(channel_name, re, conversion, value, date)]
+bm |> 
+  dplyr::select(1:5) |> 
+  dplyr::mutate(
+    times_faster = as.double(dplyr::lag(median, 1) / median)
+    )
+
+#>     expression   min median    itr/sec mem_alloc times_faster
+#> 1       base_r 18.4s  18.4s 0.05426719   43.85MB           NA
+#> 2           dt 25.1s  25.1s 0.03986556    1.15GB    0.7346163
 ```
+
+-   I didn't include the dplyr version because it wasn't going to win. If you want to see the comparison, see video or github links. 
+-   I also didn't include the Rust version, because I currently don't know enough about Rust to fool with it right now.
+-   According to Josiah and the dude who wrote the data.table version, the data.table version is supposed to be the fastest out of all of them (including Rust). I didn't get those results --- not sure why ¯\\\_(ツ)_/¯.
+-   Not only did the base R version win, it had a *substantially* smaller memory allocation.
 :::
