@@ -4,9 +4,31 @@
 
 -   Notes from Skillshare: Absolute Beginners Introduction to Amazon Web Services
 -   [How to choose the right GPU for Deep Learning](https://towardsdatascience.com/choosing-the-right-gpu-for-deep-learning-on-aws-d69c157d8c86)
--   Optimizations
-    -   Increased the number of threads that the AWS CLI uses to some large number (the default is 10) with `aws configure set default.s3.max_concurrent_requests 50`
-    -   If downloading data is more of a bottleneck than cpu power, use a network speed optimized ec2 instance ("n" in the name) such as c5n.4xl.
+
+## Optimizations {#sec-aws--opt .unnumbered}
+
+-   Increase the number of threads that the AWS CLI uses to some large number (the default is 10) with `aws configure set default.s3.max_concurrent_requests 50`
+-   If downloading data is more of a bottleneck than cpu power, use a network speed optimized ec2 instance ("n" in the name) such as c5n.4xl.
+-   Decrease EC2 boot time ([link](https://depot.dev/blog/faster-ec2-boot-time))
+    -   Components
+        -   Instance Warming
+            -   Boot the instance once; shut the instance down; then boot it again when needed.
+                -   From a billing perspective, AWS does not charge for the EC2 instance itself when stopped, as there's no physical hardware being reserved; a stopped instance is just the configuration that will be used when the instance is started next. Note that you do pay for the root EBS volume though, as it's still consuming storage.
+                -   Therefore, it's possible to boot an EC2 instance once, let it perform whatever initialization it needs, then stop the EC2 instance, and this creates a "warmed" EBS root volume.
+                -   It also caches configurations and the assigned private ip address
+            -   Call EC2 instances directly with the `LaunchInstances` and `StartInstances` API calls
+            -   FYI AWS has some kind of service called "Warm Pools for EC2 Auto Scaling" but it isn't as fast as the method described.
+        -   Instance Resizing
+            -   [Change the instance's type](https://docs.aws.amazon.com/AWSEC2/latest/UserGuide/ec2-instance-resize.html) with `UpdateInstance` before starting it again.
+            -   You can use cheaper instance types to perform the warming and avoid consuming AWS capacity for the warming process - e.g, `t3.large` instance types for first launching the instance.
+            -   When AWS has capacity issues and a particular instance type is unavailable, it's possible to update the instance type to another one with availability and still use the pre-warmed EBS root volume.
+    -   GH Action Runner Workflow
+        1.  Created as a `t3.large` instance with a root EBS volume
+        2.  Assigned a private IP address in the target VPC
+        3.  The kernel and userspace processes start once, causing the relevant data blocks to stream from S3 onto the EBS volume
+        4.  The instance is stopped
+        5.  When a GitHub job request arrives, the instance type is updated to a `m7a` instance type, depending on how many CPUs were requested, and the instance is started
+        6.  If AWS responds that there is no current capacity for `m7a` instances, the instance is updated to a backup type (like `m7i`) and started again
 
 ## Create and Manage Account {#sec-aws-creman .unnumbered}
 

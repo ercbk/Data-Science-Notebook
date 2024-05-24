@@ -1,0 +1,190 @@
+# Tidyverse {#sec-code-tidy .unnumbered}
+
+## Purrr {#sec-code-tidy-pur .unnumbered}
+
+-   Notes from [Mastering purrr: From Basic Maps to Functional Magic in R](https://www.r-bloggers.com/2024/05/mastering-purrr-from-basic-maps-to-functional-magic-in-r/)
+
+-   `imap` - Useful to include the index or names of elements in your function calls.
+
+    ``` r
+    # A named list of scores
+    named_scores <- list(math = 90, science = 85, history = 78)
+
+    # Create descriptive strings for each score
+    score_descriptions <- 
+      imap(
+        named_scores, 
+        ~ paste(.y, "score is", .x)
+      )
+    score_descriptions
+
+    $math
+    [1] "math score is 90"
+
+    $science
+    [1] "science score is 85"
+
+    $history
+    [1] "history score is 78"
+    ```
+
+-   `map_if`
+
+    ``` r
+    mixed_list <- list(1, "a", 3, "b", 5)
+    doubled_numbers <- 
+      map_if(
+        mixed_list, 
+        is.numeric, 
+        ~ .x * 2
+      )
+    ```
+
+-   `map_at`
+
+    ``` r
+    specific_list <- list(a = 1, b = "hello", c = 3, d = "world")
+    # Convert only the character elements to uppercase
+    uppercase_chars <- 
+      map_at(specific_list, 
+             c("b", "d"), 
+             ~ toupper(.x))
+    ```
+
+-   `walk` - When you just want the side-effects and not return anything
+
+    ``` r
+    purrr::walk(grps, 
+                ~chk::chk_character_or_factor(.x, 
+                                              x_name = "... (group columns)")
+    )
+    ```
+
+-   `pmap` - To iterate by element across each list
+
+    ``` r
+    lol <- list(alg_list, grid_list, n_iter_list)
+
+    # Setting up multiple RandomSearchCV objects, 1 for each algorithm
+    # Collecting them in the inner-loop list
+    inner_loop <- 
+      purrr::pmap(lol, 
+                  function(alg, grid, n_iter) {
+                    sk_ms$RandomizedSearchCV(
+                      estimator = alg,
+                      param_distributions = grid,
+                      n_iter = n_iter,
+                      scoring = 'neg_mean_absolute_error',
+                      cv = inner_cv,
+                      n_jobs = -1L,
+                      pre_dispatch = '2*n_jobs',
+                      refit = TRUE)
+                  }
+      )
+    ```
+
+-   `modify` - Applies a transformation to each element of a list or vector and returns the modified list or vector.
+
+    ``` r
+    if ("step.pattern" %in% names(params[[dist_alg]])) {
+
+          grid_final <- 
+            purrr::modify(grid_initial, 
+                          .f = function(x) {
+
+                                 # coerce step pattern obj to a numeric vector to determine which step pattern it is
+                                 step_test <- as.numeric(x$step.pattern)
+                                 step_sym1 <- as.numeric(dtw::symmetric1)
+                                 step_sym2 <- as.numeric(dtw::symmetric2)
+                                 # compare patterns' numeric vectors then add step.pattern label to grid
+                                 if (all(step_test == step_sym1)) {
+                                   param_ls <- append(x, c(step_pattern_id = "symmetric1"))
+                                 } else {
+                                   param_ls <- append(x, c(step_pattern_id = NA))
+                                 }
+                                 return(param_ls)
+                          }
+            )
+    }
+    ```
+
+-   `every` - Checks if all elements in a list or vector satisfy a given predicate. If all elements meet the condition, it returns TRUE; otherwise, it returns FALSE.
+
+    ``` r
+    numbers <- list(2, 4, 6, 8)
+    # Check if all numbers are even
+    every(numbers, ~ .x %% 2 == 0)
+    #> [1] TRUE
+
+    mtcars %>%
+      select(hp) %>%
+      map_lgl(~some(.x, ~ .x > 150))
+    #> hp
+    #> TRUE
+    ```
+
+    -   `some` - Checks if at least one element in a list or vector satisfies a given predicate. If any element meets the condition, it returns TRUE; otherwise, it returns FALSE.
+
+    -   `none` - Checks if no elements in a list or vector satisfy a given predicate. If no elements meet the condition, it returns TRUE; otherwise, it returns FALSE.
+
+-   `keep` - Retains elements that satisfy a given predicate. If an element meets the condition, it is kept; otherwise, it is removed.
+
+    ``` r
+    # Keep cars with mpg greater than 20 and discard cars with hp less than 100
+    filtered_cars <- mtcars %>%
+      split(1:nrow(.)) %>%
+      keep(~ .x$mpg > 20) %>%
+      discard(~ .x$hp < 100) %>%
+      bind_rows()
+
+    filtered_cars
+
+    #>                 mpg cyl  disp  hp drat    wt  qsec vs am gear carb
+    #> Mazda RX4      21.0   6 160.0 110 3.90 2.620 16.46  0  1    4    4
+    #> Mazda RX4 Wag  21.0   6 160.0 110 3.90 2.875 17.02  0  1    4    4
+    #> Hornet 4 Drive 21.4   6 258.0 110 3.08 3.215 19.44  1  0    3    1
+    #> Lotus Europa   30.4   4  95.1 113 3.77 1.513 16.90  1  1    5    2
+    #> Volvo 142E     21.4   4 121.0 109 4.11 2.780 18.60  1  1    4    2
+    ```
+
+    -   Similar with `discard`
+    -   `split` splits the df into a list of row elements
+
+-   `reduce`
+
+    ``` r
+    react_tbl_list <- list(react_dd_heat, 
+                           avg_covid_icu_hist, 
+                           avg_covid_hosp_hist, 
+                           avg_total_inpat_beds_hist)
+
+    react_tab_final <- 
+      purrr::reduce(react_tbl_list, 
+                    left_join, 
+                    by = "hospital_name")
+    ```
+
+-   `compose` - Sequentially apply functions
+
+    ``` r
+    # Define scaling and log functions
+    scale_by_10 <- function(x) x * 10
+    safe_log <- safely(log, otherwise = NA)
+
+    # Compose them into a single function
+    scale_and_log <- compose(safe_log, scale_by_10)
+
+    # Apply the composed function to the hp column
+    mtcars <- mtcars %>%
+      mutate(log_scaled_hp = map_dbl(hp, ~ scale_and_log(.x)$result))
+
+    head(mtcars)
+
+    #>                    mpg cyl disp  hp drat    wt  qsec vs am gear carb log_scaled_hp
+    #> Mazda RX4         21.0   6  160 110 3.90 2.620 16.46  0  1    4    4      7.003065
+    #> Mazda RX4 Wag     21.0   6  160 110 3.90 2.875 17.02  0  1    4    4      7.003065
+    #> Datsun 710        22.8   4  108  93 3.85 2.320 18.61  1  1    4    1      6.835185
+    #> Hornet 4 Drive    21.4   6  258 110 3.08 3.215 19.44  1  0    3    1      7.003065
+    #> Hornet Sportabout 18.7   8  360 175 3.15 3.440 17.02  0  0    3    2      7.467371
+    #> Valiant           18.1   6  225 105 2.76 3.460 20.22  1  0    3    1      6.956545
+    ```
