@@ -9,29 +9,8 @@ title: "Scrapsheet"
 
 ## Grocery list
 
--   3lb Hamburger
--   \$14.20 for 42oz Utz pub mix - check kroger price
--   2 or 1 big - strawberry poptart
--   1 Mixed Nut (unless on sale)
--   1 dehydrated veg
--   1 Candy
--   1 bites candy
+-   Snacks
 -   Frozen
-    -   1 pkg frozen chicken breast
-    -   3 burritos
-    -   1 sausage patties
-    -   1 ice cream sandwiches
-    -   1 peppers and onions
-    -   1 garlic bread
-    -   3 pizzas
-    -   2 boxes mini pizza
-    -   1 waffle
-    -   2 bags mixed vegetable
-    -   2 fries
-    -   1 onion rings
--   Yogurt
--   2 Orange Juice
--   2 creamer
 -   See if the light-as-air bananboat sunscreen is there
 
 ## Clustering/Hierarchical TS
@@ -434,26 +413,124 @@ title: "Scrapsheet"
 ## Copulas
 
 -   Todo
+
     -   <https://twiecki.io/blog/2018/05/03/copulas/> - explainer, good starting point
     -   <https://copulae.readthedocs.io/en/latest/explainers/introduction.html> - another beginner explainer
     -   <https://www.r-bloggers.com/2015/10/modelling-dependence-with-copulas-in-r/> - practical example using returns of two stocks
     -   [Paper](https://arxiv.org/abs/2403.15862)- Non-monotone dependence modeling with copulas: an application to the volume-return relationship - no code but discusses how r pkg is used
+
 -   Packages
+
     -   {[copula](https://cran.r-project.org/web/packages/copula/index.html)} - Multivariate Dependence with Copulas — lots of vignettes
     -   {{[copulae](https://github.com/DanielBok/copulae)}} - Multivariate data modelling with Copulas in Python
+
 -   I think copulas are used for bias correction in post-processing separate forecasts of variables that are related. See [paper](https://www.annualreviews.org/doi/10.1146/annurev-statistics-062713-085831#_i59) (section 4.2 and 4.3)
+
     -   stocks of the same sector
     -   ensemble forecasts
         -   weather - meteorologists will forecast a variable (e.g. temp) many times but each time the model uses a different set of atmosphereic conditions. These forecasts are put into a regression (i.e. the ensemble) to create the final forecast. But that forecast is biased because the forecasts are related to each other. Post-processing with copula corrects this.
+
 -   Ensemble Copula Coupling (ECC) applies the empirical copula of the original ensemble to samples from the postprocessed predictive distributions. ([paper](https://arxiv.org/pdf/1302.7149.pdf))
+
     1.  Generate a raw ensemble, consisting of multiple runs of the computer model that differ in the inputs or model parameters in suitable ways.
     2.  Apply statistical postprocessing techniques, such as Bayesian model averaging or nonhomogeneous regression, to correct for systematic errors in the raw ensemble, to obtain calibrated and sharp predictive distributions for each univariate output variable individually.
     3.  Draw a sample from each postprocessed predictive distribution.
     4.  Rearrange the sampled values in the rank order structure of the raw ensemble to obtain the ECC postprocessed ensemble
+
 -   Depending on the use of Quantiles, Random draws or Transformations at the sampling stage, we distinguish the ECC-Q, ECC-R and ECC-T variants
+
 -   ECC is based on empirical copulas aimed at restoring the dependence structure of the forecast and is derived from the rank order of the members in the raw ensemble forecast, under a perfect model assumption, with exchangeable ensemble members. For Schaake shuffle (SSH), on the other hand, the dependence structure is derived from historical observations instead. (Overview of subject - [paper](https://journals.ametsoc.org/view/journals/bams/102/3/BAMS-D-19-0308.1.xml))
+
 -   Packages
+
     -   <https://cran.r-project.org/web/packages/ensembleBMA/index.html>
     -   <https://cran.r-project.org/web/packages/ensemblepp/index.html>
         -   Data for book, Statistical Postprocessing of Ensemble Forecasts
-    -   <https://cran.r-project.org/web/packages/ensembleMOS/index.html>\
+    -   <https://cran.r-project.org/web/packages/ensembleMOS/index.html>
+
+-   Meteorology bias-corrected forecast ([chatgpt 4o](https://chatgpt.com/share/4a17c9f3-e3ec-4ebc-8b9e-fcc38a583dfc))
+
+    ``` r
+    # Load necessary packages
+    install.packages("copula")
+    install.packages("fitdistrplus")
+    install.packages("PerformanceAnalytics")
+
+    library(copula)
+    library(fitdistrplus)
+    library(PerformanceAnalytics)
+
+    # Simulated data for demonstration
+    set.seed(123)
+    n <- 1000
+
+    # Simulating ensemble forecasts from three different models
+    forecast1 <- rnorm(n, mean = 20, sd = 5)
+    forecast2 <- rnorm(n, mean = 21, sd = 5)
+    forecast3 <- rnorm(n, mean = 19, sd = 5)
+
+    # Simulating observed temperatures
+    observed <- 0.5 * forecast1 + 0.3 * forecast2 + 0.2 * forecast3 + rnorm(n, mean = 0, sd = 2)
+
+    # Combine forecasts and observations into a data frame
+    data <- data.frame(forecast1, forecast2, forecast3, observed)
+
+    # Fit normal distributions to each forecast and the observed temperature
+    margins <- list(
+      forecast1 = fitdist(data$forecast1, "norm"), 
+      forecast2 = fitdist(data$forecast2, "norm"), 
+      forecast3 = fitdist(data$forecast3, "norm"),
+      observed = fitdist(data$observed, "norm")
+    )
+
+    # Transform data to uniform margins
+    u1 <- pnorm(data$forecast1, mean = margins$forecast1$estimate["mean"], sd = margins$forecast1$estimate["sd"])
+    u2 <- pnorm(data$forecast2, mean = margins$forecast2$estimate["mean"], sd = margins$forecast2$estimate["sd"])
+    u3 <- pnorm(data$forecast3, mean = margins$forecast3$estimate["mean"], sd = margins$forecast3$estimate["sd"])
+    u_obs <- pnorm(data$observed, mean = margins$observed$estimate["mean"], sd = margins$observed$estimate["sd"])
+
+    # Combine uniform margins into a matrix
+    u_matrix <- cbind(u1, u2, u3, u_obs)
+
+    # Fit a normal copula to the pseudo-observations
+    normal.cop <- normalCopula(dim = 4)
+    fit.cop <- fitCopula(normal.cop, u_matrix, method = "ml")
+
+    # Generate new samples from the fitted copula
+    copula.samples <- rCopula(n, fit.cop@copula)
+
+    # Transform copula samples back to original scale
+    bias_corrected_data <- data.frame(
+      forecast1 = qnorm(copula.samples[, 1], mean = margins$forecast1$estimate["mean"], sd = margins$forecast1$estimate["sd"]),
+      forecast2 = qnorm(copula.samples[, 2], mean = margins$forecast2$estimate["mean"], sd = margins$forecast2$estimate["sd"]),
+      forecast3 = qnorm(copula.samples[, 3], mean = margins$forecast3$estimate["mean"], sd = margins$forecast3$estimate["sd"]),
+      observed = qnorm(copula.samples[, 4], mean = margins$observed$estimate["mean"], sd = margins$observed$estimate["sd"])
+    )
+
+    # Compute the mean and standard deviation of the original and bias-corrected forecasts
+    original_stats <- data.frame(
+      Mean = colMeans(data[, 1:3]),
+      SD = apply(data[, 1:3], 2, sd)
+    )
+
+    bias_corrected_stats <- data.frame(
+      Mean = colMeans(bias_corrected_data[, 1:3]),
+      SD = apply(bias_corrected_data[, 1:3], 2, sd)
+    )
+
+    # Print original and bias-corrected statistics
+    cat("Original Forecast Statistics:\n")
+    print(original_stats)
+
+    cat("Bias-Corrected Forecast Statistics:\n")
+    print(bias_corrected_stats)
+
+    # Plot the original and bias-corrected forecasts
+    par(mfrow = c(2, 3))
+    for (i in 1:3) {
+      plot(data[, i], data$observed, main = paste("Original Forecast", i), xlab = "Forecast", ylab = "Observed")
+      plot(bias_corrected_data[, i], bias_corrected_data$observed, main = paste("Bias-Corrected Forecast", i), xlab = "Forecast", ylab = "Observed")
+    }
+    ```
+
+-   
