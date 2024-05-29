@@ -15,10 +15,10 @@
 -   See flag options - `psql --help`
 -   If there's a "\#" in the prompt after logging into a db, then that signifies you are a super-user
 -   Meta commands (i.e. commands once you're logged into the db)
-    -   \\du - list roles (aka users + permissions)
-    -   \\c <different db> - switches databases
-    -   \\password <user name> - assign a password to a user (prompt will ask for the password twice)
-        -   Can also use ALTER ROLE for this but the password will then be in the log
+    -   `\du` - list roles (aka users + permissions)
+    -   `\c <different db>` - switches databases
+    -   `\password <user name>` - assign a password to a user (prompt will ask for the password twice)
+        -   Can also use `ALTER ROLE` for this but the password will then be in the log
 -   [**Unlogged Table**]{style="color: #009499"} - Data written to an [unlogged](https://www.postgresql.org/docs/current/sql-createtable.html#id-1.9.3.85.6) table will not be logged to the write-ahead-log ([WAL](https://www.postgresql.org/docs/current/wal.html)), making it ideal for intermediate tables and considerably faster. Note that unlogged tables will not be restored in case of a crash, and will not be replicated.
 -   [Pigsty](https://pigsty.io/)
     -   Open Source RDS alternative
@@ -523,7 +523,7 @@
 
                 -   Similar to other code above
 
-## Distributed Architectures
+## Distributed Architectures {#sec-db-pstgr-distarch .unnumbered}
 
 -   [Misc]{.underline}
     -   Notes from [An Overview of Distributed PostgreSQL Architectures](https://www.crunchydata.com/blog/an-overview-of-distributed-postgresql-architectures)
@@ -619,3 +619,122 @@
         -   No local joins in current implementations
         -   Not actually PostgreSQL, and less mature and optimized
     -   Guideline: Just use PostgreSQL. For simple applications, the availability and scalability benefits can be useful.
+
+## Performance Tuning {#sec-db-pstgr-perftun .unnumbered}
+
+-   [Misc]{.underline}
+    -   For routine queries/operations, the main performance bottleneck is frequently the lack of proper indexing on the queried data
+-   [pg_stat_statements]{.underline}
+    -   An extension that comes as part of PostgreSQL, but needs to be activated
+
+    -   Notes from [PostgreSQL: Detecting Slow Queries Quickly](https://www.cybertec-postgresql.com/en/postgresql-detecting-slow-queries-quickly/)
+
+    -   Activate
+
+        1.  Open postgres' config file, `postgresql.conf`
+
+        2.  Set [shared_preload_libraries = 'pg_stat_statements']{.arg-text} in the file and save.
+
+        3.  Restart PostgreSQL
+
+        4.  Deploy a View
+
+            ``` sqlpostgresql
+            test=# CREATE EXTENSION pg_stat_statements;
+            CREATE EXTENSION
+            ```
+
+    -   [Example]{.ribbon-highlight}: Measuring Runtime of Queries
+
+        ``` sqlpostgresql
+        test=# SELECT substring(query, 1, 40) AS query, calls,
+             round(total_exec_time::numeric, 2) AS total_time,
+             round(mean_exec_time::numeric, 2) AS mean_time,
+             round((100 * total_exec_time / sum(total_exec_time) 
+                         OVER ())::numeric, 2) AS percentage
+        FROM  pg_stat_statements
+        ORDER BY total_exec_time DESC
+        LIMIT 10;
+                          query                   |  calls  | total_time | mean_time | percentage 
+        ------------------------------------------+---------+------------+-----------+------------
+         SELECT  * FROM t_group AS a, t_product A | 1378242 |  128913.80 |      0.09 |      41.81
+         SELECT  * FROM t_group AS a, t_product A |  900898 |  122081.85 |      0.14 |      39.59
+         SELECT relid AS stat_rel, (y).*, n_tup_i |      67 |   14526.71 |    216.82 |       4.71
+         SELECT $1                                | 6146457 |    5259.13 |      0.00 |       1.71
+         SELECT  * FROM t_group AS a, t_product A | 1135914 |    4960.74 |      0.00 |       1.61
+         /*pga4dash*/                            +|    5289 |    4369.62 |      0.83 |       1.42
+         SELECT $1 AS chart_name, pg              |         |            |           | 
+         SELECT attrelid::regclass::text, count(* |      59 |    3834.34 |     64.99 |       1.24
+         SELECT  *                               +|  245118 |    2040.52 |      0.01 |       0.66
+         FROM    t_group AS a, t_product          |         |            |           | 
+         SELECT count(*) FROM pg_available_extens |     430 |    1383.77 |      3.22 |       0.45
+         SELECT   query_id::jsonb->$1 AS qual_que |      59 |    1112.68 |     18.86 |       0.36
+        (10 rows)
+        ```
+
+        -   Query shows how often a certain type of query has been executed and how many milliseconds of total execution time.
+        -   The percentage of total runtime for each type of query has also been calculated for context.
+        -   `substring` was used to make the query shorter for visibility.
+            -   When you pick a query or group of queries that you want to examine further, you'll want to see the entire query string.
+        -   Interpretation: the first two queries already need 80% of the total runtime.
+
+    -   Reset the content of the view
+
+        ``` sqlpostgresql
+        test=# SELECT pg_stat_statements_reset();
+        pg_stat_statements_reset
+        --------------------------
+
+        (1 row)
+        ```
+
+    -   [Example]{.ribbon-highlight}: Measuring I/O Time
+
+        -   Tests whether you have a I/O problem (i.e. read/write) or CPU problem
+
+        -   If the I/O time is a significant fraction of the total time (e.g. over 25-50%), it means disk performance is the bottleneck.
+
+        -   If the I/O time is not a significant portion, then adding more disks/IOPS (disk I/O operations per second) won't help performance much.
+
+        -   Set [tracking_io_timing]{.arg-text} to "on" for a database
+
+            ``` sqlpostgresql
+            1   test=# ALTER DATABASE test SET track_io_timing = on;
+            2   ALTER DATABASE
+            ```
+
+            -   You can also turn it on in `postgresql.conf` for the entire server
+
+        -   Inspect I/O Performance
+
+            ``` sqlpostgresql
+            test=# SELECT substring(query, 1, 30), 
+                        total_exec_time, 
+                        blk_read_time, 
+                        blk_write_time 
+            FROM    pg_stat_statements 
+            ORDER BY blk_read_time + blk_write_time DESC 
+            LIMIT 10;
+                       substring            |  total_exec_time   |   blk_read_time    | blk_write_time 
+            --------------------------------+--------------------+--------------------+----------------
+             SELECT relid AS stat_rel, (y). | 14526.714420000004 |        9628.731881 |              0
+             SELECT attrelid::regclass::tex | 3834.3388820000005 | 1800.8131490000003 |       3.351335
+             FETCH 100 FROM c1              |   593.835973999964 | 143.45405699999006 |              0
+             SELECT   query_id::jsonb->$1 A |        1112.681625 |  72.39612800000002 |              0
+             SELECT   oid::regclass, relkin |         536.750372 | 57.409583000000005 |              0
+             INSERT INTO deep_thinker.t_adv |  90.34870800000012 | 46.811619999999984 |              0
+             INSERT INTO deep_thinker.t_thi |  72.65854599999999 |          43.621994 |              0
+             create database xyz            |          97.532209 |          32.450164 |              0
+             WITH x AS (SELECT c.conrelid:: | 46.389295000000004 | 25.007044999999994 |              0
+             SELECT * FROM (SELECT relid::r | 511.72187599999995 | 23.482600000000005 |              0
+            (10 rows)
+            ```
+
+            -   Compares the [total_exec_time]{.var-text} (total execution time) to the time used up for I/O.
+
+        -   An additional option is to look the [temp_blks_read]{.var-text} and [temp_blks_written]{.var-text} fields
+
+            -   This is for analyzing temporary I/O which includes operations like sorting, hashing, etc.
+            -   Note that increasing the [work_mem]{.arg-text} parameter, which allows more data to be processed in memory, may not solve temporary I/O issues.
+
+        -   If I/O timing is a small portion of [total_exec_time]{.var-text} and [temp_blks]{.var-text} are low, it points to a CPU bottleneck. But if I/O timing is high compared to [total_exec_time]{.var-text}, the disk I/O is likely the bottleneck.
