@@ -1998,7 +1998,8 @@ pre > code.sourceCode > span > a:first-child::before { text-decoration: underlin
   <li><a href="#sec-db-pstgr-pgadm" id="toc-sec-db-pstgr-pgadm" class="nav-link" data-scroll-target="#sec-db-pstgr-pgadm">pgAdmin</a></li>
   <li><a href="#sec-db-pstgr-rds" id="toc-sec-db-pstgr-rds" class="nav-link" data-scroll-target="#sec-db-pstgr-rds">AWS RDS</a></li>
   <li><a href="#sec-db-pstgr-py" id="toc-sec-db-pstgr-py" class="nav-link" data-scroll-target="#sec-db-pstgr-py">Python</a></li>
-  <li><a href="#distributed-architectures" id="toc-distributed-architectures" class="nav-link" data-scroll-target="#distributed-architectures">Distributed Architectures</a></li>
+  <li><a href="#sec-db-pstgr-distarch" id="toc-sec-db-pstgr-distarch" class="nav-link" data-scroll-target="#sec-db-pstgr-distarch">Distributed Architectures</a></li>
+  <li><a href="#sec-db-pstgr-perftun" id="toc-sec-db-pstgr-perftun" class="nav-link" data-scroll-target="#sec-db-pstgr-perftun">Performance Tuning</a></li>
   </ul>
 </nav>
     </div>
@@ -2045,12 +2046,12 @@ pre > code.sourceCode > span > a:first-child::before { text-decoration: underlin
 <li>If there’s a “#” in the prompt after logging into a db, then that signifies you are a super-user</li>
 <li>Meta commands (i.e.&nbsp;commands once you’re logged into the db)
 <ul>
-<li>\du - list roles (aka users + permissions)</li>
-<li>\c <different db=""> - switches databases</different></li>
-<li>\password <user name=""> - assign a password to a user (prompt will ask for the password twice)
+<li><code>\du</code> - list roles (aka users + permissions)</li>
+<li><code>\c &lt;different db&gt;</code> - switches databases</li>
+<li><code>\password &lt;user name&gt;</code> - assign a password to a user (prompt will ask for the password twice)
 <ul>
-<li>Can also use ALTER ROLE for this but the password will then be in the log</li>
-</ul></user></li>
+<li>Can also use <code>ALTER ROLE</code> for this but the password will then be in the log</li>
+</ul></li>
 </ul></li>
 <li><span style="color: #009499"><strong>Unlogged Table</strong></span> - Data written to an <a href="https://www.postgresql.org/docs/current/sql-createtable.html#id-1.9.3.85.6">unlogged</a> table will not be logged to the write-ahead-log (<a href="https://www.postgresql.org/docs/current/wal.html">WAL</a>), making it ideal for intermediate tables and considerably faster. Note that unlogged tables will not be restored in case of a crash, and will not be replicated.</li>
 <li><a href="https://pigsty.io/">Pigsty</a>
@@ -2687,8 +2688,8 @@ pre > code.sourceCode > span > a:first-child::before { text-decoration: underlin
 </ul></li>
 </ul>
 </section>
-<section id="distributed-architectures" class="level2">
-<h2 class="anchored" data-anchor-id="distributed-architectures">Distributed Architectures</h2>
+<section id="sec-db-pstgr-distarch" class="level2 unnumbered">
+<h2 class="unnumbered anchored" data-anchor-id="sec-db-pstgr-distarch">Distributed Architectures</h2>
 <ul>
 <li><u>Misc</u>
 <ul>
@@ -2825,6 +2826,110 @@ pre > code.sourceCode > span > a:first-child::before { text-decoration: underlin
 <li>Not actually PostgreSQL, and less mature and optimized</li>
 </ul></li>
 <li>Guideline: Just use PostgreSQL. For simple applications, the availability and scalability benefits can be useful.</li>
+</ul></li>
+</ul>
+</section>
+<section id="sec-db-pstgr-perftun" class="level2 unnumbered">
+<h2 class="unnumbered anchored" data-anchor-id="sec-db-pstgr-perftun">Performance Tuning</h2>
+<ul>
+<li><u>Misc</u>
+<ul>
+<li>For routine queries/operations, the main performance bottleneck is frequently the lack of proper indexing on the queried data</li>
+</ul></li>
+<li><u>pg_stat_statements</u>
+<ul>
+<li><p>An extension that comes as part of PostgreSQL, but needs to be activated</p></li>
+<li><p>Notes from <a href="https://www.cybertec-postgresql.com/en/postgresql-detecting-slow-queries-quickly/">PostgreSQL: Detecting Slow Queries Quickly</a></p></li>
+<li><p>Activate</p>
+<ol type="1">
+<li><p>Open postgres’ config file, <code>postgresql.conf</code></p></li>
+<li><p>Set <span class="arg-text">shared_preload_libraries = ‘pg_stat_statements’</span> in the file and save.</p></li>
+<li><p>Restart PostgreSQL</p></li>
+<li><p>Deploy a View</p>
+<div class="sourceCode" id="cb9"><pre class="sourceCode sqlpostgresql code-with-copy"><code class="sourceCode sqlpostgresql"><span id="cb9-1"><a href="#cb9-1" aria-hidden="true" tabindex="-1"></a>test<span class="op">=#</span> <span class="kw">CREATE</span> <span class="kw">EXTENSION</span> pg_stat_statements;</span>
+<span id="cb9-2"><a href="#cb9-2" aria-hidden="true" tabindex="-1"></a><span class="kw">CREATE</span> <span class="kw">EXTENSION</span></span></code><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></pre></div></li>
+</ol></li>
+<li><p><span class="ribbon-highlight">Example</span>: Measuring Runtime of Queries</p>
+<div class="sourceCode" id="cb10"><pre class="sourceCode sqlpostgresql code-with-copy"><code class="sourceCode sqlpostgresql"><span id="cb10-1"><a href="#cb10-1" aria-hidden="true" tabindex="-1"></a>test<span class="op">=#</span> <span class="kw">SELECT</span> <span class="fu">substring</span>(query, <span class="dv">1</span>, <span class="dv">40</span>) <span class="kw">AS</span> query, calls,</span>
+<span id="cb10-2"><a href="#cb10-2" aria-hidden="true" tabindex="-1"></a>     <span class="fu">round</span>(total_exec_time<span class="ch">::</span><span class="dt">numeric</span>, <span class="dv">2</span>) <span class="kw">AS</span> total_time,</span>
+<span id="cb10-3"><a href="#cb10-3" aria-hidden="true" tabindex="-1"></a>     <span class="fu">round</span>(mean_exec_time<span class="ch">::</span><span class="dt">numeric</span>, <span class="dv">2</span>) <span class="kw">AS</span> mean_time,</span>
+<span id="cb10-4"><a href="#cb10-4" aria-hidden="true" tabindex="-1"></a>     <span class="fu">round</span>((<span class="dv">100</span> <span class="op">*</span> total_exec_time <span class="op">/</span> <span class="fu">sum</span>(total_exec_time) </span>
+<span id="cb10-5"><a href="#cb10-5" aria-hidden="true" tabindex="-1"></a>                 <span class="kw">OVER</span> ())<span class="ch">::</span><span class="dt">numeric</span>, <span class="dv">2</span>) <span class="kw">AS</span> percentage</span>
+<span id="cb10-6"><a href="#cb10-6" aria-hidden="true" tabindex="-1"></a><span class="kw">FROM</span>  pg_stat_statements</span>
+<span id="cb10-7"><a href="#cb10-7" aria-hidden="true" tabindex="-1"></a><span class="kw">ORDER</span> <span class="kw">BY</span> total_exec_time <span class="kw">DESC</span></span>
+<span id="cb10-8"><a href="#cb10-8" aria-hidden="true" tabindex="-1"></a><span class="kw">LIMIT</span> <span class="dv">10</span>;</span>
+<span id="cb10-9"><a href="#cb10-9" aria-hidden="true" tabindex="-1"></a>                  query                   <span class="op">|</span>  calls  <span class="op">|</span> total_time <span class="op">|</span> mean_time <span class="op">|</span> percentage </span>
+<span id="cb10-10"><a href="#cb10-10" aria-hidden="true" tabindex="-1"></a><span class="co">------------------------------------------+---------+------------+-----------+------------</span></span>
+<span id="cb10-11"><a href="#cb10-11" aria-hidden="true" tabindex="-1"></a> <span class="kw">SELECT</span>  <span class="op">*</span> <span class="kw">FROM</span> t_group <span class="kw">AS</span> <span class="kw">a</span>, t_product <span class="kw">A</span> <span class="op">|</span> <span class="dv">1378242</span> <span class="op">|</span>  <span class="fl">128913.80</span> <span class="op">|</span>      <span class="fl">0.09</span> <span class="op">|</span>      <span class="fl">41.81</span></span>
+<span id="cb10-12"><a href="#cb10-12" aria-hidden="true" tabindex="-1"></a> <span class="kw">SELECT</span>  <span class="op">*</span> <span class="kw">FROM</span> t_group <span class="kw">AS</span> <span class="kw">a</span>, t_product <span class="kw">A</span> <span class="op">|</span>  <span class="dv">900898</span> <span class="op">|</span>  <span class="fl">122081.85</span> <span class="op">|</span>      <span class="fl">0.14</span> <span class="op">|</span>      <span class="fl">39.59</span></span>
+<span id="cb10-13"><a href="#cb10-13" aria-hidden="true" tabindex="-1"></a> <span class="kw">SELECT</span> relid <span class="kw">AS</span> stat_rel, (y).<span class="op">*</span>, n_tup_i <span class="op">|</span>      <span class="dv">67</span> <span class="op">|</span>   <span class="fl">14526.71</span> <span class="op">|</span>    <span class="fl">216.82</span> <span class="op">|</span>       <span class="fl">4.71</span></span>
+<span id="cb10-14"><a href="#cb10-14" aria-hidden="true" tabindex="-1"></a> <span class="kw">SELECT</span> $<span class="dv">1</span>                                <span class="op">|</span> <span class="dv">6146457</span> <span class="op">|</span>    <span class="fl">5259.13</span> <span class="op">|</span>      <span class="fl">0.00</span> <span class="op">|</span>       <span class="fl">1.71</span></span>
+<span id="cb10-15"><a href="#cb10-15" aria-hidden="true" tabindex="-1"></a> <span class="kw">SELECT</span>  <span class="op">*</span> <span class="kw">FROM</span> t_group <span class="kw">AS</span> <span class="kw">a</span>, t_product <span class="kw">A</span> <span class="op">|</span> <span class="dv">1135914</span> <span class="op">|</span>    <span class="fl">4960.74</span> <span class="op">|</span>      <span class="fl">0.00</span> <span class="op">|</span>       <span class="fl">1.61</span></span>
+<span id="cb10-16"><a href="#cb10-16" aria-hidden="true" tabindex="-1"></a> <span class="co">/*pga4dash*/</span>                            <span class="op">+|</span>    <span class="dv">5289</span> <span class="op">|</span>    <span class="fl">4369.62</span> <span class="op">|</span>      <span class="fl">0.83</span> <span class="op">|</span>       <span class="fl">1.42</span></span>
+<span id="cb10-17"><a href="#cb10-17" aria-hidden="true" tabindex="-1"></a> <span class="kw">SELECT</span> $<span class="dv">1</span> <span class="kw">AS</span> chart_name, pg              <span class="op">|</span>         <span class="op">|</span>            <span class="op">|</span>           <span class="op">|</span> </span>
+<span id="cb10-18"><a href="#cb10-18" aria-hidden="true" tabindex="-1"></a> <span class="kw">SELECT</span> attrelid<span class="ch">::</span>regclass<span class="ch">::</span><span class="dt">text</span>, <span class="fu">count</span>(<span class="op">*</span> <span class="op">|</span>      <span class="dv">59</span> <span class="op">|</span>    <span class="fl">3834.34</span> <span class="op">|</span>     <span class="fl">64.99</span> <span class="op">|</span>       <span class="fl">1.24</span></span>
+<span id="cb10-19"><a href="#cb10-19" aria-hidden="true" tabindex="-1"></a> <span class="kw">SELECT</span>  <span class="op">*</span>                               <span class="op">+|</span>  <span class="dv">245118</span> <span class="op">|</span>    <span class="fl">2040.52</span> <span class="op">|</span>      <span class="fl">0.01</span> <span class="op">|</span>       <span class="fl">0.66</span></span>
+<span id="cb10-20"><a href="#cb10-20" aria-hidden="true" tabindex="-1"></a> <span class="kw">FROM</span>    t_group <span class="kw">AS</span> <span class="kw">a</span>, t_product          <span class="op">|</span>         <span class="op">|</span>            <span class="op">|</span>           <span class="op">|</span> </span>
+<span id="cb10-21"><a href="#cb10-21" aria-hidden="true" tabindex="-1"></a> <span class="kw">SELECT</span> <span class="fu">count</span>(<span class="op">*</span>) <span class="kw">FROM</span> pg_available_extens <span class="op">|</span>     <span class="dv">430</span> <span class="op">|</span>    <span class="fl">1383.77</span> <span class="op">|</span>      <span class="fl">3.22</span> <span class="op">|</span>       <span class="fl">0.45</span></span>
+<span id="cb10-22"><a href="#cb10-22" aria-hidden="true" tabindex="-1"></a> <span class="kw">SELECT</span>   query_id<span class="ch">::</span><span class="dt">jsonb</span><span class="op">-&gt;</span>$<span class="dv">1</span> <span class="kw">AS</span> qual_que <span class="op">|</span>      <span class="dv">59</span> <span class="op">|</span>    <span class="fl">1112.68</span> <span class="op">|</span>     <span class="fl">18.86</span> <span class="op">|</span>       <span class="fl">0.36</span></span>
+<span id="cb10-23"><a href="#cb10-23" aria-hidden="true" tabindex="-1"></a>(<span class="dv">10</span> <span class="kw">rows</span>)</span></code><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></pre></div>
+<ul>
+<li>Query shows how often a certain type of query has been executed and how many milliseconds of total execution time.</li>
+<li>The percentage of total runtime for each type of query has also been calculated for context.</li>
+<li><code>substring</code> was used to make the query shorter for visibility.
+<ul>
+<li>When you pick a query or group of queries that you want to examine further, you’ll want to see the entire query string.</li>
+</ul></li>
+<li>Interpretation: the first two queries already need 80% of the total runtime.</li>
+</ul></li>
+<li><p>Reset the content of the view</p>
+<div class="sourceCode" id="cb11"><pre class="sourceCode sqlpostgresql code-with-copy"><code class="sourceCode sqlpostgresql"><span id="cb11-1"><a href="#cb11-1" aria-hidden="true" tabindex="-1"></a>test<span class="op">=#</span> <span class="kw">SELECT</span> pg_stat_statements_reset();</span>
+<span id="cb11-2"><a href="#cb11-2" aria-hidden="true" tabindex="-1"></a>pg_stat_statements_reset</span>
+<span id="cb11-3"><a href="#cb11-3" aria-hidden="true" tabindex="-1"></a><span class="co">--------------------------</span></span>
+<span id="cb11-4"><a href="#cb11-4" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb11-5"><a href="#cb11-5" aria-hidden="true" tabindex="-1"></a>(<span class="dv">1</span> <span class="kw">row</span>)</span></code><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></pre></div></li>
+<li><p><span class="ribbon-highlight">Example</span>: Measuring I/O Time</p>
+<ul>
+<li><p>Tests whether you have a I/O problem (i.e.&nbsp;read/write) or CPU problem</p></li>
+<li><p>If the I/O time is a significant fraction of the total time (e.g.&nbsp;over 25-50%), it means disk performance is the bottleneck.</p></li>
+<li><p>If the I/O time is not a significant portion, then adding more disks/IOPS (disk I/O operations per second) won’t help performance much.</p></li>
+<li><p>Set <span class="arg-text">tracking_io_timing</span> to “on” for a database</p>
+<div class="sourceCode" id="cb12"><pre class="sourceCode sqlpostgresql code-with-copy"><code class="sourceCode sqlpostgresql"><span id="cb12-1"><a href="#cb12-1" aria-hidden="true" tabindex="-1"></a><span class="dv">1</span>   test<span class="op">=#</span> <span class="kw">ALTER</span> <span class="kw">DATABASE</span> test <span class="kw">SET</span> track_io_timing <span class="op">=</span> <span class="kw">on</span>;</span>
+<span id="cb12-2"><a href="#cb12-2" aria-hidden="true" tabindex="-1"></a><span class="dv">2</span>   <span class="kw">ALTER</span> <span class="kw">DATABASE</span></span></code><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></pre></div>
+<ul>
+<li>You can also turn it on in <code>postgresql.conf</code> for the entire server</li>
+</ul></li>
+<li><p>Inspect I/O Performance</p>
+<div class="sourceCode" id="cb13"><pre class="sourceCode sqlpostgresql code-with-copy"><code class="sourceCode sqlpostgresql"><span id="cb13-1"><a href="#cb13-1" aria-hidden="true" tabindex="-1"></a>test<span class="op">=#</span> <span class="kw">SELECT</span> <span class="fu">substring</span>(query, <span class="dv">1</span>, <span class="dv">30</span>), </span>
+<span id="cb13-2"><a href="#cb13-2" aria-hidden="true" tabindex="-1"></a>            total_exec_time, </span>
+<span id="cb13-3"><a href="#cb13-3" aria-hidden="true" tabindex="-1"></a>            blk_read_time, </span>
+<span id="cb13-4"><a href="#cb13-4" aria-hidden="true" tabindex="-1"></a>            blk_write_time </span>
+<span id="cb13-5"><a href="#cb13-5" aria-hidden="true" tabindex="-1"></a><span class="kw">FROM</span>    pg_stat_statements </span>
+<span id="cb13-6"><a href="#cb13-6" aria-hidden="true" tabindex="-1"></a><span class="kw">ORDER</span> <span class="kw">BY</span> blk_read_time <span class="op">+</span> blk_write_time <span class="kw">DESC</span> </span>
+<span id="cb13-7"><a href="#cb13-7" aria-hidden="true" tabindex="-1"></a><span class="kw">LIMIT</span> <span class="dv">10</span>;</span>
+<span id="cb13-8"><a href="#cb13-8" aria-hidden="true" tabindex="-1"></a>           substring            <span class="op">|</span>  total_exec_time   <span class="op">|</span>   blk_read_time    <span class="op">|</span> blk_write_time </span>
+<span id="cb13-9"><a href="#cb13-9" aria-hidden="true" tabindex="-1"></a><span class="co">--------------------------------+--------------------+--------------------+----------------</span></span>
+<span id="cb13-10"><a href="#cb13-10" aria-hidden="true" tabindex="-1"></a> <span class="kw">SELECT</span> relid <span class="kw">AS</span> stat_rel, (y). <span class="op">|</span> <span class="fl">14526.714420000004</span> <span class="op">|</span>        <span class="fl">9628.731881</span> <span class="op">|</span>              <span class="dv">0</span></span>
+<span id="cb13-11"><a href="#cb13-11" aria-hidden="true" tabindex="-1"></a> <span class="kw">SELECT</span> attrelid<span class="ch">::</span>regclass<span class="ch">::</span>tex <span class="op">|</span> <span class="fl">3834.3388820000005</span> <span class="op">|</span> <span class="fl">1800.8131490000003</span> <span class="op">|</span>       <span class="fl">3.351335</span></span>
+<span id="cb13-12"><a href="#cb13-12" aria-hidden="true" tabindex="-1"></a> <span class="kw">FETCH</span> <span class="dv">100</span> <span class="kw">FROM</span> c1              <span class="op">|</span>   <span class="fl">593.835973999964</span> <span class="op">|</span> <span class="fl">143.45405699999006</span> <span class="op">|</span>              <span class="dv">0</span></span>
+<span id="cb13-13"><a href="#cb13-13" aria-hidden="true" tabindex="-1"></a> <span class="kw">SELECT</span>   query_id<span class="ch">::</span><span class="dt">jsonb</span><span class="op">-&gt;</span>$<span class="dv">1</span> <span class="kw">A</span> <span class="op">|</span>        <span class="fl">1112.681625</span> <span class="op">|</span>  <span class="fl">72.39612800000002</span> <span class="op">|</span>              <span class="dv">0</span></span>
+<span id="cb13-14"><a href="#cb13-14" aria-hidden="true" tabindex="-1"></a> <span class="kw">SELECT</span>   oid<span class="ch">::</span>regclass, relkin <span class="op">|</span>         <span class="fl">536.750372</span> <span class="op">|</span> <span class="fl">57.409583000000005</span> <span class="op">|</span>              <span class="dv">0</span></span>
+<span id="cb13-15"><a href="#cb13-15" aria-hidden="true" tabindex="-1"></a> <span class="kw">INSERT</span> <span class="kw">INTO</span> deep_thinker.t_adv <span class="op">|</span>  <span class="fl">90.34870800000012</span> <span class="op">|</span> <span class="fl">46.811619999999984</span> <span class="op">|</span>              <span class="dv">0</span></span>
+<span id="cb13-16"><a href="#cb13-16" aria-hidden="true" tabindex="-1"></a> <span class="kw">INSERT</span> <span class="kw">INTO</span> deep_thinker.t_thi <span class="op">|</span>  <span class="fl">72.65854599999999</span> <span class="op">|</span>          <span class="fl">43.621994</span> <span class="op">|</span>              <span class="dv">0</span></span>
+<span id="cb13-17"><a href="#cb13-17" aria-hidden="true" tabindex="-1"></a> <span class="kw">create</span> <span class="kw">database</span> xyz            <span class="op">|</span>          <span class="fl">97.532209</span> <span class="op">|</span>          <span class="fl">32.450164</span> <span class="op">|</span>              <span class="dv">0</span></span>
+<span id="cb13-18"><a href="#cb13-18" aria-hidden="true" tabindex="-1"></a> <span class="kw">WITH</span> x <span class="kw">AS</span> (<span class="kw">SELECT</span> <span class="kw">c</span>.conrelid<span class="ch">::</span> <span class="op">|</span> <span class="fl">46.389295000000004</span> <span class="op">|</span> <span class="fl">25.007044999999994</span> <span class="op">|</span>              <span class="dv">0</span></span>
+<span id="cb13-19"><a href="#cb13-19" aria-hidden="true" tabindex="-1"></a> <span class="kw">SELECT</span> <span class="op">*</span> <span class="kw">FROM</span> (<span class="kw">SELECT</span> relid<span class="ch">::</span>r <span class="op">|</span> <span class="fl">511.72187599999995</span> <span class="op">|</span> <span class="fl">23.482600000000005</span> <span class="op">|</span>              <span class="dv">0</span></span>
+<span id="cb13-20"><a href="#cb13-20" aria-hidden="true" tabindex="-1"></a>(<span class="dv">10</span> <span class="kw">rows</span>)</span></code><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></pre></div>
+<ul>
+<li>Compares the <span class="var-text">total_exec_time</span> (total execution time) to the time used up for I/O.</li>
+</ul></li>
+<li><p>An additional option is to look the <span class="var-text">temp_blks_read</span> and <span class="var-text">temp_blks_written</span> fields</p>
+<ul>
+<li>This is for analyzing temporary I/O which includes operations like sorting, hashing, etc.</li>
+<li>Note that increasing the <span class="arg-text">work_mem</span> parameter, which allows more data to be processed in memory, may not solve temporary I/O issues.</li>
+</ul></li>
+<li><p>If I/O timing is a small portion of <span class="var-text">total_exec_time</span> and <span class="var-text">temp_blks</span> are low, it points to a CPU bottleneck. But if I/O timing is high compared to <span class="var-text">total_exec_time</span>, the disk I/O is likely the bottleneck.</p></li>
+</ul></li>
 </ul></li>
 </ul>
 
@@ -3273,7 +3378,7 @@ window.document.addEventListener("DOMContentLoaded", function (event) {
     </div>
   </div>
 </footer>
-<script>var lightboxQuarto = GLightbox({"closeEffect":"zoom","selector":".lightbox","descPosition":"bottom","loop":false,"openEffect":"zoom"});
+<script>var lightboxQuarto = GLightbox({"selector":".lightbox","loop":false,"openEffect":"zoom","closeEffect":"zoom","descPosition":"bottom"});
 window.onload = () => {
   lightboxQuarto.on('slide_before_load', (data) => {
     const { slideIndex, slideNode, slideConfig, player, trigger } = data;
