@@ -69,6 +69,8 @@ fig-cap-location: top
 -   [**Shape**]{style="color: #009499"} - Distribution parameter that affects the shape of a distribution rather than simply shifting it (as a location parameter does) or stretching/shrinking it (as a scale parameter does).
 
     -   e.g. "Peakedness" refers to how round the main peak is
+    -   A higher shape parameter usually results in a more peaked distribution with thinner tails.
+    -   A lower shape parameter usually results in a less peaked distribution with thicker tails.
 
 ## R's Distribution Functions {#sec-distr-rfun .unnumbered}
 
@@ -175,7 +177,7 @@ fig-cap-location: top
             -   [Example]{.ribbon-highlight}: Reinsurance Losses\
                 ![](_resources/Distributions.resources/fdp-mme-ln-par-1.png){.lightbox width="632"}
                 -   For financial risk data, right-tail events are the most important.
-                -   The MME method underfits the loss data, and it's more pronouced for the Lognormal distribution. But if you look closely, it fits the right-tail of Lognormal better than the MLE. Both are pretty similar in the right-tail of the Pareto, but I'd probably take the MME estimation there, too.
+                -   The MME method underfits the loss data, and it's more pronounced for the Lognormal distribution. But if you look closely, it fits the right-tail of Lognormal better than the MLE. Both are pretty similar in the right-tail of the Pareto, but I'd probably take the MME estimation there, too.
                 -   See the example in [Pareto](distributions.qmd#sec-distr-pareto){style="color: green"} for the code that fits this curve.
 
     -   [Histogram and Empirical Densities]{.underline}\
@@ -513,16 +515,39 @@ fig-cap-location: top
 
 -   "Gaussian distributions tend to prevail when events are completely independent of each other. As soon as you introduce the assumption of interdependence across events, Paretian distributions tend to surface because positive feedback loops tend to amplify small initial events."
 
--   Parameters: Shape ($\alpha$) (aka Pareto Index, aka Tail Index), Scale ($\theta$)
+-   Parameters:
 
-    -   The version with a location parameter $\mu$ is the Pareto II.
+    -   Shape ($\alpha$) (aka Pareto Index, aka Tail Index), Scale ($\theta$)
 
--   Probabilty Density\
-    $$
-    f(x) = \frac{\alpha \theta^\alpha}{(x + \theta)^{\alpha + 1}}
-    $$
+        -   $\alpha \gt 0$, and $\theta \gt 0$
 
-    -   $x \gt 0$, $\alpha \gt 0$, and $\theta \gt 0$
+    -   A location parameter $\mu$ for type II, III, and IV.
+
+    -   There's also a $\gamma$ parameter (inequality index) for types III and IV.
+
+-   Types
+
+    -   Type I Probability Density\
+        $$
+        f(x) = \frac{\alpha x_m^\alpha}{x^{\alpha+1}}
+        $$
+
+        -   $x_m \gt 0$ and is the minimum value of x.
+
+        -   Suitable when there's an absolute minimum value for a strictly positive $x$
+
+    -   Type II Probabilty Density\
+        $$
+        f(x) = \frac{\alpha \theta^\alpha}{(x - \mu + \theta)^{\alpha + 1}}
+        $$
+
+        -   $x \ge \mu$
+
+        -   When $\mu = 0$, it's called a Lomax Distribution
+
+        -   Offers more flexibility with its location parameter, allowing it to handle data that can start from various points, including zero or even negative values.
+
+    -   There are also types III and IV
 
 -   Pareto has similar relationship with the exponential distribution as lognormal does with normal $$
     Y_{exp} = \log \frac {X_{pareto}} {x_m}
@@ -532,9 +557,8 @@ fig-cap-location: top
         -   $x_m$ is the (positive) minimum of the randomly distributed pareto variable, X that has index α
         -   $Y_{exp}$ is exponentially distributed with rate $\alpha$
 
--   Some theoretical statistical moments may not exist
+-   The existence of the statistical moments depends on the value of $\alpha$
 
-    -   If the theoretical moments do not exist, then calculating the sample moments is useless
     -   [Example]{.ribbon-highlight}: Pareto ($\alpha$ = 1.5) has a finite mean and an infinite variance
         -   Need $\alpha > 2$ for a finite variance\
             $$
@@ -554,7 +578,12 @@ fig-cap-location: top
     -   $L(x)$ is just characterized as slowly varying function that gets dominated by the decaying inverse power law element, $x-\alpha$. as $x$ goes to infinity
         -   $\alpha$ is a shape parameter, aka "tail index" aka "Pareto index"
 
--   [Example]{.ribbon-highlight}: Fitting a Pareto to data
+-   [Example]{.ribbon-highlight}: Fitting a Pareto to data ([link](https://lbbe-software.github.io/fitdistrplus/articles/fitdistrplus_vignette.html#Alternatives))\
+
+    -   I think the plain ["pareto"]{.arg-text} from {actuar} is the Lomax distribution (i.e. $\mu = 0$). The package also has ["pareto1"]{.arg-text}, ["pareto2"]{.arg-text}, ["pareto3"]{.arg-text}, and ["pareto4"]{.arg-text}.
+
+    ::: panel-tabset
+    ## Fit Distribution
 
     ``` r
     pacman::p_load(fitdistrplus, actuar) # actuar supplies pareto distr
@@ -575,15 +604,54 @@ fig-cap-location: top
               order = c(1, 2), 
               memp = "memp", 
               start = list(shape = 10, scale = 10), 
-              lower = c(2+1e-6, 2+1e-6), 
+              lower = c(2 + 1e-6, 2 + 1e-6), 
               upper = c(Inf, Inf))
     ```
 
     -   The data is Danish reinsurance losses.
-    -   [order = c(1, 2)]{.arg-text} says you want the first and second moments (shape and scale) estimated (Required for [method = "mme"]{.arg-text})
-    -   [lower]{.arg-text} (similar for [upper]{.arg-text}) specifies the left bounds on the parameters.
-    -   [memp]{.arg-text} supplies the function for implementing empirical moments. This equation
+    -   The starting values ([start]{.arg-text}) are just guesses I believe or based on prior knowledge. Might be something you want to iterate a few times, to converge around a set of values.
+    -   [order = c(1, 2)]{.arg-text} says you want the first and second moments estimated (Required for [method = "mme"]{.arg-text})
+    -   [lower]{.arg-text} (similar for [upper]{.arg-text}) specifies the left bounds on the parameters. (Required for Pareto)
+        -   The lower bound is set to 2.000001, which will exclude distributions with infinite variance and means. But they've done that for both parameters when I think that it's only positive numbers are required for the Scale parameter.
+    -   [memp]{.arg-text} supplies the function for implementing empirical moments. (Required for [method = "mme"]{.arg-text})
         -   See [Section 3.1](https://lbbe-software.github.io/fitdistrplus/articles/fitdistrplus_vignette.html#Alternatives) of the [{fitdistrplus}]{style="color: #990000"} vignette for details on the MME algorithm.
+
+    ## Compare
+
+    ![](_resources/Distributions.resources/pareto-ex-mle-mme.png){.lightbox width="432"}
+
+    ``` r
+    list(mle = coef(fdanish.P.MLE), mme = coef(fdanish.P.MME))
+    #> $mle
+    #>     shape     scale 
+    #>  5.367207 13.834671 
+    #> 
+    #> $mme
+    #>    shape    scale 
+    #> 2.376411 4.659273 
+
+    gofstat(list(fdanish.P.MLE, fdanish.P.MME))
+    #> Goodness-of-fit statistics
+    #>                              1-mle-pareto 2-mme-pareto
+    #> Kolmogorov-Smirnov statistic    0.3124174    0.3700154
+    #> Cramer-von Mises statistic     37.7226866   55.4266567
+    #> Anderson-Darling statistic    208.3387883  281.5838880
+    #> 
+    #> Goodness-of-fit criteria
+    #>                                1-mle-pareto 2-mme-pareto
+    #> Akaike's Information Criterion     9249.666     9408.535
+    #> Bayesian Information Criterion     9261.029     9419.897
+
+    cdfcomp(list(fdanish.P.MLE, fdanish.P.MME), 
+            legend = c("Pareto MLE", "Pareto MME"),
+            main = "MLE vs. MME", 
+            xlogscale = TRUE, 
+            datapch = 20)
+    ```
+
+    -   AIC and BIC like the MLE for a better overall fit, but given that this is reinsurance loss data, the fit on the right tail is probably what is paramount.
+    -   Logging the X-Axis allows you to distinguish the two fits since they're quite similar on the standard scale. If you were to zoom-in on the right tail, it would show that the MME estimate provides the better fit in that area.
+    :::
 
 ## Poisson {#sec-distr-poisson .unnumbered}
 
