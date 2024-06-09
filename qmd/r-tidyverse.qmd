@@ -152,17 +152,139 @@
 
 -   `reduce`
 
-    ``` r
-    react_tbl_list <- list(react_dd_heat, 
-                           avg_covid_icu_hist, 
-                           avg_covid_hosp_hist, 
-                           avg_total_inpat_beds_hist)
+    -   [Example 1]{.ribbon-highlight}: Recursively join dataframes
 
-    react_tab_final <- 
-      purrr::reduce(react_tbl_list, 
-                    left_join, 
-                    by = "hospital_name")
-    ```
+        ``` r
+        react_tbl_list <- list(react_dd_heat, 
+                               avg_covid_icu_hist, 
+                               avg_covid_hosp_hist, 
+                               avg_total_inpat_beds_hist)
+
+        react_tab_final <- 
+          purrr::reduce(react_tbl_list, 
+                        left_join, 
+                        by = "hospital_name")
+        ```
+
+    -   [Example 2]{.ribbon-highlight}: Recursively layer geoms ([article](https://yjunechoe.github.io/posts/2020-12-13-collapse-repetitive-piping-with-reduce/?panelset=method-1))
+
+        ``` r
+        viridis_colors <- viridis::viridis(10)
+
+        # old
+        # mtcars %>% 
+        #   ggplot(aes(hp, mpg)) +
+        #   geom_point(size = 10, color = viridis_colors[5]) +
+        #   geom_point(size = 8, color = viridis_colors[4]) +
+        #   geom_point(size = 6, color = viridis_colors[3]) +
+        #   geom_point(size = 4, color = viridis_colors[2]) +
+        #   geom_point(size = 2, color = viridis_colors[1]) +
+        #   scale_x_discrete(expand = expansion(.2)) +
+        #   scale_y_continuous(expand = expansion(.2)) +
+        #   theme_void() +
+        #   theme(panel.background = element_rect(fill = "grey20"))
+
+        # new
+        reduce(
+            5L:1L,
+            ~ .x + geom_point(size = .y * 2, color = viridis_colors[.y]),
+
+            .init = mtcars %>% 
+              ggplot(aes(hp, mpg)) +
+              scale_x_discrete(expand = expansion(.2)) +
+              scale_y_continuous(expand = expansion(.2)) +
+              theme_void() +
+              theme(panel.background = element_rect(fill = "grey20"))
+
+        )
+        ```
+
+        -   [.x]{.arg-text} seems like it's the code that's recursively returned and [.y]{.arg-text} is the new value from the iterable with iterable values being inputted from left to right.
+        -   The order of ggplot calls doesn't matter. See methods 2 and 3 in the article for solutions to situations when you want to place `reduce` at a specific place within a chain of code
+        -   The output of this is one chart with mulitple sized dots layered on top of each other. It's a sort of tree ring effect on the dots of a scatterplot.
+
+-   `reduce2`
+
+    -   Same as reduce but takes two iterables as arguments
+
+    -   [Example]{.ribbon-highlight}: Individually style columns in a kable table ([article](https://yjunechoe.github.io/posts/2020-12-13-collapse-repetitive-piping-with-reduce/?panelset=method-1))
+
+        ``` r
+        # using reduce
+        # numbers <- 3:5
+        # background_colors <- c("skyblue", "forestgreen", "chocolate")
+        # 
+        # (mtcars %>% 
+        #   head() %>% 
+        #   kbl() %>% 
+        #   kable_classic(html_font = "Roboto")) %>% 
+        #   reduce(
+        #     1:3,
+        #     ~ .x %>% column_spec(numbers[.y], background = background_colors[.y]),
+        #     .init = .
+        #   )
+
+        (mtcars %>% 
+          head() %>% 
+          kbl() %>% 
+          kable_classic(html_font = "Roboto")) %>% 
+          reduce2(
+            3:5,                                           # 1st varying argument (represented by ..2)
+            c("skyblue", "forestgreen", "chocolate"),      # 2nd varying argument (represented by ..3)
+            ~ ..1 %>% column_spec(..2, background = ..3),
+            .init = .
+          )
+        ```
+
+        -   [..1]{.arg-text} is like the [.x]{.arg-text} and [..2]{.arg-text} is like the [.y]{.arg-text} from `reduce`. The only new part is [..3]{.arg-text} which refers to the second varying argument.
+
+-   `accumulate`
+
+    -   It's like `reduce`, except instead of returning a single value which is the output of the very last function call, it keeps all intermediate values and returns them in a list.
+
+    -   [Example]{.ribbon-highlight}: ([article](https://yjunechoe.github.io/posts/2020-12-13-collapse-repetitive-piping-with-reduce/?panelset=method-1))
+
+        ``` r
+        plots <- (mtcars %>% 
+          ggplot(aes(hp, mpg)) +
+          scale_x_discrete(expand = expansion(.2)) +
+          scale_y_continuous(expand = expansion(.2)) +
+          theme_void() +
+          theme(panel.background = element_rect(fill = "grey20"))) %>% 
+          accumulate(
+            10L:1L,
+            ~ .x + geom_point(size = .y ^ 1.5, color = viridis_colors[.y]),
+            .init = .
+          )
+
+        for (i in plots) { plot(i) }
+        ```
+
+        -   Variation of Example 2 in the `reduce` section
+
+        -   Unlike `reduce` where the output was one plot, `accumulate` outputs a list of plots. One for each value of the iterable.
+
+-   `accumulate2`
+
+    -   It's like `reduce2`, except instead of returning a single value which is the output of the very last function call, it keeps all intermediate values and returns them in a list.
+
+    -   [Example]{.ribbon-highlight}: ([article](https://yjunechoe.github.io/posts/2020-12-13-collapse-repetitive-piping-with-reduce/?panelset=method-1))
+
+        ``` r
+        tables <- mtcars %>% 
+          head() %>% 
+          kbl() %>% 
+          kable_classic(html_font = "Roboto") %>% 
+          kable_styling(full_width = FALSE) %>% # Added to keep aspect ratio constant when saving
+          accumulate2(
+            1:(length(mtcars)+1),                                          
+            viridis::viridis(length(mtcars)+1),  
+            ~ column_spec(..1, ..2, background = ..3, color = if(..2 < 5){"white"}),
+            .init = .
+          )
+        ```
+
+        -   Produces a table for each individually styled column and stores them all in a list.
 
 -   `compose` - Sequentially apply functions
 
