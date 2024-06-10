@@ -200,6 +200,119 @@
     listr::list_remove
     ```
 
+-   Filter row index before/after a condition
+
+    -   [Example 1]{.ribbon-highlight}: Find flights that departed after an "AA" flight departed ([article](https://yjunechoe.github.io/posts/2023-06-11-row-relational-operations/))
+
+        ``` r
+        flights_df |> 
+          select(dep_time, flight, carrier) |> 
+          arrange(dep_time) |> 
+          slice(
+            unique(sort(c(
+              which(carrier == "AA"),
+              which(carrier == "AA") + 1
+            )))
+          )
+        ```
+
+        -   `which(carrier == "AA")` isn't strictly necessary. It also includes AA flight that is proceded by the flight we're looking for in case that's something you also want to look at.
+        -   Without `sort`, the output row order will have those *strictly unnecessary* AA flights first, then the flights we're interested instead of them being in order of departure time. `c` will contanenate the row indexes outputted by the `which` functions and sort will order them. This will result in the order being by departure time.
+        -   There's a duplicate row, so `unique` gets rid of it.
+
+    -   [Example 2]{.ribbon-highlight}: Get countries that are immediately before and after Germany in GDP for each year ([article](https://yjunechoe.github.io/posts/2023-06-11-row-relational-operations/#filter-and-encode-neighboring-rows))\
+        ![](_resources/R-Snippets.resources/clean-slice-ex2-1.png){.lightbox width="382"}
+
+        ``` r
+        gdp_dat <- gapminder_df |> 
+          group_by(year) |> 
+          arrange(gdpPercap) |> 
+          slice(as.integer(outer(-1:1, 
+                                 which(country == "Germany"), 
+                                 `+` ))) |> 
+          # for ordering columns in plot
+          mutate(grp = forcats::fct_inorder(c("lo", "is", "hi"))) |> 
+          # Ungroup and make ggplot
+          ungroup()
+        ```
+
+        -   \* This assumes Germany will always have a country above and below it in GDP. See article for more robust code \*
+
+        -   Instead using the syntax in the previous example where 1 is added to the index, `outer` is used so that you don't have to repeat a bunch of `which` statements.
+
+            -   [-1:1]{.arg-text} gets the rows before, after, and including the Germany row.
+            -   `outer` with `+` stacks the vectors of indexes from each which statment on top of each other into a matrix
+            -   `as.integer` coerces the matrix into a vector so `slice` can filter the indexes.
+
+        -   Chart code
+
+            <Details>
+
+            <Summary>Code</Summary>
+
+            ``` r
+            ggplot(gdp_dat, 
+                   aes(as.factor(year), 
+                       gdpPercap, 
+                       group = grp)) +
+              geom_col(aes(fill = grp == "is"), position = position_dodge()) +
+              geom_text(
+                aes(label = country_code),
+                vjust = 1.3,
+                position = position_dodge(width = .9)
+              ) +
+              scale_fill_manual(
+                values = c("grey75", "steelblue"),
+                guide = guide_none()
+              ) +
+              theme_classic() +
+              labs(x = "Year", y = "GDP per capita")
+            ```
+
+            </Details>
+
+## Transformations {#sec-r-snippets-trans .unnumbered}
+
+-   Dummy Encode ([article](https://yjunechoe.github.io/posts/2020-12-13-collapse-repetitive-piping-with-reduce/?panelset=method-1#example-3-dplyr))
+    -   Some modeling packages don't accept factor variables and dummies must be explicitly provided.
+
+    -   dplyr
+
+        ``` r
+        penguins_explicit <- 
+          reduce(
+            levels(penguins$species)[-1],
+            ~ mutate(.x, !!paste0("species", .y) := as.integer(species == .y)),
+            .init = penguins
+          )
+        ```
+
+        -   [.x]{.arg-text} provides the [.init]{.arg-text} tibble and the successively recursed tibbles
+
+        -   To get a feel for what's happening, here's a simple illustration of the tidyevall bang-bang syntax plus walrus operator
+
+            ``` r
+            new_cols <- c("a", "b", "c")
+            # add 3 cols called a,b,c with NAs
+            mtcars %>% 
+              head() %>% 
+              select(mpg) %>% 
+              mutate(!!new_cols[1] := NA) %>% 
+              mutate(!!new_cols[2] := NA) %>% 
+              mutate(!!new_cols[3] := NA)
+            ```
+
+    -   data.table
+
+        ``` r
+        penguins_dt <- as.data.table(penguins)
+
+        treatment_lvls <- levels(penguins_dt$species)[-1]
+        treatment_cols <- paste0("species", treatment_lvls)
+
+        penguins_dt[, (treatment_cols) := lapply(treatment_lvls, function(x){as.integer(species == x)})][]
+        ```
+
 ## Functions {#sec-r-snippets-func .unnumbered}
 
 -   ggplot
@@ -342,6 +455,58 @@
         cat("Number of months using base R:", round(months_diff_base, 2), "\n")
         #> Number of months using base R: 18.1 
         ```
+-   Moving Windows
+    -   [Example]{.ribbon-highlight} ([article](https://yjunechoe.github.io/posts/2023-06-11-row-relational-operations/#windowed-minmaxmedian-etc.))
+        -   For each 3 day window:
+
+            -   Find the minimum value
+            -   Find the time of the minimum value
+            -   Find the value of two other columns at that time of the minimum value
+
+        -   Code
+
+            ``` r
+            (ts_df <- tibble(
+              time = 1:6,
+              val = sample(1:6 * 10), 
+              col1 = rnorm(6),
+              col2 = rnorm(6)
+            ))
+            #> # A tibble: 6 × 4
+            #>    time   val   col1   col2
+            #>   <int> <dbl>  <dbl>  <dbl>
+            #> 1     1    10 -0.529  0.928
+            #> 2     2    30  0.874 -0.967
+            #> 3     3    60  1.50   1.49 
+            #> 4     4    40 -1.14   0.575
+            #> 5     5    20  0.114  0.307
+            #> 6     6    50 -0.712 -0.291
+
+            moving_mins <- ts_df |> 
+              slice(
+                outer(-2:0, row_number(), "+")[,-(1:2)] |> 
+                  apply(MARGIN = 2L, \(i) i[which.min(val[i])])
+              ) |> 
+              rename_with(~ paste0("min3val_", .x)) |> 
+              mutate(time = ts_df$time[-(1:2)])
+
+            left_join(ts_df, moving_mins, by = "time")
+            #>    time   val   col1   col2 min3val_time min3val_val min3val_col1 min3val_col2
+            #>   <int> <dbl>  <dbl>  <dbl>        <int>       <dbl>        <dbl>        <dbl>
+            #> 1     1    10 -0.529  0.928           NA          NA       NA           NA    
+            #> 2     2    30  0.874 -0.967           NA          NA       NA           NA    
+            #> 3     3    60  1.50   1.49             1          10       -0.529        0.928
+            #> 4     4    40 -1.14   0.575            2          30        0.874       -0.967
+            #> 5     5    20  0.114  0.307            5          20        0.114        0.307
+            #> 6     6    50 -0.712 -0.291            5          20        0.114        0.307
+            ```
+
+            -   See article for in-depth breakdown of what the code is doing.
+            -   `outer` creates a column-wise lagged matrix
+                -   Also see [Cleaning](r-snippets.qmd#sec-r-snippets-cleaning){style="color: green"} \>\> Filter row index before/after a condition \>\> Example 2 which gives more detail on what's happening with `outer`
+            -   `apply` loops through each column and selects the index of the minimum value
+            -   `slice` filters the dateset for those indexes
+            -   Everything else is just adding columns back from the original df
 
 #### [{lubridate}]{style="color: #990000"}
 
