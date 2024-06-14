@@ -887,12 +887,15 @@
 ## Vetiver {#sec-mlops-targets-vetr .unnumbered}
 
 -   Misc
+
     -   [Docs](https://vetiver.rstudio.com/)
 
     -   Available in Python
 
         ![](_resources/MLOps.resources/vetiver-py-ref-1.png){.lightbox width="432"}
+
 -   Helps with 3 aspects of MLOps
+
     -   Versioning
         -   Keeps track of metadata
         -   Helpful during retraining
@@ -900,25 +903,48 @@
         -   Utilizes REST APIs to serve models
     -   Monitoring
         -   Tracks model performance
+
+-   Fit Workflow Object
+
+    ``` r
+    model <- 
+      recipe(species ~ island + flipper_length_mm + body_mass_g,
+        data = penguins_data) |>
+      workflow(nearest_neighbor(mode = "classification")) |>
+      fit(penguins_data)
+    ```
+
+-   Create a Vetiver Model Object
+
+    ``` r
+    v_model <- 
+      vetiver::vetiver_model(model,
+        model_name = "k-nn",
+        description = "hyperparam-update-4")
+    v_model
+    #> 
+    #> ── k-nn ─ <bundled_workflow> model for deployment 
+    #> hyperparam-update-4 using 3 features
+    ```
+
 -   Versioning
+
     -   Write model to a {pins} board (storage)
 
         ``` r
-        library(pins)
-        board <- board_connect()
-        board %>% vetiver_pin_write(v)
+        board <- pins::board_connect()
+        board %>% vetiver_pin_write(v_model)
         ```
 
         -   `board_*` has many options including the major cloud providers
             -   Here "connect" stands for Posit Connect
-        -   "v" is a {tidymodels} workflow obj
 
     -   Create a REST API
 
         ``` r
         library(plumber)
         pr() %>%
-          vetiver_api(v)
+          vetiver_api(v_model)
         #> # Plumber router with 2 endpoints, 4 filters, and 1 sub-router.
         #> # Use `pr_run()` on this object to start the API.
         #> ├──[queryString]
@@ -934,7 +960,50 @@
 
         -   Then next step is pipe this into `pr_run()` to start the API locally
         -   Helpful for development or debugging
+
+    -   Test
+
+        -   Deploy locally
+
+            ``` r
+            pr() %>%
+              vetiver_api(v_model) |> 
+              pr_run()
+            ```
+
+            -   When you run the code, a browser window will likely open. If it doesn’t simply navigate to `http://127.0.0.1:7764/__docs__/`
+
+        -   Ping API
+
+            ``` r
+            base_url <- "127.0.0.1:7764/"
+            url <- paste0(base_url, "ping")
+            r <- httr::GET(url)
+            metadata <- httr::content(r, as = "text", encoding = "UTF-8")
+            jsonlite::fromJSON(metadata)
+
+            #> $status
+            #> [1] "online"
+            #> 
+            #> $time
+            #> [1] "2024-05-27 17:15:39"
+            ```
+
+        -   Test `predict` endpoint
+
+            ``` r
+            url <- paste0(base_url, "predict")
+            endpoint <- vetiver::vetiver_endpoint(url)
+            pred_data <- penguins_data |>
+             dplyr::select("island", "flipper_length_mm", "body_mass_g") |>
+             dplyr::slice_sample(n = 10)
+            predict(endpoint, pred_data)
+            ```
+
+            -   The API also has endpoints [metadata]{.arg-text} and [pin-url]{.arg-text}
+
 -   Deploy
+
     -   Posit Connect has a 1-liner: `vetiver_deploy_rsconnect()`
 
     -   Create a docker file
@@ -944,7 +1013,9 @@
         ```
 
         -   Creates a docker file, renv.lock file, and plumber app that can be uploaded and deployed anywhere (e.g. AWS, GCP, digitalocean)
+
 -   Monitor
+
     -   Write metrics to storage
 
         ``` r
