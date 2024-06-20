@@ -20,6 +20,40 @@ ul.task-list li input[type="checkbox"] {
   margin: 0 0.8em 0.2em -1em; /* quarto-specific, see https://github.com/quarto-dev/quarto-cli/issues/4556 */ 
   vertical-align: middle;
 }
+/* CSS for syntax highlighting */
+pre > code.sourceCode { white-space: pre; position: relative; }
+pre > code.sourceCode > span { line-height: 1.25; }
+pre > code.sourceCode > span:empty { height: 1.2em; }
+.sourceCode { overflow: visible; }
+code.sourceCode > span { color: inherit; text-decoration: inherit; }
+div.sourceCode { margin: 1em 0; }
+pre.sourceCode { margin: 0; }
+@media screen {
+div.sourceCode { overflow: auto; }
+}
+@media print {
+pre > code.sourceCode { white-space: pre-wrap; }
+pre > code.sourceCode > span { text-indent: -5em; padding-left: 5em; }
+}
+pre.numberSource code
+  { counter-reset: source-line 0; }
+pre.numberSource code > span
+  { position: relative; left: -4em; counter-increment: source-line; }
+pre.numberSource code > span > a:first-child::before
+  { content: counter(source-line);
+    position: relative; left: -1em; text-align: right; vertical-align: baseline;
+    border: none; display: inline-block;
+    -webkit-touch-callout: none; -webkit-user-select: none;
+    -khtml-user-select: none; -moz-user-select: none;
+    -ms-user-select: none; user-select: none;
+    padding: 0 4px; width: 4em;
+  }
+pre.numberSource { margin-left: 3em;  padding-left: 4px; }
+div.sourceCode
+  {   }
+@media screen {
+pre > code.sourceCode > span > a:first-child::before { text-decoration: underline; }
+}
 </style>
 
 
@@ -1990,6 +2024,7 @@ window.Quarto = {
   <li><a href="#sec-diag-fcast-misc" id="toc-sec-diag-fcast-misc" class="nav-link active" data-scroll-target="#sec-diag-fcast-misc">Misc</a></li>
   <li><a href="#metrics" id="toc-metrics" class="nav-link" data-scroll-target="#metrics">Metrics</a></li>
   <li><a href="#sec-diag-fcast-prob" id="toc-sec-diag-fcast-prob" class="nav-link" data-scroll-target="#sec-diag-fcast-prob">Probabilistic</a></li>
+  <li><a href="#sec-diag-fcast-tests" id="toc-sec-diag-fcast-tests" class="nav-link" data-scroll-target="#sec-diag-fcast-tests">Tests</a></li>
   </ul>
 </nav>
     </div>
@@ -2088,6 +2123,78 @@ window.Quarto = {
 <li><code>fabletools::accuracy</code></li>
 <li>Measures how well a forecast is covered by the prediction intervals (PI)</li>
 <li>See notebook (pg 172)</li>
+</ul></li>
+</ul>
+</section>
+<section id="sec-diag-fcast-tests" class="level2 unnumbered">
+<h2 class="unnumbered anchored" data-anchor-id="sec-diag-fcast-tests">Tests</h2>
+<ul>
+<li><u>Diebold-Mariano</u>
+<ul>
+<li><p>Tests whether two methods have the same forecast accuracy</p></li>
+<li><p>Formula (<a href="https://real-statistics.com/time-series-analysis/forecasting-accuracy/diebold-mariano-test/">source</a>)</p>
+<p><span class="math display">\[
+\begin{aligned}
+&amp;\text{DM} = \frac{\bar d}{\sqrt{\frac{\gamma_0 + 2 \sum_{k=1}^{h-1}\gamma_k}{n}}} \\
+&amp;\begin{aligned}
+\text{where} \quad \bar d &amp;= \frac{1}{n} \sum_{i=1}^n d_i \\
+             \gamma_k &amp;= \frac{1}{n} \sum_{i=k+1}^n (d_i - \bar d)(d_{i-k} - \bar d)
+\end{aligned}
+\end{aligned}
+\]</span></p>
+<ul>
+<li><span class="math inline">\(d_i\)</span>: Loss Differential
+<ul>
+<li>For MSE, <span class="math inline">\(d_i = r_{i, 1}^2 - r_{i, 2}^2\)</span></li>
+<li>For MAE, <span class="math inline">\(d_i = |r_{i, 1}| - |r_{i, 2}|\)</span></li>
+<li>Where <span class="math inline">\(r_{i,1}\)</span> are the residuals of model 1 and <span class="math inline">\(r_{i,2}\)</span> are the residuals for model 2</li>
+</ul></li>
+<li><span class="math inline">\(\gamma_k\)</span>: Autocovariance at lag <span class="math inline">\(k\)</span>
+<ul>
+<li>Approximated using ACF or Bartlett weights</li>
+</ul></li>
+</ul></li>
+<li><p>Assumes <span class="math inline">\(\text{DM} \sim \mathcal{N}(0,1)\)</span> for <span class="math inline">\(\mu = \mathbb{E}[d_i] = 0\)</span> (i.e.&nbsp;loss-differential is stationary), so it’s a z-stat</p>
+<ul>
+<li>The DM statistic for the MASE has been empirically shown to approximate this distribution, while the mean relative absolute error (MRAE), MAPE and sMAPE do not. (<a href="https://en.wikipedia.org/wiki/Mean_absolute_scaled_error#Rationale">wiki</a>)</li>
+</ul></li>
+<li><p>“Tends to reject the null hypothesis too often for small samples” (<a href="https://real-statistics.com/time-series-analysis/forecasting-accuracy/diebold-mariano-test/">source</a>). So Harvey, Leybourne and Newbold (1997) proposed a modified version</p>
+<p><span class="math display">\[
+DM_{\text{adj}} = \text{DM} \cdot \sqrt{\frac{n+1-2h+h(h-1)}{n}}
+\]</span></p></li>
+<li><p><span class="ribbon-highlight">Example</span>: <span style="color: #990000">{forecast}</span> <a href="https://pkg.robjhyndman.com/forecast/reference/dm.test.html">docs</a></p>
+<div class="sourceCode" id="cb1"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb1-1"><a href="#cb1-1" aria-hidden="true" tabindex="-1"></a><span class="co"># Test on out-of-sample one-step forecasts</span></span>
+<span id="cb1-2"><a href="#cb1-2" aria-hidden="true" tabindex="-1"></a>f1 <span class="ot">&lt;-</span> <span class="fu">ets</span>(WWWusage[<span class="dv">1</span><span class="sc">:</span><span class="dv">80</span>])</span>
+<span id="cb1-3"><a href="#cb1-3" aria-hidden="true" tabindex="-1"></a>f2 <span class="ot">&lt;-</span> <span class="fu">auto.arima</span>(WWWusage[<span class="dv">1</span><span class="sc">:</span><span class="dv">80</span>])</span>
+<span id="cb1-4"><a href="#cb1-4" aria-hidden="true" tabindex="-1"></a>f1.out <span class="ot">&lt;-</span> <span class="fu">ets</span>(WWWusage[<span class="dv">81</span><span class="sc">:</span><span class="dv">100</span>], <span class="at">model =</span> f1)</span>
+<span id="cb1-5"><a href="#cb1-5" aria-hidden="true" tabindex="-1"></a><span class="co">#&gt; Model is being refit with current smoothing parameters but initial states are being re-estimated.</span></span>
+<span id="cb1-6"><a href="#cb1-6" aria-hidden="true" tabindex="-1"></a><span class="co">#&gt; Set 'use.initial.values=TRUE' if you want to re-use existing initial values.</span></span>
+<span id="cb1-7"><a href="#cb1-7" aria-hidden="true" tabindex="-1"></a>f2.out <span class="ot">&lt;-</span> <span class="fu">Arima</span>(WWWusage[<span class="dv">81</span><span class="sc">:</span><span class="dv">100</span>], <span class="at">model =</span> f2)</span>
+<span id="cb1-8"><a href="#cb1-8" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb1-9"><a href="#cb1-9" aria-hidden="true" tabindex="-1"></a><span class="fu">accuracy</span>(f1.out)</span>
+<span id="cb1-10"><a href="#cb1-10" aria-hidden="true" tabindex="-1"></a><span class="co">#&gt;                     ME    RMSE      MAE       MPE     MAPE      MASE      ACF1</span></span>
+<span id="cb1-11"><a href="#cb1-11" aria-hidden="true" tabindex="-1"></a><span class="co">#&gt; Training set 0.2100836 3.24835 2.570459 0.1203497 1.352355 0.4246845 0.2287215</span></span>
+<span id="cb1-12"><a href="#cb1-12" aria-hidden="true" tabindex="-1"></a><span class="fu">accuracy</span>(f2.out)</span>
+<span id="cb1-13"><a href="#cb1-13" aria-hidden="true" tabindex="-1"></a><span class="co">#&gt;                    ME     RMSE      MAE       MPE     MAPE      MASE</span></span>
+<span id="cb1-14"><a href="#cb1-14" aria-hidden="true" tabindex="-1"></a><span class="co">#&gt; Training set 1.081679 3.329012 2.437119 0.6810673 1.375924 0.4026544</span></span>
+<span id="cb1-15"><a href="#cb1-15" aria-hidden="true" tabindex="-1"></a><span class="co">#&gt;                      ACF1</span></span>
+<span id="cb1-16"><a href="#cb1-16" aria-hidden="true" tabindex="-1"></a><span class="co">#&gt; Training set -0.004460367</span></span>
+<span id="cb1-17"><a href="#cb1-17" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb1-18"><a href="#cb1-18" aria-hidden="true" tabindex="-1"></a><span class="fu">dm.test</span>(<span class="fu">residuals</span>(f1.out), <span class="fu">residuals</span>(f2.out), <span class="at">h =</span> <span class="dv">1</span>)</span>
+<span id="cb1-19"><a href="#cb1-19" aria-hidden="true" tabindex="-1"></a><span class="co">#&gt; </span></span>
+<span id="cb1-20"><a href="#cb1-20" aria-hidden="true" tabindex="-1"></a><span class="co">#&gt;  Diebold-Mariano Test</span></span>
+<span id="cb1-21"><a href="#cb1-21" aria-hidden="true" tabindex="-1"></a><span class="co">#&gt; </span></span>
+<span id="cb1-22"><a href="#cb1-22" aria-hidden="true" tabindex="-1"></a><span class="co">#&gt; data:  residuals(f1.out)residuals(f2.out)</span></span>
+<span id="cb1-23"><a href="#cb1-23" aria-hidden="true" tabindex="-1"></a><span class="co">#&gt; DM = -0.14392, Forecast horizon = 1, Loss function power = 2, p-value =</span></span>
+<span id="cb1-24"><a href="#cb1-24" aria-hidden="true" tabindex="-1"></a><span class="co">#&gt; 0.8871</span></span>
+<span id="cb1-25"><a href="#cb1-25" aria-hidden="true" tabindex="-1"></a><span class="co">#&gt; alternative hypothesis: two.sided</span></span></code><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></pre></div>
+<ul>
+<li>Uses Harvey, Leybourne and Newbold (1997) proposed a modified version</li>
+<li><span class="arg-text">alternative=“less”</span> - The alternative hypothesis is that method 2 is less accurate than method 1</li>
+<li><span class="arg-text">alternative=“greater”</span> - The alternative hypothesis is that method 2 is more accurate than method 1</li>
+<li><span class="arg-text">alternative=“two.sided”</span> (default) - The alternative hypothesis is that method 1 and method 2 have different levels of accuracy</li>
+<li><span class="arg-text">varestimator = “acf”</span> (default) or <span class="arg-text">“bartlett”</span>: Autocovariance estimation</li>
+</ul></li>
 </ul></li>
 </ul>
 
@@ -2536,7 +2643,7 @@ window.document.addEventListener("DOMContentLoaded", function (event) {
     </div>
   </div>
 </footer>
-<script>var lightboxQuarto = GLightbox({"selector":".lightbox","loop":false,"descPosition":"bottom","openEffect":"zoom","closeEffect":"zoom"});
+<script>var lightboxQuarto = GLightbox({"descPosition":"bottom","openEffect":"zoom","closeEffect":"zoom","selector":".lightbox","loop":false});
 window.onload = () => {
   lightboxQuarto.on('slide_before_load', (data) => {
     const { slideIndex, slideNode, slideConfig, player, trigger } = data;
