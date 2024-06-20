@@ -47,3 +47,73 @@
     -   `fabletools::accuracy`
     -   Measures how well a forecast is covered by the prediction intervals (PI)
     -   See notebook (pg 172)
+
+## Tests {#sec-diag-fcast-tests .unnumbered}
+
+-   [Diebold-Mariano]{.underline}
+    -   Tests whether two methods have the same forecast accuracy
+
+    -   Formula ([source](https://real-statistics.com/time-series-analysis/forecasting-accuracy/diebold-mariano-test/))
+
+        $$
+        \begin{aligned}
+        &\text{DM} = \frac{\bar d}{\sqrt{\frac{\gamma_0 + 2 \sum_{k=1}^{h-1}\gamma_k}{n}}} \\
+        &\begin{aligned}
+        \text{where} \quad \bar d &= \frac{1}{n} \sum_{i=1}^n d_i \\
+                     \gamma_k &= \frac{1}{n} \sum_{i=k+1}^n (d_i - \bar d)(d_{i-k} - \bar d)
+        \end{aligned}
+        \end{aligned}
+        $$
+
+        -   $d_i$: Loss Differential
+            -   For MSE, $d_i = r_{i, 1}^2 - r_{i, 2}^2$
+            -   For MAE, $d_i = |r_{i, 1}| - |r_{i, 2}|$
+            -   Where $r_{i,1}$ are the residuals of model 1 and $r_{i,2}$ are the residuals for model 2
+        -   $\gamma_k$: Autocovariance at lag $k$
+            -   Approximated using ACF or Bartlett weights
+
+    -   Assumes $\text{DM} \sim \mathcal{N}(0,1)$ for $\mu = \mathbb{E}[d_i] = 0$ (i.e. loss-differential is stationary), so it's a z-stat
+
+        -   The DM statistic for the MASE has been empirically shown to approximate this distribution, while the mean relative absolute error (MRAE), MAPE and sMAPE do not. ([wiki](https://en.wikipedia.org/wiki/Mean_absolute_scaled_error#Rationale))
+
+    -   "Tends to reject the null hypothesis too often for small samples" ([source](https://real-statistics.com/time-series-analysis/forecasting-accuracy/diebold-mariano-test/)). So Harvey, Leybourne and Newbold (1997) proposed a modified version
+
+        $$
+        DM_{\text{adj}} = \text{DM} \cdot \sqrt{\frac{n+1-2h+h(h-1)}{n}}
+        $$
+
+    -   [Example]{.ribbon-highlight}: [{forecast}]{style="color: #990000"} [docs](https://pkg.robjhyndman.com/forecast/reference/dm.test.html)
+
+        ``` r
+        # Test on out-of-sample one-step forecasts
+        f1 <- ets(WWWusage[1:80])
+        f2 <- auto.arima(WWWusage[1:80])
+        f1.out <- ets(WWWusage[81:100], model = f1)
+        #> Model is being refit with current smoothing parameters but initial states are being re-estimated.
+        #> Set 'use.initial.values=TRUE' if you want to re-use existing initial values.
+        f2.out <- Arima(WWWusage[81:100], model = f2)
+
+        accuracy(f1.out)
+        #>                     ME    RMSE      MAE       MPE     MAPE      MASE      ACF1
+        #> Training set 0.2100836 3.24835 2.570459 0.1203497 1.352355 0.4246845 0.2287215
+        accuracy(f2.out)
+        #>                    ME     RMSE      MAE       MPE     MAPE      MASE
+        #> Training set 1.081679 3.329012 2.437119 0.6810673 1.375924 0.4026544
+        #>                      ACF1
+        #> Training set -0.004460367
+
+        dm.test(residuals(f1.out), residuals(f2.out), h = 1)
+        #> 
+        #>  Diebold-Mariano Test
+        #> 
+        #> data:  residuals(f1.out)residuals(f2.out)
+        #> DM = -0.14392, Forecast horizon = 1, Loss function power = 2, p-value =
+        #> 0.8871
+        #> alternative hypothesis: two.sided
+        ```
+
+        -   Uses Harvey, Leybourne and Newbold (1997) proposed a modified version
+        -   [alternative="less"]{.arg-text} - The alternative hypothesis is that method 2 is less accurate than method 1
+        -   [alternative="greater"]{.arg-text} - The alternative hypothesis is that method 2 is more accurate than method 1
+        -   [alternative="two.sided"]{.arg-text} (default) - The alternative hypothesis is that method 1 and method 2 have different levels of accuracy
+        -   [varestimator = "acf"]{.arg-text} (default) or ["bartlett"]{.arg-text}: Autocovariance estimation
