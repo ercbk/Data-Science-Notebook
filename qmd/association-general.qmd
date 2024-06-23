@@ -367,7 +367,7 @@
     -   Calculates the % difference in prediction error after fitting a decision tree between two variables of interest and the mean (numeric) or most frequent (categorical)
     -   Function is available through a script
         -   [Article](https://rviews.rstudio.com/2021/04/15/an-alternative-to-the-correlation-coefficient-that-works-for-numeric-and-categorical-variables/) with documentation and usage
-        -   See R \>\> Code \>\> statistical-testing \>\> correlation
+        -   See R \>\> Code \>\> Asscociation \>\> x2y-metric.R
     -   All x2y values where the y variable is continuous will be measuring a % reduction in MAE. All x2y values where the y variable is categorical will be measuring a % reduction in Misclassification Error. Is a 30% reduction in MAE equal to a 30% reduction in Misclassification Error? It is problem dependent, there's no universal right answer.
         -   On the other hand, since (1) all x2y values are on the same 0-100% scale (2) are conceptually measuring the same thing, i.e., reduction in prediction error and (3) our objective is to quickly scan and identify strongly-related pairs (rather than conduct an in-depth investigation), the x2y approach may be adequate.
     -   Not symmetric, but can average both scores to get a pseudo-symmetric value
@@ -378,182 +378,206 @@
 
 ## Nonlinear {#sec-assoc-gen-nonlin .unnumbered}
 
--   Misc
+### Misc {#sec-assoc-gen-nonlin-misc .unnumbered}
 
+-   Also see
+    -   Hoeffding’s D in [Continuous](association-general.qmd#sec-assoc-gen-cont){style="color: green"}
+    -   [General Additive Models \>\> Diagnostics](generalized-additive-models-(gam).qmd#sec-gam-diag){style="color: green"} for a method of determining a nonlinear relationship for either continuous or categorical outcomes.
+
+### ξ (xi) coefficient {#sec-assoc-gen-nonlin-zhi .unnumbered}
+
+-   Paper: [A New Coefficient of Correlation](https://arxiv.org/abs/1909.10140)
+-   Article: [Exploring the XI Correlation Coefficient](https://win-vector.com/2021/12/29/exploring-the-xi-correlation-coefficient/)
+-   Excels at oscillatory and highly non-monotonic dependencies
+-   `XICOR::xicor` - calculates ξ and performs a significance test (H0: independent)
+    -   `XICOR::calculateXI` just calculates the ξ coefficient
+-   Properties (value ranges; interpretation)
+    -   If y is a function of x, then ξ goes to 1 asymptotically as n (the number of data points, or the length of the vectors x and y) goes to Infinity.
+    -   If y and x are independent, then ξ goes to 0 asymptotically as n goes to Infinity.
+-   Values can be negative, but this negativity does not have any innate significance other than being close to zero
+-   n \> 20 necessary
+    -   n larger than about 250 probably sufficient to get a *good* estimate
+-   Fairly efficient, $O(n\log n)$, compared to some more powerful methods, which are $O(n^2)$
+-   It measures dependency in one direction only (is y dependent on x not vice versa)
+-   Doesn't tell you if the relationship is direct or inverse
+
+### Kernel-based Conditional Independence (KCI) Test and Independence Test {#sec-assoc-gen-nonlin-kern .unnumbered}
+
+-   Tests if x and y unconditionally independent or conditionally independent given z
+
+-   Kernels trasformations are convenient because underlying assumptions about variable distributions aren't necessary
+
+-   Notes from [Claude 3.5 Sonnet](https://claude.ai/chat/f0b1f0c6-cc80-4600-ad51-159dade97c58)
+
+-   Packages
+
+    -   [{{]{style="color: goldenrod"}[causal-learn::CIT](https://causal-learn.readthedocs.io/en/latest/independence_tests_index/kci.html){style="color: goldenrod"}[}}]{style="color: goldenrod"}
+        -   Kernel Options: Gaussian, Polynomial, and Regression
+            -   See [Algorithms, ML \>\> Support Vector Machines](algorithms-ml.qmdalgorithms-ml.html#sec-alg-ml-svm){style="color: green"} for kernel descriptions
+    -   [{{]{style="color: goldenrod"}[dowhy::independence_test](https://www.pywhy.org/dowhy/main/dowhy.gcm.independence_test.html#module-dowhy.gcm.independence_test){style="color: goldenrod"}[}}]{style="color: goldenrod"}
+        -   Uses the causal-learn implementation, but might have a nicer api and docs
+
+-   Steps
+
+    1.  Apply kernel to pairs of points inside each vector to get kernel matrices for each variable
+    2.  Calculate (unconditional) Hilbert-Schmidt Independence Criterion (HSIC) - Measures dependence between 2 random variables\
+        $$
+        \text{HSIC} = \frac{1}{n^2} \operatorname{Trace}(X_kHY_kH)
+        $$
+        -   $X_k$ and $Y_k$ are the kernel matrices from $X$ and $Y$
+        -   H is the centering matrix: $H = I - \frac{1}{n}11^T$
+            -   $11^T$ is a vector product between a row of 1s and a column of 1s which results in a $n \times n$ matrix of 1s
+        -   It's a lot more complicated for the conditional HSIC. Reminds me of how in using regression to calculate partial correlations, you regress out the conditioning variable (e.g. $z$) from both $x$ and $y$.
+    3.  The test statistic is $n \times \text{HSIC}$
+    4.  There are few different ways to compute the Null distribution (see link to Claude thread for details)
+        -   Permutation method (small data)
+        -   Approximation method using the Gamma distribution (large data)
+    5.  P-value is calculated
+        -   With the permutation method it will be a quantile of a distribution of test stats
+        -   With the Gamma approximation it will be a quantile of the CDF
+
+-   [Example]{.ribbon-highlight}: [source](https://github.com/raz1470/causal_ai/blob/main/notebooks/making%20causal%20discovery%20work%20in%20real%20world%20business%20settings.ipynb?source=post_page-----80e80c5f66b8--------------------------------)
+
+    ``` python
+    import numpy as np
+    import pandas as pd
+    import dowhy.gcm as gcm
+
+    np.random.seed(999)
+
+    # Create dataset with spurious correlation
+    temperature = np.random.normal(loc=0, scale=1, size=1000)
+    ice_cream_sales = 2.5 * temperature + np.random.normal(loc=0, scale=1, size=1000)
+    shark_attacks = 0.5 * temperature + np.random.normal(loc=0, scale=1, size=1000)
+    df_spurious = pd.DataFrame(data=dict(temperature=temperature, ice_cream_sales = ice_cream_sales, shark_attacks=shark_attacks))
+
+    # p-value
+    round(gcm.independence_test(ice_cream_sales, shark_attacks, conditioned_on=temperature), 2)
+    #> Out[5]: 0.49
+    ```
+
+    -   Accept Null Hypothesis: There is no association between ice cream sales and shark attacks
+
+### dcor {#sec-assoc-gen-nonlin-dcor .unnumbered}
+
+-   Distance covariance and distance correlation share a parallel with product-moment covariance and correlation.
+    -   Unlike the classical definition of correlation, a distance correlation is zero solely when the random vectors are independent.
+    -   The distance correlation can be used to evaluate both linear and nonlinear correlations between variables.
+    -   dcor is sensitive to outliers. (See Robust Versions section)
+        -   Even 1 outlier can have a significant effect
+-   Issue: Negative Covariance Values: The unbiased dcor calculation requires positive covariance values, since there's a square root in the calculation. This can be an issue for associations close to 0 (i.e. independence) and small sample sizes, because they can result in negative value estimates. Some package functions do not take the square root as a workaround. As a result, their values will not be bounded by \[0,1\]. (See below for solutions)
+-   [Misc]{.underline}
+    -   Notes from [Improved Distance Correlation Estimation](https://arxiv.org/abs/2405.01958)
     -   Also see
-        -   Hoeffding’s D in [Continuous](association-general.qmd#sec-assoc-gen-cont){style="color: green"}
-        -   [General Additive Models \>\> Diagnostics](generalized-additive-models-(gam).qmd#sec-gam-diag){style="color: green"} for a method of determining a nonlinear relationship for either continuous or categorical outcomes.
-
--   [ξ (xi) coefficient]{.underline}
-
-    -   Paper: [A New Coefficient of Correlation](https://arxiv.org/abs/1909.10140)
-    -   Article: [Exploring the XI Correlation Coefficient](https://win-vector.com/2021/12/29/exploring-the-xi-correlation-coefficient/)
-    -   Excels at oscillatory and highly non-monotonic dependencies
-    -   `XICOR::xicor` - calculates ξ and performs a significance test (H0: independent)
-        -   `XICOR::calculateXI` just calculates the ξ coefficient
-    -   Properties (value ranges; interpretation)
-        -   If y is a function of x, then ξ goes to 1 asymptotically as n (the number of data points, or the length of the vectors x and y) goes to Infinity.
-        -   If y and x are independent, then ξ goes to 0 asymptotically as n goes to Infinity.
-    -   Values can be negative, but this negativity does not have any innate significance other than being close to zero
-    -   n \> 20 necessary
-        -   n larger than about 250 probably sufficient to get a *good* estimate
-    -   Fairly efficient, $O(n\log n)$, compared to some more powerful methods, which are $O(n^2)$
-    -   It measures dependency in one direction only (is y dependent on x not vice versa)
-    -   Doesn't tell you if the relationship is direct or inverse
-
--   [Kernel-based Conditional Independence (KCI) Test and Independence Test]{.underline}
-
-    -   Tests if x and y unconditionally independent or conditionally independent given z
-
-    -   Kernels trasformations are convenient because underlying assumptions about variable distributions aren't necessary
-
-    -   Notes from [Claude 3.5 Sonnet](https://claude.ai/chat/f0b1f0c6-cc80-4600-ad51-159dade97c58)
-
+        -   [Mathematics, Statistics \>\> Permutation Testing](mathematics-statistics.qmd#sec-math-stat-perm){style="color: green"} \>\> Example 2
+            -   Code for getting a p-value for a dcor
     -   Packages
+        -   [{]{style="color: #990000"}[dcortools](https://cran.r-project.org/web/packages/dcortools/index.html){style="color: #990000"}[}]{style="color: #990000"} - Tons of options; Can use [{RFast}]{style="color: #990000"} for calculations
+            -   `distcor(X, Y)` - dCorV, Biased Distance Correlation
 
-        -   [{{]{style="color: goldenrod"}[causal-learn::CIT](https://causal-learn.readthedocs.io/en/latest/independence_tests_index/kci.html){style="color: goldenrod"}[}}]{style="color: goldenrod"}
-            -   Kernel Options: Gaussian, Polynomial, and Regression
-                -   See [Algorithms, ML \>\> Support Vector Machines](algorithms-ml.qmdalgorithms-ml.html#sec-alg-ml-svm){style="color: green"} for kernel descriptions
-        -   [{{]{style="color: goldenrod"}[dowhy::independence_test](https://www.pywhy.org/dowhy/main/dowhy.gcm.independence_test.html#module-dowhy.gcm.independence_test){style="color: goldenrod"}[}}]{style="color: goldenrod"}
-            -   Uses the causal-learn implementation, but might have a nicer api and docs
+            -   `distcor(X, Y, bias.corr = T)` - dCorU, Unbiased Distance Correlation\
+                $$
+                \mbox{dCorU} = \mbox{sign}(\mbox{dCorU}^2)\sqrt{|\mbox{dCorU}^2|}
+                $$
 
-    -   Steps
+                -   This is how this package gets around the negative covariance issue. It was used in the paper for comparisons, so I guess it's valid.
+        -   [{]{style="color: #990000"}[energy](https://mariarizzo.github.io/energy/){style="color: #990000"}[}]{style="color: #990000"} - Also has partial covariance, correlation functions
+            -   `dcov` - Biased Distance Covariance
+            -   `dcor` - dCorV, Biased Distance Correlation
+            -   `dcovU` - Squared, Unbiased Distance Covariance
+            -   `bcdcor` - Squared, Unbiased Distance Correlation
+        -   [{]{style="color: #990000"}[Rfast](https://cran.r-project.org/web/packages/Rfast/index.html){style="color: #990000"}[}]{style="color: #990000"} Implements `dvar`, `dcov`, `dcor`, and `bcdcor`
+        -   [{]{style="color: #990000"}[dccpp](https://dccpp.berrisch.biz/){style="color: #990000"}[}]{style="color: #990000"} - Fast computation of the distance covariance, dcov, and distance correlation, dcor. Written in C++.
+            -   This is a relatively new package and it's unclear from the documentation whether biased or unbiased versions of the correlation/covariance are used. So, you'd need to compare results with other packages.
+        -   [{{]{style="color: goldenrod"}[dcor](https://dcor.readthedocs.io/en/latest/?badge=latest){style="color: goldenrod"}[}}]{style="color: goldenrod"} - Implements the biased distance covariance, correlation and squared unbiased distance covariance and correlation. Also has partial covariance, correlation functions.
+-   [Guidelines]{.underline}
+    -   Unless using a squared version (e.g. [{energy::bcdcor}]{style="color: #990000"}), values are between 0 and 1 where 0 means indpendence and 1 means perfect association.
+    -   For variables that are independent, dCorU is preferable over dCorV, and the truncated version generally provides better detection.
+    -   For variables that are dependent
+        -   Linear: dCorV estimator aligns with the best results in terms of MSE (Farlie-GumbelMorgenstern (FGM) copula and bivariate normal).
+        -   Nonlinear: dCorU estimator provides better estimates, however the differences are not relevant. The optimal estimator appeared to be dCorU(A), especially in cases of weak dependence.\
+    -   Computation Time: dCorU and dCorV are similar.
+    -   Instead of choosing one or the other, use a linear combination. It gives better results than using only dCorU or dCorV.
+        -   Estimating the parameter $\lambda_0$ (weight) via smoothed bootstrap is required though. Therefore, computation time will increase as the number of bootstrap iterations increases.
+-   [Notation]{.underline}
+    -   **Biased Distance Covariance** , $\mathcal{V}_n(X,Y)$ (V-Statistic) is the *square root* of\
+        $$
+        \mathcal{V}_n^2(X,Y) = \frac{1}{n^2} \sum_{k,l=1}^n A_{kl}B_{kl}
+        $$
+        -   Where $A$ and $B$ are distance matrices for $X$ and $Y$ respectively. (See paper for details)
+        -   Biased since it always provides positive results.
+    -   **Biased Distance Correlation**, $\mbox{dCorV}(X, Y)$ (V-Statistic) is the *square root* of\
+        $$
+        \begin{aligned}
+        &\mbox{dCorV}^2(X,Y) = 
+        \left\{ \begin{array}{lcl}
+        \frac{\mathcal{V}_n^2(X,Y)}{\sqrt{\mathcal{V}_n^2(X)\mathcal{V}_n^2(Y)}} & \text{if}\; \mathcal{V}_n^2(X) \mathcal{V}_n^2(Y) >0 \\
+        0 & \text{if}\; \mathcal{V}_n^2(X) \mathcal{V}_n^2(Y) = 0
+        \end{array}\right. \\
+        &\text{where} \; \mathcal{V}^2_n(X) = \frac{1}{n^2} \sum_{k,l=1}^n A^2_{kl}
+        \end{aligned}
+        $$
+    -   **Unbiased Distance Covariance** , $\mathcal U_n(X,Y)$ (U-Statistic) is the *square root* of\
+        $$
+        \mathcal{U}_n^2(X,Y) = \frac{1}{n-3} \sum_{k \neq l} \tilde A_{kl} \tilde B_{kl}
+        $$
+        -   Where $\tilde A$ and $\tilde B$ are distance matrices (See paper for details)
+    -   **Unbiased Distance Correlation**, $\mbox{dCorU}(X, Y)$ (U-Statistic)
+        -   Similar to $\mbox{dCorV}$
+-   [Alternative Solutions to Negative Covariances Issue]{.underline}:
+    1.  *Replace With Zeros* ($\mbox{dCorU}(T)$): Consider $\max \{\mathcal{U}^2_n (X, Y), 0\}$ so negative values of $\mathcal{U}^2_n (X, Y)$ are truncated to zero (i.e. replaced with zeros).
+        -   The "squared" thing ($\mathcal{U}^2_n (X, Y)$) was weird to me, because how can there be negative values of a squared expression? But, the covariance matrix isn't *actually* squared (the squared variance matrices *essentially* are but anyways), so it can have negative values. Seems like it's just for notation purposes, so they can take the square root of the expression to get $\mathcal{U}_n(X,Y)$.
+        -   We should be able to get this value with [{energy::covU}]{style="color: #990000"} or maybe [{dcortools}]{style="color: #990000"} has something since we'll need this value to calculate $\text{dCorU}(T)$
+    2.  *Use Absolute Values* ($\mbox{dCorU}(A)$): Replace the values of $\mathcal{U}^2_n (X, Y)$ with their absolute value. Under the independence scenario, both $\mbox{dCorU}$ and $\mbox{dCorU}(A)$ yield identical MSE.
+    3.  *Use a convex linear combination*
+        -   Formula for Linear Combinations
 
-        1.  Apply kernel to pairs of points inside each vector to get kernel matrices for each variable
-        2.  Calculate (unconditional) Hilbert-Schmidt Independence Criterion (HSIC) - Measures dependence between 2 random variables\
             $$
-            \text{HSIC} = \frac{1}{n^2} \operatorname{Trace}(X_kHY_kH)
-            $$
-            -   $X_k$ and $Y_k$ are the kernel matrices from $X$ and $Y$
-            -   H is the centering matrix: $H = I - \frac{1}{n}11^T$
-                -   $11^T$ is a vector product between a row of 1s and a column of 1s which results in a $n \times n$ matrix of 1s
-            -   It's a lot more complicated for the conditional HSIC. Reminds me of how in using regression to calculate partial correlations, you regress out the conditioning variable (e.g. $z$) from both $x$ and $y$.
-        3.  The test statistic is $n \times \text{HSIC}$
-        4.  There are few different ways to compute the Null distribution (see link to Claude thread for details)
-            -   Permutation method (small data)
-            -   Approximation method using the Gamma distribution (large data)
-        5.  P-value is calculated
-            -   With the permutation method it will be a quantile of a distribution of test stats
-            -   With the Gamma approximation it will be a quantile of the CDF
+             \begin{aligned}
+             \mbox{dCor}_{\lambda_0} &= \lambda_0 \; \mbox{dCorU} + (1-\lambda_0) \; \mbox{dCorV} \\
+             \mbox{dCor(A)}_{\lambda_0} &= \lambda_0 \; \mbox{dCorU(A)} + (1-\lambda_0) \; \mbox{dCorV} \\
+             \mbox{dCor(T)}_{\lambda_0} &= \lambda_0 \; \mbox{dCorU(T)} + (1-\lambda_0) \; \mbox{dCorV}
+             \end{aligned}
+             $$
 
-    -   [Example]{.ribbon-highlight}: [source](https://github.com/raz1470/causal_ai/blob/main/notebooks/making%20causal%20discovery%20work%20in%20real%20world%20business%20settings.ipynb?source=post_page-----80e80c5f66b8--------------------------------)
-
-        ``` python
-        import numpy as np
-        import pandas as pd
-        import dowhy.gcm as gcm
-
-        np.random.seed(999)
-
-        # Create dataset with spurious correlation
-        temperature = np.random.normal(loc=0, scale=1, size=1000)
-        ice_cream_sales = 2.5 * temperature + np.random.normal(loc=0, scale=1, size=1000)
-        shark_attacks = 0.5 * temperature + np.random.normal(loc=0, scale=1, size=1000)
-        df_spurious = pd.DataFrame(data=dict(temperature=temperature, ice_cream_sales = ice_cream_sales, shark_attacks=shark_attacks))
-
-        # p-value
-        round(gcm.independence_test(ice_cream_sales, shark_attacks, conditioned_on=temperature), 2)
-        #> Out[5]: 0.49
-        ```
-
-        -   Accept Null Hypothesis: There is no association between ice cream sales and shark attacks
-
--   [dcor]{.underline}
-
-    -   Distance covariance and distance correlation share a parallel with product-moment covariance and correlation.
-
-        -   Unlike the classical definition of correlation, a distance correlation is zero solely when the random vectors are independent.
-        -   The distance correlation can be used to evaluate both linear and nonlinear correlations between variables.
-
-    -   Issue: Negative Covariance Values: The unbiased dcor calculation requires positive covariance values, since there's a square root in the calculation. This can be an issue for associations close to 0 (i.e. independence) and small sample sizes, because they can result in negative value estimates. Some package functions do not take the square root as a workaround. As a result, their values will not be bounded by \[0,1\]. (See below for solutions)
-
-    -   [Misc]{.underline}
-
-        -   Notes from [Improved Distance Correlation Estimation](https://arxiv.org/abs/2405.01958)
-        -   Packages
-            -   [{]{style="color: #990000"}[dcortools](https://cran.r-project.org/web/packages/dcortools/index.html){style="color: #990000"}[}]{style="color: #990000"} - Tons of options; Can use [{RFast}]{style="color: #990000"} for calculations
-                -   `distcor(X, Y)` - dCorV, Biased Distance Correlation
-
-                -   `distcor(X, Y, bias.corr = T)` - dCorU, Unbiased Distance Correlation\
-                    $$
-                    \mbox{dCorU} = \mbox{sign}(\mbox{dCorU}^2)\sqrt{|\mbox{dCorU}^2|}
-                    $$
-
-                    -   This is how this package gets around the negative covariance issue. It was used in the paper for comparisons, so I guess it's valid.
-            -   [{]{style="color: #990000"}[energy](https://mariarizzo.github.io/energy/){style="color: #990000"}[}]{style="color: #990000"} - Also has partial covariance, correlation functions
-                -   `dcov` - Biased Distance Covariance
-                -   `dcor` - dCorV, Biased Distance Correlation
-                -   `dcovU` - Squared, Unbiased Distance Covariance
-                -   `bcdcor` - Squared, Unbiased Distance Correlation
-            -   [{]{style="color: #990000"}[Rfast](https://cran.r-project.org/web/packages/Rfast/index.html){style="color: #990000"}[}]{style="color: #990000"} Implements `dvar`, `dcov`, `dcor`, and `bcdcor`
-            -   [{{]{style="color: goldenrod"}[dcor](https://dcor.readthedocs.io/en/latest/?badge=latest){style="color: goldenrod"}[}}]{style="color: goldenrod"} - Implements the biased distance covariance, correlation and squared unbiased distance covariance and correlation. Also has partial covariance, correlation functions.
-
-    -   [Guidelines]{.underline}
-
-        -   Unless using a squared version (e.g. [{energy::bcdcor}]{style="color: #990000"}), values are between 0 and 1 where 0 means indpendence and 1 means perfect association.
-        -   For variables that are independent, dCorU is preferable over dCorV, and the truncated version generally provides better detection.
-        -   For variables that are dependent
-            -   Linear: dCorV estimator aligns with the best results in terms of MSE (Farlie-GumbelMorgenstern (FGM) copula and bivariate normal).
-            -   Nonlinear: dCorU estimator provides better estimates, however the differences are not relevant. The optimal estimator appeared to be dCorU(A), especially in cases of weak dependence.\
-        -   Computation Time: dCorU and dCorV are similar.
-        -   Instead of choosing one or the other, use a linear combination. It gives better results than using only dCorU or dCorV.
-            -   Estimating the parameter $\lambda_0$ (weight) via smoothed bootstrap is required though. Therefore, computation time will increase as the number of bootstrap iterations increases.
-
-    -   [Notation]{.underline}
-
-        -   **Biased Distance Covariance** , $\mathcal{V}_n(X,Y)$ (V-Statistic) is the *square root* of\
-            $$
-            \mathcal{V}_n^2(X,Y) = \frac{1}{n^2} \sum_{k,l=1}^n A_{kl}B_{kl}
-            $$
-            -   Where $A$ and $B$ are distance matrices for $X$ and $Y$ respectively. (See paper for details)
-            -   Biased since it always provides positive results.
-        -   **Biased Distance Correlation**, $\mbox{dCorV}(X, Y)$ (V-Statistic) is the *square root* of\
+        -   Formula for $\lambda_0$\
             $$
             \begin{aligned}
-            &\mbox{dCorV}^2(X,Y) = 
-            \left\{ \begin{array}{lcl}
-            \frac{\mathcal{V}_n^2(X,Y)}{\sqrt{\mathcal{V}_n^2(X)\mathcal{V}_n^2(Y)}} & \text{if}\; \mathcal{V}_n^2(X) \mathcal{V}_n^2(Y) >0 \\
-            0 & \text{if}\; \mathcal{V}_n^2(X) \mathcal{V}_n^2(Y) = 0
-            \end{array}\right. \\
-            &\text{where} \; \mathcal{V}^2_n(X) = \frac{1}{n^2} \sum_{k,l=1}^n A^2_{kl}
+            &\lambda_0 = \frac{-\mbox{Cov}(\hat \theta^U, \hat\theta^V) + \mbox{Var}(\hat\theta^V) + \mbox{Bias}(\hat\theta^V)(\mbox{Bias}(\hat\theta^V) - \mbox{Bias}(\hat\theta^U))}{\mbox{Var}(\hat\theta^U) + \mbox{Var}(\hat\theta^V) - 2\mbox{Cov}(\hat\theta^U, \hat\theta^V) + (\mbox{Bias}(\hat\theta^V) - \mbox{Bias}(\hat\theta^U))^2} \\
+            &\begin{aligned}
+            \text{where} \quad &\hat \theta^U = \mbox{dCorU}(X,Y) \;\mbox{and}\; \hat\theta^V = \mbox{dCorV}(X,Y) \\
+                               &\mbox{Bias}(\hat\theta^U) = \frac{1}{B} \sum_{b=1}^B \hat\theta^U - \hat \theta^U_b
+            \end{aligned}
             \end{aligned}
             $$
-        -   **Unbiased Distance Covariance** , $\mathcal U_n(X,Y)$ (U-Statistic) is the *square root* of\
-            $$
-            \mathcal{U}_n^2(X,Y) = \frac{1}{n-3} \sum_{k \neq l} \tilde A_{kl} \tilde B_{kl}
-            $$
-            -   Where $\tilde A$ and $\tilde B$ are distance matrices (See paper for details)
-        -   **Unbiased Distance Correlation**, $\mbox{dCorU}(X, Y)$ (U-Statistic)
-            -   Similar to $\mbox{dCorV}$
 
-    -   [Alternative Solutions to Negative Covariances Issue]{.underline}:
+            -   A smoothed bootstrap ([B = 1000]{.arg-text}) is used to calculate all the terms in the formula (variance, covariance, and bias). The paper uses two bandwidth values — h~1~, h~2~ (one for each variable) — to generate the replicates.
+                -   [{]{style="color: #990000"}[kernelboot](https://cran.r-project.org/web/packages/kernelboot/index.html){style="color: #990000"}[}]{style="color: #990000"} can be used to perform the smoothed bootstrap.
+            -   For the simulation in the paper, $h_1= h_2$ and the value was chosen using a grid between 0.0025 and 0.32 with the lowest MSE being the selection criteria. The bandwidth had an effect only under independence conditions, with lower bandwidth values corresponding to lower MSE.
+-   [Robust Versions]{.underline}
+    -   Notes from [Is Distance Correlation Robust?](https://arxiv.org/abs/2403.03722)
 
-        1.  *Replace With Zeros* ($\mbox{dCorU}(T)$): Consider $\max \{\mathcal{U}^2_n (X, Y), 0\}$ so negative values of $\mathcal{U}^2_n (X, Y)$ are truncated to zero (i.e. replaced with zeros).
-            -   The "squared" thing ($\mathcal{U}^2_n (X, Y)$) was weird to me, because how can there be negative values of a squared expression? But, the covariance matrix isn't *actually* squared (the squared variance matrices *essentially* are but anyways), so it can have negative values. Seems like it's just for notation purposes, so they can take the square root of the expression to get $\mathcal{U}_n(X,Y)$.
-            -   We should be able to get this value with [{energy::covU}]{style="color: #990000"} or maybe [{dcortools}]{style="color: #990000"} has something since we'll need this value to calculate $\text{dCorU}(T)$
-        2.  *Use Absolute Values* ($\mbox{dCorU}(A)$): Replace the values of $\mathcal{U}^2_n (X, Y)$ with their absolute value. Under the independence scenario, both $\mbox{dCorU}$ and $\mbox{dCorU}(A)$ yield identical MSE.
-        3.  *Use a convex linear combination*
-            -   Formula for Linear Combinations
+    -   Preprocessing the variables can result in robust version of dcor
 
-                $$
-                 \begin{aligned}
-                 \mbox{dCor}_{\lambda_0} &= \lambda_0 \; \mbox{dCorU} + (1-\lambda_0) \; \mbox{dCorV} \\
-                 \mbox{dCor(A)}_{\lambda_0} &= \lambda_0 \; \mbox{dCorU(A)} + (1-\lambda_0) \; \mbox{dCorV} \\
-                 \mbox{dCor(T)}_{\lambda_0} &= \lambda_0 \; \mbox{dCorU(T)} + (1-\lambda_0) \; \mbox{dCorV}
-                 \end{aligned}
-                 $$
+    -   Comparing the classical dCor with the robust version helps to identify whether the dependence was mainly in the tails or rather in the center of the data.
 
-            -   Formula for $\lambda_0$\
-                $$
-                \begin{aligned}
-                &\lambda_0 = \frac{-\mbox{Cov}(\hat \theta^U, \hat\theta^V) + \mbox{Var}(\hat\theta^V) + \mbox{Bias}(\hat\theta^V)(\mbox{Bias}(\hat\theta^V) - \mbox{Bias}(\hat\theta^U))}{\mbox{Var}(\hat\theta^U) + \mbox{Var}(\hat\theta^V) - 2\mbox{Cov}(\hat\theta^U, \hat\theta^V) + (\mbox{Bias}(\hat\theta^V) - \mbox{Bias}(\hat\theta^U))^2} \\
-                &\begin{aligned}
-                \text{where} \quad &\hat \theta^U = \mbox{dCorU}(X,Y) \;\mbox{and}\; \hat\theta^V = \mbox{dCorV}(X,Y) \\
-                                   &\mbox{Bias}(\hat\theta^U) = \frac{1}{B} \sum_{b=1}^B \hat\theta^U - \hat \theta^U_b
-                \end{aligned}
-                \end{aligned}
-                $$
+    -   Transformations are only for continuous variables but transformed variable can still be used with binary variables for mixed distance correlations
 
-                -   A smoothed bootstrap ([B = 1000]{.arg-text}) is used to calculate all the terms in the formula (variance, covariance, and bias). The paper uses two bandwidth values — h~1~, h~2~ (one for each variable) — to generate the replicates.
-                    -   [{]{style="color: #990000"}[kernelboot](https://cran.r-project.org/web/packages/kernelboot/index.html){style="color: #990000"}[}]{style="color: #990000"} can be used to perform the smoothed bootstrap.
-                -   For the simulation in the paper, $h_1= h_2$ and the value was chosen using a grid between 0.0025 and 0.32 with the lowest MSE being the selection criteria. The bandwidth had an effect only under independence conditions, with lower bandwidth values corresponding to lower MSE.
+    -   3 types of transformations were considered
+
+        -   Z-Score - Standardizing the variable
+        -   Rank - Converting the variable values to ranks
+        -   Biloop - A trigonometric transformation that standardizes the variable to have median of 0 and MAD of 1 + other stuff
+            -   See R \>\> Code \>\> Association \>\> biloop-dcor.R
+            -   Paper links to a webpage where you can download the script
+
+    -   Recommendations based on the paper
+
+        -   Heavy tails with concern about outliers $\rightarrow$ z-score (better for tails) or rank (better for outliers)
+        -   Light tails with concerns about outliers $\rightarrow$ biloop
+
+    -   [Example]{.ribbon-highlight}: Biloop Transformation
+
+        ``` r
+        energy::dcor(bilooptransf(var_1), bilooptransf(var_2))
+        ```

@@ -211,13 +211,82 @@
     -   $R$: Number of times we claim β ≠ 0
     -   e.g. Using the same data and variables to fit multiple models with different outcome variables (i.e. different hypotheses)
 
--   **Romano and Wolf's Ccorrection**
+-   **Romano and Wolf's Correction**
 
     -   Accounting for the dependence structure of the p-values (or of the individual test statistics) produces more powerful procedures than Bonferroi and Holms. This can be achieved by applying resampling methods, such as bootstrapping and permutations methods.
         -   Permutation tests of regression coefficients can result in rates of Type I error which exceed the nominal size, and so these methods are likely not ideal for such applications
     -   See Stata [docs](https://docs.iza.org/dp12845.pdf) of the procedure
     -   Packages
         -   [{]{style="color: #990000"}[wildrwolf](https://s3alfisc.github.io/wildrwolf/){style="color: #990000"}[}]{style="color: #990000"}: Implements Romano-Wolf multiple-hypothesis-adjusted p-values for objects of type fixest and fixest_multi from the fixest package via a wild cluster bootstrap.
+
+## Permutation Testing {#sec-math-stat-perm .unnumbered}
+
+-   The main difference from typical NHST is that we create the distribution of the data under the null hypothesis using simulation instead of relying on a reference distribution (e.g. Normal).
+
+-   Assumes Exchangeability (See [Mathematices, Glossary](mathematics-glossary.qmd){style="color: green"} \>\> exchangeability)
+
+-   Provided the sample sizes are approximately equal, the permutation test is robust against unequal variances ([source](https://stats.stackexchange.com/questions/87215/does-a-big-difference-in-sample-sizes-together-with-a-difference-in-variances-ma))
+
+-   General Procedure
+
+    1.  Calculate effect size (e.g. difference-in-means) of original data
+    2.  Permute group labels (i.e. treatment/control) (i.e. sample without replacement)
+    3.  Calculate the effect size of the permuted data and store it
+    4.  Repeat steps 2 and 3 about 10000 times to get the Null Distribution
+    5.  Calculate the percentage of times the effect size from the permuted data was more extreme than the effect size from the original data. This is the p-value.
+    6.  Reject the Null Hypothesis (no effect) if the p-value is less than $\alpha$ (e.g. 0.05).
+
+-   [Example 1]{.ribbon-highlight}: Difference-in-Means ([source](https://towardsdatascience.com/permutation-test-in-r-77d551a9f891))
+
+    ``` r
+    # Generating data
+    set.seed(2021)
+    d <- as.data.frame(cbind(rnorm(1:20, 500, 50), c(rep(0, 10), rep(1, 10))))
+    treatment <- d$V2
+    outcome <- d$V1
+
+    #Difference in means
+    original <- diff(tapply(outcome, treatment, mean))
+    mean(outcome[treatment==1]) - mean(outcome[treatment==0])
+
+    #Permutation test
+    permutation.test <- function(treatment, outcome, n){
+      distribution <- c()
+      result=0
+      for (i in 1:n) {
+        distribution[i] <- diff(by(outcome, sample(treatment, length(treatment), FALSE), mean))
+      }
+      result <- sum(abs(distribution) >= abs(original))/(n) # p-value
+      return(list(result, distribution))
+    }
+    ```
+
+-   [Example 2]{.ribbon-highlight}: Distance Correlation ([source](https://arxiv.org/abs/2403.03722))
+
+    ``` r
+    permutestdcor <- function(X, Y, nperm=10000){ 
+      # Carries out the permutation test on dCor.
+      n <- NROW(X) # sample size
+      results <- rep(NA,nperm)
+      set.seed(123)
+      
+      for (i in seq_len(nperm)){
+        if(NCOL(Y) == 1){
+          results[i] <- n * energy::dcor(X,Y[sample(1:n)])^2
+        } else {
+          results[i] <- n * energy::dcor(X,Y[sample(1:n),])^2
+        }
+      }
+      
+      p <- n * energy::dcor(X,Y)^2
+      CDF <- ecdf(results)
+      return(1 - CDF(p)) # p-value
+    }
+    ```
+
+    -   Uses a permutation test to get the significance of the distance correlation
+    -   Utilizes the ecdf to get the p-value
+        -   The score is squared and multiplied by the sample size. I'm not sure if this because of the distance correlation or if it's required in general when using the ecdf method of getting the p-value.
 
 ## Bootstrapping {#sec-math-statc-boot .unnumbered}
 
