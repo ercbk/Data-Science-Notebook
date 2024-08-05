@@ -1,0 +1,248 @@
+# Modeling {#sec-db-mod .unnumbered}
+
+## Misc {#sec-db-mod-misc .unnumbered}
+
+-   Used to organize data warehouses
+-   Notes from
+    -   [Data Modeling Techniques For Data Warehouse](https://towardsdatascience.com/data-modeling-techniques-for-data-warehouse-3edcb541e34e)
+-   Resources
+    -   [Using DuckDB-WASM for in-browser Data Engineering](https://tobilg.com/using-duckdb-wasm-for-in-browser-data-engineering#heading-example-data-engineering-pipeline) has a complete example that builds a snowflake schema with SQL code.
+-   Naming Conventions
+    -   Prefix dimension tables with [dim\_]{.var-text}
+    -   Prefix fact tables with [fact\_]{.var-text}
+    -   In general, avoid using abbreviations that might sound misleading (e.g. [stg\_]{.var-text}, [int\_]{.var-text}) and use full English words in database object names where possible.
+        -   Abbreviate common terms to a *minimum* of three letters for visibility and better discovery mainly, e.g. [dev]{.var-text} for development, [prod]{.var-text} for production, etc.
+    -   Most of the modern data warehouse (DWH) solutions support 20–30 character names for identifiers. Postgres even supports more.
+    -   Use the singular form for names when possible --- for example, [\_transaction]{.var-text} not [\_transactions]{.var-text}
+    -   Use lower_snake_case with no quotes around database identifier
+    -   Server-side development, e.g. existing implementations of event streams, connectors, SDK wrappers, etc. — might rely heavily on names in legacy databases. So, obviously refactoring is not worth the risk in such a case.
+
+## Terms {#sec-db-mod-terms .unnumbered}
+
+-   [**Data Modeling**]{style="color: #009499"} - A process of creating a conceptual representation of the data and its relationships within an organization or system.
+-   [**Dimensional Modeling**]{style="color: #009499"} - A data modeling technique that attempts to present data in a way that is intuitive and understandable for any user. It also allows for high-performance access, flexibility, and scalability to accommodate changes in business needs.
+    -   It consists of one or more tables with a multipart key, referred to as the **fact table**, along with a set of tables known as **dimension tables**
+-   [**Dimension Tables**]{style="color: #009499"} - Contains data about how the data in **Fact Table** is being analyzed. They facilitate the fact table in gathering different dimensions on the measures which are to be taken.
+    -   Provides descriptive attributes for the fact table data. Think of them as adding context and details to the "what" and "how much". Each dimension table focuses on a specific category of information.
+        -   Can contain hierarchical structures, e.g. an employee dimension table with an employee id field and a manager id field. Each manager id may have many employee ids associated with it.
+    -   Primary keys are foreign keys in **Fact Tables**.
+    -   Dimension Tables rarely change from day to day within a business while **Fact Tables** are always changing
+    -   Types
+        -   [Conformed Dimension]{.underline} - A dimension that can be used by multiple fact tables. For example, a region table can be utilized by different fact tables.
+        -   [Degenerate Dimension]{.underline} - Occurs when an attribute is stored in the fact table instead of a dimension table.
+            -   Example: The transaction number can be found in a fact table.
+        -   [Junk Dimension]{.underline} - Contains non-meaningful attributes that do not fit well in existing dimension tables, or they are combinations of flags and binary values representing various combinations of states.
+        -   [Role-Playing Dimension]{.underline} - The same dimension key includes more than one foreign key in the fact table.
+            -   Example: A date dimension can refer to different dates in a fact table, such as creation date, order date, and delivery date.
+        -   [Static Dimension]{.underline} - A dimension that typically never changes. It can be loaded from reference data without requiring updates.
+            -   Example: A list of branches in a company
+        -   [Bridge Table]{.underline} - Used when there are one-to-many relationships between a fact table and a dimension table
+    -   [Example]{.ribbon-highlight}: An online retail store wants to analyze sales data.
+        -   Customer Dimension - Provides information about individual customers, like their name and location. The customer id field is the primary key that links it back to the fact table.
+        -   Product Dimension - Describes each product, including its category, brand, and other relevant details. The product id field is the primary key that links it back to the fact table.
+-   [**Fact Tables**]{style="color: #009499"} - Contain data corresponding to any business process like a customer transaction. Every row represents any event that can be associated with any process. It stores quantitative information for analysis, i.e. the metrics or measures associated with that event.
+    -   Focuses on quantitative data representing business events or transactions. Think of it as storing the "what" and "how much" of your data.
+    -   Foreign keys link to **Dimension Tables**.
+        -   The best practice is to put all foreign keys on the top of the table followed by the measures
+    -   Types
+        -   [Transaction Fact Tables]{.underline} - One row represents a record from the transaction system. Data is refreshed on a daily basis or in real time.
+        -   [Periodic Snapshot Fact Tables]{.underline} - Captures a snapshot of a fact table at a point in time, like for instance the end of month.
+        -   [Accumulating Snapshot Fact Table]{.underline} - Summarizes the measurement events occurring at predictable steps between the beginning and the end of a process.
+        -   [Factless Fact Table]{.underline} **-** Keeps information about events occurring without any measures or metrics.
+    -   [Example]{.ribbon-highlight}: An online retail store wants to analyze sales data.
+        -   Fields: quantity, price, and total say what products were ordered, by whom, when, and how much they cost.
+            -   Other fields could be sales amounts, quantities sold, customer interactions, website clicks, or any other measurable data that offers insights into business performance.
+        -   An order id would be the primary key. and the table would also contain the foreign keys for all the dimension tables (e.g product id and customer id) associated with it.
+-   [**Natural Key**]{style="color: #009499"} - A primary key that is innate to the data.
+    -   Perhaps, in some tables, there’s a unique id field in each table that would act as the natural key.
+    -   You can use documentation like entity relationship diagrams (ERDs) to help understand natural keys in APIs or backend application database tables.
+    -   Surrogate keys are better if you think there's a remote chance of a future problem with the natural key. Natural keys have a tendency to cause problems when scaling the data model, and they also can deteriorate over time becoming meaningless.
+        -   A good example can be a stock price ticker after an M&A or a company reorganisation (GOOG/GOOGL, etc.).
+-   [**Slowly Changing Dimensions (SCD)**]{style="color: #009499"} - Data records that slowly change over time, e.g. email, address, and phone number.
+    -   [Type 1]{.underline} - Overwrites old values in your data. The *new value will replace the old value*, without any record of what the old value was. I find this is the method used in most databases.
+    -   [Type 2]{.underline} - Inserts *new values as new records* in your database. They maintain the “old” records AND the new records. They have additional fields on the records that indicate a version number or the timestamps in which the value is effective. So *all* history is maintained.
+        -   [Example]{.ribbon-highlight}: John Smith moves from London to Chicago\
+            ![](_resources/DB-Normalization.resources/terms-scd-ex-1.webp){.lightbox width="782"}
+
+            ``` sql
+            MERGE INTO client AS tgt
+            USING (
+                SELECT 
+                  Client_id,
+                  Name,       
+                  Surname,
+                  City,
+                  GETDATE() AS ValidFrom,
+                  ‘2199-01-01’ AS ValidTo
+                FROM client_stg
+            ) AS src
+            ON (tgt.Clinet_id = src.Clinet_id AND tgt.iscurrent = 1)
+            WHEN MATCHED THEN
+                UPDATE SET tgt.iscurrent = 0, ValidTo = GETDATE()
+            WHEN NOT MATCHED THEN
+                INSERT (Client_id, name, Surname, City, ValidFrom, ValidTo, iscurrent)
+                VALUES (Client_id, name, Surname, City, ValidFrom, ValidTo,1);
+            ```
+
+            -   [ValidFrom]{.var-text} and [ValidTo]{.var-text} are the additional fields that indicate the dates that the record is valid
+    -   [Type 3]{.underline} - Maintains one record for the original primary key but utilizes an “original” value field and a “current” value field. They track the *previous and current values of a field in one record*. However, this means they only track the most recent change in value and not the entire history of changes.
+    -   [Type 4]{.underline} - Use two tables to represent one object. They use *a table to store current values, and another table to store historical values*. The history table contains one timestamp field that you can then use to piece together the chronological history of values.
+-   [**Surrogate Keys**]{style="color: #009499"} - A unique key that's derived from the data itself
+    -   The type of method can impact querying performance
+    -   Methods
+        -   [Hashing]{.underline}: Generated using a hash function like MD5, SHA256 (e.g. `md5(key_1, key_2, key_3)` ).
+            -   [Example]{.ribbon-highlight}
+
+                ``` sql
+                select 
+                    md5(calendar_date || ad_id) as unique_id
+                ```
+        -   [Incrementing]{.underline}: Generated by using a number that is always incrementing (e.g. r`ow_number()`, `identity`).
+        -   [Concatenating]{.underline}: Generated by concatenating the unique key columns (e.g. `concat(key_1, key_2, key_3)` ).
+        -   [Unique generated]{.underline}: Generated by using a function that generates a unique identifier (e.g. `GENERATE_UUID()`)
+    -   [Example]{.ribbon-highlight}: A table with all license plate numbers and the state of the plate ([source](https://docs.getdbt.com/terms/surrogate-key))
+        -   While license plate numbers are unique to their state, there could be duplicate license plate numbers across different states. So by default, there’s no **Natural Key** that can uniquely identify each row here.
+        -   In order to uniquely identify each record in this table, you could create a surrogate key based on the unique combination of license plate number and its state.
+
+## Schema {#sec-db-mod-schema .unnumbered}
+
+-   [Star]{.underline}\
+    ![](./_resources/DB,_Engineering.resources/1-k6MxKPbs51gXooJ3ZOS1tQ.png){.lightbox group="schema" width="532"}
+    -   [Example]{.ribbon-highlight}: A Star schema of sales data with dimensions such as customer, product, and Device*.*
+    -   In a star schema, as the structure of a star, there is one fact table in the middle and a number of associated dimension tables.
+    -   The fact table consists of primary information. It surrounds the smaller dimension lookup tables which will have details for different fact tables. The primary key which is present in each dimension is related to a foreign key which is present in the fact table.
+    -   The fact tables are in 3NF form and the dimension tables are in denormalized form. Every dimension in star schema should be represented by the only one-dimensional table.
+    -   If you encounter challenges with updates to extensive dimension tables, consider transitioning to a snowflake schema.
+-   [Snowflake]{.underline}\
+    ![](_resources/DB-Normalization.resources/Snowflake-Schema.webp){.lightbox group="schema" width="532"}
+    -   Snowflake schema acts like an extended version of a star schema. There are additional subdimensions added to dimensions.
+    -   Unlike the Star schema, dimensions are normalized.
+    -   Specifically tailored to handle updates on large dimensions
+    -   Can be slower than star schemas due to complex joins across multiple tables, but achieves better storage efficiency compared to star schemas due to reduced data redundancy.
+    -   There are hierarchical relationships and child tables involved that can have multiple parent tables.
+    -   The advantage of snowflake schema is that it uses small disk space. The implementation of dimensions is easy when they are added to this schema.
+-   [Fact Constellation]{.underline} or [Galaxy\
+    ]{.underline}![](_resources/DB-Normalization.resources/schema-fact-constellation-1.jpg){.lightbox group="schema" width="532"}
+    -   A fact constellation can consist of multiple fact tables. These are more than two tables that share the same dimension tables — like connected Star schema.
+    -   The shared dimensions in this schema are known as **conformed dimensions**. Denormalization in shared dimension tables might increase storage size compared to fully normalized schemas.
+    -   Dimensions can be normalized but is rare in this schema due the level of complexity already present.
+    -   Useful when aggregation of fact tables is necessary. Fact constellations are considered to be more complex than star or snowflake schemas. Therefore, more flexible but harder to implement and maintain. Joins across multiple fact and dimension tables can lead to complex queries with potential performance impacts.
+
+## Design {#sec-db-mod-dsgn .unnumbered}
+
+-   **Misc**
+
+    -   [Oracle Data Model Documentation](https://docs.oracle.com/cd/E16338_01/doc.112/e20361/toc.htm)
+
+-   **Considerations**
+
+    -   7 Vs
+        -   **Volume**: How big is the incoming data stream and how much storage is needed?
+        -   **Velocity**: Refers to speed in which the data is generated and how quickly it needs to be accessed.
+        -   **Variety**: What format the data needs to be stored? Structured such as tables or Unstructured such as text, images, etc.
+        -   **Value**: What value is derived from storing all the data?
+        -   **Veracity**:How trustworthy the data source, type and its processing are?
+        -   **Viscosity**: How the data flows through the stream and what is the resistance and the processability?
+        -   **Virality**: Ability of the data to be distributed over the networks and its dispersion rate across the users\_
+    -   Data Quality (See [Database, Engineering \>\> Data Quality](db-engineering.qmd#sec-db#sec-db-eng-datqual){style="color: green"}) completeness, uniqueness, timeliness, validity, accuracy, and consistency
+
+-   **Components**\
+    ![](./_resources/DB,_Warehouses.resources/image.1.png){.lightbox width="480"}
+
+    -   [Metamodeling]{.underline}:
+        -   Defines how the conceptual, logical, and physical models are consistently linked together.
+        -   Provides a standardized way of defining and describing models and their components (i.e. grammar, vocabulary), which helps ensure consistency and clarity in the development and use of these models.
+        -   Data ownership should be assigned based on a mapping of data domains to the business architecture domains (i.e. market tables to the marketing department?)
+    -   [Conceptual Modeling]{.underline} - Involves creating business-oriented views of data that capture the major entities, relationships, and attributes involved in particular domains such as Customers, Employees, and Products.
+    -   [Logical Modeling]{.underline} - Involves refining the conceptual model by adding more detail, such as specifying data types, keys, and relationships between entities, and by breaking conceptual domains out into logical attributes, such as Customer Name, Employee Name, and Product SKU.
+    -   [Physical Data Modeling]{.underline} - Involves translating the logical data model into specific database schemas that can be implemented on a particular technology platform
+
+-   **Process** ([article](https://towardsdatascience.com/how-to-create-a-data-warehouse-in-5-important-steps-95a8f893a3fd), [article](https://towardsdatascience.com/designing-a-data-warehouse-from-the-ground-up-tips-and-best-practices-e355b6799b99), [article](https://towardsdatascience.com/a-maturity-model-for-data-modeling-and-design-b516d978655c))
+
+    -   [Understand the Core Business Requirements]{.underline}
+        -   Create a catalogue of *reporting stories* for each stakeholder to an idea of the reports that each will want generated
+            -   These will inform you of the data requirements
+            -   e.g. "As a marketing manager, I need to know the number of products the customer bought last year in order to target them with an upsell offer."
+                -   From the story above, I can determine that we will need to aggregate the number of products per customer based on sales from the previous year.
+    -   [Select the tools and technologies]{.underline}:
+        -   Used to build and manage the data warehouse. This may include selecting a database management system (DBMS), data integration and extraction tools, and analysis and visualization tools.
+        -   Warehouses - See [Brands](db-warehouses.qmd#sec-db-ware-brands){style="color: green"}
+        -   See Production, Tools \>\>
+            -   [Orchestration](production-tools.qmd#sec-prod-tools-orch){style="color: green"}
+            -   [ELT/ETL Operations](production-tools.qmd#sec-prod-tools-etlelt){style="color: green"}
+    -   [Choose a data model]{.underline}
+        -   Identify Business Processes
+            -   Focus on business process and not business departments as many departments share the same business process
+            -   If we focus on department, we might end up with multiple copies of models and have different sources of truth.
+        -   Choose a data model from the Business Process
+            -   Start with the most impactful model with the lowest risk
+                -   Consult with the stakeholders
+            -   Should be used frequently and be critical to the business and also it must be built accurately
+        -   Decide on the data granularity
+            -   Most atomic level is the safest choice since all the types of queries is typically unknown
+            -   Need to consider the size and complexity of the data at the various granularities, as well as the resources available/costs for storing and processing it.
+            -   [Examples]{.ribbon-highlight}
+                -   Customer Level - easy to answer questions about individual customers, such as their purchase history or demographic information.
+                -   Transaction Level - easy to answer questions about individual transactions, such as the products purchased and the total amount spent.
+                -   Daily or Monthly?
+    -   [Create Conceptual Data Models (Tables)]{.underline}
+        -   These represent abstract relationships that are part of your business process.
+        -   Explains at the highest level what respective domains or concepts are, and how they are related.
+        -   The elements within the reporting stories should be consistent with these models
+            -   [Example]{.ribbon-highlight}: Retail Sales
+                -   Time, Location, Product, and Customer.
+                    -   Time might be used to track sales data over different time periods (e.g. daily, monthly, yearly).
+                    -   Location might be used to track sales data by store or region.
+                    -   Product might be used to track sales data by product category or specific product.
+                    -   Customer might be used to track sales data by customer demographics or customer loyalty status.
+        -   [Example]{.ribbon-highlight}:\
+            ![](./_resources/DB,_Warehouses.resources/image.2.png){.lightbox group="concept-dm" width="428"}
+            -   Transactions form a key concept, where each transaction can be linked to the Products that were sold, the Customer that bought them, the method of Payment, and the Store the purchase was made in --- each of which constitute their own concept.
+            -   Connectors show that each individual transaction can have at most one customer, store, or employee associated with it, but these in turn can be associated with many transactions (multi-prong connector into Transactions)
+        -   [Example]{.ribbon-highlight}:\
+            ![](./_resources/DB,_Warehouses.resources/1-UFAmuNtWcrOVD-oybhMM0Q.png){.lightbox group="concept-dm" width="256"}
+            -   Each Customer (1 prong connector) can have 0 or more Orders (multi-prong connector)
+            -   Each Order can have 1 or more Products
+            -   Each Product can have 0 or more Orders
+    -   [Create Logical Data Models]{.underline}
+        -   Breakdown each entity of the conceptual model into attributes
+            -   [Example]{.ribbon-highlight}:\
+                ![](./_resources/DB,_Warehouses.resources/image.3.png){.lightbox group="log-dm" width="528"}
+            -   [Example]{.ribbon-highlight}:\
+                ![](./_resources/DB,_Warehouses.resources/1-WWi7v6feM7eUfn82M0_5zQ.png){.lightbox group="log-dm" width="357"}
+    -   [Create Physical Data Models]{.underline}
+        -   Details are added on where exactly (e.g., in what table), and in what format, these data attributes exist.
+
+            -   e.g. finalizing table names, column names, data types, indexes, constraints, and other database objects
+
+        -   Translate the logical data model into specific database schemas that can be implemented on a particular technology platform
+
+            -   e.g. dimensional modelling in a star schema or normalisation in a 3rd normal form in a snowflake model.
+
+        -   [Example]{.ribbon-highlight}:\
+            ![](./_resources/DB,_Warehouses.resources/image.4.png){.lightbox group="phys-dm" width="528"}
+
+        -   [Example]{.ribbon-highlight}: Dimension model in a star schema\
+            ![](./_resources/DB,_Warehouses.resources/1-o3mvnKMXnilbG0SIJJXjUw.png){.lightbox group="phys-dm" width="525"}
+
+            -   fact\_ (quantitative) and dim\_ (qualitative)
+    -   [Make Design and Environment decisions]{.underline}
+        -   Decide on:
+            -   Physical data models
+            -   History requirements
+            -   Environment provisions & set up
+    -   [Build a prototype (aka wireframe) of the end product]{.underline}
+        -   The business end-user may have a vision, they couldn't coherently articulate at the requirement phase.
+        -   The prototype need not use real-world data or be in the reporting tool.
+    -   [\*\* Profile known sources data \*\*]{.underline}
+        -   Learn about the data quality issues, and try and remediate those issues before designing your data pipelines.
+            -   If an issue cannot be resolved, you will have to handle it in your data pipeline
+    -   [Build, Test, and Iterate]{.underline}
+        -   Create ETL jobs or data pipelines
+            -   Iteratively need to unit test the individual components of the pipeline.
+        -   The data will need to be moved from the source system into our physical warehouse
+        -   Profile data
+            -   Data types, and if conversion is required
+            -   The amount of history that needs to be pulled
+        -   Validate the model's output numbers with the business end-user
+    -   Progress towards Data Maturity (See [Job, Organizational and Team Development \>\> Data Maturity](job-organizational-and-team-development.qmd#sec-job-orgdev-datmat){style="color: green"})
