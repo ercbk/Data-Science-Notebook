@@ -107,6 +107,10 @@
 -   Runs parallelized
     -   Models that have dependencies aren’t run until their upstream models are completed but models that don’t depend on one another are run at the same time.
     -   The [thread]{.arg-text} parameter in your `dbt_project.yml` specifies how many models are permitted to run in parallel
+-   Incremental Model
+    -   See [Components \>\> Materializations](db-dbt.qmd#sec-db-dbt-comp-mats){style="color: green"}
+    -   Saves money by not rebuilding the entire table from scratch when records only need to be updated or added to a table (plus transformations to the new records).
+    -   Useful for big data tables and expensive transformations
 
 ## Project Files {#sec-db-dbt-projfil .unnumbered}
 
@@ -150,6 +154,89 @@
 
 ## Components {#sec-db-dbt-comp .unnumbered}
 
+### Materializations {#sec-db-dbt-comp-mats .unnumbered}
+
+-   The manner in which the data is represented
+-   [Docs](https://docs.getdbt.com/best-practices/materializations/1-guide-overview)
+-   View
+    -   Default materialization when there is no specification in the configuration
+    -   Just like Standard Views, i.e. a saved SQL query (See [SQL \>\> Views](sql.qmd#sec-sql-views){style="color: green"})
+    -   Always reflects the most up-to-date version of the input data
+    -   Cost nothing to build since they're just queries, but have to be processed every time they’re ran.
+        -   Slower to return results than a table of the same data. 
+        -   Can cost more *over time*, especially if they contain intensive transformations and are queried often.
+    -   Best for
+        -   Building a model that stitches lots of other models together (Don't want to worry about freshness of ever table involved).
+        -   Small datasets with minimally intensive logic that you want near realtime access to
+-   Table
+    -   Stores the literal rows and columns on disk (i.e. materialized view)
+    -   Ideal for models that get queried regularly
+    -   Reflects the most recent run on the source data that was available
+    -   Best for sources for BI products and other frontend apps (e.g. like a mart that services a popular dashboard)
+-   Incremental Model
+    -   [Docs](https://docs.getdbt.com/best-practices/materializations/4-incremental-models)
+    -   Builds a table in pieces over time — only adding and updating new or changed records which makes them efficient.
+    -   Builds more quickly than a regular table of the same logic.
+    -   Typically used on very large datasets, so building the initial table on the full dataset is time consuming and equivalent to the table materialization.
+    -   Adds complexity and requires deeper consideration of layering and timing.
+        -   See "Late arriving facts" section of the Docs
+    -   Can drift from source data over time since you're not processing all of the source data. Extra effort is required to capture changes to historical data.
+        -   See "Long-term considerations" section of the Docs
+    -   Best for — same as tables, but for larger datasets.
+    -   Requirements
+        -   A *filter* to select just the new or updated records
+        -   A *conditional block* that wraps the filter and only applies it when we want it
+        -   A *configuration* that tells dbt to build incrementally and helps apply the conditional filter when needed
+-   Set-Up
+    -   In practice, you want to set materializations at the folder level, and use individual model configs to override those as needed.
+
+    -   [Example]{.ribbon-highlight}: Table (or View)
+
+        ``` sql
+        {{
+            config(
+                materialized='table'
+            )
+        }}
+
+        select ...
+        ```
+
+    -   [Example]{.ribbon-highlight}: Incremental
+
+        ``` sqlpostgresql
+        {{
+            config(
+                materialized='incremental',
+                unique_key='order_id' # <1>
+            )
+        }}
+
+        select * from orders
+
+        {% if is_incremental() %} # <2>
+
+        where
+          updated_at > (select max(updated_at) from {{ this }}) # <3>
+
+        {% endif %}
+        ```
+
+        1.  [unique_key]{.arg-text} specifies the field that allows dbt to find a record from the previous run (old data) with the same unique id as the new data in order to *update* that record instead of adding it as a separate row.
+
+        2.  An if-else conditional that uses `is_incremental` (macro) to check if the systematic conditions necessary for an incremental model are met (See below)
+
+        3.  The *conditional block* containing the *filter* that finds the latest [updated_at]{.var-text} date, so dbt knows whether the source data has new records that need to be *added* or not.
+
+        -   `{{ this }}` means *filter* from "this" table, i.e. [orders]{.var-text}
+        -   `is_incremental` (macro) checks:
+            -   [materialized ='incremental']{.arg-text}
+            -   There is an existing table for this model in the warehouse to build on
+            -   `--full-refresh` flag was not passed ([docs](https://docs.getdbt.com/reference/resource-configs/full_refresh))
+                -    Overrides the incremental materialization and builds the table from scratch again
+
+                -   Useful if the table drifts from the source table over time.
+
 ### Variables {#sec-db-dbt-comp-var .unnumbered}
 
 -   Defined in the `project.yml` and used in models
@@ -191,7 +278,7 @@
         -   `{# ... #}` is for comments
     -   Option 2 uses a csl filter (comma-separated-list)
 
-### Models {#sec-db-dbt-comp-mod .unnumbered}
+### Mode\`ls {#sec-db-dbt-comp-mod .unnumbered}
 
 #### Misc {#sec-db-dbt-comp-mod-misc .unnumbered}
 
@@ -276,7 +363,7 @@
                 -   [campaigns]{.var-text} is the name of the source in the .yml file
                 -   [channel]{.var-text} is the name of a table from that source
     -   [Intermediate]{.underline}
-        -   Brings together the atomic building blocks that reside on staging layer such that more complex and meaningful models are constructed
+        -   Brings together the atomic building blocks that reside in staging layer such that more complex and meaningful models are constructed
         -   Usually occuring in marts
         -   Additional transformations that particular marts-models require
             -   Created to isolate complex operations
