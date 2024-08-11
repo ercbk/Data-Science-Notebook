@@ -158,6 +158,7 @@
 
 -   The manner in which the data is represented
 -   [Docs](https://docs.getdbt.com/best-practices/materializations/1-guide-overview)
+-   Start with models as views, when they take too long to query, make them tables, when the tables take too long to build, make them incremental.
 -   View
     -   Default materialization when there is no specification in the configuration
     -   Just like Standard Views, i.e. a saved SQL query (See [SQL \>\> Views](sql.qmd#sec-sql-views){style="color: green"})
@@ -190,49 +191,69 @@
 -   Set-Up
     -   In practice, you want to set materializations at the folder level, and use individual model configs to override those as needed.
 
-    -   [Example]{.ribbon-highlight}: Table (or View)
+    -   In `dbt_project.yml`
 
-        ``` sql
-        {{
-            config(
-                materialized='table'
-            )
-        }}
+        -   A [+]{.arg-text} is used to indicate a materialization
 
-        select ...
-        ```
+        -   [Example]{.ribbon-highlight}: models
 
-    -   [Example]{.ribbon-highlight}: Incremental
+            ``` yaml
+            models:
+              jaffle_shop:
+                marketing:
+                  +materialized: view
+                  paid_ads:
+                    google:
+                      +materialized: table
+            ```
 
-        ``` sqlpostgresql
-        {{
-            config(
-                materialized='incremental',
-                unique_key='order_id' # <1>
-            )
-        }}
+            -   All models in the [marketing]{.var-text} and [paid_ads]{.var-text} folders are *views* while models in the [google]{.var-text} folder are *tables*
 
-        select * from orders
+    -   In Model files
 
-        {% if is_incremental() %} # <2>
+        -   [Example]{.ribbon-highlight}: Table (or View)
 
-        where
-          updated_at > (select max(updated_at) from {{ this }}) # <3>
+            ``` sql
+            {{
+                config(
+                    materialized='table'
+                )
+            }}
 
-        {% endif %}
-        ```
+            select ...
+            ```
 
-        1.  [unique_key]{.arg-text} specifies the field that allows dbt to find a record from the previous run (old data) with the same unique id as the new data in order to *update* that record instead of adding it as a separate row.
-        2.  An if-else conditional that uses `is_incremental` (macro) to check if the systematic conditions necessary for an incremental model are met (See below)
-        3.  The *conditional block* containing the *filter* that finds the latest [updated_at]{.var-text} date, so dbt knows whether the source data has new records that need to be *added* or not.
+        -   [Example]{.ribbon-highlight}: Incremental
 
-        -   `{{ this }}` means *filter* from "this" table, i.e. [orders]{.var-text}
-        -   `is_incremental` (macro) checks:
-            -   [materialized ='incremental']{.arg-text}
-            -   There is an existing table for this model in the warehouse to add to/update
-            -   `--full-refresh` flag was not passed ([docs](https://docs.getdbt.com/reference/resource-configs/full_refresh))
-                -   Overrides the incremental materialization and builds the table from scratch again
-                -   Useful if the table drifts from the source table over time.
+            ``` sqlpostgresql
+            {{
+                config(
+                    materialized='incremental',
+                    unique_key='order_id' # <1>
+                )
+            }}
+
+            select * from orders
+
+            {% if is_incremental() %} # <2>
+
+            where
+              updated_at > (select max(updated_at) from {{ this }}) # <3>
+
+            {% endif %}
+            ```
+
+            1.  [unique_key]{.arg-text} specifies the field that allows dbt to find a record from the previous run (old data) with the same unique id as the new data in order to *update* that record instead of adding it as a separate row.
+            2.  An if-else conditional that uses `is_incremental` (macro) to check if the systematic conditions necessary for an incremental model are met (See below)
+            3.  The *conditional block* containing the *filter* that finds the latest [updated_at]{.var-text} date, so dbt knows whether the source data has new records that need to be *added* or not.
+
+            -   `{{ this }}` means *filter* from "this" materialization
+            -   `is_incremental` (macro) checks:
+                -   [materialized ='incremental']{.arg-text}
+                -   There is an existing table for this model in the warehouse to add to/update
+                -   `--full-refresh` flag was not passed ([docs](https://docs.getdbt.com/reference/resource-configs/full_refresh))
+                    -   Overrides the incremental materialization and builds the table from scratch again
+                    -   Useful if the table drifts from the source table over time.
 
 ### Variables {#sec-db-dbt-comp-var .unnumbered}
 
@@ -279,6 +300,9 @@
 
 #### Misc {#sec-db-dbt-comp-mod-misc .unnumbered}
 
+-   Naming Conventions
+    -   A prefix for the layer the model exists in, important grouping information, and specific information about the entity or transformation in the model
+    -   `stg_[source]__[entity]s.sql` - The double underscore between source system and entity helps visually distinguish the separate parts in the case of a source name having multiple words.
 -   Tagging
     -   Allows you to run groups of models
         -   [Example]{.ribbon-highlight}`dbt run --models tag:daily`
@@ -324,16 +348,30 @@
     SELECT * FROM Active_users_joined_subscriptions
     ```
 
-#### Categories {#sec-db-dbt-comp-mod-cat .unnumbered}
+#### Layers {#sec-db-dbt-comp-mod-lay .unnumbered}
+
+##### Outer Layers {#sec-db-dbt-comp-mod-lay-outer .unnumbered}
 
 -   [Staging]{.underline}
 
+    -   Subdirectories based on the data sources (*not* business entities)
     -   Contains all the individual components of your project that the other layers will use in order to craft more complex data models.
     -   Each model bears a one-to-one relationship with the source data table it represents (i.e. 1 staging model per source)
     -   Typical Transformations: recasting, column renaming, basic computations (such as KBs to MBs or GBs), categorization (e.g. using CASE WHEN statements).
         -   Aggregations and joins should also be avoided
     -   Usually materialized as views.
         -   Allows any intermediate or mart models referencing the staging layer to get access to fresh data and at the same time it saves us space and reduces costs.
+
+        -   In `dbt_project.yml`
+
+            ``` yaml
+            models:
+              jaffle_shop:
+                staging:
+                  +materialized: view
+            ```
+
+            -   View is the default materialization, but still good to set manually just for clarification purposes.
     -   [Example]{.ribbon-highlight}
         -   Both the Stripe and Braintree payments are recast into a consistent shape, with consistent column names.
 
@@ -347,34 +385,34 @@
         -   A monthly recurring revenue (MRR) model that classifies revenue per customer per month as new revenue, upgrades, downgrades, and churn, to understand how a business is performing over time.
             -   It may be useful to note whether the revenue was collected via Stripe or Braintree, but they are not fundamentally separate models.
 
--   [Base/Intermediate]{.underline}
+##### Inner Layers {#sec-db-dbt-comp-mod-lay-inner .unnumbered}
 
-    -   [Base]{.underline}
-        -   Basic transformations (e.g. cleaning up the names of the columns, casting to different data types)
-        -   Other models use these models as data sources
-            -   Prevents errors like accidentally casting your dates to two different types of timestamps, or giving the same column two different names.
-                -   Two different timestamp castings can cause all of the dates to be improperly joined downstream, turning the model into a huge disaster
-        -   Usually occuring in staging
-        -   Read directly from a source, which is typically a schema in your data warehouse
-            -   Source object: `{{ source('campaigns', 'channel') }}`
-                -   [campaigns]{.var-text} is the name of the source in the .yml file
-                -   [channel]{.var-text} is the name of a table from that source
-    -   [Intermediate]{.underline}
-        -   Brings together the atomic building blocks that reside in staging layer such that more complex and meaningful models are constructed
-        -   Usually occuring in marts
-        -   Additional transformations that particular marts-models require
-            -   Created to isolate complex operations
-                -   Typically used for joins between multiple base models
-        -   Should not be directly exposed to end users via dashboards or applications
-        -   Other models should reference them as Common Table Expressions although there may be cases where it makes sense to materialize them as Views
-            -   Macros called via `run-operation` cannot reference ephemeral objects such as CTEs
-            -   Recommended to start with ephemeral objects unless this doesn’t work for the specific use case
-            -   Whenever you decide to materialize them as Views, it may be easier to to do so in a [custom schema](https://docs.getdbt.com/docs/build/custom-schemas), that is a schema outside of the main schema defined in your dbt profile.
-        -   If the same intermediate model is referenced by more than one model then it means your design has probably gone wrong.
-            -   Usually indicates that you should consider turning your intermediate model into a macro. reference the base models rather than from a source
-            -   Reference object
-                -   `{{ ref('base_campaign_types') }}`
-                -   [base_campaign_types]{.var-text} is a base model
+-   [Base]{.underline}
+    -   Basic transformations (e.g. cleaning up the names of the columns, casting to different data types)
+    -   Other models use these models as data sources
+        -   Prevents errors like accidentally casting your dates to two different types of timestamps, or giving the same column two different names.
+            -   Two different timestamp castings can cause all of the dates to be improperly joined downstream, turning the model into a huge disaster
+    -   Usually occuring in staging
+    -   Read directly from a source, which is typically a schema in your data warehouse
+        -   Source object: `{{ source('campaigns', 'channel') }}`
+            -   [campaigns]{.var-text} is the name of the source in the .yml file
+            -   [channel]{.var-text} is the name of a table from that source
+-   [Intermediate]{.underline}
+    -   Brings together the atomic building blocks that reside in staging layer such that more complex and meaningful models are constructed
+    -   Usually occuring in marts
+    -   Additional transformations that particular marts-models require
+        -   Created to isolate complex operations
+            -   Typically used for joins between multiple base models
+    -   Should not be directly exposed to end users via dashboards or applications
+    -   Other models should reference them as Common Table Expressions although there may be cases where it makes sense to materialize them as Views
+        -   Macros called via `run-operation` cannot reference ephemeral objects such as CTEs
+        -   Recommended to start with ephemeral objects unless this doesn’t work for the specific use case
+    -   Whenever you decide to materialize them as Views, it may be easier to to do so in a [custom schema](https://docs.getdbt.com/docs/build/custom-schemas), that is a schema outside of the main schema defined in your dbt profile.
+    -   If the same intermediate model is referenced by more than one model then it means your design has probably gone wrong.
+        -   Usually indicates that you should consider turning your intermediate model into a macro. reference the base models rather than from a source
+        -   Reference object
+            -   `{{ ref('base_campaign_types') }}`
+            -   [base_campaign_types]{.var-text} is a base model
 
 ### Macros {#sec-db-dbt-comp-mac .unnumbered}
 

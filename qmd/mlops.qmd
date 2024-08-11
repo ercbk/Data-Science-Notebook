@@ -48,6 +48,51 @@
             runs_df["is_nested_child"] = runs_df[["run_id","tags.mlflow.rootRunId"]].apply(lambda x: 1 if x["tags.mlflow.rootRunId"] is not None and x["run_id"] != x["tags.mlflow.rootRunId"]else 0, axis=1)
             runs_df
             ```
+    -   Use `mlflow.pyfunc` for a model agnostic Class approach
+        -   An approach which allows you to use libraries outside of [{{sklearn}}]{style="color: goldenrod"}
+
+        -   [Example]{.ribbon-highlight}: Basic ([source](https://towardsdatascience.com/algorithm-agnostic-model-building-with-mlflow-b106a5a29535))
+
+            ``` python
+            # Step 1: Create a mlflow.pyfunc model
+            class ToyModel(mlflow.pyfunc.PythonModel):
+                """
+                ToyModel is a simple example implementation of an MLflow Python model.
+                """
+                
+                def predict(self, context, model_input):
+                    """
+                    A basic predict function that takes a model_input list and returns a new list 
+                    where each element is increased by one.
+
+                    Parameters:
+                    - context (Any): An optional context parameter provided by MLflow.
+                    - model_input (list of int or float): A list of numerical values that the model will use for prediction.
+
+                    Returns:
+                    - list of int or float: A list with each element in model_input is increased by one.
+                    """
+                    return [x + 1 for x in model_input]
+                  
+            # Step 2: log this model as an mlflow run
+            with mlflow.start_run():
+                mlflow.pyfunc.log_model(
+                    artifact_path = "model", 
+                    python_model=ToyModel()
+                )
+                run_id = mlflow.active_run
+                
+            # Step 3: load the logged model to perform inference
+            model = mlflow.pyfunc.load_model(f"runs:/{run_id}/model")
+            # dummy new data
+            x_new = [1,2,3]
+            # model inference for the new data
+            print(model.predict(x_new))
+            >>> [2, 3, 4]
+            ```
+
+            -   This only shows a predict method, but you can include anything you need such as a fit and preprocessing methods.
+            -   See source for a more involved XGBoost model example and details on extracting metadata.
 
 -   [Set experiment name and get experiment id]{.underline}
 
@@ -77,87 +122,91 @@
             client = NULL)
         ```
 
-    -   [Example]{.ribbon-highlight}: R
+    -   [Example]{.ribbon-highlight}
 
-        ``` r
-        library(mlflow)
-        library(glmnet)
+    ::: panel-tabset
+    ## R
 
-        # can format the variable outside the log_param fun or inside
-        alpha <- mlflow_param(args)
+    ``` r
+    library(mlflow)
+    library(glmnet)
 
-        # experiment contained inside start_run
-        with(mlflow_start_run( ) {
+    # can format the variable outside the log_param fun or inside
+    alpha <- mlflow_param(args)
 
-            alpha_fl <- mlflow_log_param("alpha" = alpha)
-            lambda_fl <- mlflow_log_param("lambda" = mlflow_param(args))
+    # experiment contained inside start_run
+    with(mlflow_start_run( ) {
 
-            mod <- glmnet(args)
+        alpha_fl <- mlflow_log_param("alpha" = alpha)
+        lambda_fl <- mlflow_log_param("lambda" = mlflow_param(args))
 
-            # preds
-            # error
+        mod <- glmnet(args)
 
-            # see Models section below for details
-            mod_crate <- carrier::crate(~glmnet::glmnet.predict(mod, train_x), mod)
-            mlflow_log_model(mod_crate, "model_folder")
+        # preds
+        # error
 
-            mlflow_log_metric("MAE", error)
+        # see Models section below for details
+        mod_crate <- carrier::crate(~glmnet::glmnet.predict(mod, train_x), mod)
+        mlflow_log_model(mod_crate, "model_folder")
 
-        })
-        # this might go on the inside if you're looping the "with" FUN and want to log results of each loop
-        mlflow_end_run()
+        mlflow_log_metric("MAE", error)
 
-        # not working, logs run, but doesn't log metrics
-        # run saved script
-        mlflow::mlflow_run(entry_point = "script.R")
-        ```
+    })
+    # this might go on the inside if you're looping the "with" FUN and want to log results of each loop
+    mlflow_end_run()
 
-    -   [Example]{.ribbon-highlight}: python
+    # not working, logs run, but doesn't log metrics
+    # run saved script
+    mlflow::mlflow_run(entry_point = "script.R")
+    ```
 
-        ``` python
+    ## Python
 
-
-        # End any existing runs
-        mlflow.end_run()
-
-
-        with mlflow.start_run() as run:
-            # Turn autolog on to save model artifacts, requirements, etc.
-            mlflow.autolog(log_models=True)
+    ``` python
 
 
-            print(run.info.run_id)
+    # End any existing runs
+    mlflow.end_run()
 
 
-            diabetes_X = diabetes.data
-            diabetes_y = diabetes.target
+    with mlflow.start_run() as run:
+        # Turn autolog on to save model artifacts, requirements, etc.
+        mlflow.autolog(log_models=True)
 
 
-            # Split data into test training sets, 3:1 ratio
-            (
-                diabetes_X_train,
-                diabetes_X_test,
-                diabetes_y_train,
-                diabetes_y_test,
-            ) = train_test_split(diabetes_X, diabetes_y, test_size=0.25, random_state=42)
+        print(run.info.run_id)
 
 
-            alpha = 0.9
-            solver = "cholesky"
-            regr = linear_model.Ridge(alpha=alpha, solver=solver)
+        diabetes_X = diabetes.data
+        diabetes_y = diabetes.target
 
 
-            regr.fit(diabetes_X_train, diabetes_y_train)
+        # Split data into test training sets, 3:1 ratio
+        (
+            diabetes_X_train,
+            diabetes_X_test,
+            diabetes_y_train,
+            diabetes_y_test,
+        ) = train_test_split(diabetes_X, diabetes_y, test_size=0.25, random_state=42)
 
 
-            diabetes_y_pred = regr.predict(diabetes_X_test)
+        alpha = 0.9
+        solver = "cholesky"
+        regr = linear_model.Ridge(alpha=alpha, solver=solver)
 
 
-            # Log desired metrics
-            mlflow.log_metric("mse", mean_squared_error(diabetes_y_test, diabetes_y_pred))
-            mlflow.log_metric(
-                "rmse", sqrt(mean_squared_error(diabetes_y_test, diabetes_y_pred))
-        ```
+        regr.fit(diabetes_X_train, diabetes_y_train)
+
+
+        diabetes_y_pred = regr.predict(diabetes_X_test)
+
+
+        # Log desired metrics
+        mlflow.log_metric("mse", mean_squared_error(diabetes_y_test, diabetes_y_pred))
+        mlflow.log_metric(
+            "rmse", sqrt(mean_squared_error(diabetes_y_test, diabetes_y_pred))
+    ```
+    :::
 
 -   [Custom run names]{.underline}
 
