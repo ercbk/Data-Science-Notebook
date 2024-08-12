@@ -20,7 +20,15 @@
 -   Architecture\
     ![](_resources/DB,_dbt.resources/architecture-1.png){.lightbox width="332"}
 
--   Typical Workflow
+-   Development Workflow
+
+    -   Mock out a design in a spreadsheet so you know you’re aligned with stakeholders on output goals.
+    -   Write the SQL to generate that final output, and identify what tables are involved.
+    -   Make sure all the necessary atomic pieces are staged into the project,
+    -   Bring them together based on the SQL written to generate the final output (mart).
+    -   Finally, with a functioning model flowing in dbt, start refactoring and optimizing that mart.
+
+-   Model Running Workflow
 
     ``` bash
     dbt deps
@@ -151,6 +159,56 @@
             - package: dbt-labs/dbt_utils
               version: 0.7.3
         ```
+
+## Directories {#sec-db-dbt-dir .unnumbered}
+
+-   [Example]{.ribbon-highlight}: [Source](https://docs.getdbt.com/best-practices/how-we-structure/1-guide-overview#guide-structure-overview)\
+    ![](_resources/DB,_dbt.resources/dir-ex-1.png){.lightbox width="272"}
+
+-   [Models]{.underline}
+
+    -   Sources (i.e. data sources) are defined in `src_<source>.yml` files in your models directory
+        -   .yml files contain definitions and tests
+        -   .doc files contain source documentation
+    -   Models (i.e. sql queries) are defined `stg_<source>.yml`
+        -   .yml files contain definitions and tests
+        -   .doc files contain source documentation
+        -   The actual models are the .sql files
+    -   [Example]{.ribbon-highlight}\
+        ![](./_resources/DB,_dbt.resources/Screenshot%20(533).png){.lightbox width="432"}
+        -   Staging:
+            -   Different data sources will have separate folders underneath staging (e.g. stripe).
+        -   Marts:
+            -   Use cases or departments have different folders underneath marts (e.g. core or marketing)
+
+-   [Macros]{.underline}
+
+    -   Similar to functions in excel
+    -   Define custom functions in the macros folder or override default macros and macros from a package
+    -   See bkmks for tutorials on writing custom macros with jinja
+    -   [{]{style="color: #990000"}[dbtplyr](https://github.com/emilyriederer/dbtplyr){style="color: #990000"}[}]{style="color: #990000"} macros
+        -   dplyr tidy selectors, across, etc.
+
+-   [Seeds]{.underline}
+
+    -   Seeds are csv files that you add to your dbt project to be uploaded to your data warehouse.
+        -   Uploaded into your data warehouse using the `dbt seed` command
+    -   Best suited to static data which changes infrequently.
+        -   Use Cases:
+            -   A list of unique codes or employee ids that you may need in your analysis but is not present in your current data.
+            -   A list of mappings of country codes to country names
+            -   A list of test emails to exclude from analysis
+    -   Referenced in downstream models the same way as referencing models — by using the `ref` function
+
+-   [Snapshots]{.underline}
+
+    -   Captures of the state of a table at a particular time
+    -   [Docs](https://docs.getdbt.com/docs/building-a-dbt-project/snapshots)
+    -   build a slowly changing dimension (SCD) table for sources that do not support change data capture (CDC)
+    -   [Example]{.ribbon-highlight}
+        -   Every time the status of an order change, your system overrides it with the new information. In this case, there we cannot know what historical statuses that an order had.
+        -   Daily snapshots of this table builds a history and allows you to track order statuses\
+            ![](./_resources/DB,_dbt.resources/1-UenQCtO0h2WLAWW5lK67DQ.png){width="382"}
 
 ## Components {#sec-db-dbt-comp .unnumbered}
 
@@ -300,12 +358,9 @@
 
 #### Misc {#sec-db-dbt-comp-mod-misc .unnumbered}
 
--   Naming Conventions
-    -   A prefix for the layer the model exists in, important grouping information, and specific information about the entity or transformation in the model
-    -   `stg_[source]__[entity]s.sql` - The double underscore between source system and entity helps visually distinguish the separate parts in the case of a source name having multiple words.
 -   Tagging
     -   Allows you to run groups of models
-        -   [Example]{.ribbon-highlight}`dbt run --models tag:daily`
+        -   [Example]{.ribbon-highlight}:`dbt run --models tag:daily`
 
 #### Best Practices {#sec-db-dbt-comp-mod-bp .unnumbered}
 
@@ -355,11 +410,23 @@
 -   [Staging]{.underline}
 
     -   Subdirectories based on the data sources (*not* business entities)
+    -   Naming Convention
+        -   Syntax: `stg_[source]__[entity]s.sql`
+            -   The double underscore between source system and entity helps visually distinguish the separate parts in the case of a source name having multiple words.
     -   Contains all the individual components of your project that the other layers will use in order to craft more complex data models.
-    -   Each model bears a one-to-one relationship with the source data table it represents (i.e. 1 staging model per source)
-    -   Typical Transformations: recasting, column renaming, basic computations (such as KBs to MBs or GBs), categorization (e.g. using CASE WHEN statements).
-        -   Aggregations and joins should also be avoided
-    -   Usually materialized as views.
+    -   Once you get a feel for these models, use the codegen package to automatically generate them. (See [Packages](db-dbt.qmd#sec-db-dbt-pkgs){style="color: green"})
+    -   Data Sources
+        -   Only layer where the `source` macro is used
+        -   Each model bears a one-to-one relationship with the source data table it represents (i.e. 1 staging model per source)
+    -   Transformations
+        -   Only transformations that are needed for every downstream model should be applied.
+        -   Typical Transformations: recasting, column/view renaming, basic computations (e.g. cents to dollars), binning continuous fields, collapsing categoricals fields.
+            -   Unions may also be applied if you have two sources with the same fields
+                -   e.g. two tables that represent the same store except that perhaps they are in different regions or selling on two different platforms, and your project only wants to use aggregated calculations from both.
+        -   Aggregations and joins should be avoided. But, if *joins* are necessary, then create a subdirectory called [base]{.var-text} within the source directory.
+            1.  Within that subdirectory, create `base_` models that perform the previously mentioned "Typical Transformations."
+            2.  Then, at the source directory level, create staging, `stg_`, models that join those base models that are in the subdirectory. (See [docs](https://docs.getdbt.com/best-practices/how-we-structure/2-staging#staging-other-considerations) for examples)
+    -   Materialized as views.
         -   Allows any intermediate or mart models referencing the staging layer to get access to fresh data and at the same time it saves us space and reduces costs.
 
         -   In `dbt_project.yml`
@@ -372,8 +439,27 @@
             ```
 
             -   View is the default materialization, but still good to set manually just for clarification purposes.
-    -   [Example]{.ribbon-highlight}
-        -   Both the Stripe and Braintree payments are recast into a consistent shape, with consistent column names.
+
+-   [Intermediate]{.underline}
+
+    -   Uses views from the staging layer to build more complex models
+    -   Subdirectories based on business entities (e.g. marketing, finance, etc.)
+        -   If you have fewer than 10 models and aren’t having problems developing and using them, then feel free to forego subdirectories completely.
+    -   Naming Convention
+        -   Syntax: int\_\[entity\]s\_\[verb\]s.sql
+        -   Verb Examples: pivoted, aggregated_to_user, joined, fanned_out_by_quantity, funnel_created, etc.)
+        -   No double underscores
+            -   If for some reason you had to use a source macro in this layer, then you could use double underscores between entity(s) and verb(s)
+        -   [Example]{.ribbon-highlight}: `int_payments_pivoted_to_orders`
+    -   Other models should reference them as Common Table Expressions although there may be cases where it makes sense to materialize them as Views
+        -   Macros called via `run-operation` cannot reference ephemeral objects such as CTEs
+        -   Recommended to start with ephemeral objects unless this doesn’t work for the specific use case
+    -   Whenever you decide to materialize them as Views, it may be easier to to do so in a [custom schema](https://docs.getdbt.com/docs/build/custom-schemas), that is a schema outside of the main schema defined in your dbt profile.
+    -   If the same intermediate model is referenced by more than one model then it means your design has probably gone wrong.
+        -   Usually indicates that you should consider turning your intermediate model into a macro. reference the base models rather than from a source
+        -   Reference object
+            -   `{{ ref('base_campaign_types') }}`
+            -   [base_campaign_types]{.var-text} is a base model
 
 -   [Marts]{.underline}
 
@@ -384,6 +470,12 @@
     -   [Example]{.ribbon-highlight}
         -   A monthly recurring revenue (MRR) model that classifies revenue per customer per month as new revenue, upgrades, downgrades, and churn, to understand how a business is performing over time.
             -   It may be useful to note whether the revenue was collected via Stripe or Braintree, but they are not fundamentally separate models.
+
+-   [Utilities]{.underline}
+
+    -   Directory for any general purpose models that are generated from macros or based on seeds that provide tools to help modeling, rather than data to model itself.
+    -   The most common use case is a [date spine](https://github.com/dbt-labs/dbt-utils#date_spine-source) generated with the dbt utils package.
+        -   Also see [Packages](db-dbt.qmd#sec-db-dbt-pkgs){style="color: green"}, [Databases, Engineering \>\> Terms](db-engineering.qmd#sec-db-eng-terms){style="color: green"} \>\> Date Spine
 
 ##### Inner Layers {#sec-db-dbt-comp-mod-lay-inner .unnumbered}
 
@@ -397,76 +489,6 @@
         -   Source object: `{{ source('campaigns', 'channel') }}`
             -   [campaigns]{.var-text} is the name of the source in the .yml file
             -   [channel]{.var-text} is the name of a table from that source
--   [Intermediate]{.underline}
-    -   Brings together the atomic building blocks that reside in staging layer such that more complex and meaningful models are constructed
-    -   Usually occuring in marts
-    -   Additional transformations that particular marts-models require
-        -   Created to isolate complex operations
-            -   Typically used for joins between multiple base models
-    -   Should not be directly exposed to end users via dashboards or applications
-    -   Other models should reference them as Common Table Expressions although there may be cases where it makes sense to materialize them as Views
-        -   Macros called via `run-operation` cannot reference ephemeral objects such as CTEs
-        -   Recommended to start with ephemeral objects unless this doesn’t work for the specific use case
-    -   Whenever you decide to materialize them as Views, it may be easier to to do so in a [custom schema](https://docs.getdbt.com/docs/build/custom-schemas), that is a schema outside of the main schema defined in your dbt profile.
-    -   If the same intermediate model is referenced by more than one model then it means your design has probably gone wrong.
-        -   Usually indicates that you should consider turning your intermediate model into a macro. reference the base models rather than from a source
-        -   Reference object
-            -   `{{ ref('base_campaign_types') }}`
-            -   [base_campaign_types]{.var-text} is a base model
-
-### Macros {#sec-db-dbt-comp-mac .unnumbered}
-
--   Similar to functions in excel
--   Define custom functions in the macros folder or override default macros and macros from a package
--   See bkmks for tutorials on writing custom macros with jinja
--   [{]{style="color: #990000"}[dbtplyr](https://github.com/emilyriederer/dbtplyr){style="color: #990000"}[}]{style="color: #990000"} macros
-    -   dplyr tidy selectors, across, etc.
-
-### Seeds {#sec-db-dbt-comp-seed .unnumbered}
-
--   Seeds are csv files that you add to your dbt project to be uploaded to your data warehouse.
-    -   Uploaded into your data warehouse using the `dbt seed` command
--   Best suited to static data which changes infrequently.
-    -   Use Cases:
-        -   A list of unique codes or employee ids that you may need in your analysis but is not present in your current data.
-        -   A list of mappings of country codes to country names
-        -   A list of test emails to exclude from analysis
--   Referenced in downstream models the same way as referencing models — by using the `ref` function
-
-## Directories {#sec-db-dbt-dir .unnumbered}
-
--   [Models]{.underline}
-
-    -   Sources (i.e. data sources) are defined in `src_<source>.yml` files in your models directory
-        -   .yml files contain definitions and tests
-        -   .doc files contain source documentation
-    -   Models (i.e. sql queries) are defined `stg_<source>.yml`
-        -   .yml files contain definitions and tests
-        -   .doc files contain source documentation
-        -   The actual models are the .sql files
-    -   [Example]{.ribbon-highlight}\
-        ![](./_resources/DB,_dbt.resources/Screenshot%20(533).png){.lightbox width="432"}
-        -   Staging:
-            -   Different data sources will have separate folders underneath staging (e.g. stripe).
-        -   Marts:
-            -   Use cases or departments have different folders underneath marts (e.g. core or marketing)
-
--   [Data]{.underline}
-
-    -   Contains all manual data that will be loaded to the database by dbt.
-    -   To load the .csv files in this folder to the database, you will have to run the `dbt seed` command.
-    -   For github or other repos, do not put large files or files with sensitive information here
-        -   Acceptable use cases: yearly budget, status mappings, category mappings, etc
-
--   [Snapshots]{.underline}
-
-    -   Captures of the state of a table at a particular time
-    -   [Docs](https://docs.getdbt.com/docs/building-a-dbt-project/snapshots)
-    -   build a slowly changing dimension (SCD) table for sources that do not support change data capture (CDC)
-    -   [Example]{.ribbon-highlight}
-        -   Every time the status of an order change, your system overrides it with the new information. In this case, there we cannot know what historical statuses that an order had.
-        -   Daily snapshots of this table builds a history and allows you to track order statuses\
-            ![](./_resources/DB,_dbt.resources/1-UenQCtO0h2WLAWW5lK67DQ.png){width="382"}
 
 ## Packages {#sec-db-dbt-pkgs .unnumbered}
 
@@ -511,6 +533,7 @@
         -   [How to do Unit Testing in dbt](https://towardsdatascience.com/how-to-do-unit-testing-in-dbt-cb5fb660fbd8)
     -   Most of the tests are defined in a models-type .yml file in the models directory
     -   Can be applied to a model or a column
+    -   Test that the primary key column is unique and not null
 -   Macros: Pre-Made or Custom
     -   Custom (aka Singular) tests should be located in a tests folder.
         -   dbt will evaluate the SQL statement.
