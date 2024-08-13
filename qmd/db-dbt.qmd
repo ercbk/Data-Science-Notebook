@@ -10,10 +10,12 @@
 
     -   [Anatomy of a dbt project](https://towardsdatascience.com/anatomy-of-a-dbt-project-50e810abc695)
     -   [What is dbt?](https://towardsdatascience.com/what-is-dbt-a0d91109f7d0)
-    -   [Docs](https://docs.getdbt.com/docs/introduction)
+    -   Overview of all DBT Products [Docs](https://docs.getdbt.com/docs/introduction)
 
 -   Resources
 
+    -   DBT-Core Quickstart [Docs](https://docs.getdbt.com/guides/manual-install?step=1)
+        -   Shows you how to set up a project locally, connect to a BigQuery warehouse, build and document models
     -   [Create a Local dbt Project](https://towardsdatascience.com/create-local-dbt-project-e12c31bd3992)
         -   Uses docker containers to set up a local dbt project and a local postgres db to play around with
 
@@ -24,9 +26,10 @@
 
     -   Mock out a design in a spreadsheet so you know you’re aligned with stakeholders on output goals.
     -   Write the SQL to generate that final output, and identify what tables are involved.
-    -   Make sure all the necessary atomic pieces are staged into the project,
-    -   Bring them together based on the SQL written to generate the final output (mart).
-    -   Finally, with a functioning model flowing in dbt, start refactoring and optimizing that mart.
+    -   Write SQL code for basic transformations (staging/base models) in the staging layer which directly source the tables
+    -   Write models in the intermediate layer and/or mart layer using the more complex SQL code which source the models in the staging layer
+    -   The final output (materializations) will the output of the models in the mart layer
+    -   Finally, with a functioning model flowing in dbt, start refactoring and optimizing the mart.
 
 -   Model Running Workflow
 
@@ -38,6 +41,13 @@
     dbt run-operation {{ macro_name }}
     dbt test
     ```
+
+-   Commands
+
+    -   [Reference](https://docs.getdbt.com/reference/dbt-commands)
+    -   [dbt run](https://docs.getdbt.com/reference/commands/run) - Runs the models you defined in your project
+    -   [dbt build](https://docs.getdbt.com/reference/commands/build) - Builds and tests your selected resources such as models, seeds, snapshots, and tests
+    -   [dbt test](https://docs.getdbt.com/reference/commands/test) - Executes the tests you defined for your project
 
 -   Style Guide Components
 
@@ -61,6 +71,32 @@
 
 -   Basic set-up: [Article](https://towardsdatascience.com/getting-hands-on-with-dbt-data-build-tool-a157d4151bbc)
     -   Example uses postgres adaptor
+-   Also see DBT-Core Quickstart Guide (See [Misc](db-dbt-qmd#sec-db-dbt-misc){style="color: green"} \>\> Resources)
+    -   [Example]{.ribbon-highlight}:
+        -   Connection to BigQuery in `profiles.yml` (See [Project Files](db-dbt.qmd#sec-db-dbt-projfil){style="color: green"})
+
+            ``` yaml
+            jaffle_shop: # this needs to match the profile in your dbt_project.yml file
+                target: dev
+                outputs:
+                    dev:
+                        type: bigquery
+                        method: service-account
+                        keyfile: /Users/BBaggins/.dbt/dbt-tutorial-project-331118.json # replace this with the full path to your keyfile
+                        project: grand-highway-265418 # Replace this with your project id
+                        dataset: dbt_bbagins # Replace this with dbt_your_name, e.g. dbt_bilbo
+                        threads: 1
+                        timeout_seconds: 300
+                        location: US
+                        priority: interactive
+            ```
+
+        -   Check connection
+
+            ``` bash
+            dbt debug
+            #> Connection test: OK connection ok
+            ```
 -   Within a python virtual environment
     -   Create: `python3 -m vevn dbt-venv`
 
@@ -80,6 +116,9 @@
         pip install dbt-spark
         # etc...
         ```
+-   Recommend using different schemas within one database to separate your environments
+-   If you have multiple dbt users writing code, it often makes sense for each user to have their own development environment.
+    -   Set your dev target schema to be `dbt_<username>`. User credentials should also differ across targets so that each dbt user is using their own data warehouse user.
 
 ## Description {#sec-db-dbt-desc .unnumbered}
 
@@ -138,7 +177,7 @@
     -   Contents
         -   database connection, database credentials that dbt will use to connect to the data warehouse
         -   If you work on multiple projects locally, the different project names (configured in the `dbt_project.yml` file) will allow you to set up various profiles for other projects.
-        -   ... something about "targets" but not sure what this is or how it's used
+        -   Where you set the target (i.e. branch) (e.g. dev or prod)
 
 -   `dbt_project.yml`
 
@@ -214,10 +253,11 @@
 
 ### Materializations {#sec-db-dbt-comp-mats .unnumbered}
 
--   The manner in which the data is represented
--   [Docs](https://docs.getdbt.com/best-practices/materializations/1-guide-overview)
--   Start with models as views, when they take too long to query, make them tables, when the tables take too long to build, make them incremental.
--   View
+-   [Misc]{.underline}
+    -   The manner in which the data is represented
+    -   [Docs](https://docs.getdbt.com/best-practices/materializations/1-guide-overview)
+    -   Start with models as views, when they take too long to query, make them tables, when the tables take too long to build, make them incremental.
+-   [View]{.underline}
     -   Default materialization when there is no specification in the configuration
     -   Just like Standard Views, i.e. a saved SQL query (See [SQL \>\> Views](sql.qmd#sec-sql-views){style="color: green"})
     -   Always reflects the most up-to-date version of the input data
@@ -227,12 +267,12 @@
     -   Best for
         -   Building a model that stitches lots of other models together (Don't want to worry about freshness of ever table involved).
         -   Small datasets with minimally intensive logic that you want near realtime access to
--   Table
+-   [Table]{.underline}
     -   Stores the literal rows and columns on disk (i.e. materialized view)
     -   Ideal for models that get queried regularly
     -   Reflects the most recent run on the source data that was available
     -   Best for sources for BI products and other frontend apps (e.g. like a mart that services a popular dashboard)
--   Incremental Model
+-   [Incremental]{.underline}
     -   [Docs](https://docs.getdbt.com/best-practices/materializations/4-incremental-models)
     -   Builds a table in pieces over time — only adding and updating new or changed records which makes them efficient.
     -   Builds more quickly than a regular table of the same logic.
@@ -246,7 +286,16 @@
         -   A *filter* to select just the new or updated records
         -   A *conditional block* that wraps the filter and only applies it when we want it
         -   A *configuration* that tells dbt to build incrementally and helps apply the conditional filter when needed
--   Set-Up
+-   [Ephemeral]{.underline}
+    -   Creates a CTE
+    -   More difficult to troubleshoot, as they’re interpolated into the models that `ref` them, rather than existing on their own in a way that you can view the output of.
+    -   Use Cases
+        -   Very light-weight transformations that are early on in your DAG
+        -   Should only used in one or two downstream models
+        -   For a materialization that does not need to be queried directly
+            -   Macros called using `dbt run-operation` cannot `ref()` ephemeral materializations
+    -   Doesn't support model contracts
+-   [Set-Up]{.underline}
     -   In practice, you want to set materializations at the folder level, and use individual model configs to override those as needed.
 
     -   In `dbt_project.yml`
@@ -362,6 +411,97 @@
     -   Allows you to run groups of models
         -   [Example]{.ribbon-highlight}:`dbt run --models tag:daily`
 
+#### YAML Options {#sec-db-dbt-comp-mod-yaml .unnumbered}
+
+-   [Contracts]{.underline}
+    -   Enforces constraints on the materialization output from a model (emphemeral not supported)
+        -   Data Tests differ from contracts since they are a more flexible mechanism for validating the content of your model *after* it's built (contracts execute at build time)
+        -   Contracts probably requires less compute (cost) in your data platform
+    -   [Docs](https://docs.getdbt.com/reference/resource-configs/contract)
+    -   Incremental materializations requires setting: [on_schema_change: append_new_columns]{.arg-text}
+    -   Set-Up
+        -   When [enforced: true]{.arg-text}, [name]{.arg-text} and [data_type]{.arg-text} are required to be set for every column
+
+        -   Set [alias_types: false]{.arg-text} to opt-out of letting dbt try to convert a specified type to one that conforms to a specific platform
+
+            -   e.g. Specify string in your contract while on Postgres/Redshift, and dbt will convert it to text.
+
+        -   If a varchar size or numeric scale is not specified, then dbt relies on default values
+
+        -   [Example]{.ribbon-highlight}
+
+            ``` yaml
+            models:
+              - name: dim_customers
+                config:
+                  materialized: table
+                  contract:
+                    enforced: true
+                columns:
+                  - name: customer_id
+                    data_type: int
+                    constraints:
+                      - type: not_null
+                  - name: customer_name
+                    data_type: string
+                  - name: non_integer
+                    data_type: numeric(38,3)
+            ```
+
+            -   [numeric(38,3)]{.arg-text} says [non-integer]{.var-text} is allowed to have 38 (precision) total digits (whole + decimal) and 3 decimal places (scale).
+-   [Constraints]{.underline}
+    -   When specified, the platform (e.g. postgres, BigQuery, etc.) will perform additional validation on data as it is being populated in a new table or inserted into a preexisting table. If the validation fails, the table creation or update fails (or there's a warning), the operation is rolled back, and you will see a clear error message.
+
+    -   Only table and incremental materializations supported
+
+    -   Can be set at the column level (recommended) or model level
+
+    -   Keys and Values
+
+        -   [type]{.arg-text} (required): one of [not_null]{.arg-text}, [unique]{.arg-text}, [primary_key]{.arg-text}, [foreign_key]{.arg-text}, [check]{.arg-text}, [custom]{.arg-text}
+            -   postgres supports and enforces all types, but Redshift, Snowflake, BigQuery, Databricks, Spark do not. See [docs](https://docs.getdbt.com/reference/resource-properties/constraints#platform-specific-support), [docs](https://docs.getdbt.com/docs/collaborate/govern/model-contracts#platform-constraint-support) for details.
+        -   [expression]{.arg-text}: Free text input to qualify the constraint.
+            -   Required for certain constraint types and optional for others.
+        -   [name]{.arg-text} (optional): Human-friendly name for this constraint. Supported by some data platforms.
+        -   [columns]{.arg-text} (model-level only): List of column names to apply the constraint over
+
+    -   [Example]{.ribbon-highlight}
+
+        ``` yaml
+        models:
+          - name: <model_name>
+
+            # required
+            config:
+              contract:
+                enforced: true
+
+            # model-level constraints
+            constraints:
+              - type: primary_key
+                columns: [FIRST_COLUMN, SECOND_COLUMN, ...]
+              - type: FOREIGN_KEY # multi_column
+                columns: [FIRST_COLUMN, SECOND_COLUMN, ...]
+                expression: "OTHER_MODEL_SCHEMA.OTHER_MODEL_NAME (OTHER_MODEL_FIRST_COLUMN, OTHER_MODEL_SECOND_COLUMN, ...)"
+              - type: check
+                columns: [FIRST_COLUMN, SECOND_COLUMN, ...]
+                expression: "FIRST_COLUMN != SECOND_COLUMN"
+                name: HUMAN_FRIENDLY_NAME
+              - type: ...
+
+            columns:
+              - name: FIRST_COLUMN
+                data_type: DATA_TYPE
+
+                # column-level constraints
+                constraints:
+                  - type: not_null
+                  - type: unique
+                  - type: foreign_key
+                    expression: OTHER_MODEL_SCHEMA.OTHER_MODEL_NAME (OTHER_MODEL_COLUMN)
+                  - type: ...
+        ```
+
 #### Best Practices {#sec-db-dbt-comp-mod-bp .unnumbered}
 
 -   Modularity where possible
@@ -446,7 +586,7 @@
     -   Subdirectories based on business entities (e.g. marketing, finance, etc.)
         -   If you have fewer than 10 models and aren’t having problems developing and using them, then feel free to forego subdirectories completely.
     -   Naming Convention
-        -   Syntax: int\_\[entity\]s\_\[verb\]s.sql
+        -   Syntax: `int_[entity]s_[verb]s.sql`
         -   Verb Examples: pivoted, aggregated_to_user, joined, fanned_out_by_quantity, funnel_created, etc.)
         -   No double underscores
             -   If for some reason you had to use a source macro in this layer, then you could use double underscores between entity(s) and verb(s)
@@ -534,6 +674,9 @@
     -   Most of the tests are defined in a models-type .yml file in the models directory
     -   Can be applied to a model or a column
     -   Test that the primary key column is unique and not null
+    -   Differences from [Contracts](db-dbt.qmd#sec-db-dbt-comp-mod-yaml){style="color: green"}
+        -   Tests are more configurable, such as with [custom severity thresholds](https://docs.getdbt.com/reference/resource-configs/severity).
+        -   Tests are asier to debug after finding failures, because you can query the already-built model, or [store the failing records in the data warehouse](https://docs.getdbt.com/reference/resource-configs/store_failures).
 -   Macros: Pre-Made or Custom
     -   Custom (aka Singular) tests should be located in a tests folder.
         -   dbt will evaluate the SQL statement.
