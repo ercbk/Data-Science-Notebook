@@ -48,6 +48,7 @@
 -   Scatter
     -   Use clustering variables of interest for a scatter plot then label the points with cluster id\
         ![](_resources/Clustering.resources/scatter-with-cluster-labels.jpg){.lightbox width="532"}
+        -   See [K-Means](clustering-general.qmd#sec-clust-gen-kmeans){style="color: green"} \>\> Example 2 for code
 -   Interpetable Clustering
     -   Notes from [Introduction to Interpretable Clustering](https://towardsdatascience.com/introduction-to-interpretable-clustering-d0e07fbd2c99)
         -   Overview of methods with references to papers
@@ -188,37 +189,88 @@
         -   [laR](https://tidyclust.tidymodels.org/reference/details_k_means_klaR.html) runs K-Modes models which are the categorical analog to K-means, meaning that it is intended to be used on only categorical data
         -   [clustMixType](https://tidyclust.tidymodels.org/reference/details_k_means_clustMixType.html) to run K-prototypes which are the more general method that works with categorical and numeric data at the same time.
 
-    -   [Example]{.ribbon-highlight}: Mixed K-Means
+    -   [Example 1]{.ribbon-highlight}: Mixed K-Means
 
-        ``` r
-        library(tidymodels)
-        library(tidyclust)
+        -   Model and Extract Centroids
 
-        data("ames", package = "modeldata")
+            ``` r
+            library(tidymodels)
+            library(tidyclust)
 
-        kproto_spec <- k_means(num_clusters = 3) %>%
-          set_engine("clustMixType")
+            data("ames", package = "modeldata")
 
-        kproto_fit <- kproto_spec %>%
-          fit(~ ., data = ames)
+            kproto_spec <- k_means(num_clusters = 3) %>%
+              set_engine("clustMixType")
 
-        kproto_fit %>%
-          extract_centroids() %>%
-          select(11:20) %>%
-          glimpse()
-        #> Rows: 3
-        #> Columns: 10
-        #> $ Lot_Config     <fct> Inside, Inside, Inside
-        #> $ Land_Slope     <fct> Gtl, Gtl, Gtl
-        #> $ Neighborhood   <fct> College_Creek, North_Ames, Northridge_Heights
-        #> $ Condition_1    <fct> Norm, Norm, Norm
-        #> $ Condition_2    <fct> Norm, Norm, Norm
-        #> $ Bldg_Type      <fct> OneFam, OneFam, OneFam
-        #> $ House_Style    <fct> Two_Story, One_Story, One_Story
-        #> $ Overall_Cond   <fct> Average, Average, Average
-        #> $ Year_Built     <dbl> 1989.977, 1953.793, 1998.765
-        #> $ Year_Remod_Add <dbl> 1995.934, 1972.973, 2003.035
-        ```
+            kproto_fit <- kproto_spec %>%
+              fit(~ ., data = ames)
+
+            kproto_fit %>%
+              extract_centroids() %>%
+              select(11:20) %>%
+              glimpse()
+            #> Rows: 3
+            #> Columns: 10
+            #> $ Lot_Config     <fct> Inside, Inside, Inside
+            #> $ Land_Slope     <fct> Gtl, Gtl, Gtl
+            #> $ Neighborhood   <fct> College_Creek, North_Ames, Northridge_Heights
+            #> $ Condition_1    <fct> Norm, Norm, Norm
+            #> $ Condition_2    <fct> Norm, Norm, Norm
+            #> $ Bldg_Type      <fct> OneFam, OneFam, OneFam
+            #> $ House_Style    <fct> Two_Story, One_Story, One_Story
+            #> $ Overall_Cond   <fct> Average, Average, Average
+            #> $ Year_Built     <dbl> 1989.977, 1953.793, 1998.765
+            #> $ Year_Remod_Add <dbl> 1995.934, 1972.973, 2003.035
+            ```
+
+    -   [Example 2]{.ribbon-highlight}: Classic K-Means ([article](https://www.business-science.io/code-tools/2023/07/06/kmeans-clustering.html), [code](https://github.com/business-science/free_r_tips/blob/master/063_tidyclust/063_tidyclust.R))
+
+        -   Preprocess and Fit
+
+            ``` r
+            recipe_kmeans <- recipe(~ ., data = data_prep_tbl) %>%
+                step_dummy(all_nominal_predictors(), one_hot = TRUE) %>%
+                step_normalize(all_numeric_predictors()) %>%
+                step_rm("ID")
+
+            recipe_kmeans %>% prep() %>% juice() %>% glimpse()
+
+            model_kmeans <- k_means(num_clusters = 4) %>%
+                set_engine("stats")
+
+            set.seed(123)
+            wflw_fit_kmeans <- workflow() %>%
+                add_model(model_kmeans) %>%
+                add_recipe(recipe_kmeans) %>%
+                fit(data_prep_tbl)
+            ```
+
+        -   Visualize
+
+            ``` r
+            g <- data_prep_tbl %>%
+                bind_cols(extract_cluster_assignment(wflw_fit_kmeans), .) %>%
+                ggplot(aes(Spent, Income)) +
+                geom_point(
+                    aes(fill = .cluster),
+                    shape = 21,
+                    alpha = 0.3,
+                    size  = 5
+                ) +
+                geom_smooth(color = "blue", se = FALSE) +
+                scale_x_continuous(labels = scales::dollar_format()) +
+                scale_y_continuous(
+                    labels = scales::dollar_format(),
+                    limits = c(0, 200000)
+                ) +
+                labs(title = "Customer Clusters: Spent vs Income") +
+                scale_fill_tq() +
+                theme_tq()
+
+            ggplotly(g)
+            ```
+
+            -   See [Cluster Descriptions](clustering-general.qmd#sec-clust-gen-clustdesc){style="color: green"} \>\> Scatter for the output
 
 ## Approximate Nearest Neighbor (ANN) {#sec-clust-gen-ann .unnumbered}
 
