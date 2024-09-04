@@ -609,13 +609,12 @@
 
 -   Queries will not be run and data will not be retrieved unless you ask for it: they all return a new [tbl_dbi]{.arg-text} object.
 
--   Use `compute()` to run the query and save the results in a temporary in the database
+-   Commands
 
--   Use `collect()` to retrieve the results to R.
-
--   Use `show_query` to see the query.
-
--   Use `explain` to describe the query plan
+    -   Use `compute()` to run the query and save the results in a temporary in the database
+    -   Use `collect()` to retrieve the results to R.
+    -   Use `show_query` to see the query.
+    -   Use `explain` to describe the query plan
 
 -   Syntax for accessing tables
 
@@ -625,6 +624,92 @@
     con |> 
       tbl(I("schema_name.table_name"))
     ```
+
+-   Queries
+
+    -   Query without bringing output into memory
+
+        ``` r
+        pixar_films <- tbl(con, "pixar_films")
+        pixar_films |>
+          summarize(.by = film_rating, n = n())
+
+        #> # Source:   SQL [4 x 2]
+        #> # Database: DuckDB v1.0.0
+        #>   film_rating     n
+        #>   <chr>       <dbl>
+        #> 1 Not Rated       1
+        #> 2 PG             10
+        #> 3 G              13
+        #> 4 N/A             3
+        ```
+
+    -   Query and bring output into memory
+
+        ``` r
+        df_pixar_films_by_rating <-
+          pixar_films |>
+          count(film_rating) |>
+          collect()
+        ```
+
+-   Joins
+
+    -   Two tables with the result outside of memory
+
+        ``` r
+        academy <- tbl(con, "academy")
+        academy_won <-
+          academy |>
+          filter(status == "Won") |>
+          count(film, name = "n_won")
+        academy |>
+          right_join(pixar_films, join_by(film))
+          mutate(n_won = coalesce(n_won, 0L)) |>
+          arrange(release_date)
+
+        #> # Source:     SQL [?? x 6]
+        #> # Database:   DuckDB v1.0.0
+        #> # Ordered by: release_date
+        #>   film         n_won number release_…¹ run_t…²
+        #>   <chr>        <dbl> <chr>  <date>       <dbl>
+        #> 1 Toy Story        0 1      1995-11-22      81
+        #> 2 A Bug's Life     0 2      1998-11-25      95
+        #> 3 Toy Story 2      0 3      1999-11-24      92
+        #> 4 Monsters, I…     1 4      2001-11-02      92
+        #> 5 Finding Nemo     1 5      2003-05-30     100
+        #> 6 The Incredi…     2 6      2004-11-05     115
+        #> # ℹ more rows
+        #> # ℹ abbreviated names: ¹release_date, …
+        ```
+
+    -   Join a table and a tibble
+
+        ``` r
+        academy |>
+          left_join(
+            pixarfilms::pixar_films, 
+            join_by(film), copy = TRUE)
+
+        #> # Source:   SQL [?? x 7]
+        #> # Database: DuckDB v1.0.0
+        #>   film      award_t…¹ status number release_…²
+        #>   <chr>     <chr>     <chr>  <chr>  <date>    
+        #> 1 Toy Story Animated… Award… 1      1995-11-22
+        #> 2 Toy Story Original… Nomin… 1      1995-11-22
+        #> 3 Toy Story Adapted … Ineli… 1      1995-11-22
+        #> 4 Toy Story Original… Nomin… 1      1995-11-22
+        #> 5 Toy Story Original… Nomin… 1      1995-11-22
+        #> 6 Toy Story Other     Won S… 1      1995-11-22
+        #> # ℹ more rows
+        #> # ℹ abbreviated names: ¹award_type, …
+        ```
+
+        -   A temporary table is created on the LHS database.
+
+        -   If the RHS comes from a different database, results are temporarily loaded into the local session
+
+        -   If the LHS is a in-memory tibble and the RHS is lazy table, then the result is a tibble.
 
 -   Get query from dplyr code
 
@@ -641,6 +726,8 @@
     -   Also see [Generating SQL with [{dbplyr}]{style="color: #990000"} and sqlfluff](https://emilyriederer.netlify.app/post/sql-generation/)
 
 ### [{DBI}]{style="color: #990000"} {#sec-sql-r-dbi .unnumbered}
+
+-   Other drivers: `RPostgres::Postgres()`, `RPostgres::Redshift()`
 
 -   Connect to or Create a SQLite database
 
@@ -661,7 +748,35 @@
                           Port = 1433)
     ```
 
+-   Connect to MariaDB
+
+    ``` r
+    con <- dbConnect(
+      RMariaDB::MariaDB(),
+      dbname = "CORA",
+      username = "guest",
+      password = "ctu-relational",
+      host = "relational.fel.cvut.cz"
+    )
+    ```
+
 -   Close connection: `dbDisconnect(con)`
+
+-   List Tables and Fields
+
+    ``` r
+    dbListTables(con)
+    #> [1] "academy"         "box_office"     
+    #> [3] "genres"          "pixar_films"    
+    #> [5] "pixar_people"    "public_response"
+
+    dbListFields(con, "box_office")
+    #> [1] "film"                
+    #> [2] "budget"              
+    #> [3] "box_office_us_canada"
+    #> [4] "box_office_other"    
+    #> [5] "box_office_worldwide"
+    ```
 
 -   Cancel a running query (postgres)
 
@@ -689,11 +804,27 @@
     all_data <- map(tables, dbReadTable, conn = con)
     ```
 
--   Can use map_dfr if all the tables have the same columns
+    -   Can use `map_dfr` if all the tables have the same columns
 
--   Dynamic queries with [{glue}]{style="color: #990000"}
+-   Queries
 
-    -   [Example]{.ribbon-highlight}: MS SQL Server
+    ``` r
+    sql <- "
+    SELECT * FROM pixar_films
+    WHERE release_date >= '2020-01-01'
+    "
+    # or with > R 4.0
+    sql <- r"(
+    SELECT * FROM "pixar_films"
+    WHERE "release_date" >= '2020-01-01'
+    )"
+
+    dbGetQuery(con, sql)
+    ```
+
+-   Dynamic queries
+
+    -   [Example]{.ribbon-highlight}: MS SQL Server with [{glue}]{style="color: #990000"}
 
         ``` r
         vars <- c("columns", "you", "want", "to", "select")
@@ -707,6 +838,20 @@
         ```
 
         -   `vars` format collapses the vars vector, separated by commas, so that it resembles a SELECT statement
+
+    -   [Example]{.ribbon-highlight}: Using params
+
+        ``` r
+        quoted_column <- "release_date"
+
+        sql <- paste0("SELECT * FROM academy WHERE ", quoted_column, " = ?")
+
+        dbGetQuery(con, sql,
+          params = list(as.Date("2020-01-01"))
+        )
+        ```
+
+        -   `?` acts a placeholder that gets filled by the params argument
 
 ### PRQL {#sec-sql-r-prql .unnumbered}
 
@@ -725,6 +870,45 @@
     "from mtcars | filter cyl > 6 | select {cyl, mpg}" |> 
       prql_compile() |> 
       dbGetQuery(conn = con)
+    ```
+
+### [{dm}]{style="color: #990000"} {#sec-sql-r-dm .unnumbered}
+
+-   See [Databases, Normalization \>\> Misc](db-normalization.qmd#sec-db-norm-misc){style="color: green"} \>\> Packages \>\> [{dm}]{style="color: #990000"}
+
+-   Connect to all tables and get the number of rows
+
+    ``` r
+    con <- dbConnect(
+      RMariaDB::MariaDB(),
+      dbname = "CORA",
+      username = "guest",
+      password = keyring::key_get(...),
+      host = "relational.fel.cvut.cz"
+    )
+    # 3 tables: paper, content, cities
+    dm <- dm_from_con(con)
+    dm |>
+      dm_nrow()
+
+    #>  paper content   cites 
+    #>   2708   49216    5429
+    ```
+
+-   Subset one table and do stuff to it
+
+    ``` r
+    pixar_dm |>
+      dm_zoom_to(academy) |>
+      left_join(
+        pixar_films, select = release_date)
+    ```
+
+-   Join all related tables into one wide table
+
+    ```         
+    pixar_dm |>
+      dm_flatten_to_tbl(academy)
     ```
 
 ## Best Practices {#sec-sql-bestp .unnumbered}
