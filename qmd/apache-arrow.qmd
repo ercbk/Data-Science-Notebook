@@ -50,16 +50,67 @@
 
     -   Has a script that downloads monthly released csv files; creates a Hive directory structure; and converts them to parquet files with partitioning based on that structure.
 
--   Statically hosted parquet files provide one of the easiest to use and most performant APIs for accessing bulk¹ data, and are far simpler and cheaper to provide than custom APIs. ([article](https://www.robinlinacre.com/parquet_api/))
+-   Optimizations
 
-    -   Pros and cons
+    -   Notes from [How to properly prepare your parquet floor](https://www.icem7.fr/outils/comment-bien-preparer-son-parquet/)
+    -   Make sure columns are correctly typed
+    -   Sort by one or two columns
+        -   A filtered query on a sorted field will be up to 10 times faster
+        -   Sorting on one or two low cardinality fields (few distinct values) will be less computationally intensive and will achieve a more efficient compression.
+            -   e.g. sort by year, then by geographic code
+        -   For geoparquet, sort by a grid index like GeoHash or H3
+    -   For geoparquet, add a bounding box column
+        -   Geometries in a geoparquet can be encoded in WKB or GeoArrow with GeoArrow being more efficient
+            -   GeoArrow integrated for \>[geoparquet 1.1](https://medium.com/radiant-earth-insights/geoparquet-1-1-coming-soon-9b72c900fbf2)
+    -   Serve already-built parquet files
+        -   Some platforms offer on-the-fly generated parquet formats. The process is still horribly slow.
+
+-   Statically hosted parquet files provide one of the easiest to use and most performant APIs for accessing bulk data, and are far simpler and cheaper to provide than custom APIs. ([article](https://www.robinlinacre.com/parquet_api/))
+
+    -   Benefits
+        -   Loading a sample of rows (and viewing metadata) from an online parquet file is a simple one-liner.
+        -   Serving data as a static file is probably the simplest and cheapest possible architecture for open data services. (e.g. s3)
+            -   Data access will [remain performant even if traffic is high](#0), and the service will have very high reliability and availability. All of this is taken care of by the cloud provider.
     -   List of cases when are static files *inappropriate*
+        -   Very large datasets of 10s of millions of records.
+            -   In these cases it may be appropriate to offer an API that allows users to query the underlying data to return smaller subsets
+        -   Your users want to make transactional or atomic requests. Then static files are inappropriate.
+        -   Relational data with a complex schema.
+        -   Private datasets with granular access control.
+        -   Rapidly changing data to which users need immediate access.
+    -   Recommendations
+        -   Enable CORS
+            -   Cross-Origin Resource Sharing (CORS) enables any website to load your data directly from source parquet files without the need for a server.
+        -   Create a URL stucture
+            -   Example: Date Partition
+
+                ```         
+                www.my-organisation.com/open_data/v1/widgets_2021.parquet
+
+                www.my-organisation.com/open_data/v1/widgets_2022.parquet
+
+                www.my-organisation.com/open_data/v1/widgets_latest.parquet
+                ```
+
+            -   Consider also providing the same structure but with csvs
+        -   Provide directory listing service to enable data discovery and scraping
+
+-   [{{polars}}]{style="color: goldenrod"} can write parquet files
+
+    ``` python
+    import polars as pl
+
+    pl.read_csv("data_recensement_2017.csv", separator = ';', \
+        dtypes = {'COMMUNE': pl.String}) \
+    .write_parquet("data_recensement_2017.parquet", \
+        compression = 'zstd', use_pyarrow = False)
+    ```
 
 ## APIs {#sec-apache-arrow-apis .unnumbered}
 
 -   [Single File]{.underline}
     -   Contains functions for each supported file format (CSV, JSON, Parquet, Feather/Arrow, ORC).
-        -   Start with `read_`  or `write_`  followed by the name of the file format.
+        -   Start with `read_` or `write_` followed by the name of the file format.
         -   e.g. `read_csv_arrow()` , `read_parquet()` , and `read_feather()`
     -   Works on one file at a time, and the data is loaded into memory.
         -   Depending on the size of your file and the amount of memory you have available on your system, it might not be possible to load the dataset this way.
@@ -135,6 +186,11 @@
 -   `write_parquet`
 
     -   [compression]{.arg-text}
+        -   Before using compression, ask:
+            -   Will the parquet files be frequently accessed online (e.g. API)?
+                -   In this situation, bandwidth may be a issue and a smaller (compressed) file would be desirable.
+            -   Will the parquet files be accessed from a local disk?
+                -   In this situation, the time spent decompressing the file to read it is probably not worth the decrease in file size.
         -   default "snappy" - popular
         -   "uncompressed"
         -   "zstd" (z-standard)
@@ -147,8 +203,20 @@
         -   How many rows per column (aka row group)
             -   The data is compressed per column, and inside each column, per chunk of rows, which is called the row group
         -   If the data has fewer than 250 million cells (rows x cols), then the total number of rows is used.
-        -   If performing batch tasks, you want the largest file sizes possible
-        -   if accessing randomly (?), you might want smaller chunck sizes
+        -   Considerations
+            -   The choice of compression can affect row group performance.
+            -   Ensure row group size doesn't exceed available memory for processing
+            -   Very small row groups can lead to larger file sizes due to metadata overhead.
+            -   If performing batch tasks, you want the largest file sizes possible
+                -   e.g. Performing a sales analysis where you need the whole dataset.
+            -   If accessing randomly, you might want smaller chunk sizes
+                -   e.g. Looking up individual customer information in a large database of users.
+        -   [Docs](https://parquet.apache.org/docs/file-format/configurations/) recommend large row groups (512MB - 1GB)
+            -   Optimized read setup would be: 1GB row groups, 1GB HDFS block size, 1 HDFS block per HDFS file
+    -   [data_page_size]{.arg-text}
+        -   Target threshold for the approximate encoded size of data pages within a column chunk
+        -   Smaller data pages allow for more fine grained reading (e.g. single row lookup). Larger page sizes incur less space overhead (less page headers) and potentially less parsing overhead (processing headers)
+        -   Default: 1MB; For sequential scans, the [docs](https://parquet.apache.org/docs/file-format/configurations/) recommend 8KB for page sizes.
 
 -   Convert large csv to parquet
 
@@ -210,10 +278,9 @@
 
 -   [Best Practices]{.underline}
 
-    -   **Avoid having individual Parquet files smaller than 20MB and larger than 2GB**.
+    -   **Avoid having individual Parquet files smaller than 20MB and larger than 2GB**. ([Docs](https://arrow.apache.org/docs/python/dataset.html#partitioning-performance-considerations))
         -   Having files beyond this range will cancel out the benefit of your query grouping by a partition column. (see [article](https://francoismichonneau.net/2022/09/arrow-dataset-part-2/) for benchmarks)
     -   Avoid partitioning layouts with more than 10,000 distinct partitions.
-    -   **Optimal Size is 512MB --- 1GB** ([docs](https://parquet.apache.org/docs/file-format/configurations/))
 
 -   [View metadata of a partitioned dataset]{.underline}
 
@@ -361,6 +428,18 @@
     -   `register_scalar_function` - accepts base R functions inside your function
 
 ## DuckDB {#sec-apache-arrow-duckdb .unnumbered}
+
+-   Converting a csv to parquet
+
+    ``` sql
+    SET threads = 4 ;
+    COPY 'data_recensement_2017.csv' TO 'data_recensement_2017.parquet'
+    (compression zstd) ;
+    ```
+
+    -   [threads]{.arg-text} is set to the number of threads available by default
+
+    -   Will automatically detect the type of delimiter
 
 -   Query
 
