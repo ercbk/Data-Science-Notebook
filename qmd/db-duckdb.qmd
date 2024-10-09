@@ -26,6 +26,7 @@
 ## Set-up {#sec-db-duckdb-setup .unnumbered}
 
 -   Installation: `install.packages("duckdb")`
+-   Check version: `duckdb:::sql("SELECT version()")`
 -   Create db and populate table from csv
     -   [Example]{.ribbon-highlight} ![](./_resources/DB,_duckdb.resources/image.png)
 
@@ -120,12 +121,52 @@
 -   Misc
 
     -   [Docs](https://duckplyr.tidyverse.org/)
+    -   Using `library(duckplyr)` will overwrite all [{dplyr}]{style="color: #990000"} verbs to the duckplyr versions
+        -   So any [{dplyr}]{style="color: #990000"} features not covered by [{duckplyr}]{style="color: #990000"} won't work
+        -   `methods_restore` will return verbs to standard dplyr functions
 
--   Read parquet file into memory
+-   Read files (not in memory)
 
     ``` r
     duckplyr_df <- duckplyr_df_from_parquet("flights.parquet")
+    dat   <- duckplyr_df_from_csv("Data8277.csv")
     ```
+
+    -   Detects the schemas
+    -   Creates placeholder objects
+
+-   Collect Results
+
+    -   With `library(duckplyr)`
+
+        ``` r
+        library(duckplyr)
+        dat <- 
+          palmerpenguins::penguins |>
+          mutate(bill_area = bill_length_mm * bill_depth_mm) |>
+          as_duckplyr_tibble()
+        ```
+
+        -   `as_duckplyr_tibble` triggers the usage of DuckDB for the calculation
+
+            -   If the DuckDB calculation is not possible, then original dplyr implementation is used
+
+        -   Or use `print` or `nrow` if you don't want to save the results to an object
+
+    -   *Without* `library(duckplyr)` you can still use duckdb for a backend.
+
+        ``` r
+        out <-
+          palmerpenguins::penguins %>%
+          # CAVEAT: factor columns are not supported yet
+          mutate(across(where(is.factor), as.character)) %>%
+          duckplyr::as_duckplyr_tibble() %>%
+          mutate(bill_area = bill_length_mm * bill_depth_mm) %>%
+          summarize(.by = c(species, sex), mean_bill_area = mean(bill_area)) %>%
+          filter(species != "Gentoo")
+        ```
+
+        -   `as_duckplyr_tibble` triggers the usage of DuckDB for the calculation, but verbs after that line function like normal [{dplyr}]{style="color: #990000"} verbs.
 
 -   Show query plan with `explain`
 
@@ -305,6 +346,43 @@
 -   Misc
 
     -   Docs
+
+-   CSV Parser
+
+    -   Read first 10 lines
+
+        ``` r
+        duckdb:::sql("FROM Data8277.csv LIMIT 10")
+        ```
+
+    -   Print schema
+
+        ``` r
+        duckdb:::sql("DESCRIBE FROM Data8277.csv")
+        #>   column_name column_type ...
+        #> 1        Year      BIGINT ...
+        #> 2         Age     VARCHAR ...
+        #> 3      Ethnic      BIGINT ...
+        #> 4         Sex      BIGINT ...
+        #> 5        Area     VARCHAR ...
+        #> 6       count     VARCHAR ...
+        ```
+
+    -   Summary Stats
+
+        ``` r
+        duckdb:::sql("SUMMARIZE FROM Data8277.csv")
+        #> # A tibble: 6 × 12
+        #>   column_name column_type min   max     approx_unique avg      std   q25   q50  
+        #>   <chr>       <chr>       <chr> <chr>           <dbl> <chr>    <chr> <chr> <chr>
+        #> 1 Year        BIGINT      2006  2018                3 2012.33… 4.92… 2006  2013 
+        #> 2 Age         VARCHAR     000   999999            149 NA       NA    NA    NA   
+        #> 3 Ethnic      BIGINT      1     9999               11 930.545… 2867… 3     6    
+        #> 4 Sex         BIGINT      1     9                   3 4.0      3.55… 1     2    
+        #> 5 Area        VARCHAR     001   DHB9999          2048 NA       NA    NA    NA   
+        #> 6 count       VARCHAR     ..C   9999            16825 NA       NA    NA    NA   
+        # ℹ 3 more variables: q75 <chr>, count <dbl>, null_percentage <dbl>
+        ```
 
 -   Connect to a duckdb file and read out of memory
 
