@@ -276,3 +276,149 @@ lr_unwt_wflow <-
 ```
 
 -   Useful if you want to make a comparison between models
+
+## Visualization {#sec-surveys-anal-viz .unnumbered}
+
+-   Likert Response Pre and Post Intervention
+    -   [Example]{.ribbon-highlight}: ([source](https://the-kids-biostats.github.io/posts/2024-10-14_likert_visualisation/likert_visualisations.html))
+
+        -   Alluvial + Bars\
+            ![](_resources/Surveys,_Analysis.resources/likert-viz-1.png){.lightbox width="432"}
+
+            <details>
+
+            <summary>Code</summary>
+
+            ``` r
+            q2 <- dat %>% 
+              filter(group == "Control") %>% 
+              rename(Pre = pre,
+                     Post = post) %>% 
+              make_long(Pre, Post) %>% 
+              mutate(node = factor(node, levels = c(7,6,5,4,3,2,1)),
+                     next_node = factor(next_node, levels = c(7,6,5,4,3,2,1))) %>% 
+              ggplot(aes(x = x, 
+                         next_x = next_x, 
+                         node = node, 
+                         next_node = next_node,
+                         fill = factor(node))) +
+              geom_sankey(alpha = 0.7,
+                          node.color = 'black') +
+              geom_sankey_label(aes(label = node), alpha = 0.75,
+                                size = 3, color = "black", fill = "gray80") +
+              scale_x_discrete(expand = c(0.05,0.05)) +
+              theme_institute(base_size = 14) +
+              theme(panel.grid.major = element_blank(),
+                    panel.grid.minor = element_blank(),
+                    axis.title.y=element_blank(),
+                    axis.text.y=element_blank(),
+                    axis.ticks=element_blank(),
+                    legend.position = "bottom",
+                    plot.title = element_text(hjust = 0.5)) +
+              guides(fill = guide_legend(reverse = T, nrow = 1)) +
+              labs(title = "Pre-post",
+                   fill = "Response",
+                   x = "")
+
+            q3 <- dat %>% 
+              filter(group == "Control") %>% 
+              group_by(post) %>% 
+              tally() %>% 
+              mutate(freq = n / sum(n),
+                     res = str_c(n, "\n(", round(freq*100, 1), "%)")) %>% 
+              ggplot(aes(x = as.factor(post), y = freq)) +
+              geom_bar(aes(fill = as.factor(post)), stat="identity", alpha = 0.8,
+                       colour = "black") +
+              theme_institute(base_size = 14) +
+              theme(legend.position = "none",
+                    panel.grid.major.x = element_blank(),
+                    plot.background = element_blank(),
+                    plot.title = element_text(hjust = 0.5)) +
+              scale_y_continuous(labels = scales::percent_format(),
+                                 breaks = seq(0, max_prop, by = 0.05),
+                                 expand = expansion(mult = c(0, 0.1))) +
+              coord_cartesian(ylim = c(0, max_prop)) +
+              scale_fill_viridis_d(option = "plasma", end = 0.85, direction = -1) +
+              labs(title = "Post",
+                   fill = "Response",
+                   x = "Response", y = "") +
+              geom_text(aes(label = res), vjust = -0.1,
+                        family = "Barlow Semi Condensed") +
+              guides(fill = guide_legend(nrow = 1))
+
+            patchwork <- (p1 + p2 + p3) / (q1 + q2 + q3)
+
+            patchwork + 
+              plot_annotation(tag_levels = list(c('Intervention', '', '', 
+                                                  'Control', '', ''))) &
+              theme(plot.tag.position = c(0, 1),
+                    plot.tag = element_text(face = "bold", hjust = 0, vjust = 0))
+            ```
+
+            </details>
+
+            -   Only included code for 1 bar and 1 alluvial. The author wrote each chart out individually along with some data manipulation code which is a lot of code. Haven't looked closely, but I think he could've wrote functions for bars and alluvials then looped inputs.
+
+            -   The alluvial gives you a sense of how much each response changed from pre to post treatment while the bars shows how the overall response distribution changed.
+
+        -   Tables
+
+            -   The author uses a function from his personal package that requires [{flextable}]{style="color: #990000"} (I think) which seems be the source of the table theme.
+
+            -   By Treatment\
+                ![](_resources/Surveys,_Analysis.resources/likert-viz-table-2.png){.lightbox width="232"}
+
+                <details>
+
+                <summary>Code</summary>
+
+                ``` r
+                library(gtsummary)
+
+                tbl_merge(tbls = list(dat %>% 
+                                        mutate("Change in water intake" = fct_case_when(post < pre ~ "Decrease",
+                                                                                        pre == post ~ "No change",
+                                                                                        post > pre ~ "Increase")) %>% 
+                                        filter(group == "Control") %>% 
+                                        select("Change in water intake") %>% 
+                                        tbl_summary(), 
+                                      dat %>% 
+                                        mutate("Change in water intake" = fct_case_when(post < pre ~ "Decrease",
+                                                                                        pre == post ~ "No change",
+                                                                                        post > pre ~ "Increase")) %>% 
+                                        filter(group == "Intervention") %>% 
+                                        select("Change in water intake") %>% 
+                                        tbl_summary()),
+                          tab_spanner = c("**Control**", "**Intervention**")) %>% 
+                  thekids_table(colour = "Saffron")
+                ```
+
+                </details>
+
+            -   By Response Category (and Treatment)\
+                ![](_resources/Surveys,_Analysis.resources/likert-viz-table-1.png){.lightbox width="432"}
+
+                <details>
+
+                <summary>Code</summary>
+
+                ``` r
+                library(gtsummary)
+
+                dat %>% 
+                  mutate(Change = fct_case_when(post < pre ~ "Decrease",
+                                                pre == post ~ "No change",
+                                                post > pre ~ "Increase")) %>% 
+                  select(group, pre_l, Change) %>% 
+                  tbl_strata(
+                    strata = group,
+                    ~.x %>%
+                      tbl_summary(
+                        by = pre_l) %>%
+                      modify_header(all_stat_cols() ~ "**{level}**"),
+                    .combine_with = "tbl_stack"
+                  ) %>% 
+                  thekids_table(colour = "Saffron")
+                ```
+
+                </details>
