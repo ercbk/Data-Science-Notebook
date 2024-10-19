@@ -20,9 +20,12 @@
     -   `\password <user name>` - assign a password to a user (prompt will ask for the password twice)
         -   Can also use `ALTER ROLE` for this but the password will then be in the log
 -   [**Unlogged Table**]{style="color: #009499"} - Data written to an [unlogged](https://www.postgresql.org/docs/current/sql-createtable.html#id-1.9.3.85.6) table will not be logged to the write-ahead-log ([WAL](https://www.postgresql.org/docs/current/wal.html)), making it ideal for intermediate tables and considerably faster. Note that unlogged tables will not be restored in case of a crash, and will not be replicated.
--   [Pigsty](https://pigsty.io/)
-    -   Open Source RDS alternative
-    -   Aims to harness the collective power of PostgreSQL ecosystem extensions and democratize access to high-quality database services.
+-   Tools
+    -   [Pigsty](https://pigsty.io/)
+        -   Open Source RDS alternative
+        -   Aims to harness the collective power of PostgreSQL ecosystem extensions and democratize access to high-quality database services.
+    -   [Neon](https://neon.tech/)
+        -   Serverless, Fault-Tolerant, Branchable Postgres
 
 ## Extensions {#sec-db-gstgr-ext .unnumbered}
 
@@ -76,6 +79,14 @@
     -   Object Stores: Amazon S3, S3-compatible object stores (e.g. MinIO), Local file system, Google Cloud Storage (coming soon), Azure Blob Storage (coming soon)
     -   File Formats: Parquet, CSV, JSON, Avro, ORC (coming soon)
     -   Table Formats: Delta Lake, Apache Iceberg (coming soon)
+-   [pg_parquet]{.underline}
+    -   [Repo](https://github.com/CrunchyData/pg_parquet/), [Intro](https://www.crunchydata.com/blog/pg_parquet-an-extension-to-connect-postgres-and-parquet)
+    -   Sources: Locally or S3
+    -   Dependencies: Apache Arrow and pgrx extension
+    -   Features
+        -   Export Postgres tables/queries to Parquet files,
+        -   Ingest data from Parquet files to Postgres tables,
+        -   Inspect the schema and metadata of Parquet files.
 -   [plprql]{.underline}
     -   [Repo](https://github.com/kaspermarstal/plprql)
     -   Enables you to run PRQL queries. PRQL has a syntax that is similar to [{dplyr}]{style="color: #990000"}
@@ -768,3 +779,26 @@
             -   Note that increasing the [work_mem]{.arg-text} parameter, which allows more data to be processed in memory, may not solve temporary I/O issues.
 
         -   If I/O timing is a small portion of [total_exec_time]{.var-text} and [temp_blks]{.var-text} are low, it points to a CPU bottleneck. But if I/O timing is high compared to [total_exec_time]{.var-text}, the disk I/O is likely the bottleneck.
+
+## Updating {#sec-db-pstgr-updat .unnumbered}
+
+-   Misc
+    -   Notes from [Why Does Everyone Run Ancient Postgres Versions?](https://neon.tech/blog/why-does-everyone-run-ancient-postgres-versions)
+    -   Tools
+        -   [pgversions.com](https://pgversions.com/) - Helps you quickly identify the improvements you’re missing by running an older Postgres version
+            -   Also has a "How to upgrade" section in the report that will point you toward the right docs for different providers.
+    -   It’s best to jump as many versions as you can when you do upgrade but if you wait for 5 or more versions there will be many compatibility issues and breaking changes ahead. 
+-   Steps
+    1.  [Assessment and Planning]{.underline} - Evaluate you database sizes and workloads (e.g a 4 TB database or multiple databases). Objectives like minimizing downtime and upgrading before end-of-life were set. Choose you target Postgres versions and craft detailed project timelines and risk assessments.
+    2.  [Set-Up Replication]{.underline} - New database instances running the target Postgres versions get spun up and logical replication from the old to the new databases are established.
+        -   [Warp](https://www.citusdata.com/blog/2017/12/08/citus-warp-pain-free-migrations/) can be used for parallel processing to expedite the initial dump and restore
+        -   Can create custom publications and subscriptions for incremental migration.
+    3.  [Migrate Data Incrementally]{.underline} - Categorize tables based on size and update frequency.
+        -   Small tables get added to replication and synchronized quickly.
+        -   Large, append-only tables get separate publications with copy_data = false and then backfilled. Custom migration strategies are considered for large, frequently updated tables.
+    4.  [Testing and Verification]{.underline} - Perform thorough testing on the new database versions.
+        -   Compare row counts and sample data between old and new databases, run load tests to verify performance, and conduct multiple dry runs in staging environments.
+    5.  [Application Changes]{.underline} - After testing, modify applications to support connections to both old and new databases. Implement mechanisms to switch traffic from the old to the new databases, such as using feature flags.
+    6.  [Cutover Strategy]{.underline} - Schedule the cutover during low-traffic periods. The downtime could be only a brief pause or you may need to use a maintenance window aiming for about one hour.
+    7.  [Post-Migration Tasks]{.underline} - Afterward, verify data integrity and application functionality,
+        -   Optimize the new databases (e.g., reindexing, vacuuming), monitor performance in the following days, remove old replication setups, and decommission the old databases.
