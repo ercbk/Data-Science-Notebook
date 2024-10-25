@@ -21,8 +21,15 @@
 
 ### Binning {#sec-feat-eng-gen-cont-bin .unnumbered}
 
--   Also see [EDA, General \>\> Packages](eda-general.qmd#sec-eda-gen-pkgs){style="color: green"} \>\> Hmisc::describe
-    -   [Info]{.arg-text} gives a measure of how much information is lost by binning.
+-   Also see
+    -   [EDA, General \>\> Packages](eda-general.qmd#sec-eda-gen-pkgs){style="color: green"} \>\> Hmisc::describe
+        -   [Info]{.arg-text} gives a measure of how much information is lost by binning.
+    -   [Clustering, General](clustering-general.qmd#sec-clust-gen){style="color: green"}
+-   Packages
+    -   [{]{style="color: #990000"}[santoku](https://hughjonesd.github.io/santoku/){style="color: #990000"}[}]{style="color: #990000"} - Functions create intervals in many ways, using quantiles of the data, standard deviations, fixed-width intervals, equal-sized groups, or pretty intervals for use in graphs
+    -   [{]{style="color: #990000"}[binr](https://cran.r-project.org/web/packages/binr/index.html){style="color: #990000"}[}]{style="color: #990000"} - Implementation of algorithms for cutting numerical values exhibiting a potentially highly skewed distribution into evenly distributed groups (bins)
+    -   [{]{style="color: #990000"}[cutpointr](https://github.com/thie1e/cutpointr){style="color: #990000"}[}]{style="color: #990000"} - Uses CV and bootstrap in determining and validating optimal cutpoints in binary classification
+    -   [{]{style="color: #990000"}[smbinning](https://cran.r-project.org/web/packages/smbinning/index.html){style="color: #990000"}[}]{style="color: #990000"} ([article](https://blog.revolutionanalytics.com/2015/03/r-package-smbinning-optimal-binning-for-scoring-modeling.html)) - Requiress binary response. Optimal Binning for Scoring Modeling
 -   Benefits
     -   Reduces Noise
         -   Continuous variables tend to store information with minute fluctuations that provide no added value for the machine learning task of interest
@@ -31,15 +38,7 @@
             -   1 value $\rightarrow$ split into a binary
             -   multiple values $\rightarrow$ multinomial
     -   Minimizes outlier influence
--   Bin and Embed
-    -   Steps
-        -   Find bin ranges
-            -   If sufficient data, calculate quantiles of the numeric vector to find the bin ranges
-            -   `sklearn.preprocessing.KBinsDiscretizer` has a few different methods
-            -   Use some other method to find the number/ranges of bins (see R packages)
-        -   Use the indices of the bins (i.e. leftmost bin is 1, 2nd leftmost bin is 2) to discretize each value of the numeric
-            -   Might need to be one-hot coded
-        -   Create an embedding of the discretized vector and use the embedding as features.
+    -   Can help normalize heavily skewed data
 -   Dichotomizing is bad ([post](https://www.bmj.com/content/332/7549/1080.1), [list of papers](https://docs.google.com/document/d/14Z0twsQ82CHzZTmcYwddfeRLNPkuInF0-wOKfKHdTXM/edit))
     -   Typical arguments for splitting (even when there's no underlying reason to do so) include: simplifies the statistical analysis and leads to easy interpretation and presentation of results
         -   [Example]{.ribbon-highlight}: splitting at the median --- leads to a comparison of groups of individuals with high or low values of the measurement, leading in the simplest case to a t test or χ2 test and an estimate of the difference between the groups (with its confidence interval) on another variable.
@@ -81,6 +80,97 @@
     -   XGBoost seems to like numerics much more than dummies
         -   Trees may prefer larger cardinalities. So if you do bin, you'd probably want quite a few bins
         -   Never really seen a binned age variable do well, so guessing more than 10 at least. Though maybe Age just wasn't important enough.
+    -   Naive Bayes likes binned variables ([source](https://medium.com/towards-data-science/bernoulli-naive-bayes-explained-a-visual-guide-with-code-examples-for-beginners-aec39771ddd6))
+-   Types
+    -   Notes from [Discretization, Explained: A Visual Guide with Code Examples for Beginners](https://towardsdatascience.com/discretization-explained-a-visual-guide-with-code-examples-for-beginners-f056af9102fa)
+    -   Equal-Width
+        -   Divides the range of a variable into a specified number of intervals, all with the same width
+
+        -   Works well for data with a roughly uniform distribution and when the minimum and maximum values are meaningful.
+
+        -   [Example]{.ribbon-highlight}
+
+            ``` python
+            df['UVIndexBinned'] = pd.cut(df['UVIndex'], bins=4, 
+                                         labels=['Low', 'Moderate', 'High', 'Very High'])
+            ```
+    -   Equal-Frequency
+        -   Creates bins that contain approximately the same number of observations.
+
+        -   Useful for skewed data or when you want to make sure a balanced representation across categories.
+
+        -   [Example]{.ribbon-highlight}
+
+            ``` python
+            df['HumidityBinned'] = pd.qcut(df['Humidity'], q=3, 
+                                           labels=['Low', 'Medium', 'High'])
+            ```
+    -   Knowledge-based
+        -   Based on inherent cut points determined by domain knowledge.
+
+        -   [Example]{.ribbon-highlight}
+
+            ``` python
+            df['RainfallAmountBinned'] = pd.cut(df['RainfallAmount'], bins=[-np.inf, 2, 4, 12, np.inf], 
+                                                labels=['No Rain', 'Drizzle', 'Rain', 'Heavy Rain'])
+            ```
+    -   Logarithmic
+        -   Creates bins that grow exponentially in size. It applies a log transformation first then performs equal-width binning.
+
+        -   Useful for data that spans several orders of magnitude or follows a power law distribution.
+
+        -   [Example]{.ribbon-highlight}
+
+            ``` python
+            df['WindSpeedBinned'] = pd.cut(np.log1p(df['WindSpeed']), bins=3, 
+                                           labels=['Light', 'Moderate', 'Strong'])
+            ```
+    -   Standard Deviation
+        -   Creates bins based on the number of standard deviations away from the mean.
+
+        -   Useful when working with normally distributed data or when you want to bin data based on how far values deviate from the central tendency. Not be suitable for highly skewed distributions
+
+        -   The number of standard deviations used to determine the bin size can be tuned.
+
+        -   Some implementations might use unequal bin widths, with narrower bins near the mean and wider bins in the tails.
+
+        -   [Example]{.ribbon-highlight}
+
+            ``` python
+            mean_temp, std_dev = df['Temperature'].mean(), df['Temperature'].std()
+            bin_edges = [
+                float('-inf'),  # Ensure all values are captured
+                mean_temp - 2.5 * std_dev,
+                mean_temp - 1.5 * std_dev,
+                mean_temp - 0.5 * std_dev,
+                mean_temp + 0.5 * std_dev,
+                mean_temp + 1.5 * std_dev,
+                mean_temp + 2.5 * std_dev,
+                float('inf')   # Ensure all values are captured
+            ]
+            df['TemperatureBinned'] = pd.cut(df['Temperature'], bins=bin_edges, 
+                                             labels=['Very Low', 'Low', 'Below Avg', 'Average','Above Avg', 'High', 'Very High'])
+            ```
+    -   K-means
+        -   Uses the K-Means clustering algorithm to create bins
+
+        -   Works well with data that has one peak or several peaks
+
+        -   [Example]{.ribbon-highlight}
+
+            ``` python
+            kmeans = KMeans(n_clusters=3, random_state=42).fit(df[['Crowdedness']])
+            df['CrowdednessBinned'] = pd.Categorical.from_codes(kmeans.labels_, categories=['Low', 'Medium', 'High'])
+            ```
+    -   Bin and Embed
+        -   Steps
+            -   Find bin ranges
+                -   If sufficient data, calculate quantiles of the numeric vector to find the bin ranges
+                -   `sklearn.preprocessing.KBinsDiscretizer` has a few different methods
+                -   Use some other method to find the number/ranges of bins (see R packages)
+            -   Use the indices of the bins (i.e. leftmost bin is 1, 2nd leftmost bin is 2) to discretize each value of the numeric
+                -   Might need to be one-hot coded
+            -   Create an embedding of the discretized vector and use the embedding as features.
 -   [Examples]{.ribbon-highlight}
     -   Binary
 
