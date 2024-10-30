@@ -142,6 +142,35 @@
         football_df <- html_table(tables[[2]], header = TRUE)
         ```
 
+-   Retrieve Sidebar Content ([source](https://www.youtube.com/watch?v=30AOpjLeOyI&ab_channel=TheCoatlessProfessor))
+
+    ``` r
+    chrome_session <- ChromoteSession$new()
+
+    # Retrieve the sidebar content
+    node <- chrome_session$DOM$querySelector(
+      nodeId = chrome_session$DOM$getDocument()$root$nodeId,
+      selector = ".sidebar"
+    )
+
+    # Get the outerHTML of the node
+    html_content <- chrome_session$DOM$getOuterHTML(
+      nodeId = node$nodeId
+    )
+
+    ## Parse the sidebar content with `rvest` ----
+
+    # Pull the node's HTML response
+    html_content$outerHTML |>      # Extract the HTML content
+      rvest::minimal_html() |>     # Convert to XML document
+      rvest::html_elements("a") |> # Obtain all anchor (i.e. links) tags
+      rvest::html_text()           # Extract the text from the anchor tags
+    ```
+
+    -   Every element in the sidebar pretty much has a link, so the text can extracted from them.
+
+    -   The CSS selector was much longer but he shortened it to ".sidebar"
+
 ## RSelenium {#sec-scrap-rsel .unnumbered}
 
 -   Along with installing package you have to know the version of the browser driver of the browser you're going to use
@@ -342,7 +371,7 @@
         football_df <- rvest::html_table(all_tables[[3]], header = TRUE)
         ```
 
-## Other Stuff {#sec-scrap-ostuff}
+## Other Stuff {#sec-scrap-ostuff .unnumbered}
 
 -   [Clicking a semi-infinite scroll button (e.g. "See more")]{.underline}
 
@@ -536,3 +565,127 @@
         overview_text
         #> [1] "100% Plant-Derived Squalane hydrates your skin while supporting its natural moisture barrier.
         ```
+
+## JS {#sec-scrap-js .unnumbered}
+
+-   Highlight an element on the page ([source](https://www.youtube.com/watch?v=30AOpjLeOyI&ab_channel=TheCoatlessProfessor))\
+    ![](_resources/Scraping.resources/js-highlight-element-1.PNG){.lightbox width="335"}
+
+    ``` r
+    chrome_session <- ChromoteSession$new()
+
+    # Launch chrome to view actions taken in the browser
+    chrome_session$view()
+
+    # Get the browser's version
+    chrome_session$Browser$getVersion()
+
+    # Open a new tab and navigate to a URL
+    chrome_session$Page$navigate("https://www.r-project.org/")
+
+    chrome_session$Runtime$evaluate(
+      expression = "
+      // Find the element
+      element = document.querySelector('.sidebar');
+
+      // Highlight it
+      element.style.backgroundColor = 'yellow';
+      element.style.border = '2px solid red';
+      "
+    )
+
+    # Wait for the action to complete
+    Sys.sleep(0.5)
+
+    # Take a screenshot of the highlighted element
+    chrome_session$screenshot("r-project-sidebar.png", selector = ".sidebar")
+
+    # View the screenshot
+    browseURL("r-project-sidebar.png")
+    ```
+
+    -   The css selector was some long string, but he shortened it to ".sidebar"
+
+-   Search and extract table ([source](https://www.youtube.com/watch?v=30AOpjLeOyI&ab_channel=TheCoatlessProfessor))\
+    ![](_resources/Scraping.resources/js-search-table-1.PNG){.lightbox width="348"}
+
+    ``` r
+    # Start a new browser tab session
+    chrome_session_windy <- chrome_session$new_session()
+
+    # Open a new tab in the current browser
+    chrome_session_windy$view()
+
+    ## Navigate to windy.com ----
+
+    # Navigate to windy.com
+    chrome_session_windy$Page$navigate("https://www.windy.com")
+
+    # Wait for the page to load
+    Sys.sleep(0.5) 
+    # First focus the input field
+    chrome_session_windy$Runtime$evaluate('
+      document.querySelector("#q").focus();
+    ')
+
+    # Brief pause to ensure focus is complete
+    Sys.sleep(0.5) 
+
+    # Enter search term and trigger search
+    search_query <- 'Stanford University Museum of Art'
+    chrome_session_windy$Runtime$evaluate(
+      expression = sprintf('{
+        // Get the search input
+        const searchInput = document.getElementById("q");
+        searchInput.value = "%s";
+
+        // Focus the input
+        searchInput.focus();
+
+        // Trigger input event
+        const inputEvent = new Event("input", { bubbles: true });
+        searchInput.dispatchEvent(inputEvent);
+
+        // Trigger change event
+        const changeEvent = new Event("change", { bubbles: true });
+        searchInput.dispatchEvent(changeEvent);
+
+        // Force the search to update - this triggers the site\'s search logic
+        const keyupEvent = new KeyboardEvent("keyup", {
+          key: "a",
+          code: "KeyA",
+          keyCode: 65,
+          bubbles: true
+        });
+        searchInput.dispatchEvent(keyupEvent);
+      }', search_query)
+    )
+    # Wait for and, then, click the first search result
+    Sys.sleep(0.5) 
+    chrome_session_windy$Runtime$evaluate('
+        document.querySelector(".results-data a").click();
+      ')
+
+    ## Extract weather data ----
+
+    # Wait for and, then, extract the weather data table
+    Sys.sleep(0.5) 
+    html <- chrome_session_windy$Runtime$evaluate('
+        document.querySelector("table#detail-data-table").outerHTML
+      ')$result$value
+
+    ## Parse the table using `rvest` ----
+    raw_weather_table <- html |>
+      read_html() |> 
+      html_node('table') |> # Select the table to extract it without getting a node set
+      html_table() |> # Convert the table to a data frame
+      as.data.frame()
+
+    raw_weather_table
+    ```
+
+    -   [%s]{.var-text} is replaced by [search_query]{.var-text}
+
+    -   [#detail-data-table]{.var-text} is the CSS selector but he added [table]{.var-text} in front of that — not sure why. Without the "\#", this is also the [table id]{.arg-text} in the HTML, so maybe because it's a table id (?).
+
+    -   Feel like this might've been solved by RSelenium and the JS wasn't necessary
