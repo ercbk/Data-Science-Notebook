@@ -400,6 +400,54 @@
         -   `load_more` is a user defined function
         -   [`Recall`](https://rdrr.io/r/base/Recall.html) is a base R function that calls the same function it's in.
 
+-   Error Handling for Internal Functions ([source](https://fosstodon.org/@yjunechoe/113403050254737010))
+
+    ``` r
+    library(cli)
+    library(rlang)
+
+    assert3 <- 
+      function(x, 
+               y, 
+               arg = caller_arg(x),  # <1>
+               call_expr = caller_call()) { # <2>
+
+      if (!inherits(x, y)) { # <3>
+        abort(format_error("{.strong {arg}} must be of class {y}"), # <4>
+              call = call_expr) # <5>
+      }
+    }
+
+    some_fun3 <- function(x, class) {
+      assert3(x, class)
+    }
+
+    some_fun3(5, "character")
+    #> Error in `some_fun3()`:
+    #> ! x must be of class character
+    #> Run `rlang::last_trace()` to see where the error occurred.
+
+    last_trace()
+    #> <error/rlang_error>
+    #> Error in `some_fun3()`:
+    #> ! x must be of class character
+    #> ---
+    #> Backtrace:
+    #>     ▆
+    #>  1. └─global some_fun3(5, "character")
+    #>  2.   └─global assert3(x, class)
+    #> Run rlang::last_trace(drop = FALSE) to see 1 hidden frame.
+    ```
+
+    1.  `rlang::caller_arg` formats the value of an argument (e.g. [x]{.arg-text}) into a string so that can be used in error messages
+    2.  `rlang::caller_call` (with default being [n = 1]{.arg-text}) goes 1 level up to get the function that called this function.
+    3.  `inherit` is a logical that tests whether [x]{.arg-text} has the class indicated by [y]{.arg-text}. Similar to an `is.*` function.
+    4.  `cli::.strong` adds bold text styling to the value
+    5.  [call]{.arg-text} in `rlang::abort` specifies the environment to mention in the error message.
+
+    -   By using `rlang::caller_call` in the error function, the user will know which function in their script failed which is 1 level up from the assert (internal function).
+    -   Then `rlang::last_trace` is used to drill down and discover that error was triggered in the internal function (e.g. `assert3`)
+
 ## Calculations {#sec-r-snippets-calcs .unnumbered}
 
 -   Compute the running maximum per group
@@ -450,7 +498,24 @@
 
 #### Base-R {#sec-r-snippets-calcs-ts-baser .unnumbered}
 
+-   The previous month and its year ([source](https://hachyderm.io/@jimgar/113408078964321237))
+
+    ``` r
+    library(lubridate)
+    prev_month <- 
+      add_with_rollback(today(), months(-1)) |> 
+      month(label = TRUE, abbr = FALSE)
+
+    prev_months_yr <- 
+      add_with_rollback(today(), months(-1)) |> 
+      year()
+
+    # base r
+    format(seq(Sys.Date(), length = 2, by = "-1 month")[2], "%B %Y")
+    ```
+
 -   Intervals
+
     -   Difference between dates
 
         ``` r
@@ -467,7 +532,9 @@
         cat("Number of months using base R:", round(months_diff_base, 2), "\n")
         #> Number of months using base R: 18.1 
         ```
+
 -   Moving Windows
+
     -   [Example]{.ribbon-highlight} ([article](https://yjunechoe.github.io/posts/2023-06-11-row-relational-operations/#windowed-minmaxmedian-etc.))
         -   For each 3 day window:
 
