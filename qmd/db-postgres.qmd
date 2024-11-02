@@ -784,13 +784,15 @@
 
         -   If I/O timing is a small portion of [total_exec_time]{.var-text} and [temp_blks]{.var-text} are low, it points to a CPU bottleneck. But if I/O timing is high compared to [total_exec_time]{.var-text}, the disk I/O is likely the bottleneck.
 
-## Updating {#sec-db-pstgr-updat .unnumbered}
+## Updating/Upgrading {#sec-db-pstgr-updat .unnumbered}
 
 -   Misc
     -   Notes from [Why Does Everyone Run Ancient Postgres Versions?](https://neon.tech/blog/why-does-everyone-run-ancient-postgres-versions)
     -   Tools
         -   [pgversions.com](https://pgversions.com/) - Helps you quickly identify the improvements you’re missing by running an older Postgres version
             -   Also has a "How to upgrade" section in the report that will point you toward the right docs for different providers.
+        -   [pg_upgrade](https://www.postgresql.org/docs/current/pgupgrade.html) - Upgrade a PostgreSQL server instance
+            -   Internal data storage format rarely changes, but if a future major release ever changes the data storage format in a way that makes the old data format unreadable, pg_upgrade will not be usable for such upgrades
     -   It’s best to jump as many versions as you can when you do upgrade but if you wait for 5 or more versions there will be many compatibility issues and breaking changes ahead. 
 -   Steps
     1.  [Assessment and Planning]{.underline} - Evaluate you database sizes and workloads (e.g a 4 TB database or multiple databases). Objectives like minimizing downtime and upgrading before end-of-life were set. Choose you target Postgres versions and craft detailed project timelines and risk assessments.
@@ -806,3 +808,31 @@
     6.  [Cutover Strategy]{.underline} - Schedule the cutover during low-traffic periods. The downtime could be only a brief pause or you may need to use a maintenance window aiming for about one hour.
     7.  [Post-Migration Tasks]{.underline} - Afterward, verify data integrity and application functionality,
         -   Optimize the new databases (e.g., reindexing, vacuuming), monitor performance in the following days, remove old replication setups, and decommission the old databases.
+
+## Back-Ups {#sec-db-pstgr-backups .unnumbered}
+
+-   Tools
+    -   [barman](https://pgbarman.org/)
+    -   [pgBackRest](https://pgbackrest.org/)
+-   [pg_dump](https://www.postgresql.org/docs/current/app-pgdump.html)
+    -   Notes from [Why pg_dump Is Amazing](https://rhaas.blogspot.com/2024/11/why-pgdump-is-amazing.html)
+    -   Uses DDL commands to store tables as human-readable text and has COPY and INSERT command to reload tables back into a database
+    -   Use Cases
+        -   To back up and restore a single table, or a single object of some other type, like a function definition
+            -   Use tar format (`pg_dump -Ft`) or custom format (`pg_dump -Fc`) so [pg_restore](https://www.postgresql.org/docs/current/app-pgrestore.html) can pick out exactly the objects you want to restore and restore exactly those.
+        -   Corrupted Database
+            -   [Example]{.ribbon-highlight}: A database table containing rows where the xmin of a tuple is less than the relation's relfrozenxid but, sadly, the tuple is not frozen. (?)
+                -   If discovered early enough, you will be able to fail over to an unaffected replica or restore from an uncorrupted backup.
+                -   If not discovered early enough (for a long period the data will still readable), the system will remove old clog files that it things are no longer needed, and suddenly that data will become unreadable.
+                    -   Solution: You can restore from a physical backup where the data still was readable, and then use pg_dump to get the data out, and then reload it wherever you like.
+        -   Recreate a database schema from one server on another server
+            -   If you're dumping the data and not just the schema, pg_dump will even arrange the dump so that the data restoration is as efficient as possible by postponing the creation of indexes until after the data load.
+            -   At least partially (sans some edge cases) solves the dependency problem by first creating the table without subsidiary objects like foreign keys or constraints or indexes
+                -   You might try to create a table and find that it errors because that table has a foreign key to some other table that doesn't exist yet
+    -   Issues
+        -   Requires substantial amount of CPU resources especially for a large db
+        -   The text copies are likely not compatible with different CPU types (i.e. integers and floating point number representations won't be the same.
+        -   Other types of dbs, warehouses, etc. likely won't be able to read these text back-ups
+        -   Might not be compatible with major postgres updates or large jumps between the old version and new version
+    -   Reloading a dump can also fail if you use the older version of pg_dump when creating the dump
+    -   -Fd flag with -j option parallelizes the operation
