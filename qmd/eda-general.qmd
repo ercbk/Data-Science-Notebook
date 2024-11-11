@@ -615,11 +615,23 @@
 
 ### Multicollinearity
 
--   Misc
+-   [Misc]{.underline}
     -   Packages
         -   [{]{style="color: #990000"}[VisCollin](https://friendly.github.io/VisCollin/){style="color: #990000"}[}]{style="color: #990000"} - Methods to calculate and visualize diagnostics for multicollinearity among predictors in a linear or generalized linear model
-    -   If multicollinearity is a present, see [Feature Selection \>\> Basic](feature-selection.qmd#sec-featsel-basic){style="color: green"}
--   VIF
+    -   If multicollinearity is a present and
+        -   The interpretation of coefficients is the goal, see [Feature Selection \>\> Basic](feature-selection.qmd#sec-featsel-basic){style="color: green"}
+            -   If using Bayesian regression, then a prior on that coefficient will help to reduce its posterior variance.
+                -   Also see [Statistical Rethinking Notebook, Chapter 6](https://ercbk.github.io/Statistical-Rethinking-Notebook/qmd/chapter-6.html){style="color: green"}
+        -   If you're are only interested in predicting / explaining an outcome, and not the model coefficients or which are “significant”, collinearity can be largely ignored. The fitted values are unaffected by collinearity.
+            -   Although some diagnostic methods can be misleading (e.g. PDPs, Feature Importance, SHAP). See [Diagnostics, Model Agnostic](diagnostics-model-agnostic.qmd#sec-diag-modagn){style="color: green"} for details and alternate options.
+-   [VIF]{.underline}
+    -   Variance inflation factors measure the effect of multicollinearity on the standard errors of the estimated coefficients and are proportional to\
+        $$
+        \text{VIF}_j = \frac{1}{1-R^2_{j \sim X/j}}
+        $$
+
+        -   Where $R^2_{j \sim X/j}$ is from the predictor variable, $j$, being regressed against the other predictors (not including $j$)
+
     -   `performance::check_collinearity(fit)` or `car::vif` or `greybox::determ` or `vif(fit)`)
 
     -   Guideline: equal to 1 means no collinearity; between 5 to 10 typically an acceptable amount; \>10 is a problem
@@ -664,23 +676,40 @@
             #>     3.26     4.43     3.07     3.28     1.62     1.12
             ```
 
-            -   The standard error of [cylinder]{.var-text} has been multiplied by 3.26, and it’s t-value divided by this number, compared with the case when all predictors are uncorrelated. [engine]{.var-text}, [horse]{.var-text}, and [weight]{.var-text} suffer a similar fate.
--   Condition Number: $h(x) = \frac{\lambda_{\text{max}}}{\lambda_{\text{min}}}$
-    -   Where $\lambda_{\text{min}}$ and $\lambda_{\text{max}}$ are the highest and lowest eigenvalues of $X^t \; X$ where $X$ is your model matrix.
+            -   The standard error of [cylinder]{.var-text} (and therefore its CI) has been inflated by a factor of 3.26, and it’s t-value divided by this number, compared with the case when all predictors are uncorrelated. [engine]{.var-text}, [horse]{.var-text}, and [weight]{.var-text} suffer a similar fate.
+-   [Condition Number]{.underline}
+    -   Formula\
+        $$
+        h(x) = \frac{\lambda_{\text{max}}}{\lambda_{\text{min}}}
+        $$
+
+        -   Where $\lambda_{\text{min}}$ and $\lambda_{\text{max}}$ are the highest and lowest eigenvalues of $X^t \; X$ where $X$ is your model matrix.
 
     -   Guideline: $h(x) \lt 100$ is good and $h(x) \gt 1000$ means you have severe multicollinearity.
 
     -   Related to the upper bound of VIF: $\max(\text{VIF}) \le \frac{h(x)^2}{4}$
 
-    -   `kappa` is called the Condition Index. It uses the 2-norm (default) of the model matrix but generates the condition number. Use a `lm` fit or a a matrix of predictors as input.
--   Variance Decomposition Proportions
+    -   `kappa` is computes the Condition Number. It uses the 2-norm (default) of the model matrix but generates the condition number. Use a `lm` fit or a a matrix of predictors as input.
+-   [Variance Decomposition Proportions]{.underline}
     -   Large VIFs indicate variables that are involved in some nearly collinear relations, but they don’t indicate which other variable(s) each is involved with.
+
+    -   Requirements for interpreting a variance decomposition proportion (Belsley 1991):
+
+        -   The condition index, $\kappa_j$, must be large
+            -   High (Danger): Values $\gt$ 10
+            -   Medium (Warning): Values in between 5 and 10
+            -   Low (Okay): Values $\lt$ 5
+        -   The variance proportion should be high (e.g. $\ge 0.5$)
+
     -   Condition Indices\
         $$
         \kappa_j = \sqrt{\frac{\lambda_1}{\lambda_j}}
         $$
+
         -   For completely uncorrelated predictors, all $\kappa_j = 1$
-    -   [Example]{.ribbon-highlight}
+
+    -   [Example]{.ribbon-highlight} ([source](https://friendly.github.io/VisCollin/#collinearity-diagnostics))
+
         -   Variance Decomposition Proportions
 
             ``` r
@@ -699,7 +728,8 @@
             ```
 
             -   Dimension 5 reflects the high correlation between [horse]{.var-text} and [weight]{.var-text}
-            -   Dimension 6 reflects the high correlation between number of [cylinders]{.var-text} and [engine]{.var-text}.
+            -   Dimension 6 reflects the high correlation between number of [cylinder]{.var-text} and [engine]{.var-text}.
+            -   Note that the high variance proportion for [year]{.var-text} (0.787) on the second component creates no problem and should be ignored because (a) the condition index is low and (b) it shares nothing with other predictors
 
         -   Visualization\
             ![](_resources/EDA.resources/cor-mult-vif-tableplot-1.png){.lightbox width="332"}
@@ -709,7 +739,53 @@
                                  title = "Tableplot of cars data", 
                                  cond.max = 30 )
             ```
--   Use PCA --- if only a few (depends on the number of variables) pc explain all or almost all of the variation, then you could have a multicollinearity problem
+-   [PCA]{.underline}
+    -   Using the last couple dimensions (contrary to using the first few in typical PCA analysis) is useful for visualizing the relations among the predictors that lead to nearly collinear relations
+
+    -   The projections of the variable vectors on the dimension axes are proportional to their variance decomposition proportions (see previous section). The relative lengths of these variable vectors can be considered to indicate the extent to which each variable contributes to collinearity for these two near-singular dimensions.
+
+    -   [Example]{.ribbon-highlight}: ([source](https://friendly.github.io/VisCollin/#collinearity-biplot))\
+        ![](_resources/EDA.resources/col-multi-pca-biplot-1.png){.lightbox width="326"}
+
+        <details>
+
+        <summary>Code</summary>
+
+        ``` r
+        data(cars, package = "VisCollin")
+        cars.X <- cars |>
+          select(where(is.numeric)) |>
+          select(-mpg) |>
+          tidyr::drop_na()
+        cars.pca <- prcomp(cars.X, scale. = TRUE) # 6 dimensions
+
+        # Make labels for dimensions include % of variance
+        pct <- 100 *(cars.pca$sdev^2) / sum(cars.pca$sdev^2)
+        lab <- glue::glue("Dimension {1:6} ({round(pct, 2)}%)")
+
+        # Direction of eigenvectors is arbitrary. Reflect them
+        cars.pca$rotation <- -cars.pca$rotation
+
+        op <- par(lwd = 2, xpd = NA )
+        biplot(cars.pca,
+               choices=6:5,           # only the last two dimensions
+               scale=0.5,             # symmetric biplot scaling
+               cex=c(0.6, 1),         # character sizes for points and vectors
+               col = c("black", "blue"),
+               expand = 1.7,          # expand variable vectors for visibility
+               xlab = lab[6],
+               ylab = lab[5],
+               xlim = c(-0.7, 0.5),
+               ylim = c(-0.8, 0.5)
+              )
+        par(op)
+        ```
+
+        </details>
+
+        -   Dimension 6 is largely determined by [engine]{.var-text} size, with a substantial (negative) relation to [cylinder]{.var-text}.
+        -   Dimension 5 has its strongest relations to [weight]{.var-text} and [horse]{.var-text}.
+        -   There is one observation, #20, that stands out as an outlier in predictor space, far from the centroid. It turns out that this vehicle, a Buick Estate wagon, is an early-year (1970) American behemoth, with an 8-cylinder, 455 cu. in, 225 horse-power engine, and able to go from 0 to 60 mph in 10 sec. (Its MPG is only slightly under-predicted from the regression model, however.)
 
 ### Nonlinear
 
