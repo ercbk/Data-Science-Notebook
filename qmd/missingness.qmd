@@ -175,6 +175,119 @@
         -   Predict then Combine (PC)
         -   Combine then Predict (CP)
 
+## Rubin's Rules {#sec-missing-rubin .unnumbered}
+
+-   Notes from
+    -   [Applied Missing Data Analysis, Ch. 9](https://bookdown.org/mwheymans/bookmi/rubins-rules.html), [Ch. 10](https://bookdown.org/mwheymans/bookmi/measures-of-missing-data-information.html), [Ch. 11](https://bookdown.org/mwheymans/bookmi/pooling-correlation-coefficients-1.html)
+-   Designed to pool parameter estimates, such as mean differences, regression coefficients, standard errors and to derive confidence intervals and p-values
+-   Assumed that the repeated parameter estimates are normally distributed
+    -   Not valid for all statistics. For non-normal distributed statistics, a transformation is performed first.
+    -   For correlation coefficients, a Fisher's Z Transformation is used.\
+        $$
+        Z_i = \frac{1}{2}\mbox{ln}\frac{1+r_i}{1-r_i}
+        $$
+        -   Variance of the transformed coefficient\
+            $$
+            \text{Var}(Z) = \frac{1}{n-3}
+            $$
+        -   Z-Score\
+            $$
+            \text{z-score} = \frac{Z_{\text{pooled}}}{\text{Var}(Z)}
+            $$
+        -   Back-Transformation\
+            $$
+            \begin{align}
+            r_{\text{pooled}} &= \frac{e^{2Z_{\text{pooled}}}-1}{e^{2Z_{\text{pooled}}}+1} \\
+            &= \tanh(Z_{\text{pooled}})
+            \end{align}
+            $$
+-   Workflow
+    -   Start with a reasonable number of imputations (maybe 5-10)
+    -   Run the multiple imputation procedure
+    -   Calculate FMI from these initial imputations
+    -   If FMI suggests you need more imputations (using the m ≈ 100 × FMI rule), then:
+        -   Re-run the multiple imputation with the larger recommended number
+        -   This second run is what you'll use for your final analysis
+-   Pooled Mean Difference\
+    $$
+    \bar\theta = \frac{1}{m} \sum_{i = 1}^m \theta_i
+    $$
+    -   $\bar \theta$ is the pooled parameter estimate
+    -   $\theta_i$ is the parameter estimate (e.g. mean difference) for the $i^{\text{th}}$ imputed dataset
+    -   $m$ is the total number of imputed datasets
+-   Pooled Standard Error
+    -   Within-Imputation Variance\
+        $$
+        V_W = \frac{1}{m} \sum_{i=1}^m \text{SE}_i^2
+        $$
+        -   $\text{SE}_i^2$ is the squared standard error for the $i^{\text{th}}$ imputed dataset
+    -   Between-Imputation Variance\
+        $$
+        V_B = \frac{\sum_{i=1}^m ( \bar \theta - \theta_i)^2}{m-1}
+        $$
+    -   Pooled Standard Error\
+        $$
+        \text{SE}_{\text{pooled}} = \sqrt{V_W + V_B + \frac{V_B}{m}}
+        $$
+-   Wald Test Statistic\
+    $$
+    W = \frac{(\bar \theta - \theta_0)^2}{\text{SE}_{\text{pooled}}}
+    $$
+    -   $\theta_0$ is the parameter value under the null hypothesis (typically 0)
+    -   Statistic follows a t-distribution, $t_{\text{dof}, 1-\alpha/2}$, which can be used for the two-sided p-value.
+-   Degrees of Freedom (dof)
+    -   Original dof\
+        $$
+        \begin{align}
+        \text{dof}_{\text{orig}} &= \frac{m-1}{\lambda^2} \\
+        &= (m-1) \cdot (1 + \frac{1}{r})^2
+        \end{align}
+        $$
+        -   $m$ is the number of imputed datasets
+        -   $\lambda$ is the proportion of total variance due to missingness
+            -   Van Buuren ([2018](https://bookdown.org/mwheymans/bookmi/measures-of-missing-data-information.html#ref-VanBuuren2018)) ([{mice}]{style="color: #990000"} author) and Enders ([2010](https://bookdown.org/mwheymans/bookmi/measures-of-missing-data-information.html#ref-enders2010applied))\
+                $$
+                \begin{align}
+                &\lambda = \frac{V_B + \frac{V_B}{m}}{V_T}\\
+                &\text{where} \;\; V_T = V_W + V_B + \frac{V_B}{m}
+                \end{align}
+                $$
+        -   $r$ is the relative increase in variance due to nonresponse (RIV)\
+            $$
+            r = \frac{V_B + \frac{V_B}{m}}{V_W}
+            $$
+    -   Adjusted dof\
+        $$
+        \begin{align}
+        &\text{dof}_{\text{adj}} = \frac{\text{dof}_{\text{orig}} \cdot \text{dof}_{\text{obs}}}{\text{dof}_{\text{orig}} + \text{dof}_{\text{obs}}}\\
+        &\text{where} \;\; \text{dof}_{\text{obs}} = \frac{(n-k) + 1}{(n-k) + 3} \cdot (n-k) \cdot (1-\lambda)
+        \end{align}
+        $$
+        -   $k$ is the number of parameters to fit
+            -   So if you're doing a multiple regression with 3 predictors plus an intercept, $k$ would be 4.
+                -   Therefore, the term $n-k$ represents your model's residual degrees of freedom before adjusting for missing data.
+            -   For a correlation coefficient, $k = 2$, because you're estimating two parameters: the means of both variables involved in the correlation.
+        -   Used by [{mice}]{style="color: #990000"}
+-   Confidence Interval (CI)\
+    $$
+    \bar \theta \pm t_{\text{dof}, 1-\alpha/2} \cdot \text{SE}_{\text{pooled}}
+    $$
+    -   $\bar \theta$ is the pooled estimate
+-   Fraction of Missing Information (FMI)\
+    $$
+    \text{FMI} = \frac{\text{RIV} + \frac{2}{\text{dof}_{\text{adj}} + 3}}{\text{1 + RIV}}
+    $$
+    -   This is an adjusted value of $\lambda$. It takes into account that there are a finite number of imputations.
+    -   Guidelines
+        -   Higher FMI generally requires more imputations
+        -   A common rule is: m ≈ 100 × FMI for good efficiency
+-   Relative Efficiency\
+    $$
+    \text{RE} = \frac{1}{1 + \frac{\text{FMI}}{m}}
+    $$
+    -   The relative efficiency of your MI estimate compared to using infinite imputations.
+    -   Typically $\gt 95\%$ is consider sufficient for most use cases.
+
 ## Time Series {#sec-missing-ts .unnumbered}
 
 -   Resources
