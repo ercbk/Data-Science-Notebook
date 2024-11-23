@@ -32,47 +32,122 @@ title: "Scrapsheet"
             version: 0.10.4
         ```
 
-    -    Run `dbt deps` to install
--   Tests
-    -   Tests can be specified on a model, source, seed, or column in one of your YAML files
-    -   Source Data
-        -   Always apply your tests to the source data if possible
+    -   Run `dbt deps` to install
 
-        -   Because sources are defined in your YAML files, this is where you will want to write your tests
+#### Tests
 
-            ``` yaml
-            sources:
-              - name: company_customers
-                database: company
-                schema: customers
-                description: "Contains personal customer information for company"
-                tables:
-                  - name: addresses
-                    description: "Customer addresses for the company"
-                    tests:
-                      - dbt_expectations.expect_table_column_count_to_be_between:
-                          min_value: 1 
-                          max_value: 10
-            ```
+-   Tests can be specified on a model, source, seed, or column in one of your YAML files
+-   Source Data
+    -   Always apply your tests to the source data if possible
 
-            -   Specify the test under one of the source’s tables and not the source itself
-            -   check to make sure the [customers.addresses]{.var-text} table has between 1-10 columns.
-    -   Models
-        -   Adding tests to your complex data models is great for ensuring your data is as expected *after* the transformation process.
+    -   Because sources are defined in your YAML files, this is where you will want to write your tests
 
-        -   Similar sytax to specifying in Source Data
-
-            ``` yaml
-            models:
-              - name: stg_addresses
+        ``` yaml
+        sources:
+          - name: company_customers
+            database: company
+            schema: customers
+            description: "Contains personal customer information for company"
+            tables:
+              - name: addresses
                 description: "Customer addresses for the company"
                 tests:
                   - dbt_expectations.expect_table_column_count_to_be_between:
                       min_value: 1 
                       max_value: 10
-            ```
+        ```
 
-            -   Tests on the addresses staging model
+        -   Specify the test under one of the source’s tables and not the source itself
+        -   check to make sure the [customers.addresses]{.var-text} table has between 1-10 columns.
+-   Models
+    -   Adding tests to your complex data models is great for ensuring your data is as expected *after* the transformation process.
+
+    -   Similar sytax to specifying in Source Data
+
+        ``` yaml
+        models:
+          - name: stg_addresses
+            description: "Customer addresses for the company"
+            tests:
+              - dbt_expectations.expect_table_column_count_to_be_between:
+                  min_value: 1 
+                  max_value: 10
+        ```
+
+        -   Tests on the addresses staging model
+-   Column
+    -   Can only apply the test to one column
+
+    -   Preferrable on source data
+
+    -   Make sure the column names of your sources and models are fully documented before you can implement column tests.
+
+        ``` yaml
+        models:
+          - name: stg_addresses
+            description: "Customer addresses for the company"
+            columns:
+              - name: address_id 
+                description: "The primary key of this table"
+                tests:
+                  - dbt_expectations.expect_column_to_exist
+        ```
+
+        -   Tests whether [address_id]{.var-text} exists as a column within the model
+-   Check for Recent Data
+    -   Applies to one column only
+
+    -   Recommendation: Making this interval 3 days max, so you can catch the issue at the source fairly quickly
+
+    -   Use Case: FiveTran shows data connector syncs working, but you aren't sure
+
+        ``` yaml
+        tests:
+          - dbt_expectations.expect_row_values_to_have_recent_data:
+                datepart: day
+                interval: 3
+        ```
+
+        -   If there is no new data from the last 3 days then the test will throw an error.
+-   Compare Column Values
+    -   Applies to models, seeds, and sources
+
+    -   Compares if the value in column A is greater than the value in column B.
+
+        ``` yaml
+        tests:
+          - dbt_expectations.expect_column_pair_values_A_to_be_greater_than_B:
+              column_A: total_amount
+              column_B: sub_total
+              or_equal: False
+        ```
+
+        -   If the source contains high-quality data, the total should always be greater than the subtotal
+-   Check Column Type
+    -   Use Case: If your source is a spreadsheet, they are particularly prone to these types of data entry errors
+
+        ``` yaml
+        tests:
+          - dbt_expectations.expect_column_values_to_be_of_type:
+              column_type: timestamp_ntz
+        ```
+
+        -   This makes sure the time stamp is a format.
+        -   Different time stamps across different models and data sources can become an issue with joins, etc.
+-   Add Row Conditions
+    -   These can be added to other tests
+
+    -   A commin condition is “id is not null”
+
+        ``` yaml
+        tests:
+          - dbt_expectations.expect_column_values_to_be_in_set:
+              value_set: ['cat','dog','pig']
+              quote_values: true 
+              row_condition: "animal_id is not null"
+        ```
+
+        -   This test only looks at the column values whose row does *not*have a null [animal_id]{.var-text}.
 
 ## Functional Data Analysis and Forecasting
 
