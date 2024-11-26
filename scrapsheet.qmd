@@ -15,6 +15,131 @@ title: "Scrapsheet"
 
 ## Misc
 
+## Pipeline Project
+
+-   Components
+    -   Airbyte connects to Google Sheets and streams the data to store in Snowflake
+    -   dbt will be used for reverse ETL and data validation
+    -   Orchestration and monitoring will be in Prefect.
+-   Snowflake
+    -   Create Database
+
+        ``` bash
+        create database analytics;
+        ```
+
+    -   Create Schemas
+
+        ``` bash
+        -- creates schemas in analytics database
+        use database analytics;
+        create schema staging;
+        create schema intermediate;
+        create schema core;
+        create schema google_sheets;
+        ```
+
+    -   Roles
+
+        -   Each role has slightly different access permissions and can be applied to the tool corresponding to their category
+
+            -   [Examples]{.ribbon-highlight}:
+                -   A data ingestion tool like Airbyte will be assigned the *loader* role.
+                -   A *analyzer* will not have write access to prod schemas like [core]{.var-text} and raw data schemas like [google_sheets]{.var-text}, but it will have read access to the [core]{.var-text} schema
+                -   *Loader* will only have read and write access to raw data schemas like [google_sheets]{.var-text}, not your development schema nor prod schemas.
+
+        -   Roles
+
+            -   Analyzer
+            -   Transformer
+            -   Loader
+            -   Orchestrator
+
+        -   Create Roles
+
+            ``` bash
+            create role analyzer;
+            create role transformer;
+            create role loader; 
+            create role orchestrator;
+            ```
+
+    -   Permissions
+
+        -   Make sure you understand the permissions you are assigning and don’t over-grant them.
+
+        -   You always want to choose the **least** amount of permissions needed for the tool/person to do its job.
+
+        -   [Example]{.ribbon-highlight}: Transformer Permissions
+
+            ``` bash
+            -- database usage
+            grant usage on database analytics to role transformer;
+
+            -- schema usage
+            grant usage on schema google_sheets in database analytics to role transformer;
+
+            grant usage on schema staging in database analytics to role transformer;
+
+            grant usage on schema intermediate in database analytics to role transformer;
+
+            grant usage on schema core in database analytics to role transformer;
+
+            -- select permissions 
+            grant select on all tables in schema google_sheets to role transformer;
+            grant select on future tables in schema google_sheets to role transformer;
+
+            grant select on all views in schema staging to role transformer;
+            grant select on future views in schema staging to role transformer;
+
+            grant select on all views in schema intermediate to role transformer;
+            grant select on all tables in schema intermediate to role transformer;
+            grant select on future views in schema intermediate to role transformer;
+            grant select on future tables in schema intermediate to role transformer;
+
+            grant select on all tables in schema core to role transformer;
+            grant select on all views in schema core to role transformer;
+            grant select on future tables in schema core to role transformer;
+            grant select on future views in schema core to role transformer;
+
+            -- dev write access 
+            grant create table on schema madison_dbt to role transformer;
+            grant create view on schema madison_dbt to role role_name;
+
+            -- prod write access 
+            grant create view on schema staging to role role_name;
+            grant create view on schema intermediate to role transformer;
+            grant create table on schema intermediate to role transformer;
+            grant create view on schema core to role transformer;
+            grant create table on schema core to role transformer;
+            ```
+
+        -   Why weren't grant permissions to read or write tables in the staging schema of the warehouse?
+
+            -   Staging layers are usually materialized as views for the most part so reading or writing tables in the staging schema isn't necessary.
+            -   Given they should be simple queries of the raw data tables this will result in having to store less data while still being performant.
+
+    -   Create Users
+
+        -   Create a user for every human and tool.
+
+        -   You can assign a user more than one role, but only one default role.
+
+        -   [Example]{.ribbon-highlight}
+
+            ``` bash
+            create user madison_ae PASSWORD='abc123' DEFAULT_ROLE = transformer; 
+            grant role analyzer to madison_ae; 
+            ```
+
+        -   Create a *loader* role and [airbyte]{.var-text} user.
+
+        -   Create a *transformer* role and [dbt]{.var-text} user.
+
+        -   Create an *orchestrator* role and [prefect]{.var-text} user.
+
+        -   Look in each tools documentation fore the permissions required for Airbyte, dbt, and Prefect to work as expected on your data.
+
 ## DBT
 
 ### dbt-expectations
