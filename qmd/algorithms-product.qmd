@@ -1,4 +1,4 @@
-# Product {#sec-alg-prod}
+# Product {#sec-alg-prod .unnumbered}
 
 ## Misc {#sec-alg-prod-misc .unnumbered}
 
@@ -308,132 +308,176 @@
         -   Use model agnostic diagnostics to examine high probability predictions that didn't convert.
         -   Develop strategy around predictor variables that lead to that prediction (increase or decrease value) to nudge customer into transaction.
 
-## Conversion Funnel {#sec-alg-prod-convfun}
+## Conversion Funnel {#sec-alg-prod-convfun .unnumbered}
 
--   Notes from a BizSci learning lab (like lab 24 or something)
-    -   Uses BigQuery and Google Analytics
--   Also see
-    -   [Product Development](Product%20Development) \>\> Conversion Funnels
-    -   [Marketing](Marketing) \>\> Customer Journey
--   google analytics 360
-    -   more granularity than free version
-    -   Can schedule to export daily (nested) table of data to BiqQuery
-        -   JSON data (amazon redshift, azure use postgres)
--   Which steps in conversion path are most important
-    -   web page hits involved in a purchase per page
-        -   basket.html
--   Which step in the path are custumers getting hung up on?
--   stores data from session which is the entry to exit of website
--   visitid is the session id
-    -   each visitid has a hits col with a nested tibble which has all the pages the customer visited
--   a hit is a visit to a webpage (pagePath)
--   Bigquery allows free 1 Tb of data
--   Connection to bigq
-    1.  connect to bigquery::bq_auth
-    2.  dbconnect with billing arg = project name (from bigquery)
-    3.  dbplyr::tbl, select(visitid, hits), collect
-    4.  pluck("hits", 1, "page"), tojson prettify fromjson unnest(cols = pagePath:pagPathLevelId)
--   How many unique visitors per day
-    -   dbplyr::tbl (table\_\*), distinct, count, collect
-    -   "\*" is a wildcard. Processes code on all tables in project in bigq without bringing the data into R before performing the calc.
+-   Misc
+    -   Notes from a BizSci learning lab (like lab 24 or something)
+        -   Uses BigQuery and Google Analytics
+    -   Also see
+        -   [Product Development, General \>\> Conversion Funnels](https://ercbk.github.io/Domain-Knowledge-Notebook/qmd/product-development-general.html#sec-proddev-gen-convfun){style="color: green"}
+        -   [Marketing \>\> Customer Journey](https://ercbk.github.io/Domain-Knowledge-Notebook/qmd/marketing.html#sec-mark-custjourn){style="color: green"}
+    -   Google Analytics 360 is used
+        -   More granularity than free version
+        -   Can schedule to export daily (nested) table of data to BiqQuery
+            -   JSON data (amazon redshift, azure use postgres)
+-   Questions:
+    -   Which steps in conversion path are most important?
+    -   How many web page hits are involved in a purchase per page
+    -   Which step in the path are custumers getting hung up on?
+-   [visit_id]{.var-text} is the session id
+    -   Each [visit_id]{.var-text} has a [hits]{.var-text} column with a nested tibble which has all the pages the customer visited
+    -   A hit is a visit to a webpage (pagePath)
+-   Google Analytics data can be imported into BigQuery
+    -   [{bigrquery}]{style="color: #990000"}
+    -   Connection to BigQuery
+        1.  Connect to `bigrquery::bq_auth`
+
+        2.  `dbconnect`
+
+            ``` r
+            con <- dbConnect(
+              bigrquery::bigquery(),
+              project = "publicdata",
+              dataset = "samples",
+              billing = project_id
+            )
+            ```
+
+        3.  `dbplyr::tbl, select(visit_id, hits)`, `collect`
+
+        4.  `pluck("hits", 1, "page")`, `tojson`, `prettify`, `fromjson`, `unnest(cols = pagePath:pagPathLevelId)`
+-   How many unique visitors per day?
+    -   `dbplyr::tbl (table_*)`, `distinct`, `count`, `collect`
+        -   [\*]{.arg-text} is a wildcard. Processes code on all tables in project in BigQuery without bringing the data into R before performing the calc.
 -   Total transactions over time period
-    1.  can't use dbplyr for the lower levels of nested tables. Have to use sql
-    2.  SELECT date, SUM(totals.transactions) AS total_transactions
-        -   totals.transactions is in the form column.subcolumn for json structured tables
-    3.  FROM "biquery-public-blahblah"
-    4.  GROUP BY data
-    5.  ORDER BY total_transactions
+    1.  Can't use dbplyr for the lower levels of nested tables. Have to use sql
+    2.  `SELECT date`, `SUM(totals.transactions) AS total_transactions`
+        -   [totals.transactions]{.var-text} is in the form column.subcolumn for json structured tables
+    3.  `FROM "biquery-public-blahblah"`
+    4.  `GROUP BY data`
+    5.  `ORDER BY total_transactions`
 -   Transactions by referral
-    -   SELECT trafficsource.medium then basically same query as above
--   What paths are customers taking by session that lead to conversion
-    -   Join a couple tables by visitid and collect into R
-        -   cols: fulluserid visitid hitnumber pagepath
-        -   cols: visitid total_transaction_revenue (which is scaled to millions for some reason)
-    -   Take joined table and
-        -   filter transaction_rev \>0 to get only transactions that lead to "conversions" (purchases)
-        -   count number of rows per pagePath
-        -   summarize median_hit_number, median_visit_number
-        -   ggplot(pagePath, n, fill = n), geom_bar, coord_flip
-    -   add incentives to customers to get to the top pages for those values
+    -   `SELECT trafficsource.medium` then basically same query as above
+-   What paths are customers taking by session that lead to conversion?
+    -   Join a couple tables by [visit_id]{.var-text} and `collect` into R
+        -   Columns: [fulluserid]{.var-text}, [visit_id]{.var-text}, [hitnumber]{.var-text}, [pagepath]{.var-text}
+        -   Columns: [visit_id]{.var-text}, [total_transaction_revenue]{.var-text} (which is scaled to millions for some reason)
+    -   Take joined table and:
+        -   `filter transaction_rev >0` to get only transactions that lead to "conversions" (purchases)
+        -   `count` number of rows per [pagePath]{.var-text}
+        -   `summarize` [median_hit_number]{.var-text}, [median_visit_number]{.var-text}
+        -   `ggplot(pagePath, n, fill = n)`, `geom_bar`, `coord_flip`
+    -   Add incentives to customers to get to the top pages for those values
 
-## Market Basket Analysis {#sec-alg-prod-markbask}
+## Market Basket Analysis {#sec-alg-prod-markbask .unnumbered}
 
 -   Association Rules
     -   Key metrics
-        -   Support = num_sku1_sold / num_transactions (What percent of transactions involved sku1 on average)
-        -   Confidence = support(sku1, sku2) / support(sku1) (Of the transactions involving sku1, what percentage also involved sku2?)
-            -   i.e. equivalent to the probability that someone will buy sku2 given they also bought sku1 (see Basket Complementary)
+        -   **Support**: The percentage of transactions involving of a particulart sku (e.g. [sku1]{.var-text}) on average\
+            $$
+            \text{support} = \frac{\text{number of sku1 sold}}{\text{total transactions}}
+            $$
+        -   **Confidence**: Of the transactions involving [sku1]{.var-text}, the percentage also involved [sku2]{.var-text}.\
+            $$
+            \text{confidence} = \frac{\mbox{support}(\mbox{sku1}, \mbox{sku2})}{\mbox{support}(\mbox{sku1})}
+            $$
+            -   i.e. Equivalent to the probability that someone will buy [sku2]{.var-text} given they also bought [sku1]{.var-text} (see Basket Complementary)
             -   support(sku1, sku2) = num_sku1_sku2_sold / num_transactions
-        -   Lift = support(sku1, sku2) / \[support(sku1) \* support(sku2)\] (How likely were you to buy sku2 if you have already bought sku1? or vice versa)
-    -   Guidelines
-        -   Lift \> 1 positive association between sku1 and sku2 (more likely to buy together)
-        -   Lift \< 1 negeative association between sku2 and sku2 (less likely to buy together)
+        -   **Lift** : The probability of someone buying sku2 after having already bought sku1 or vice versa.\
+            $$
+            \text{Lift} = \frac{\mbox{support}(\mbox{sku1}, \mbox{sku2})}{\mbox{support}(\mbox{sku1}) \cdot \mbox{support}(\mbox{sku2})}
+            $$
+            -   Guidelines
+                -   Lift \> 1 positive association between [sku1]{.var-text} and [sku2]{.var-text} (more likely to buy together)
+                -   Lift \< 1 negeative association between [sku2]{.var-text} and [sku2]{.var-text} (less likely to buy together)
 -   Basket Complementary ([article](https://realworlddatascience.net/news-and-views/datasciencebites/posts/2023/03/02/basket-complementarity.html))\
-    ![](./_resources/Algorithms,_Product.resources/image.1.png){.lightbox}
+    ![](./_resources/Algorithms,_Product.resources/image.1.png){.lightbox width="632"}
     -   Using confidences of pairs of products and the confidence of their reciprocal to rank cross-selling recommendations
-    -   Transactions for a user listed on the left
-    -   Conf(Cornflakes → Milk) is the confidence which is the probability that someone wil buy milk given they've also bought cornflakes
-        -   = num_corn_milk_sold/num_corn_sold = 2 / 5 = 0.40 (equivalent to formula above in key metrics)
-    -   Conf(Milk → Cornflakes) = num_corn_milk_sold/num_milk_sold = 2 / 6 = 0.33
-    -   The more similar the two probabilities are for each pair, the closer the point comes to the line of equality (the red dashed line that runs diagonally through the origin), and the more **complementary** the items become.
-    -   It's rare that a dot will land exactly on the line of equality, so the green and orange lines (**tolerances**) parallel to the red line mark how far off a dot is from this ideal setting, using different levels of tolerance.
-    -   Large asymmetries indicate one-sided complementarity. Such imbalances will be quite common when, for instance, items of hugely different prices are involved.
-        -   Example: When someone buys a house, for example, they may want to buy a bookcase, but buying a bookcase doesn't mean someone wants to buy a house: this would be an instance of one-sided complementarity.
-        -   Me: So choosing recommendations should take into consideration the price of item in the cart and select one-sided asymmetries with high confidences that are similar to that price or less.
-    -   Tolerances categorize and rank pairs of products
-        -   Complementary at such-and-such a tolerance level -- 0%, 1%, 5%, etc. -- generating a score of sorts.
-        -   In cases where a dot representing the two-way dependencies between two items falls within a narrow band -- corresponding to a smaller tolerance -- the more inseparable the items are, and the more sensible a cross-selling recommendation may become.
 
-## Cohort Analysis {#sec-alg-prod-cohort}
+    -   Transactions for a user listed on the left
+
+    -   $\mbox{Confidence}(\mbox{Cornflakes} \rightarrow \mbox{Milk})$ is the confidence which is the probability that someone wil buy [milk]{.var-text} given they've also bought [cornflakes]{.var-text}
+
+        ``` r
+        num_corn_milk_sold/num_corn_sold
+        #> 0.40
+        ```
+
+        -   Equivalent to formula in Key Metrics
+
+    -   $\mbox{Confidence}(\mbox{Milk} \rightarrow \mbox{Cornflakes})$
+
+        ``` r
+        num_corn_milk_sold/num_milk_sold
+        #> 0.33
+        ```
+
+    -   The more similar the two probabilities are for each pair, the closer the point comes to the line of equality (the red dashed line that runs diagonally through the origin), and the more **complementary** the items become.
+
+    -   It's rare that a dot will land exactly on the line of equality, so the green and orange lines (**tolerances**) parallel to the red line mark how far off a dot is from this ideal setting, using different levels of tolerance.
+
+    -   Large asymmetries indicate one-sided complementarity. Such imbalances will be quite common when, for instance, items of hugely different prices are involved.
+
+        -   [Example]{.ribbon-highlight}: When someone buys a house, for example, they may want to buy a bookcase, but buying a bookcase doesn't mean someone wants to buy a house: this would be an instance of one-sided complementarity.
+        -   Me: So choosing recommendations should take into consideration the price of item in the cart and select one-sided asymmetries with high confidences that are similar to that price or less.
+
+    -   Tolerances categorize and rank pairs of products
+
+        -   Complementary at such-and-such a tolerance level — 0%, 1%, 5%, etc. — generating a score of sorts.
+        -   In cases where a dot representing the two-way dependencies between two items falls within a narrow band — corresponding to a smaller tolerance — the more inseparable the items are, and the more sensible a cross-selling recommendation may become.
+
+## Cohort Analysis {#sec-alg-prod-cohort .unnumbered}
 
 -   Visualizing user retention is a useful way for e.g. retail and subscription businesses to keep track of how long customers and users tend to stay with the them and spot differences in how cohort sizes change over time.
 
 -   Misc
 
-    -   Cohort - group of new users who start an interaction (e.g. subscription, logging on to a website) on the same date
-    -   [{cohort}]{style="color: #990000"} has some nice cleaning functions
+    -   **Cohort** - A group of new users who start an interaction (e.g. subscription, logging on to a website) on the same date
+    -   [{]{style="color: #990000"}[cohort](https://github.com/PeerChristensen/cohorts){style="color: #990000"}[}]{style="color: #990000"} has some nice cleaning functions
     -   A grouped line chart would be another visualization option
 
--   Compare cohorts by month
+-   Compare Cohorts by Month
 
     -   Table showing cohort interactions over time
 
-    -   Example\
-        ![](./_resources/Algorithms,_Product.resources/1-fNuC2YvkGNAIjaqFia6_TQ.png)
+    -   [Example]{.ribbon-highlight}\
+        ![](./_resources/Algorithms,_Product.resources/1-fNuC2YvkGNAIjaqFia6_TQ.png){.lightbox width="632"}
 
         ``` r
-        online_cohorts %>% 
-          cohort_table_month(id_var = CustomerID, date = InvoiceDate)
+        online_cohorts %>%
+          cohort_table_month(id_var = CustomerID, 
+                             date = InvoiceDate)
         ```
 
--   Takes tibble with a customer id column and invoice date column and creates a monthly cohort table
+        -   Takes tibble with a customer id column and invoice date column and creates a monthly cohort table
 
--   Cohort 1 all had their first purchase on Dec 2010 and only 622 customers from this group also made a purchase in Jan 2011
+        -   Cohort 1 all had their first purchase on Dec 2010 and only 622 customers from this group also made a purchase in Jan 2011
 
--   With this function, customers don't have make a purchase in Jan 2011 in order to be counted in Feb 2011
+        -   With this function, customers don't have make a purchase in Jan 2011 in order to be counted in Feb 2011
 
--   As a percent\
-    ![](./_resources/Algorithms,_Product.resources/1-zMbZ1kd5TxRwUW2lE1dMEw.png)
+        -   As a percent\
+            ![](./_resources/Algorithms,_Product.resources/1-zMbZ1kd5TxRwUW2lE1dMEw.png){.lightbox width="632"}
 
-    ``` r
-    online_cohorts %>% 
-      cohort_table_month(id_var = CustomerID, date = InvoiceDate) %>%
-      cohort_table_pct()
-    ```
+            ``` r
+            online_cohorts %>% 
+              cohort_table_month(id_var = CustomerID, 
+                                 date = InvoiceDate) %>%
+              cohort_table_pct()
+            ```
 
--   36.7% of the Dec 2010 cohort made a purchase in Feb 2011
+            -   36.7% of the Dec 2010 cohort made a purchase in Feb 2011
 
--   Compare cohorts by period\
-    ![](./_resources/Algorithms,_Product.resources/1-hiH0xEGNLzVFhtWhPoGeqA.png)
+-   Compare Cohorts by Period\
+    ![](./_resources/Algorithms,_Product.resources/1-hiH0xEGNLzVFhtWhPoGeqA.png){.lightbox width="632"}
 
     ``` r
     online_cohorts %>% 
       cohort_table_month(id_var = CustomerID,
-                          date  = InvoiceDate) %>%
+                         date  = InvoiceDate) %>%
       shift_left_pct()
     ```
 
--   Cohort1's t0 is Dec 2010 and cohort2's t0 is Jan 2011
+    -   Cohort1's [t0]{.arg-text} is Dec 2010 and cohort2's [t0]{.arg-text} is Jan 2011
 
 -   Heatmap
 
@@ -447,101 +491,115 @@
           filter(name != "t0") # these are all 100 so not interesting
         ```
 
--   Columns: cohort, name (i.e. period), value (percentage)
+        -   Columns: cohort, name (i.e. period), value (percentage)
 
--   Heatmap table\
-    ![](./_resources/Algorithms,_Product.resources/1-PnsaN6fC1i97_x-Bnbzzkg.png)
+    -   Heatmap Table\
+        ![](./_resources/Algorithms,_Product.resources/1-PnsaN6fC1i97_x-Bnbzzkg.png){.lightbox width="532"}
 
-    ``` r
-    online_cohorts %>%
-      mutate(time = as.numeric(str_remove(name, "t"))) %>%
-      ggplot(aes(time, reorder(cohort, desc(cohort)))) +
-      geom_raster(aes(fill = log(value))) +
-      coord_equal(ratio = 1) +
-      geom_text(aes(label = glue::glue("{round(value,0){style='color: #990000'}[}]{style='color: #990000'}%")), 
-                    size  = 3, 
-                    colour = "snow") +
-      scale_fill_gradient(guide = "none") +
-      theme_minimal(base_size = 16) +
-      theme(panel.grid  = element_blank(),
-            panel.border = element_blank()) +
-      labs(y = "cohort")
-    ```
+        <details>
 
-## Retention Analysis {#sec-alg-prod-retent}
+        <summary>Code</summary>
 
--   **Retention Rate -** measures the proportion of users that return to your product over some specified time
+        ``` r
+        online_cohorts %>%
+          mutate(time = as.numeric(str_remove(name, "t"))) %>%
+          ggplot(aes(time, reorder(cohort, desc(cohort)))) +
+          geom_raster(aes(fill = log(value))) +
+          coord_equal(ratio = 1) +
+          geom_text(aes(label = glue::glue("{round(value,0){style='color: #990000'}[}]{style='color: #990000'}%")), 
+                        size  = 3, 
+                        colour = "snow") +
+          scale_fill_gradient(guide = "none") +
+          theme_minimal(base_size = 16) +
+          theme(panel.grid  = element_blank(),
+                panel.border = element_blank()) +
+          labs(y = "cohort")
+        ```
+
+        </details>
+
+## Retention Analysis {#sec-alg-prod-retent .unnumbered}
+
+-   **Retention Rate -** Measures the proportion of users that return to your product over some specified time
     -   4 choices to make before calculation the retention rate:
-        -   Retention rate type
-        -   User type
-        -   Action type
+        -   Retention Rate Type
+        -   User Type
+        -   Action Type
         -   Cohorts
--   Types
-    -   **N-day** (or week or month) **Retention**![](./_resources/Algorithms,_Product.resources/retention_screenshot.png)
-        -   measures among users who first used the product at day 0, what proportion of them are still active at day N.
+
+### Components {#sec-alg-prod-retent-comp .unnumbered}
+
+-   [Retention Rate Types]{.underline}
+    -   **N-day** (or week or month) **Retention**\
+        ![](./_resources/Algorithms,_Product.resources/retention_screenshot.png){.lightbox width="532"}
+        -   Measures among users who first used the product at day 0, what proportion of them are still active at day N.
         -   N indicates the end point of the interval
-    -   **Rolling Retention**![](./_resources/Algorithms,_Product.resources/rolling_retention_screenshot.png)
+    -   **Rolling Retention**\
+        ![](./_resources/Algorithms,_Product.resources/rolling_retention_screenshot.png){.lightbox width="532"}
         -   End point is the day you view the data and the choice of starting point determines the length of the interval
     -   **Bracket Retention**
         -   A proportion of users after day 0, that had activity during some interval. This interval occurs sometime after day 0 and the data viewing date.
-        -   example: Pinterest
+        -   [Example]{.ribbon-highlight}: Pinterest
             -   Measures "the percentage of new signups that are still doing key actions during a one-week time window of 28--35 days after signup".
--   User
-    -   types
-        -   New user
-        -   Churned user: inactive after day x
-        -   Inactive user: inactive from day 0 to day x
-        -   Reactive user: active after churned/inactive
-        -   Active user: active users who are not new and not reactive
-    -   New user retention measures the proportion of new users who stay active.
-    -   Active user retention measures the proportion of active users who stay active
--   Action
+-   [User]{.underline}
+    -   Types
+        -   **New User**
+        -   **Churned User**: Inactive after day x
+        -   **Inactive User**: Inactive from day 0 to day x
+        -   **Reactive User**: Active after churned/inactive
+        -   **Active User**: Active users who are not new and not reactive
+    -   **New User Retention** measures the proportion of new users who stay active.
+    -   **Active User Retention** measures the proportion of active users who stay active
+-   [Action]{.underline}
     -   Choosing an action
         -   More interested in monetization values?
         -   Are you in a growth stage where you looking to retain your users through certain actions?
-    -   types
-        -   visiting the product page
-        -   staying for a certain amount of time
-        -   conducting certain actions (e.g.. scrolling)
-        -   purchasing a product
--   Cohorts
+    -   Types
+        -   Visiting the product page
+        -   Staying for a certain amount of time
+        -   Conducting certain actions (e.g.. scrolling)
+        -   Purchasing a product
+-   [Cohorts]{.underline}
     -   Demographics: gender, age, etc.
     -   Acquisition: acquisition time, acquisition source, etc.
     -   Behavior
--   Analysis
-    -   Calculate Retention Rates
-        -   Recommendations
-            -   Start with the N-day/week/month retention
-            -   Start with new users (especially for new products)
-        -   Determine the time interval
-            -   plot how frequently users use the product
-            -   plot % users who use the product vs times with various intervals
-            -   plot retention with various intervals
-            -   see which one makes sense for your product.
-            -   It's okay to include more than one time interval in your analysis.
-        -   Retention Rate vs Time![](./_resources/Algorithms,_Product.resources/0-ObQUvRFPNc2Y8YZo.png)
-            -   Smiling curve when users come back more and more over time.
-            -   Declining curve signifies danger
-            -   Flattening curve signifies a healthy product.
-            -   The goal for a product is to shift the curve up and flatten or uptail the curve
-    -   Descriptive statistics and correlations
-    -   Survival model
-    -   Dashboard (all available cohorts/groups)
-        -   retention curve
-        -   triangle retention table (see Cohort Analysis section)
-            -   Cohort (date), New Users (count), Day 1, Day 2, ...
-                -   Every cohort has 100% for Day 0 so not necessary to include
-    -   What is the user behavior that contributes to the moment a new user becomes a long-term customer?
-        -   i.e. Find the user events and onboarding behaviors that are related to retention in future weeks/months.
-        -   e.g. Facebook focuses on "[getting 7 friends in 10 days](https://www.youtube.com/watch?v=raIUQP71SBU&t=1265s)."
-    -   How do the most successful long-term users form a habit to use the product?
-        -   Descriptive analysis on long-term users
-        -   Questions
-            -   What features do they keep using?
-            -   What attributes do they have?
-            -   What is the user journey for them?
 
-## Net Promoter Score (NPS) {#sec-alg-prod-nps}
+### Analysis {#sec-alg-prod-retent-anal .unnumbered}
+
+-   Calculate Retention Rates
+    -   Recommendations
+        -   Start with the N-day/week/month retention
+        -   Start with new users (especially for new products)
+    -   Determine the time interval
+        -   plot how frequently users use the product
+        -   plot % users who use the product vs times with various intervals
+        -   plot retention with various intervals
+        -   see which one makes sense for your product.
+        -   It's okay to include more than one time interval in your analysis.
+    -   Retention Rate vs Time\
+        ![](./_resources/Algorithms,_Product.resources/0-ObQUvRFPNc2Y8YZo.png){.lightbox width="432"}
+        -   Smiling curve when users come back more and more over time.
+        -   Declining curve signifies danger
+        -   Flattening curve signifies a healthy product.
+        -   The goal for a product is to shift the curve up and flatten or uptail the curve
+-   Descriptive statistics and correlations
+-   Survival model
+-   Dashboard (all available cohorts/groups)
+    -   Retention Curve
+    -   Triangle Retention Table (See [Cohort Analysis](algorithms-product.qmd#sec-alg-prod-cohort){style="color: green"})
+        -   Cohort (date), New Users (count), Day 1, Day 2, ...
+            -   Every cohort has 100% for Day 0 so not necessary to include
+-   What is the user behavior that contributes to the moment a new user becomes a long-term customer?
+    -   i.e. Find the user events and onboarding behaviors that are related to retention in future weeks/months.
+    -   e.g. Facebook focuses on "[getting 7 friends in 10 days](https://www.youtube.com/watch?v=raIUQP71SBU&t=1265s)."
+-   How do the most successful long-term users form a habit to use the product?
+    -   Descriptive analysis on long-term users
+    -   Questions
+        -   What features do they keep using?
+        -   What attributes do they have?
+        -   What is the user journey for them?
+
+## Net Promoter Score (NPS) {#sec-alg-prod-nps .unnumbered}
 
 -   Use sentiment analysis on customer reviews and social media posts to generate a proxy for NPS based on sentiment scores.
 -   Use Cases
@@ -549,13 +607,14 @@
     -   Calculate the % of promoters vs detractors to give you insights into which direction your brand is progressing. A higher % of promoters indicates potential revenue growth and vice versa indicates that your brand is going down.
     -   Specific text strings from extremely negative reviews will give you insights into areas of improvement. A simple word cloud for positive and negative reviews will give you insights into what works best for your brand and does not.
     -   The same exercise repeated every quarter will give you insights into the trend of customer experience --- is there an increasing trend of promoters or an increasing trend of detractors?
--   Also see [Survey, Design](Surveys,%20Design) \>\> Response Scales \>\> Net Promoter Score
+-   Also see [Survey, Design \>\> Response Scales \>\> Net Promoter Score](surveys-design.qmd#sec-surv-design-respsc-nps){style="color: green"}
 -   Process
     -   Calculate the sentiment score for each customer review.
-        -   min-max normalize scores to a range of 0 to 10
+        -   Min-Max Normalize scores to a range of 0 to 10
     -   For every customer, calculate the average sentiment score.
         -   Optional: weight score by number of reviews posted
             -   Stems from the idea that we would like to focus on customers posting frequent reviews rather than customers who buy/post very rarely
     -   Categorize customers are promoters, neutrals, or detractors based on the average sentiment score.
-        -   For ideas on bins, see [Survey, Design](Surveys,%20Design) \>\> Response Scales \>\> Net Promoter Score
--   Example (only split into promoters/detractors)![](./_resources/Algorithms,_Product.resources/image.png)
+        -   For ideas on bins, see [Survey, Design \>\> Response Scales \>\> Net Promoter Score](surveys-design.qmd#sec-surv-design-respsc-nps){style="color: green"}
+-   [Example]{.ribbon-highlight}: Only split into promoters/detractors\
+    ![](./_resources/Algorithms,_Product.resources/image.png)
