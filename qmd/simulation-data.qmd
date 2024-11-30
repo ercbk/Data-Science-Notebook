@@ -242,3 +242,198 @@
 
     -   Total sample size is fixed at 200 (formula), but individual cluster sizes are allowed to vary.
     -   [variance]{.arg-text}: A dispersion parameter that controls the amount of varying of the cluster sizes
+
+## [{DeclareDesign}]{style="color: #990000"} {#sec-sim-data-decdes .unnumbered}
+
+### Misc {#sec-sim-data-decdes-misc .unnumbered}
+
+-   [Docs](https://declaredesign.org/r/declaredesign/), [Website](https://declaredesign.org/), [EBook](https://book.declaredesign.org/)
+-   Notes from
+    -   [Sample Size Calculations in R: Money vs. Power](https://arelbundock.com/posts/money_and_power/index.html)
+        -   Shows how to incorporate cost into the design. If cost is just a function of sample size, then I'm not sure how useful it is since it's a simple calculation that can be done on your own.
+
+### Basics {#sec-sim-data-decdes-bas .unnumbered}
+
+-   Process
+    -   Define the data generating process
+    -   Define the model function
+        -   Input:
+            -   Data frame called [data]{.arg-text}
+        -   Output:
+            -   1-row data frame with mandatory and optional columns.
+                -   Mandatory: [term]{.arg-text}, [estimate]{.arg-text}
+                -   Optional: [std.error]{.arg-text}, [conf.low]{.arg-text}, [conf.high]{.arg-text}, [p.value]{.arg-text}, [cost]{.arg-text}, etc.
+    -   Declare the rue value of the quantity of interest
+    -   Combine objects, simulate, and analyze the results
+    -   Compare results of various inputs, models, etc.
+-   [Example]{.ribbon-highlight}: Power Calculationn for Simple linear model
+    -   [DGP]{.underline}
+
+        ``` r
+        library(marginaleffects); library(DeclareDesign)
+        set.seed(2024)
+
+        sample_size <- 100
+        treatment_effect <- 0.2
+
+        dgp <- declare_model(
+          N = sample_size,
+
+          # standard normal noise
+          e = rnorm(N, mean = 0, sd = 1),
+
+          # random dummy treatment with equal probability of treatment and control
+          D = rbinom(N, size = 1, prob = 0.5),
+
+          # intercept
+          b0 = 0,
+
+          # outcome equation
+          Y = b0 + treatment_effect * D + e
+        )
+
+        d <- dgp()
+        head(d, 3)
+        #>    ID          e D b0          Y
+        #> 1 001  0.9819694 1  0 1.18196941
+        #> 2 002  0.4687150 0  0 0.46871504
+        #> 3 003 -0.1079713 1  0 0.09202867
+        ```
+
+        -   Note that sample size and estimated effect size are defined outside the functions. This is because they are variables we intend vary in order to compare the results.
+        -   `declare_model` is a function factory (i.e. returns a function)
+        -   Each call of `dgp` will produce a different dataset.
+
+    -   [Model]{.underline}
+
+        ``` r
+        fit <- function(data) {
+          model <- lm(Y ~ D, data = data)
+          #> out <- data.frame(
+          #>   "term" = "OLS",
+          #>   "estimate" = coef(model)["D"]
+          #> )
+          out <- 
+            marginaleffects::avg_comparisons(model, 
+                                             variables = "D")
+          return(out)
+        }
+
+        fit(d)
+        #>   term contrast   estimate std.error statistic   p.value  s.value   conf.low conf.high predicted_lo predicted_hi predicted
+        #> 1    D    1 - 0 0.07115999 0.1984708 0.3585414 0.7199382 0.474055 -0.3178356 0.4601556    0.0545284    0.1256884 0.0545284
+        ```
+
+        -   In more complex models, with interactions or non-linear components, `avg_comparisons` will be a convenient way to estimate the average treatment effect (ATE), and it will return results in the “tidy” format required by `DeclareDesign`
+
+        -   The manual way is included to show how to define the output in case you aren't using a model covered by [{marginaleffects}]{style="color: #990000"}
+
+    -   [Truth and Results]{.underline}
+
+        ``` r
+        truth <- declare_inquiry(ATE = treatment_effect)
+
+        design <- dgp + estimator + truth
+
+        diagnose_design(design)
+        #> Research design diagnosis based on 500 simulations. Diagnosis completed in 9 secs.
+        #> 
+        #>  Design Inquiry Term Mean Estimand Mean Estimate  Bias SD Estimate RMSE Power Coverage N Sims
+        #>  design     ATE    D          0.20          0.20 -0.00        0.20 0.20  0.17     0.96    500
+        ```
+
+        -   These simulation results suggest that our estimation strategy yields unbiased estimates. Unfortunately, the statistical power of our research design is *very* low.
+
+    -   [Compare]{.underline}
+
+        ``` r
+        design_list <- 
+          redesign(design,
+                   sample_size = c(100, 500),
+                   treatment_effect = c(0.2, 0.5)
+          )
+
+        diagnose_design(design_list)
+        #> Research design diagnosis based on 500 simulations. Diagnosis completed in 9 secs.
+        #> 
+        #>    Design sample_size treatment_effect Inquiry Term Mean Estimand Mean Estimate  Bias SD Estimate RMSE Power Coverage N Sims
+        #>  design_1         100              0.2     ATE    D          0.20          0.20 -0.00        0.21 0.21  0.19     0.95    500
+        #>  design_2         500              0.2     ATE    D          0.20          0.19 -0.01        0.09 0.09  0.56     0.94    500
+        #>  design_3         100              0.5     ATE    D          0.50          0.51  0.01        0.20 0.20  0.71     0.94    500
+        #>  design_4         500              0.5     ATE    D          0.50          0.51  0.01        0.09 0.09  1.00     0.95    500
+        ```
+
+        -   Still very little bias. Increasing the sample size by 5x increased the power by around 3x (0.56). Increasing the detectable effect size by 2.5x increased the power by around 4x (0.71). Increasing both increased the power by around 5x (1.00)
+
+### Examples {#sec-sim-data-decdes-ex .unnumbered}
+
+-   [Example]{.ribbon-highlight}: Model Comparison
+
+    ``` r
+    library(marginaleffects); library(DeclareDesign)
+
+    sample_size <- 100
+    treatment_effect <- 0.2
+
+    # DGP
+    dgp <- declare_model(
+      N = sample_size,
+      e = rnorm(N, mean = 0, sd = 1),
+      D = rbinom(N, size = 1, prob = 0.5),
+
+      # random normal covariates
+      fabricatr::draw_multivariate(c(X1, X2) ~ MASS::mvrnorm(
+        n = N,
+        mu = c(0, 0),
+        Sigma = matrix(c(1, 0.5, 0.5, 1), 2, 2)
+      )),
+
+      Y = 1 + treatment_effect * D + 1 * X1 + 1 * X2 + e
+    )
+
+    # Model
+    fit <- function(data) {
+      # Linear model with regression adjustment for covariates
+      adjusted <- lm(Y ~ D * (X1 + X2), data = data)
+      adjusted <- 
+        avg_comparisons(adjusted, 
+                        variables = "D", 
+                        vcov = "HC3")
+
+      # Linear model with a single binary predictor
+      unadjusted <- lm(Y ~ D, data = data)
+      unadjusted <- 
+        avg_comparisons(unadjusted, 
+                        variables = "D", 
+                        vcov = "HC3")
+
+      # Combine the results
+      out = rbind(adjusted, unadjusted)
+
+      # Label the results
+      out$term = c("Adjusted", "Unadjusted")
+      return(out)
+    }
+
+    dgp() |> fit()
+    #>        Term          Contrast Estimate Std. Error      z Pr(>|z|)   S  2.5 % 97.5 %
+    #>  Adjusted   mean(1) - mean(0)   -0.045      0.207 -0.217    0.828 0.3 -0.451  0.361
+    #>  Unadjusted mean(1) - mean(0)   -0.307      0.374 -0.820    0.412 1.3 -1.040  0.426
+
+    # Truth and Compare
+    truth <- declare_inquiry(ATE = treatment_effect)
+    estimators <- declare_estimator(handler = fit)
+    design <- dgp + truth + estimators
+    diagnose_design(design)
+    #>  Design Inquiry       Term N Sims Mean Estimand Mean Estimate   Bias SD Estimate   RMSE  Power Coverage
+    #>  design     ATE   Adjusted    500          0.20          0.20   0.00        0.21   0.21   0.17     0.95
+    #>                                          (0.00)        (0.01) (0.01)      (0.01) (0.01) (0.02)   (0.01)
+    #>  design     ATE Unadjusted    500          0.20          0.20  -0.00        0.42   0.42   0.08     0.93
+    #>                                          (0.00)        (0.02) (0.02)      (0.01) (0.01) (0.01)   (0.01)
+    ```
+
+    -   Bootstrapped standard errors are in parentheses in the bottom row
+
+    -   No bias and as expected, the regression with the adjustment variables has more power.
+
+-   
