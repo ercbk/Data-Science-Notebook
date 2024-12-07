@@ -683,6 +683,12 @@
 
 -   [Misc]{.underline}
     -   For routine queries/operations, the main performance bottleneck is frequently the lack of proper indexing on the queried data
+    -   Query optimization options
+        -   Pick the most efficient scan method.
+        -   Pick the most efficient join method.
+        -   Picking the most efficient join order.
+        -   Filters should be placed as close to the top of the query as possible.
+        -   Reduce disk IO operations when needed
 -   [pg_stat_statements]{.underline}
     -   An extension that comes as part of PostgreSQL, but needs to be activated
 
@@ -797,6 +803,60 @@
             -   Note that increasing the [work_mem]{.arg-text} parameter, which allows more data to be processed in memory, may not solve temporary I/O issues.
 
         -   If I/O timing is a small portion of [total_exec_time]{.var-text} and [temp_blks]{.var-text} are low, it points to a CPU bottleneck. But if I/O timing is high compared to [total_exec_time]{.var-text}, the disk I/O is likely the bottleneck.
+-   EXPLAIN
+    -   Notes from [PostgreSQL: Query Optimization for Mere Humans](https://towardsdatascience.com/query-optimization-for-mere-humans-in-postgresql-875ab864390a)
+    -   Also see
+        -   [SQL \>\> Functions](sql.qmd#sec-sql-funs){style="color: green"} \>\> EXPLAIN, EXPLAIN ANALYZE
+        -   [Databases, Engineering \>\> Cost Optimizations](db-engineering.qmd#sec-db-eng-costopt){style="color: green"} \>\> EXPLAIN PLAN
+    -   Resources
+        -   [EXPLAIN Glossary](https://www.pgmustard.com/docs/explain)
+    -   Node Metrics\
+        ![](_resources/DB-PostgreSQL.resources/perf-explain-node-metrics-1.webp){.lightbox width="582"}
+        -   Startup Cost: Arbitrary units that represent the estimated time to return the first row of the *Aggregate* (aggregated and includes previous operations).
+        -   Total Cost: Arbitrary units that represent the estimated time to return all the rows of *Aggregate* node (aggregated).
+        -   Plan Rows: The estimated number of produced rows of the *Aggregate* node. The estimated number of rows can be off depending on statistics.
+        -   Plan Width: The estimated average size of rows of the *Aggregate* node is 8 bytes.
+        -   Actual Startup Time: The time it took to return the first row in milliseconds of the *Aggregate* node (aggregated and includes previous operations).
+        -   Actual Total Time: The time it took to return all the rows in ms of the *Aggregate* node (per-loop average; aggregated and include previous operations).
+        -   Actual Rows: The actual number of produced rows of the *Aggregate* node (per-loop average).
+        -   Actual Loops: The number of loops the same node executed. To get the total time and rows, the actual time and rows need to be multiplied by loops values.
+            -   **Be wary of loops**, remember to multiply loops when you care about *Actual Rows* and *Actual Total Time*
+    -   [Example]{.ribbon-highlight}
+        -   Query\
+            ![](_resources/DB-PostgreSQL.resources/perf-explain-ex1-1.webp){.lightbox width="582"}
+
+            ``` sqlpostgresql
+            EXPLAIN ANALYZE
+            SELECT COUNT(*) FROM users WHERE twitter != '';
+            ```
+
+            -   The sequential scan filters out 2,487,813 rows
+            -   Out of the total query execution time (1271.180 ms), the sequential scan took 1265.883 ms (actual time) which is the actual total time since there was only 1 loop.
+
+        -   Create an index\
+            ![](_resources/DB-PostgreSQL.resources/perf-explain-ex1-2.webp){.lightbox width="582"}
+
+            ``` sqlpostgresql
+            CREATE INDEX twitter_test ON users (twitter)
+
+            EXPLAIN ANALYZE
+            SELECT COUNT(*) FROM users WHERE twitter != '';
+            ```
+
+            -   The sequential scan only takes 293.532 ms now
+
+        -   Check how many pages are read during the index scan\
+            ![](_resources/DB-PostgreSQL.resources/perf-explain-ex1-3.webp){.lightbox width="582"}
+
+            ``` sqlpostgresql
+            EXPLAIN (ANALYZE, BUFFERS)
+            SELECT COUNT(*) FROM users WHERE twitter != ''
+            ```
+
+            -   51,854 pages are read all from the cache (400 MB).
+            -   This wasn't explained further, so research is needed to understand why this large and why it's bad(?).
+
+        -   An additional optimization would be to change the index to a *partial* index, but it will cause writes to take longer and take additional storage, which is quite impactful on systems that scale vertically.
 
 ## Updating/Upgrading {#sec-db-pstgr-updat .unnumbered}
 
