@@ -111,11 +111,8 @@
 ## Statistics {#sec-outliers-stat .unnumbered}
 
 -   Packages
-
     -   [{]{style="color: #990000"}[WRS2](https://cran.r-project.org/web/packages/WRS2/index.html){style="color: #990000"}[}]{style="color: #990000"} - Robust t-tests (independent and dependent samples), robust ANOVA (including between-within subject designs), quantile ANOVA, robust correlation, robust mediation, and nonparametric ANCOVA models based on robust location measures
-
 -   [Winsorization and Trimming]{.underline}
-
     -   For a skewed distribution, a Winsorized Mean (percentage of points replaced) often has *less bias* than a Trimmed Mean ([{]{style="color: #990000"}[DescTools::Winsorize](https://andrisignorell.github.io/DescTools/reference/Winsorize.html){style="color: #990000"}[}]{style="color: #990000"})
 
     -   For a symmetric distribution, a Trimmed Mean (percentage of points removed) often has *less variance* than a Winsorized Mean. (`mean(num_vec, trim = 0.10)`
@@ -132,29 +129,13 @@
         dof <- n - 1
         p_value <- 2 * pt(-abs(t_stat), df)
         ```
-
 -   [M-Estimators]{.underline}
-
     -   Applies a flexible, continuous loss function to down-weight or ignore outliers adaptively.
-
     -   Used in robust regression models, e.g. [{MASS::rlm}]{style="color: #990000"} which has Huber, Tukey Bi-Square, and Hampel.
-
         -   Note that the [k]{.arg-text} argument is the $c$ value in the Huber estimator equation
-
     -   Offer flexibility, particularly when:
-
-        -   You need continuous control over outlier influence.
-        -   Data exhibit mild deviations from normality.
+        -   You need control over outlier influence.
         -   You’re dealing with regression or multivariate settings.
-        -   Efficiency under normality is important.
-
-    -   Recommendations
-
-        -   Gaussian with mild outlers: Huber M-estimator (w/large c)
-        -   Heavy Tails (e.g Cauchy, Student's t): Huber M-estimator (w/small c), or Tukey's bi-weight estimator
-        -   Fat Tails: Huber M-estimator or Cauchy M-estimator
-        -   Skewed (e.g. log-normal): Huber M-estimator (w/large c)
-
     -   Huber's M Estimator\
         $$
         \rho(u) = 
@@ -163,11 +144,17 @@
         2c|u|-c^2 & \mbox{if}\;|u| \gt c
         \end{array}\right.
         $$
-
         -   A compromise between the mean and median.
+        -   Good general purpose M Estimator
         -   Uses a squared error for small residuals and switches to absolute deviations for large residuals
         -   $u$ is the residual difference between $y$ (your data) and $\hat u$ (your guess)
         -   $c$ is a tuning constant (also called the threshold or cutoff), which determines the point where the loss function transitions from quadratic to linear. A common choice for $c$ is 1.345, based on the asymptotic properties of the estimator under normal errors.
+            -   Large c:
+                -   When c is large (e.g., $c \geq 3$), the Huber M-estimator behaves similarly to the mean (least squares estimator) because most residuals fall below c, and the quadratic loss dominates.
+                -   Use this when your data is approximately normal with few or no significant outliers.
+            -   Small c:
+                -   When c is small (e.g., $c \approx 1.345$, the commonly recommended value), the Huber M-estimator is more robust to outliers, as more residuals are treated with the linear loss.
+                -   Use this when your data has heavy tails or is prone to outliers.
         -   [{]{style="color: #990000"}[DescTools::HuberM](https://andrisignorell.github.io/DescTools/reference/HuberM.html){style="color: #990000"}[}]{style="color: #990000"} - (Generalized) Huber M-estimator of location with MAD scale, being sensible also when the scale is zero where `huber` returns an error.
         -   Process (Iterative optimization methods like Newton-Raphson or gradient descent used)
             -   Initialize $\hat u$, e.g. set at the median
@@ -175,15 +162,28 @@
             -   For each residual $u_i$, apply the Huber loss function $\rho(u_i)$ based on whether $|u_i|$ is smaller or greater than the tuning constant $c$.
             -   Update $\hat u$
             -   Iterate until convergence
-
+    -   Cauchy M-Estimator\
+        $$
+        \rho(u) = \frac{c^2}{2} \log(1 + \frac{u^2}{c^2})
+        $$
+        -   Process and variables are the same as for Huber's M-Estimator
+        -   Small Residuals ($|u| \ll c$): Approximates a quadratic loss (similar to least squares).
+        -   Large Residuals ($|u| \gg c$): The loss grows logarithmically, which *heavily* down-weights the influence of outliers compared to both Huber and least squares estimators.
+        -   Ideal for extreme outliers and heavy-tailed distributions
+        -   [{]{style="color: #990000"}[smoothmest](https://cran.r-project.org/web/packages/smoothmest/index.html){style="color: #990000"}[}]{style="color: #990000"} has a Cauchy ML-Estimator
+            -   ML (Maximum Likelihood) Estimator maximizes a likelihood instead of minimizing a loss.
+            -   For heavy-tailed distributions like the Cauchy, the ML-Estimator is inherently robust due to the nature of the likelihood function.
     -   Others
-
         -   Tukey's Biweight (or Bisquare) Estimator: Uses a loss function that completely disregards extreme outliers
-        -   Andrews' Sine Estimator: Weighs residuals based on a sine function
-        -   Least Absolute Deviations (LAD): Minimizes the sum of absolute deviations
-
+    -   MM-Estimators
+        -   Combines robust location and scale estimators
+        -   High Breakdown Point: MM-estimators can tolerate a high proportion of outliers (up to 50% in some cases).
+        -   High Efficiency: By combining robust and efficient estimators, MM-estimators achieve nearly the efficiency of the mean under normal distributions.
+        -   Process
+            -   Compute a robust estimate of the scale or dispersion (e.g., using the MAD or Huber scale estimator) which ensures a high breakdown point
+            -   Use the initial robust estimate as a starting point and refine it by minimizing a second M-estimator with a specific loss function designed for high efficiency Typically Tukey's bi-weight function or Huber's function).
+        -   [{]{style="color: #990000"}[RobStatTM::covRob](https://cran.r-project.org/web/packages/RobStatTM/index.html){style="color: #990000"}[}]{style="color: #990000"} computes a multivariate MM location estimate
 -   [Hodges–Lehmann Estimator]{.underline}
-
     -   Packages: [{]{style="color: #990000"}[DescTools::HodgesLehmann](https://andrisignorell.github.io/DescTools/reference/HodgesLehmann.html){style="color: #990000"}[}]{style="color: #990000"}
     -   A robust and nonparametric estimator of a population's location parameter.
     -   Preferred for small data, symmetric distributions, and extreme outliers.
@@ -211,8 +211,7 @@
     -   fat tail stuff (need to finish those videos)
 -   Robust Regression (see bkmks \>\> Regression \>\> Other \>\> Robust Regression)
     -   [{MASS:rlm}]{style="color: #990000"}
-    -   [{robustbase}]{style="color: #990000"}
-    -   [CRAN Task View](http://cran.nexr.com/web/views/Robust.html)
+    -   [CRAN Task View](https://cran.r-project.org/web/views/Robust.html)
 -   Huber Regression
     -   See [Loss Functions \>\> Huber Loss](loss-functions.qmd#sec-lossfun-hubloss){style="color: green"}
     -   See bkmks, Regression \>\> Generalized \>\> Huber
