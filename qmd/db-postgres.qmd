@@ -683,12 +683,22 @@
 
 -   [Misc]{.underline}
     -   For routine queries/operations, the main performance bottleneck is frequently the lack of proper indexing on the queried data
-    -   Query optimization options
+    -   Basic query optimization options
         -   Pick the most efficient scan method.
         -   Pick the most efficient join method.
         -   Picking the most efficient join order.
         -   Filters should be placed as close to the top of the query as possible.
         -   Reduce disk IO operations when needed
+    -   Sometimes even adding the correct index and (correctly) *not* using a function on that index will still result in a sequential scan.
+        -   One possible reason is that the un-indexed query had been used for so long that the internal statistics indicated that a sequential scan should be used even with the new index present.
+        -   Solutions
+            -   As a temporary measure in order to confirm that you structured the index and query correctly, you can turn off sequential scan.
+
+                ``` sqlpostgresql
+                SET enable_seqscan = off;
+                ```
+
+            -   The documentation suggests running `ANALYZE` manually with an increased [default_statistics_target]{.arg-text} value or by increasing the amount of collected statistics.
 -   [pg_stat_statements]{.underline}
     -   An extension that comes as part of PostgreSQL, but needs to be activated
 
@@ -821,7 +831,7 @@
         -   Actual Rows: The actual number of produced rows of the *Aggregate* node (per-loop average).
         -   Actual Loops: The number of loops the same node executed. To get the total time and rows, the actual time and rows need to be multiplied by loops values.
             -   **Be wary of loops**, remember to multiply loops when you care about *Actual Rows* and *Actual Total Time*
-    -   [Example]{.ribbon-highlight}
+    -   [Example 1]{.ribbon-highlight}
         -   Query\
             ![](_resources/DB-PostgreSQL.resources/perf-explain-ex1-1.webp){.lightbox width="582"}
 
@@ -857,6 +867,33 @@
             -   This wasn't explained further, so research is needed to understand why this large and why it's bad(?).
 
         -   An additional optimization would be to change the index to a *partial* index, but it will cause writes to take longer and take additional storage, which is quite impactful on systems that scale vertically.
+    -   [Example 2]{.ribbon-highlight}: Applying a function to an indexed column ([source](https://aaronoellis.com/articles/postgres-enable-seqscan-off))
+        -   Query\
+            ![](_resources/DB-PostgreSQL.resources/perf-explain-ex2-1.png){.lightbox width="582"}
+
+            ``` sqlpostgresql
+            CREATE TABLE "items" (
+                "timestamp" TIMESTAMP WITH TIME ZONE,
+                "value" FLOAT
+            );
+            CREATE INDEX ON "items" ("timestamp");
+
+            EXPLAIN ANALYZE SELECT * FROM "items" WHERE DATE("timestamp" AT TIME ZONE 'utc') = '2023-02-24';
+            ```
+
+            -   There's an index on [timestamp]{.var-text}, yet a sequential scan is still used by the query planner.
+            -   This is because the query executing a function on an indexed column
+
+        -   Solution: Apply index to function and column\
+            ![](_resources/DB-PostgreSQL.resources/perf-explain-ex2-2.png){.lightbox width="582"}
+
+            ``` sqlpostgresql
+            CREATE INDEX ON "items" (DATE("timestamp" AT TIME ZONE 'utc'));
+
+            EXPLAIN ANALYZE SELECT * FROM "items" WHERE DATE("timestamp" AT TIME ZONE 'utc') = '2023-02-24';
+            ```
+
+            -   You could also filter a range of timestamps (that equals 1 day) instead of truncating the timestamp with a function, and that query will use the existing column index
 
 ## Updating/Upgrading {#sec-db-pstgr-updat .unnumbered}
 
