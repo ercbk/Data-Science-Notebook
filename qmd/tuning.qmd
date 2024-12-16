@@ -86,37 +86,73 @@
 
 -   Misc
     -   Also see Algorithms, [ML \>\> Trees \>\> Decision Trees](algorithms-ml.qmd#sec-alg-ml-trees){style="color: green"}
-        -   Tranforming continuous features using PCA can improve predictive performance
+        -   Reducing continuous features using PCA can improve predictive performance
 -   Hyperparameters
-    -   **Maximum Depth (aka Tree Depth)**: maximum level a tree can "descend" during the training process
-        -   too high may lead to overfit
-        -   too low may lead to underfit
-    -   **Minimum Samples Split**: control how many observations a node must contain to be available for a split
-        -   too low may lead to overfit
-        -   too high may lead to underfit
-    -   **Minimum Samples Leaf (aka Min N)**: number of observations in a node after the split has "potentially" happened
-        -   too low may lead to overfit
-        -   too high may lead to underfit
-    -   **Minimum Impurity Decrease**: sets the threshold for the amount of impurity decrease that must occur in order for there to be another split
-        -   too low may lead to overfit
-        -   too high may lead to underfit
-    -   **Maximum Features**: randomly choosing a set of features for each split
+    -   **Maximum Depth (aka Tree Depth)**: Maximum level a tree can "descend" during the training process
+        -   Too high may lead to overfit
+        -   Too low may lead to underfit
+    -   **Minimum Samples Split (aka Min N, minsplit)**: The minimum number of observations that must exist in a node in order for a split to be attempted
+        -   Too low may lead to overfit
+        -   Too high may lead to underfit
+        -   Defaults
+            -   {rpart}: 20
+        -   Recommended Range
+            -   {2^1^ = 2, . . . , 2^7^} ([source](https://arxiv.org/abs/2107.05847))
+    -   **Minimum Samples Leaf (minbucket)**: Number of observations in a terminal node after the split has "potentially" happened
+        -   Too low may lead to overfit
+        -   Too high may lead to underfit
+        -   Defaults
+            -   {rpart}: minsplit/3
+        -   Recommended Range
+            -   {2^0^ = 1, . . . , 2^6^} ([source](https://arxiv.org/abs/2107.05847))
+    -   **Minimum Impurity Decrease**: Sets the threshold for the amount of impurity decrease that must occur in order for there to be another split
+        -   Too low may lead to overfit
+        -   Too high may lead to underfit
+    -   **Maximum Features**: Randomly choosing a set of features for each split
         -   Useful for high dimension datasets; adds some randomness
-        -   too high can lead to long training times
-        -   too low may lead to underfit
+        -   Too high can lead to long training times
+        -   Too low may lead to underfit
+    -   **Complexity Parameter (cp)**: The threshold complexity parameter for {rpart}. The main role of this parameter is to save computing time by pruning off splits that are obviously not worthwhile\
+        $$
+        R_{cp}(T) = R(T) + \text{cp} \cdot |T| \cdot R_1(T)
+        $$
+        -   $R$ is the risk (?)
+        -   $T_1$ is the tree with no splits
+        -   $|T|$ is the number of splits
+        -   [cp = 1]{.arg-text} will always result in a tree with no splits
+        -   For regression models, the scaled cp has a very direct interpretation: if any split does
+            not increase the overall R^2^ of the model by at least cp then that split is decreed to be, a priori, not worth pursuing.
+        -   Default: 0.01
+        -   Recommended Range
+            -   \[10^−4^, 10^−1^= 0.1\] ([source](https://arxiv.org/abs/2107.05847))
 
 ## Random Forest {#sec-tuning-rf .unnumbered}
 
 -   Misc
+    -   Docs: [Ranger](https://cran.r-project.org/web/packages/ranger/ranger.pdf)
     -   Implicit features selection is performed by splitting, but performance decreases substantially if over 100 noise-like features are added & drastically if over 500 noise-like features\
         ![](./_resources/Tuning.resources/image.2.png){.lightbox width="532"}
 -   Hyperparameters
-    -   **mtry**: the number of trees at each node
+    -   **num_trees**: Total number of trees
+        -   This should not be tuned as more trees almost always leads to better performance, but instead should be set the maximum that is computationally practical with your resources and your time constraint ([paper](https://arxiv.org/abs/2412.03491) which references this [paper](https://arxiv.org/abs/1705.05654))
+        -   Default: 500 (Ranger) with 2000 potentially a maximum (?)
+    -   **mtry**: The number of potential features that can get split at each node
         -   Most influential hyperparameter for random forests.
         -   Increasing it improves performance in the presence of noise\
             ![](./_resources/Tuning.resources/image.3.png){.lightbox width="532"}
-            -   Default: square root of the number of features
             -   Similar improvements can be had with (explicit) feature selection (e.g. recursive feature elimation)
+        -   Default:
+            -   {ranger}: $\sqrt{p}$ , square root of the number of features
+        -   Range
+            -   {1, . . . , p}
+    -   **replace**: Should observations be sampled with or without replacement
+        -   Default
+            -   {ranger}: TRUE
+    -   **sample.fraction**: The proportion of randomly sampled observations
+        -   Default
+            -   {ranger}: 1 if replace = TRUE, 0.632 if replace = FALSE
+        -   Recommended Range
+            -   \[0.10, 1.00\] ([source](https://arxiv.org/abs/2107.05847))
 
 ## LightGBM {#sec-tuning-lgbm .unnumbered}
 
@@ -194,7 +230,9 @@
         -   **stop_iter**: early stopping; stops if no improvement has been made after this many iterations
     -   [Uber](https://eng.uber.com/tuning-model-performance/) found that the most important hyperparameters were:
         -   **tree_depth**, **trees**, **learning_rate**, and **min_n**
-    -   **tree_method** (more [details](https://arxiv.org/abs/1603.02754) about exact, approx)- specify which tree construction algorithm you want to use. Trade-offs between accuracy and speed
+    -   [Paper's](https://arxiv.org/abs/2107.05847) list of important hyperparamters
+        -   **eta**, **nrounds**, **max_depth**, **colsample_bytree**, **colsample_bylevel**, **lambda**, **alpha**, **subsample**
+    -   **tree_method** (more [details](https://arxiv.org/abs/1603.02754) about exact, approx)- Specify which tree construction algorithm you want to use. Trade-offs between accuracy and speed
         -   "exact" - accurate algorithm, but it is not very scalable as during each split find procedure it iterates over all entries of input data.
             -   Inefficient when the data does not completely fit into memory
             -   Doesn't support distributed training
@@ -218,18 +256,23 @@
         -   More Predictors --\> higher mtry
     -   Shrinkage
         -   **learning_rate (aka eta)** aka step size; [explainer](https://towardsdatascience.com/learning-rate-hyperparameter-explained-2c1a619cbd33)
-            -   Shrinks the feature weights to make the boosting process more conservative default: 0.3
-            -   Range: \[0,1\]
-            -   Grid value examples: 0.2, 0.01, 0.008, 0.005
+            -   Shrinks the feature weights to make the boosting process more conservative
             -   More trees $\rightarrow$ lower learning rate
+            -   Default: 0.3
+            -   Range: \[0,1\]
+            -   Recommended Range
+                -   \[10^-4^, 10^0^ = 1\] ([source](https://arxiv.org/abs/2107.05847))
+                -   Grid value examples: 0.2, 0.01, 0.008, 0.005
     -   Tree-Booster Constraints
-        -   **tree_depth** (aka **max_depth**): The complexity of each tree
-            -   Grid value examples: 4 - 8 (also see lightgbm recommendations for max_depth)
+        -   **tree_depth** (aka **max_depth**): The maximum depth of each tree
             -   Increasing makes the model more likely to overfit
             -   Consumes memory when training a deep tree.
             -   "exact" tree method requires non-zero value.
             -   Default: 6
             -   Range: \[0,∞\]
+            -   Recommended Range
+                -   Grid value examples: 4 - 8 (also see lightgbm recommendations for max_depth)
+                -   {1, . . . , 20} ([source](https://arxiv.org/abs/2107.05847))
         -   **min_child_weight**
             -   Minimum sum of weights needed in a node in order for the algorithm to make another split
             -   Increasing makes the model less likely to overfit
@@ -245,10 +288,16 @@
                 -   L1 regularization term on weights
                 -   Simplifies the model
                 -   Reduces the model size as it's not necessary to store null values.
+                -   Default: 0
+                -   Recommended Range
+                    -   \[2^-10^, 2^10^\] ([source](https://arxiv.org/abs/2107.05847))
             -   High Lambda: more stringently penalizes weights of less influential samples
                 -   L2 regularization term on weights
                 -   Simplifies the model
                 -   Has largest effect when data is smaller
+                -   Default: 1
+                -   Recommended Range
+                    -   \[2^-10^, 2^10^\] ([source](https://arxiv.org/abs/2107.05847))
             -   High Gamma: fewer nodes
                 -   Affects the amount of gain needed to add another split
                 -   Default: 0
@@ -259,11 +308,22 @@
             -   Subsampling will occur once in every boosting iteration
             -   Default: 1
             -   Range: (0,1\]
+            -   Recommended Range
+                -   \[0.10, 1\] ([source](https://arxiv.org/abs/2107.05847))
         -   **colsample_bytree**
             -   Subsample ratio of columns when constructing each tree.
             -   Default: 1
+            -   Recommended Range:
+                -   \[0.10, 1\] ([source](https://arxiv.org/abs/2107.05847))
+        -   colsample_bylevel
+            -   subsample ratio of columns for each depth level
+            -   Default: 1
+            -   Recommended Range
+                -   \[0.10, 1\] ([source](https://arxiv.org/abs/2107.05847))
     -   Iteration Control
-        -   **num_boost_round** - Total number of boosting iterations
+        -   **num_boost_round** **(aka nrounds)**- Total number of boosting iterations
+            -   Recommended Range
+                -   {1, . . . , 5000} ([source](https://arxiv.org/abs/2107.05847))
         -   **early_stopping_round** - Validation metric needs to improve at least once in every early_stopping_rounds round(s) to continue training
 
 ## Catboost {#sec-tuning-cat .unnumbered}
@@ -286,16 +346,32 @@
         -   [Model Building, tidymodels \>\> Model Specification](model-building-tidymodels.qmd#sec-modbld-tidymod-modspec){style="color: green"} \>\> Support Vector Machines
         -   [Algorithms, ML \>\> Support Vector Machines (SVM)](algorithms-ml.qmd#sec-alg-ml-svm){style="color: green"}
 -   Hyperparameters
-    1.  **gamma** -- All the kernels except the linear one require the gamma parameter. ({e1071} default: 1/(data dimension)
-    2.  **coef0** -- Parameter needed for kernels of type polynomial and sigmoid ({e1071} default: 0).
-    3.  **cost** -- The cost of constraints violation ({e1071} default: 1)---it is the '**C**'-constant of the regularization term in the Lagrange formulation.
+    -   **gamma** - All the kernels except the linear one require the gamma parameter. (
+        -   Defaults
+            -   {e1071} : 1/p (where p is the number of features)
+        -   Recommended Range:
+            -   \[ 2^-12^, 2^12^ \] ([source](https://arxiv.org/abs/2107.05847))
+    -   **coef0** - Parameter needed for kernels of type polynomial and sigmoid
+        -   Defaults:
+            -   {e1071}: 0
+    -   **cost** -- The cost of constraints violation --- it is the '**C**'-constant of the regularization term in the Lagrange formulation.
         -   C = 1/λ (R) or 1/α (sklearn)
         -   When C is small, the regularization is strong, so the slope will be small
-    4.  **degree** - Degree of the polynomial kernel function ({e1071} default: 3)
-    5.  **epsilon** - Needed for insensitive loss function (see Regression below) ({e1071} default: 0.1)
+        -   Defaults
+            -   {e1071}: 1
+        -   Recommended Range
+            -   \[ 2^-12^, 2^12^ \] ([source](https://arxiv.org/abs/2107.05847))
+    -   **degree** - Degree of the polynomial kernel function
+        -   Defaults
+            -   {e1071}: 3
+        -   Recommended Range
+            -   {2, . . . , 5} ([source](https://arxiv.org/abs/2107.05847))
+    -   **epsilon** - Needed for insensitive loss function
         -   When the value of epsilon is small, the model is robust to the outliers.
         -   When the value of epsilon is large, it will take outliers into account.
-    6.  **nu** - For {e1071}, needed for types: nu-classification, nu-regression, and one-classification
+        -   Defaults
+            -   {e1071}: 0.1
+    -   **nu** - For {e1071}, needed for types: nu-classification, nu-regression, and one-classification
 
 ## Ensembles {#sec-tuning-ensemb .unnumbered}
 
@@ -341,13 +417,24 @@
 ## DL {#sec-tuning-dl .unnumbered}
 
 -   Increasing or decreasing the number of training iterations
--   Weight Decay\
+-   **learning_rate** - The gradient descent learning rate, also called $\eta$ pr $\alpha$
+    -   Recommended Range
+        -   \[10^-5^, 10^0^ = 1\] ([source](https://arxiv.org/abs/2107.05847))
+-   **regularizer_l2** - L~2~ penalty on weights
+    -   Recommended Range
+        -   \[10^-7^, 10^-4^\] ([source](https://arxiv.org/abs/2107.05847))
+-   **epochs** - The number of complete passes of the entire training dataset through the learning algorithm
+    -   Problem dependent
+    -   Typically optimized with early stopping
+    -   Recommended Range
+        -   10, 100, 500, 1000, and larger ([source](https://machinelearningmastery.com/difference-between-a-batch-and-an-epoch/))
+-   **Weight Decay**\
     ![](./_resources/Tuning.resources/image.6.png){.lightbox width="632"}
     -   Improves data efficiency by \> 50%
     -   Frequently found in the best hyperparam configs
     -   Among the most important hparams to tune
     -   Tricky to tune
--   Learning Rate Scheduling ([article](https://towardsdatascience.com/learning-rate-schedules-and-adaptive-learning-rate-methods-for-deep-learning-2c8f433990d1)): The schedule reduces the learning rate as training progresses, so take smaller step sizes near and around the optimum
+-   **Learning Rate Scheduling** ([article](https://towardsdatascience.com/learning-rate-schedules-and-adaptive-learning-rate-methods-for-deep-learning-2c8f433990d1)): The schedule reduces the learning rate as training progresses, so take smaller step sizes near and around the optimum
     -   [Time-based Decay]{.underline}\
         $$
         \alpha = \frac{\alpha_0}{1+\text{decay} + \text{epoch}}
@@ -375,3 +462,9 @@
         -   $\text{epoch}$: Number of interations
         -   $\text{decay}$: Decay Rate
     -   [Others]{.underline}: Performance Scheduling, 1Cycle Scheduling, and Power Scheduling.
+
+## Regularized Regression {#sec-tuning-regreg .unnumbered}
+
+-   **Lambda** - Penalization factor
+    -   Recommended Range:
+    -   \[ 2^-12^, 2^12^ \] ([source](https://arxiv.org/abs/2107.05847))
