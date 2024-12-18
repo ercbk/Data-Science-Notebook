@@ -6,6 +6,7 @@
 -   Notes from
     -   [Programming with dplyr](https://dplyr.tidyverse.org/articles/programming.html)
     -   Brad Cannell's [notes](https://brad-cannell.github.io/r_notes/tidy-evaluation.html#ellipsis)
+    -   [Reproducible Data Science in R: Flexible functions using tidy evaluation](https://waterdata.usgs.gov/blog/rds-function-evaluation/)
 -   Cheatsheet ([source](https://fosstodon.org/@juba/112925405428686880))\
     ![](_resources/Tidyeval.resources/cheatsheet-1.jpg){.lightbox width="432"}
 -   Examples in the wild
@@ -47,10 +48,12 @@
 -   Syntaxes:
 
     ``` r
-    filter(.data[input] > 0)
-    filter(.data[input] == .env$value)
-    group_by(.data[input])
-    summarize(var2 = mean(.data\[input\])
+    filter(.data[[input]] > 0)
+    filter(.data[[input]] == .env$value)
+    group_by(.data[[input]])
+    mutate(new_column = .data[[ column_name ]] * 2)
+    summarize(var2 = mean(.data[[input]])
+    summarize({{ col_name }} := mean(.data[[col_name]], na.rm = T)
     ```
 
     -   [input]{.var-text} and [value]{.var-text} are both string function inputs
@@ -83,12 +86,14 @@
 
 -   e.g. `compute_mpg(model = ford)`
 
+-   `{{ var }}` replaces most use cases of `!!` (bang bang) and `quo()/enquo()`
+
 -   Syntaxes
 
     ``` r
-    filter({{input}} \> 0)
-    summarize({{col_name}} = mean({{col_name}}, na.rm = T)
-    ggplot(df, aes(x = {{x}})
+    filter({{ input }} \> 0)
+    summarize({{ col_name }} := mean({{ col_name }}, na.rm = T)
+    ggplot(df, aes(x = {{ x }})
     ```
 
 -   [Example]{.ribbon-highlight}:
@@ -107,9 +112,7 @@
 
 -   Requires glue syntax and `:=`
 
--   With a string input, `"{var}"` can also be used
-
--   [Example 1]{.ribbon-highlight}:
+-   [Example 1]{.ribbon-highlight}: `function(column_name = Column_A)`
 
     ``` r
     my_summarise4 <- function(data, expr) {
@@ -128,7 +131,13 @@
     }
     ```
 
--   [Example 2]{.ribbon-highlight}: Old School
+-   [Example 2]{.ribbon-highlight}: `function(column_name = "Column_A")`
+
+    ``` r
+    mutate("{ column_name }_timestwo" := .data[[ column_name ]] * 2)
+    ```
+
+-   [Example 3]{.ribbon-highlight}: Old School
 
     ``` r
     my_function <- function(data, var, suffix = "foo") {
@@ -136,6 +145,26 @@
       prefix <- as_label(var)
       data %>%
         summarise("{prefix}_mean_{suffix}" := mean(!!var))
+    }
+    ```
+
+## Tidy Selectors and Across {#sec-tidyeval-selacc .unnumbered}
+
+-   [Example]{.ribbon-highlight}
+
+    ``` r
+    myfun <- function {column_names = c("Column_A", "Column_B")) {
+      dat |> 
+        select(all_of(column_names))
+    }
+    ```
+
+-   [Example]{.ribbon-highlight}
+
+    ``` r
+    myfun <- function {column_names = c("Column_A", "Column_B")) {
+      dat |> 
+        group_by(across(all_of(column_names)))
     }
     ```
 
@@ -152,8 +181,10 @@
     ``` r
     my_summarise <- function(.data, ...) {
       .data %>%
-        group_by(...) %>%
-        summarise(mass = mean(mass, na.rm = TRUE), height = mean(height, na.rm = TRUE))
+        select(...) |> 
+        group_by(...) |> 
+        summarise(mass = mean(mass, na.rm = TRUE), 
+                  height = mean(height, na.rm = TRUE))
     }
     starwars %>% my_summarise(sex, gender)
     ```
