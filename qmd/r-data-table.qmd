@@ -24,6 +24,7 @@
         -   The search doesn't include the articles which contain a lot of information.
         -   Also, it's an old package, and *every* old article, changelog, etc. is in the docs. So, if you find something you think answers your question, it may be that that syntax is outdated.
     -   [Introduction to data.table](https://rdatatable.gitlab.io/data.table/articles/datatable-intro.html) (vignette)
+    -   Function Reference ([link](https://rdatatable.gitlab.io/data.table/reference/))
     -   Syntax Reference ([link](https://rdatatable.gitlab.io/data.table/reference/data.table.html))
     -   Symbol Reference ([link](https://rdatatable.gitlab.io/data.table/reference/special-symbols.html))
 
@@ -34,7 +35,16 @@
     -   `dat <- data.table(df)` can be used for small datasets but there's no reason to.
     -   `setDT(copy(df))` if you want to work with a copy of the df instead of converting the original object.
 
--   Chaining: see [Pivoting \>\> melt](r-data-table.qmd#sec-r-dt-pivot-longmelt){style="color: green"} \>\> Multiple variables stored in column names for an example
+-   Chaining:
+
+    -   Syntax
+
+        ``` r
+        DT[ ...
+           ][ ...
+             ][ ...
+               ]
+        ```
 
 -   Piping
 
@@ -56,9 +66,7 @@
           DT( , .(mean_flipper_length = mean(flipper_length_mm)), by = .(sex, island))
         ```
 
--   Symbols
-
-    -   `.SD` is a data.table containing the **S**ubset of DT's **D**ata for each group, excluding any columns used in `by` (or `keyby`). Its usage is still confusing to me.
+-   Symbols and Keywords
 
     -   `:=` is the walrus operator. `let` is an alias. Think it acts like `dplyr::mutate` or maybe `dplyr::summarize`. ([Docs](https://rdatatable.gitlab.io/data.table/reference/assign.html))
 
@@ -73,6 +81,12 @@
                colD = sum(colE)),
            by = colF] 
         ```
+
+    -   `.EACHI`
+
+        -   See [Joins](r-data-table.qmd#sec-r-dt-join){style="color: green"} \>\> Joining and Aggregating for examples
+        -   When [i]{.arg-text} is a list (or data.frame or data.table), `DT[i, j, by = .EACHI]` evaluates [j]{.arg-text} for the groups in `DT` that each row in i joins to.
+        -   That is, you can join (in [i]{.arg-text}) and aggregate (in [j]{.arg-text}) simultaneously. We call this *grouping by each [i]{.arg-text}*
 
     -   `.I` is the row index. It's an integer vector equal to `seq_len(nrow(x))`
 
@@ -89,15 +103,98 @@
         #> 3:     3     3     6      9
         ```
 
-## Basic Usage
+    -   `.N` holds the number of observations *in the current group*. It is particularly useful when combined with `by`
 
-### Using i
+        -   Seems to act like `nrow` for a df or `length` for a vector and is commonly used for counting the number of rows
+
+        -   If `.N` is not wrapped with `list` or `.()` (returns df), a vector is returned
+
+        -   If a name is not provided for the column returned in `j`, it's named [N]{.var-text} automatically by recognizing the special symbol `.N`.
+
+        -   [Example]{.ribbon-highlight}: Count filtered rows
+
+            ``` r
+            ans <- flights[origin == "JFK" & month == 6L, .N]
+            ans
+            #> [1] 8422
+            ```
+
+            -   In the absence of group `by` operations, it simply returns the number of rows in the subset.
+
+        -   [Example]{.ribbon-highlight}: Group by + count
+
+            ``` r
+            ans <- flights[, .(.N), by = .(origin)]
+            ans
+            #>    origin     N
+            #>    <char> <int>
+            #> 1:    JFK 81483
+            #> 2:    LGA 84433
+            #> 3:    EWR 87400
+
+
+            ## or equivalently using a character vector in 'by'
+            # ans <- flights[, .(.N), by = "origin"]
+            ## or equivalently when there's only 1 col in j and by
+            # ans <- flights[, .N, by = origin]
+            ```
+
+    -   `.NATURAL` is a join keyword
+
+        -   Selects the columns to perform the match based on common column names in both tables.
+
+        -   [Example]{.ribbon-highlight}:
+
+            ``` r
+            Products[ProductReceived, on = .NATURAL]
+            ```
+
+            -   Only the keyword has to be specified and not any joining variables
+
+    -   `.SD` is a data.table containing the **S**ubset of DT's **D**ata for each group, excluding any columns used in `by` (or `keyby`).
+
+        -   If you don't want to act on *every* column accept the grouping column ([by]{.arg-text}), use the [.SDcols]{.arg-text} to select the set of columns you want.
+
+            -   `!` can be used to *not* select columns: `.SDcols = !c("unit", "type")`
+
+        -   See [Basic Usage \>\> Using by](r-data-table.qmd#using-by){style="color: green"} for more details
+
+        -   [Example:]{.ribbon-highlight} Calculate the mean on multiple columns grouped by multiple columns
+
+            ``` r
+            flights[carrier == "AA",                       # <1>
+                    lapply(.SD, mean),                     # <2>
+                    by = .(origin, dest, month),           # <3> 
+                    .SDcols = c("arr_delay", "dep_delay")] # <4> 
+            #>      origin   dest month  arr_delay  dep_delay
+            #>      <char> <char> <int>      <num>      <num>
+            #>   1:    JFK    LAX     1   6.590361 14.2289157
+            #>   2:    LGA    PBI     1  -7.758621  0.3103448
+            #>   3:    EWR    LAX     1   1.366667  7.5000000
+            #>   4:    JFK    MIA     1  15.720670 18.7430168
+            #>   5:    JFK    SEA     1  14.357143 30.7500000
+            #>  ---                                          
+            #> 196:    LGA    MIA    10  -6.251799 -1.4208633
+            #> 197:    JFK    MIA    10  -1.880184  6.6774194
+            #> 198:    EWR    PHX    10  -3.032258 -4.2903226
+            #> 199:    JFK    MCO    10 -10.048387 -1.6129032
+            #> 200:    JFK    DCA    10  16.483871 15.5161290
+            ```
+
+            1.  Filter on [trips]{.var-text}
+            2.  Compute the mean on every column that isn't a grouping column
+            3.  Group the calculation by [origin]{.var-text}, [dest]{.var-text}, [month]{.var-text}
+            4.  *Actually* not on all the non-grouping columns in `.SD`, just these ones
+
+## Basic Usage {#sec-r-dt-basus .unnumbered}
+
+### Using i {#sec-r-dt-basus-i .unnumbered}
 
 -   We can subset rows similar to a `data.frame`- except you don’t have to use `DT$` repetitively since columns within the frame of a `data.table` are seen as if they are *variables*.
 -   We can also sort a `data.table` using `order()`, which internally uses `data.table`’s fast order for performance.
 -   We can do much more in `i` by keying a `data.table`, which allows blazing fast subsets and joins. We will see this in the *“Keys and fast binary search based subsets”* and *“Joins and rolling joins”* vignette.
 
-### Using j
+### Using j {#sec-r-dt-basus-j .unnumbered}
 
 -   Select columns the `data.table` way: `DT[, .(colA, colB)]`.
 -   Select columns the `data.frame` way: `DT[, c("colA", "colB")]`.
@@ -105,7 +202,7 @@
 -   Provide names if necessary: `DT[, .(sA =sum(colA), mB = mean(colB))]`.
 -   Combine with `i`: `DT[colA > value, sum(colB)]`.
 
-### Using by
+### Using by {#sec-r-dt-basus-by .unnumbered}
 
 -   Using `by`, we can group by columns by specifying a *list of columns* or a *character vector of column names* or even *expressions*. The flexibility of `j`, combined with `by` and `i` makes for a very powerful syntax.
 -   `by` can handle multiple columns and also *expressions*.
@@ -115,7 +212,7 @@
     -   `DT[, head(.SD, 2), by = ...]` - return the first two rows for each group.
     -   `DT[col > val, head(.SD, 1), by = ...]` - combine `i` along with `j` and `by`.
 
-## Columns
+## Columns {#sec-r-dt-cols .unnumbered}
 
 -   Rename Columns
 
@@ -134,6 +231,21 @@
                      "Health",   "Education",
                      "Access",  "Crime", 
                      "Housing", "areaname"))
+    ```
+
+-   Get the first two rows of a column
+
+    ``` r
+    ans <- flights[, head(.SD, 2), by = month]
+    head(ans)
+    #    month  year   day dep_delay arr_delay carrier origin   dest air_time distance  hour
+    #    <int> <int> <int>     <int>     <int>  <char> <char> <char>    <int>    <int> <int>
+    # 1:     1  2014     1        14        13      AA    JFK    LAX      359     2475     9
+    # 2:     1  2014     1        -3        13      AA    JFK    LAX      363     2475    11
+    # 3:     2  2014     1        -1         1      AA    JFK    LAX      358     2475     8
+    # 4:     2  2014     1        -5         3      AA    JFK    LAX      358     2475    11
+    # 5:     3  2014     1       -11        36      AA    JFK    LAX      375     2475     8
+    # 6:     3  2014     1        -3        14      AA    JFK    LAX      368     2475    11
     ```
 
 ## Filtering {#sec-r-dt-filter .unnumbered}
@@ -221,6 +333,67 @@
     -   Filtering by more than one key value returns combinations of the first key and second key
     -   Remember setting a key reorders (increasing)
 
+## Count {#sec-r-dt-count .unnumbered}
+
+-   Also see `.N` in [Misc](r-data-table.qmd#sec-r-dt-misc){style="color: green"} \>\> Symbols for basic examples
+
+-   [Example]{.ribbon-highlight}: Group by multiple variables and count
+
+    ``` r
+    ans <- 
+      flights[carrier == "AA", 
+              .N, 
+              by = .(origin, dest)]
+    head(ans)
+    #>    origin   dest     N
+    #>    <char> <char> <int>
+    #> 1:    JFK    LAX  3387
+    #> 2:    LGA    PBI   245
+    #> 3:    EWR    LAX    62
+    #> 4:    JFK    MIA  1876
+    #> 5:    JFK    SEA   298
+    #> 6:    EWR    MIA   848
+    ```
+
+-   [Example]{.ribbon-highlight}: Order the group by + count
+
+    ``` r
+    ans <- 
+      flights[carrier == "AA", 
+              .N, 
+              by = .(origin, dest)][order(origin, -dest)]
+    head(ans, 10)
+    #>     origin   dest     N
+    #>     <char> <char> <int>
+    #>  1:    EWR    PHX   121
+    #>  2:    EWR    MIA   848
+    #>  3:    EWR    LAX    62
+    #>  4:    EWR    DFW  1618
+    #>  5:    JFK    STT   229
+    #>  6:    JFK    SJU   690
+    #>  7:    JFK    SFO  1312
+    #>  8:    JFK    SEA   298
+    #>  9:    JFK    SAN   299
+    #> 10:    JFK    ORD   432
+    ```
+
+    -   The `-dest` says when ordering by [dest]{.var-text}, do it in descending order
+
+-   [Example]{.ribbon-highlight}: Count by condition
+
+    ``` r
+    ans <- flights[, .N, .(dep_delay>0, arr_delay>0)]
+    ans
+    #>    dep_delay arr_delay      N
+    #>       <lgcl>    <lgcl>  <int>
+    #> 1:      TRUE      TRUE  72836
+    #> 2:     FALSE      TRUE  34583
+    #> 3:     FALSE     FALSE 119304
+    #> 4:      TRUE     FALSE  26593
+    ```
+
+    -   Other columns can be included in the expression , `DT[, .N, by = .(a, b>0)]`
+
 ## Summarize {#sec-r-dt-summ .unnumbered}
 
 -   [Example]{.ribbon-highlight}: groupby state + min, max, mean
@@ -273,21 +446,219 @@
 
 ## Joins {#sec-r-dt-join .unnumbered}
 
--   Left Equal Join
+-   [Misc]{.underline}
+
+    -   [Docs](https://rdatatable.gitlab.io/data.table/articles/datatable-joins.html)
+
+    -   Syntax
+
+        ``` r
+        x[i,               # <1>
+          on,              # <2>
+          nomatch]         # <3>
+        ```
+
+        1.  [x]{.var-text} is the secondary data.table, [i]{.var-text} is the primary data.table, list, or dataframe
+        2.  [on]{.arg-text} takes a character vector with the common variables to be joined on (e.g. `c(var1, var2)`) or list defining the matching logic, e.g. `list(var1 = var2)`
+        3.  If [nomatch = NULL]{.arg-text}, only rows linked to the [x]{.var-text} and [i]{.var-text} tables are returned
+
+        -   For join operations, it is recommended to pass the [on]{.arg-text} and [nomatch]{.arg-text} arguments by name to avoid using [j]{.arg-text} and [by]{.arg-text} when they are not needed.
+
+    -   See [Misc](r-data-table.qmd#sec-r-dt-misc){style="color: green"}\>\> Symbols \>\> `.Natural` for details on a Natural join
+
+    -   Keyed Join is a join where both tables have the same columns defined as keys
+
+        ``` r
+        Products[ProductReceived]
+        ```
+
+        -   No join variables have to be specified
+
+-   [Left Join]{.underline}
 
     ``` r
-    DT <- lookup[DT, on = .(DataZone = Data_Zone)]
-    DT <- merge(lookup, DT, by.x = "DataZone", by.y = "Data_Zone")
+    ProductReceived[Products,
+                    on = list(product_id = id)]
     ```
 
-    -   [DT]{.var-text}: A datatable where the id column is [Data_Zone]{.var-text}
-    -   [lookup]{.var-text}: A datatable where the id column is [DataZone]{.var-text}
-    -   Both datatables have the same number of rows so that makes this an Equal Join
-    -   [DT]{.var-text} is joined to [lookup]{.var-text}, so the columns of [lookup]{.var-text} appear first (farthest left) then [DT's]{.var-text} columns (farthest right) of the joined datatable.
-    -   Subset Notation: The output datatable has the id column, [DataZone]{.var-text}, which is from [lookup]{.var-text} but the rows are ordered the same way as the input table, [DT]{.var-text}.
-        -   It's weird that the output's rows are ordered according to the input datatable
-    -   `merge`: The output datatable has the id column, [DataZone]{.var-text}, which is from [lookup]{.var-text}, and the rows are ordered according to [lookup]{.var-text}
-    -   The subset way is the "data.table" way, because you perform calculations on the output using the j position whereas with `merge`, it would require a chain or an extra line of code. But if the order of rows of the output matters, then I can't find a way to reproduce the `merge` ordering using the subset method.
+    -   All rows in [ProductReceived]{.var-text} are kept
+    -   [product_id]{.var-text} belongs to [ProductReceived]{.var-text} and [id]{.var-text} belongs to [Products]{.var-text}
+    -   For a **Right Join**, order of the tables and join variables are reversed
+
+-   [Inner Join]{.underline}
+
+    ``` r
+    # First Table
+    Products[ProductReceived,
+             on = c("id" = "product_id"),
+             nomatch = NULL]
+    ```
+
+    -   Keeps only rows matched in both tables
+    -   [id]{.var-text} belongs to [Products]{.var-text} and [product_id]{.var-text} to [ProductReceived]{.var-text}
+
+-   [Chaining Joins]{.underline}
+
+    ``` r
+    NewTax[Products,
+           on = c("unit", "type") # <1>
+           ][, 
+             ProductReceived[.SD,
+                             on = list(product_id = id)], # <2>
+            .SDcols = !c("unit", "type")] # <3>
+
+    #        id       date product_id count tax_prop       name price
+    #     <int>     <IDat>      <int> <int>    <num>     <char> <num>
+    #  1:     2 2024-01-15          1   100       NA     banana  0.63
+    #  2:     4 2024-01-29          1   150       NA     banana  0.63
+    #  3:     6 2024-02-12          1   150       NA     banana  0.63
+    #  4:     9 2024-03-04          1   100       NA     banana  0.63
+    #  5:     5 2024-02-05          2    50       NA    carrots  0.89
+    #  6:     7 2024-02-19          2   150       NA    carrots  0.89
+    #  7:     8 2024-02-26          2   100       NA    carrots  0.89
+    #  8:    10 2024-03-11          3   150     0.65    popcorn  2.99
+    #  9:    NA       <NA>          4    NA     0.20       soda  1.49
+    # 10:     1 2024-01-08         NA   150     0.65 toothpaste  2.99
+    ```
+
+    1.  First, the [NewTax]{.var-text} and [Products]{.var-text} tables are joined two common variables: [unit]{.var-text} and [type]{.var-text}
+    2.  Then, the resulting table is joined to [ProductRecieved]{.var-text} where [product_id]{.var-text} belongs to [ProductReceived]{.var-text} and [id]{.var-text} belongs to previously joined table (originally [Products]{.var-text})
+    3.  The `.SD` keyword refers to the previously joined table's columns. [.SDcols]{.arg-text} subsets those columns by removing [unit]{.var-text} and [type]{.var-text}.
+
+-   [Non-Equi Join]{.underline}
+
+    -   Where the condition for matching rows is not based on equality, but on other comparison operators like \<, \>, \<=, or \>=
+
+    -   [Example]{.ribbon-highlight}: How many of product "2" were received before a certain date
+
+        ``` r
+        ProductSalesProd2 = ProductSales[product_id == 2L]
+        #>         id       date product_id count
+        #>      <int>     <IDat>      <int> <int>
+        #>   2:     2 2024-01-11          2   150
+        #>   7:     7 2024-02-06          2   150
+
+        ProductReceivedProd2 = ProductReceived[product_id == 2L]
+        #>         id       date product_id count
+        #>      <int>     <IDat>      <int> <int>
+        #>   5:     5 2024-02-05          2    50
+        #>   7:     7 2024-02-19          2   150
+        #>   8:     8 2024-02-26          2   100
+
+        # ProductReceivedProd2[ProductSalesProd2,
+        #                      on = "product_id",
+        #                      allow.cartesian = TRUE]
+        #>        id       date product_id count  i.id     i.date i.count
+        #>     <int>     <IDat>      <int> <int> <int>     <IDat>   <int>
+        #>  1:     5 2024-02-05          2    50     2 2024-01-11     150
+        #>  2:     7 2024-02-19          2   150     2 2024-01-11     150
+        #>  3:     8 2024-02-26          2   100     2 2024-01-11     150
+        #>  4:     5 2024-02-05          2    50     7 2024-02-06     150
+        #>  5:     7 2024-02-19          2   150     7 2024-02-06     150
+        #>  6:     8 2024-02-26          2   100     7 2024-02-06     150
+
+        ProductReceivedProd2[ProductSalesProd2,
+                             on = "product_id",
+                             allow.cartesian = TRUE
+                             ][date < i.date]
+        #>        id       date product_id count  i.id     i.date i.count
+        #>     <int>     <IDat>      <int> <int> <int>     <IDat>   <int>
+        #>  1:     5 2024-02-05          2    50     7 2024-02-06     150
+
+        # or equivalently
+        ProductReceivedProd2[ProductSalesProd2,
+                             on = list(product_id, 
+                                       date < date),
+                             nomatch = NULL]
+        #>        id       date product_id count  i.id i.count
+        #>     <int>     <IDat>      <int> <int> <int>   <int>
+        #>  1:     5 2024-02-06          2    50     7     150
+        ```
+
+        -   To show the process of how the join is made, `allow.cartesian` is set the TRUE which allows the combining of each row from one table with every row from the other table which is called a **Cross Join**
+            -   **Only use with subsetted tables** as necessarily results in duplicated values and thus a larger table than the original
+            -   The middle table with the code that I've commented out shows the results of this.
+            -   It allows us to compare variable values of both tables given a common variable value
+        -   In this example, product sales dates ([date]{.var-text}) and product received dates ([i.date]{.var-text}) are compared given `product_id == 2`
+        -   [nomatch = NULL]{.arg-text} is specified because this is a right-join and some rows with NA values can be returned
+
+-   Joining and Aggregating with `.EACHI`
+
+    -   See [Misc](r-data-table.qmd#sec-r-dt-misc){style="color: green"} \>\> Symbols and Keywords \>\> `EACHI` for a description
+
+    -   `EACHI` requires j to be specified
+
+    -   Example: Group by and summarize
+
+        ``` r
+        dt1 = ProductReceived[
+          Products,
+          on = c("product_id" = "id"),
+          by = .EACHI,
+          j = .(total_value_received  = sum(price * count))
+        ]
+
+        # or equivalently
+        dt2 = ProductReceived[
+          Products,
+          on = c("product_id" = "id"),
+        ][, 
+          .(total_value_received  = sum(price * count)),
+          by = "product_id"
+        ]
+        ```
+
+        -   Joins the two tables, groups by the joining variable, and summarizes with a calculation.
+
+    -   [Example]{.ribbon-highlight}: Non-Equi ([source](https://bsky.app/profile/denismongin.bsky.social/post/3ldl26k2cus2e))
+
+        ``` r
+        tab1[tab2,
+             on = .(cat_var, 
+                    start_date_tab1 >= start_date_tab2,
+                    start_date_tab1 < fin_date_tab2),
+             by = .EACHI,
+             j = .N]
+        ```
+
+        -   Joins tables [tab1]{.var-text} and [tab2]{.var-text}
+        -   Filters the data according to date variables from both tables
+        -   Counts each category in [cat_var]{.var-text} in the filtered data
+            -   [cat_var]{.var-text} should be present both tables (I think)
+
+-   [Rolling Join]{.underline}
+
+    -   Allows you to match rows based on the nearest value in a sorted column, typically a date or time column.
+
+    -   This is valuable when you need to align data from different sources that may not have exactly matching timestamps, or when you want to carry forward the most recent value.
+
+    -   [Example]{.ribbon-highlight}: In financial data, you might use a rolling join to assign the most recent stock price to each transaction, even if the price updates and transactions don’t occur at the exact same times.
+
+    -   [Example]{.ribbon-highlight}: Match sales with the most recent product information.
+
+        ``` r
+        ProductPriceHistory[ProductSales,
+                            on = .(product_id, date),
+                            roll = TRUE,
+                            j = .(product_id, date, count, price)]
+        #     product_id       date count price
+        #          <int>     <IDat> <int> <num>
+        #  1:          7 2024-01-08    50    NA
+        #  2:          2 2024-01-11   150  0.79
+        #  3:          1 2024-01-18    50  0.59
+        #  4:          1 2024-01-25   100  0.59
+        #  5:          3 2024-01-26   100    NA
+        #  6:          3 2024-02-02   150    NA
+        #  7:          2 2024-02-06   150  0.89
+        #  8:          7 2024-02-15   150    NA
+        #  9:          1 2024-02-27   150  0.63
+        # 10:          1 2024-03-08    50  0.65
+        ```
+
+        -   [product_id]{.var-text} and [date]{.var-text} are common to both tables
+            -   `.()` is used instead of `c()` for some reason
+        -   [j]{.arg-text} is explicitly used to select specific columns
+        -   To see only the matching cases we would need to add the argument [nomatch = NULL]{.arg-text} to perform an inner rolling join.
 
 ## Conditionals {#sec-r-dt-cond .unnumbered}
 
@@ -516,7 +887,7 @@
 
     -   Alternative: Rather than have the [DT]{.var-text} inside `dcast`, we can use .SD and have `dcast` inside [DT]{.var-text}, which is helpful for further chaining. (see applied to `melt` above)
 
-## tidyr
+## tidyr {#sec-r-dt-tidyr .unnumbered}
 
 -   `separate` via `tstrsplit`
 
@@ -552,7 +923,7 @@
     # 2: 07640613 Female   2020       Pos
     ```
 
-## User Defined Functions
+## User Defined Functions {#sec-r-dt-udf .unnumbered}
 
 -   [env]{.arg-text}
 
