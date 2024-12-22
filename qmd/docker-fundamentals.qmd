@@ -1,6 +1,6 @@
-# Fundamentals {#sec-docker-func}
+# Fundamentals {#sec-docker-fund}
 
-## Misc {#sec-docker-func-misc}
+## Misc {#sec-docker-fund-misc .unnumbered}
 
 -   Notes from the course, "A Cloud Guru: Docker Fundamentals"
 -   Resources
@@ -36,7 +36,7 @@
         -   swarm
         -   system
         -   volume
-        -   Example `docker image --help`
+        -   [Example]{.ribbon-highlight}: `docker image --help`
             -   Shows sub-commands for management command image and short descriptions
             -   For even more information on a sub-command, add --help after the sub-command
                 -   [Example]{.ribbon-highlight}: `docker image build --help`
@@ -58,318 +58,380 @@
 -   **Pull and run** a docker image from Docker Hub from local cli
     -   `docker run url/repo/image`
         -   [Example]{.ribbon-highlight}: `docker run docker.io/library/hello-world`
-            -   docker.io = docker hub
-            -   library = repo name for all "official" images
-            -   hello-world = name of image
+            -   [docker.io]{.var-text} is docker hub
+            -   [library]{.var-text} is the repo name for all "official" images
+            -   [hello-world]{.var-text} is the name of image
 -   Two ways to create a image
     -   While inside a container, make changes. Then use commit command to create the new image with the changes
         -   Never used. Creating a dockerfile is superior.
     -   Using a dockerfile
 -   Images on docker hub
-    -   mdancho/h2o-verse
+    -   [mdancho/h2o-verse]{.arg-text}
         -   h20, tidyverse, tensorflow, keras
         -   \~2 GB
 
-## Creating a Dockerfile {#sec-docker-func-cadf}
+## Creating a Dockerfile {#sec-docker-fund-cadf .unnumbered}
 
 -   Example of a toy python flask app
--   Architecture
-    -   Start with `FROM` base:tag
-        -   Essentially copy-pastes the base image
-        -   Usually good to start with a base image
-            -   FROM python:2.7-alpine
-                -   python is the base image and 2.7-alpine is the tag
-    -   [ARG]{.arg-text}: Defines a variable that users can pass at build-time to the builder with the docker build command using the `--build-arg <varname>=<value>` flag.
-        -   Don't use for secrets since build arguments are visible in the docker history command and in max mode provenance attestations, which are attached to the image by default if you use the Buildx GitHub Actions and your GitHub repository is public. See `RUN --mount=type=secret` [docs](https://docs.docker.com/reference/dockerfile/#run---mounttypesecret) for the secure way to use secrets.
 
-        -   ARG variables placed *before* the FROM instruction will not be available after the FROM instruction
+### Architecture {#sec-docker-fund-cadf-arch .unnumbered}
 
-        -   [Example]{.ribbon-highlight}: Variables with defaults
+-   Start with [FROM base:tag]{.arg-text}
+    -   Essentially copy-pastes the base image
+    -   Usually good to start with a base image
+        -   [Example]{.ribbon-highlight}: [FROM python:2.7-alpine]{.arg-text}
+            -   [python]{.var-text} is the base image and [2.7-alpine]{.var-text} is the tag
+-   [ARG]{.arg-text}: Defines a variable that users can pass at build-time to the builder with the docker build command using the [--build-arg \<varname\>=\<value\>]{.arg-text} flag.
+    -   Don't use for secrets since build arguments are visible in the docker history command and in max mode provenance attestations, which are attached to the image by default if you use the Buildx GitHub Actions and your GitHub repository is public. See [RUN --mount=type=secret]{.arg-text} [docs](https://docs.docker.com/reference/dockerfile/#run---mounttypesecret) for the secure way to use secrets.
+
+    -   [ARG]{.arg-text} variables placed *before* the [FROM]{.arg-text} instruction will not be available after the FROM instruction
+
+    -   [Example]{.ribbon-highlight}: Variables with defaults
+
+        ``` dockerfile
+        FROM busybox
+        ARG user1=someuser
+        ARG buildno=1
+        # ...
+        ```
+
+    -   [Example]{.ribbon-highlight}: Before and After [FROM]{.arg-text}
+
+        -   Before
 
             ``` dockerfile
-            FROM busybox
-            ARG user1=someuser
-            ARG buildno=1
-            # ...
+            # syntax=docker/dockerfile:1
+
+            ARG DEBVER="10"
+            ARG CAPVER="7.8"
+            FROM debian:${DEBVER}
+
+            RUN printf "DEB=${DEBVER}\nCAP=${CAPVER}\n" > /tmp/log
             ```
 
-        -   [Example]{.ribbon-highlight}: Before and After [FROM]{.arg-text}
+            -   [DEBVER="10"]{.arg-text} can be used to specify the debian version you want, but it will not be written to the log file since it is before the [FROM]{.arg-text} instruction
 
-            -   Before
+        -   After
 
-                ``` dockerfile
-                # syntax=docker/dockerfile:1
+            ``` dockerfile
+            # syntax=docker/dockerfile:1
 
-                ARG DEBVER="10"
-                ARG CAPVER="7.8"
-                FROM debian:${DEBVER}
+            ARG DEBVER="10"
+            FROM debian:${DEBVER}
+            ARG DEBVER
+            ARG CAPVER="7.8"
 
-                RUN printf "DEB=${DEBVER}\nCAP=${CAPVER}\n" > /tmp/log
+            RUN printf "DEB=${DEBVER}\nCAP=${CAPVER}\n" > /tmp/log
+            ```
+
+            -   I guess the [ARG DEBVAR]{.arg-text} after the [FROM]{.arg-text} instruction pulls its value from the [FROM]{.arg-text} instruction when no value is specified with [–build-arg]{.arg-text}
+
+            -   Run image and check value in log file
+
+                ``` bash
+                docker run -\-rm <tag> cat /tmp/log
                 ```
+-   [RUN]{.arg-text} executes commands or scripts as if you were in the container's OS
+    -   [Example]{.ribbon-highlight}: [RUN mkdir /app]{.arg-text}
+        -   Makes a directory called "app"
+-   [WORKDIR]{.arg-text} sets the working directory for everything that happens after this command
+    -   [Example]{.ribbon-highlight}: [WORKDIR /app]{.arg-text}
+-   [COPY]{.arg-text} has source path+file (local) and a destination path+file (container) as args
+    -   [Example]{.ribbon-highlight}: [COPY requirements.txt requirements.txt]{.arg-text}
+        -   The first requirements.txt is in the same directory as the docker file so no "/other-dir/" required
+        -   The second "requirements.txt" says the file is to be placed into the /app dir
+            -   Equivalent to "/app/requirements.txt" because /app is our working directory
+    -   Cannot use .. to move above the dockerfile directory. Every path must be below it.
+-   Install packages
+    -   [Example]{.ribbon-highlight}: [RUN pip -install -r requirements.txt]{.arg-text}
+        -   Inside requirements.txt says Flask==0.12
+-   Copy entire local directory to the working directory
+    -   [COPY . .]{.arg-text}
+        -   First period says copy everything is the current local directory
+        -   Second period says put everything in the working dir
+-   [LABEL]{.arg-text}s have key-value pairs. can be useful in production settings. The can be retrieved with a command later on.
+    -   Some uses:
 
-                -   [DEBVER="10"]{.arg-text} can be used to specify the debian version you want, but it will not be written to the log file since it is before the [FROM]{.arg-text} instruction
+        -   Filter a container's output based on a label
+        -   Can include scripts for automatic load balancing (also see aws load balancer section below)
 
-            -   After
+    -   [Example]{.ribbon-highlight}:
 
-                ``` dockerfile
-                # syntax=docker/dockerfile:1
+        ``` dockerfile
+        LABEL maintainer="Eric Book <ericbook\@email.com>"\
+              version="1.0"
+        ```
 
-                ARG DEBVER="10"
-                FROM debian:${DEBVER}
-                ARG DEBVER
-                ARG CAPVER="7.8"
-
-                RUN printf "DEB=${DEBVER}\nCAP=${CAPVER}\n" > /tmp/log
-                ```
-
-                -   I guess the [ARG DEBVAR]{.arg-text} after the [FROM]{.arg-text} instruction pulls its value from the [FROM]{.arg-text} instruction when no value is specified with [–build-arg]{.arg-text}
-
-                -   Run image and check value in log file
-
-                    ``` bash
-                    docker run --rm <tag> cat /tmp/log
-                    ```
-    -   `RUN` executes commands or scripts as if you were in the container's OS
-        -   RUN mkdir /app
-            -   Makes a directory called "app"
-    -   `WORKDIR` sets the working directory for everything that happens after this command
-        -   WORKDIR /app
-    -   `COPY` has source path+file (local) and a destination path+file (container) as args
-        -   COPY requirements.txt requirements.txt
-            -   The first requirements.txt is in the same dir as the docker file so no "/other-dir/" required
-            -   The second "requirements.txt" says the file is to be placed into the /app dir
-                -   Equivalent to "/app/requirements.txt" because /app is our working directory
-        -   Cannot use .. to move above the dockerfile directory. Every path must be below it.
-    -   Install packages
-        -   `RUN` pip -install -r requirements.txt
-            -   Inside requirements.txt says Flask==0.12
-    -   Copy entire local directory to the working directory
-        -   `COPY` . .
-            -   First period says copy everything is the current local directory
-            -   Second period says put everything in the working dir
-    -   `LABEL`s have key-value pairs. can be useful in production settings. The can be retrieved with a command later on.
-        -   Some uses:
-            -   Filter a container's output based on a label
-            -   Can include scripts for automatic load balancing (also see aws load balancer section below)
-        -   LABEL
-            -   maintainer="Eric Book [ericbook\@email.com](mailto:ericbook@email.com){.email}"\\
-            -   version="1.0"
--   Often changed or added to, so they should be close to the end of the dockerfile (but not the last line)
--   `CMD` gives the default instruction when the image gets ran which is different from RUN commands, which are executed when the image is *built*.
-    -   CMD flask run --host=0.0.0.0 --port=5000
-    -   Under-the-hood: CMD instructions are arguments to an entrypoint script and get run through a default docker entrypoint (see waaaaay below for info about entrypoints)
--   A `\\` is Linux operator that chains together instructions so they can be in separate lines of code for easier reading. Think a space also does the same thing, but you can't see it in the code.
+    -   Often changed or added to, so they should be close to the end of the dockerfile (but not the last line)
+-   [CMD]{.arg-text} gives the default instruction when the image gets ran which is different from RUN commands, which are executed when the image is *built*.
+    -   [Example]{.ribbon-highlight}: [CMD flask run --host=0.0.0.0 --port=5000]{.arg-text}
+    -   Under-the-hood: [CMD]{.arg-text} instructions are arguments to an entrypoint script and get run through a default docker entrypoint (See waaaaay below for info about entrypoints)
+-   A `\` is Linux operator that chains together instructions so they can be in separate lines of code for easier reading. Think a space also does the same thing, but you can't see it in the code.
 -   The **ordering** of the inputs in the dockerfile will affect its size and efficiency
-    -   The source code is much more likely to change in the future than the package dependencies. Therefore even though there would be fewer COPY commands, it's best to install the dependencies before copying the source code.
-    -   Whenever changes to the source code occur Docker has a caching mechanism, so that it doesn't rebuild everything above the layer where the changes occur. COPY . . executes in millisecs so the rebuild happens almost instantly while installing dependencies could take minutes.
+    -   The source code is much more likely to change in the future than the package dependencies. Therefore even though there would be fewer COPY commands, [it's best to install the dependencies before copying the source code.]{.underline}
+    -   Whenever changes to the source code occur Docker has a caching mechanism, so that it doesn't rebuild everything above the layer where the changes occur. [COPY . .]{.arg-text} executes in millisecs so the rebuild happens almost instantly while installing dependencies could take minutes.
 -   **Attaching packages** and libraries
     -   Download and install R packages
-        -   `RUN` R -e "install.packages(c('shinydashboard', 'reticulate', 'shiny'))"
+        -   [Example]{.ribbon-highlight}: [RUN R -e "install.packages(c('shinydashboard', 'reticulate', 'shiny'))"]{.arg-text}
     -   Download, install Python libraries (ubuntu image)
-        -   `RUN` ln -s /usr/bin/python3 /usr/bin/python && \\
-        -   ln -s /usr/bin/pip3 /usr/bin/pip
--   `RUN` apt-get update
--   `RUN` apt-get install -y libpython-dev
--   `RUN` apt-get install -y libpython3-dev
+        -   [Example]{.ribbon-highlight}:
 
-## Images {#sec-docker-func-imag}
+            ``` dockerfile
+            RUN ln -s /usr/bin/python3 /usr/bin/python && \
+                ln -s /usr/bin/pip3 /usr/bin/pip
+            RUN apt-get update
+            RUN apt-get install -y libpython-dev
+            RUN apt-get install -y libpython3-dev
+            ```
 
--   Build image from dockerfile (\*\* don't forget the dot at the end \*\*)
-    -   `docker image build -t web1 .`
-        -   `i`mage is the management command
-        -   build is the sub-command of image
-        -   -t is the flag for "tag"
-        -   web1 is the tag. This allows us to to refer to this image as "web1" instead of a hash
-        -   . says build the image and place in current directory
-    -   End of build shows hash id "successfully built \<id\>"
-    -   docker image build -t web1:1.0
+## Images {#sec-docker-fund-imag .unnumbered}
+
+-   [Build image from dockerfile]{.underline}
+    -   \*\* don't forget the dot at the end \*\*
+    -   End of build shows hash id [successfully built \<id\>]{.arg-text}
+    -   [Example]{.ribbon-highlight}: `docker image build -t web1 .`
+        -   [image]{.arg-text} is the management command
+        -   [build]{.arg-text} is the sub-command of image
+        -   [-t]{.arg-text} is the flag for "tag"
+        -   [web1]{.var-text} is the tag. This allows us to to refer to this image as "web1" instead of a hash
+        -   [.]{.arg-text} says build the image and place in current directory
+    -   [Example]{.ribbon-highlight}: `docker image build -t web1:1.0`
         -   Versioning the image
-        -   For just "web1" the version will be web1:latest
--   Inspect the image
-    -   `docker image inspect web1`
+        -   For just [web1]{.var-text} the version will be [web1:latest]{.arg-text}
+-   [Inspect the image]{.underline}
+    -   Command: `docker image inspect web1`
     -   Info in json format
     -   At the top complete hash id
-    -   Shows the versions of the image under "repotag"
+    -   Shows the versions of the image under [repotag]{.arg-text}
     -   Various info about how the layers were created
     -   The number of layers created is shown at the bottom by the lines preceded by a "sha" and a hash
--   List of images in local docker host
-    -   `docker image ls`
+-   [List of images in local docker host]{.underline}
+    -   Command: `docker image ls`
         -   Base images loaded from dockerfiles listed alongside the images we create
-        -   \<none\> images are "dangling images." They are failed image builds or images that were built on top of already existing images
-            -   safe to delete; frees up disk space
--   Delete local image
+        -   [\<none\>]{.arg-text} images are "dangling images." They are failed image builds or images that were built on top of already existing images
+            -   Safe to delete; Frees up disk space
+-   [Delete local image]{.underline}
     -   Using name and version tag
-        -   `docker image rm web1:1.0`
+        -   Command: `docker image rm web1:1.0`
     -   Using id
-        -   `docker image rm -f 633f`
-            -   -f is the "force" flag
-                -   necessary when image has been tagged/copied (like when pushing to docker hub) and you want to remove both images.
-            -   633f - only need the first four characters of the hash id
-                -   ids in docker image ls
+        -   Command:`docker image rm -f 633f`
+            -   [-f]{.arg-text} is the "force" flag
+                -   Necessary when image has been tagged/copied (like when pushing to docker hub) and you want to remove both images.
+            -   [633f]{.var-text} - Only need the first four characters of the hash id
+                -   IDs in `docker image ls`
 
-## Docker Hub {#sec-docker-func-dh}
+## Docker Hub {#sec-docker-fund-dh .unnumbered}
 
--   Login to Docker Hub
+-   [Login to Docker Hub]{.underline}
     -   Have to do it once then a config file is created so you don't have to do it again
     -   Input your username and password for your Docker Hub acct
-    -   `docker login`
--   Push image to Docker Hub
+    -   Command: `docker login`
+-   [Push image to Docker Hub]{.underline}
     1.  Tag image with docker hub username
-        -   `docker image tag web1 ercbk/web1:latest`
-            -   web1 is the image we want to push
-            -   ercbk/web1:latest
-                -   ercbk is the username
-                -   web1 is the repo
-                -   latest is the tag
+        -   [Example]{.ribbon-highlight}:`docker image tag web1 ercbk/web1:latest`
+            -   [web1]{.var-text} is the name of the image we want to push
+            -   [ercbk/web1:latest]{.arg-text}
+                -   [ercbk]{.var-text} is the username
+                -   [web1]{.var-text} is the repo
+                -   [latest]{.var-text} is the tag
         -   `docker image ls` will show the newly tagged image
     2.  Push image to docker hub
-        -   `docker image push ercbk/web1:latest`
+        -   [Example]{.ribbon-highlight}: `docker image push ercbk/web1:latest`
 
-## Running Containers {#sec-docker-func-rc}
+## Running Containers {#sec-docker-fund-rc .unnumbered}
 
--   \*\* Unless you include -d in the run command, you will need to open a separate terminal (i.e. different from the one you ran the run command in) in order run more docker cli commands while an app is running \*\*
+### Misc {#sec-docker-fund-rc-misc .unnumbered}
+
+-   \*\* Unless you include [-d]{.arg-text} in the run command, you will need to open a separate terminal (i.e. different from the one you ran the run command in) in order run more docker cli commands while an app is running \*\*
+
 -   \*\* Container names and ports need to be unique for each running container \*\*
 
-### Commands
+-   [Example 1]{.ribbon-highlight}:
+
+    ``` bash
+    docker container run -it -p 5000:8000 -e FLASK_APP=app.py web1
+    ```
+
+    -   [web1]{.var-text} is the name of the image.
+    -   This is probably least number of flags necessary to run an app in a container
+
+-   [Example 2]{.ribbon-highlight}:
+
+    ``` bash
+    docker container run \
+      -it --rm \
+      --name web2 \
+      -p 5000:8000 \
+      -e FLASK_APP=app.py \
+      -d --restart on-failure \
+      web2
+    ```
+
+### Commands {#sec-docker-fund-rc-coms .unnumbered}
 
 -   `docker container ls`
-    -   Lists all running containers, container_id, image, creation time, runtime, name
-    -   -a
+    -   Lists all running [containers]{.arg-text}, [container_id]{.arg-text}, [image]{.arg-text}, [creation time]{.arg-text}, [runtime]{.arg-text}, [name]{.arg-text}
+    -   [-a]{.arg-text}
         -   Shows all stopped containers
 -   `docker container rm <name>`
     -   Deletes a stopped container
-    -   Can also use 1st four characters of \<container_id\>
-        -   Shown in ls (see above)
+    -   Can also use 1st four characters of [container_id]{.arg-text}
+        -   Shown in [ls]{.arg-text} (see above)
 -   `docker container run`
     -   The basic run command
     -   Hardly ever want to use just the basic commmand
         -   See flags and examples below
 -   `docker container stop <name>`
     -   Stops a container
-    -   Add more \<name\>s to stop more than one container
+    -   Add more [name]{.arg-text}s to stop more than one container
         -   With spaces between the names
-    -   Also, ctrl + c
+    -   Also, `ctrl + c`
         -   Use it in the same terminal you used the run command in.
-        -   Only works if you included the -it flag when you started it.
-    -   Also see --rm below
+        -   Only works if you included the [-it]{.arg-text} flag when you started it.
+    -   Also see [--rm]{.arg-text} below
     -   `docker container stop $( docker container ls -q)`
         -   Stops all running containers
-        -   -q flag says list them quietly, so it doesn't print them out
+        -   [-q]{.arg-text} flag says list them quietly, so it doesn't print them out
         -   If you a "stop requires at least one argument" error, then there aren't any containers running
 -   `docker container logs <name>`
-    -   Can also use 1st four characters of \<container_id\>
+    -   Can also use 1st four characters of [container_id]{.arg-text}
     -   For active or inactive containers
     -   Shows times container was accessed
-    -   -f
+    -   [-f]{.arg-text}
         -   Runs log in the foreground (i.e. you can view accesses in real-time)
-        -   ctrl + c to kill it
+        -   `ctrl + c` to kill it
 -   `docker container stats`
     -   Real-time monitoring of active containers
     -   Shows cpu and memory usage for each container
     -   Network input/output
+-   `exec`
+    -   Executes an interactive bash session in the container
+    -   Container must be running, so open a new terminal window and type the code line:
+        -   `docker container exec -it web1 bash`
+            -   Where [web1]{.var-text} in the name of the container
+            -   Bash is for the Slim distribution of Linux; use `sh` for Alpine
+        -   Or run a bash command detached in the background `docker exec -t -d web1 bash "ls -al"`
+    -   You'll be logged in under "root" and dropped into wherever you designated the working directory in the dockerfile
+    -   Type `ls -la` to view the files
+    -   [Example]{.ribbon-highlight}: Debugging
+        1.  Python app isn't showing changes after running it with a volume flag ([-v]{.arg-text})
+        2.  You exec a bash session inside the container
+        3.  Delete some .pyc files (might be corrupted somehow) that are created when python runs flask
+            -   `rm \*.pyc`
+            -   `ls -la` to confirm
+        4.  Go to local script and make changes, save
+        5.  Go to terminal window where container is running and see changes to scripts detected in the terminal
+        6.  Go to browser where app is running and refresh
+        7.  Wait a few secs and changes show up. Yay.
+        8.  Go back to bash terminal window, `ctrl + d` to kill it
 
-### Flags
+### Flags {#sec-docker-fund-rc-flag .unnumbered}
 
 -   \*\* Don't think order matters except for that the name of the image needs to be last \*\*
--   -d
+-   [-d]{#sec-docker-fund-coms .unnumbered}
     -   Runs the container in the background
     -   Allows you to run commands in the same terminal window that you used the container run command in
--   -e
+-   [-e]{.arg-text}
     -   Allows you to pass an environment variable into the container
     -   Not always necessary
-        -   Flask requires one (e.g. -e FLASK_APP=app.py)
-            -   app.py is the name of the app script
-    -   Multiple -e flags are allowed
-        -   -e FLASK_DEBUG=1
+        -   [Example]{.ribbon-highlight}: Flask requires one
+            -   [-e FLASK_APP=app.py]{.arg-text})
+            -   [app.py]{.var-text} is the name of the app script
+    -   Multiple [-e]{.arg-text} flags are allowed
+        -   [Example]{.ribbon-highlight}: [-e FLASK_DEBUG=1]{.arg-text}
             -   Turns debug mode on when you run the container
-            -   Use along with -v to make real-time changes to the app while the container is running
--   -it
+            -   Use along with [-v]{.arg-text} to make real-time changes to the app while the container is running
+-   [-it]{.arg-text}
     -   Allows for unix commands such as ctrl c to kill a process (such as a running container)
     -   Makes the docker container interactive. Which allows you to go into the container, navigate the file system, and make changes.
--   --name
+-   [--name]{.arg-text}
     -   Docker automatically provide a name for a container but this flag allows you to provide your own
-    -   --name moose
--   -p
-    -   ports
+    -   [Example]{.ribbon-highlight}: [--name moose]{.arg-text}
+-   [-p]{.arg-text}
+    -   Ports
         -   Maps ports from local machine to ports within docker
-    -   expected to supply two ports separated by a colon
-    -   -p 5000:5000
-        -   The first 5000 is the host port. The port you use to interact with the app in your browser (e.g. localhost:5000)
-            -   All containers running on your docker host need to have unique ports to run on. (e.g. -p 5001:8000)
+    -   Expected to supply two ports separated by a colon
+    -   [Example]{.ribbon-highlight}: [-p 5000:5000]{.arg-text}
+        -   The first [5000]{.arg-text} is the host port. The port you use to interact with the app in your browser (e.g. [localhost:5000]{.arg-text})
+            -   All containers running on your docker host need to have unique ports to run on. (e.g. [-p 5001:8000]{.arg-text})
             -   So, I think this can be any port you want as long something else isn't already using it.
-        -   The second 5000 is the container port that was specified in the dockerfile
-            -   Tried 5000:5000 and the app didn't run in the browser even when the dockerfile had 5000 specified, but after specifying 800 in the dockerfile, -p 5000:8000 did work
+        -   The second [5000]{.arg-text} is the container port that was specified in the dockerfile
+            -   Tried [5000:5000]{.arg-text} and the app didn't run in the browser even when the dockerfile had [5000]{.arg-text} specified, but after specifying [800]{.arg-text} in the dockerfile, [-p 5000:8000]{.arg-text} did work
                 -   This was run on the default docker network
-            -   Running -p 5000:5000 DID work on a custom network.
+            -   Running [-p 5000:5000]{.arg-text} DID work on a custom network.
                 -   Also these are 2 different apps. The 1st one was stand-alone (03-lecture cloud guru docker fundamentals), and the 2nd ran in conjunction with a redis server (see custom network section below)(09-lecture in cloud guru docker fundamentals). Not sure if that makes a difference
-    -   When running the container, if it's an app, it can be viewed in a browser at localhost:5000 (i.e. the first port specified)
-    -   -p 5000
-        -   docker will attach a random port number
-    -   You can specify more than one port mapping e.g. -p 5000:5000 -p 3838:3838
-    -   ports (second port specified) for common images
-        -   redis (storage) - 6379
-        -   nginx (web server) - 80
-            -   open source, handles a lot of connections efficiently, used to host a lot of websites
-        -   RStudio: -p 3838:3838
-        -   Shiny apps launched from within RStudio: -p 8787:8787
--   --restart
+    -   When running the container, if it's an app, it can be viewed in a browser at [localhost:5000]{.arg-text} (i.e. the first port specified)
+    -   [Example]{.ribbon-highlight}: [-p 5000]{.arg-text}
+        -   Docker will attach a random port number
+    -   You can specify more than one port mapping e.g. [-p 5000:5000]{.arg-text} [-p 3838:3838]{.arg-text}
+    -   Ports (second port specified) for common images
+        -   redis (storage) - [6379]{.arg-text}
+        -   nginx (web server) - [80]{.arg-text}
+            -   Open source, handles a lot of connections efficiently, used to host a lot of websites
+        -   RStudio: [-p 3838:3838]{.arg-text}
+        -   Shiny apps launched from within RStudio: [-p 8787:8787]{.arg-text}
+-   [--restart]{.arg-text}
     -   With value, on-failure
         -   Says restart the container if there's some catastrophic failure (e.g. docker daemon dies and restarts)
         -   Useful in production
-    -   Cannot be included if --rm is also used
--   --rm
+    -   Cannot be included if [--rm]{.arg-text} is also used
+-   [--rm]{.arg-text}
     -   Deletes the container once it has been stopped
-    -   Cannot be included if --restart is also used
--   -v
+    -   Cannot be included if [--restart]{.arg-text} is also used
+-   [-v]{.arg-text}
     -   Volumes
     -   Use cases
         -   While developing. Makes changes inside the container in real-time.
         -   Store data in a db
         -   Mapping to a folder on your local machine allows you to work on projects stored within the container
-    -   (1st half) Requires address (local machine) to the directory with the script (e.g. app script not dockerfile) where you're making changes \<colon\> (2nd half) address inside the container where this directory should be "mounted" (i.e. where the script you're making changes to is located inside the container)
-        -   1st half
-            -   For Linux, you can used the shortcut, "\$PWD" which is a linux environment variable that stores the path to the working directory. It has the same value as the command "pwd -L" which Prints Working Directory.
-                -   FYI the -L has something to do with "symlinks" which are thinks that can be created that point to another directory. If you're in in the symlink directory -L will print that directory and -P will print the directory that the symlink points to.
-                -   Same thing for Mac, except the quotes might need to be included
-            -   For windows, "/c/users/\<user_name\>/path/to/directory"
-        -   2nd half
-            -   "/app" which is where the app script is (also the working directory specified in the dockerfile for the example)
-        -   Example in Linux, `docker container run -it -p 5000:5000 -e FLASK\_APP=app.py --rm -name web1 -e FLASK\_DEBUG=1 -v $PWD:/app web1`
-        -   Example in Windows, `docker container run --rm -itd -p 5000:5000 -e FLASK\_APP=1 -e FLASK\_DEBUG=1 --name web2 -v /C/Users/tbats/Documents/R/Projects/Docker/Courses/cloud-guru-docker-fund/09-linking-containers-with-docker-networks:/app web2`
-    -   While running, if you open a new terminal and `docker container inspect <name>`, then there should be a "mount" section with type = "bind"
+    -   [1st Half]{.underline}
+        -   Requires address (local machine) to the directory with the script (e.g. app script not dockerfile) where you're making changes \<colon\>
+        -   For Linux, you can used the shortcut, [\$PWD]{.arg-text} which is a linux environment variable that stores the path to the working directory. It has the same value as the command `pwd -L` which prints working directory.
+            -   FYI the [-L]{.arg-text} has something to do with symlinks which are things that can be created that point to another directory. If you're in in the symlink directory [-L]{.arg-text} will print that directory and [-P]{.arg-text} will print the directory that the symlink points to.
+                -   See
+                    -   [CLI, Linux \>\> Misc](cli-linux.qmd#sec-cli-lin-misc){style="color: green"} \>\> Create Symlink
+                    -   [CLI, Windows \>\> Powershell \>\> Misc](cli-windows.qmd#sec-cli-win-powsh-misc){style="color: green"} \>\> Create a symlink
+            -   Same thing for Mac, except the quotes might need to be included
+        -   For windows, `/c/users/<user_name>/path/to/directory`
+    -   [2nd Half]{.underline}
+        -   The address inside the container where this directory should be "mounted" (i.e. where the script you're making changes to is located inside the container)
+        -   [/app]{.arg-text} which is where the app script is (also the working directory specified in the dockerfile for the example)
+    -   [Examples]{.ribbon-highlight}:
+        -   Linux
+
+            ``` bash
+            docker container run \
+              -it \ 
+              -p 5000:5000 \ 
+              -e FLASK\_APP=app.py \
+              --rm \
+              -name web1 \
+              -e FLASK\_DEBUG=1 \
+              -v $PWD:/app \
+              web1
+            ```
+
+        -   Windows
+
+            ``` bash
+            docker container run \
+              -\-rm -itd \ 
+              -p 5000:5000 \ 
+              -e FLASK_APP=1 \ 
+              -e FLASK_DEBUG=1 \ 
+              --name web2 \ 
+              -v /C/Users/tbats/Documents/R/Projects/Docker/Courses/cloud-guru-docker-fund/09-linking-containers-with-docker-networks:/app \ 
+              web2
+            ```
+    -   While running, if you open a new terminal and `docker container inspect <name>`, then there should be a [mount]{.arg-text} section with [type = bind]{.arg-text}
     -   Troubleshooting if changes don't show up in the container in real-time
-        -   It's probably the path specifications for the value of the -v tag. Docker is picky, esp w/WIndows.
+        -   It's probably the path specifications for the value of the [-v]{.arg-text} tag. Docker is picky, esp w/WIndows.
         -   Make sure code script and docker are on same drive
         -   Next try replacing Alpine Linux with Slim Linux in the dockerfile --\> rebuild image --\> run container with volume flag + the addresses like stated above
             -   Something about inotify in Alpine not doing something
-        -   see exec command below
--   Examples:
-    -   `docker container run -it -p 5000:8000 -e FLASK\_APP=app.py web1`
-        -   web1 is the name of the image.
-        -   This is probably least number of flags necessary to run an app in a container
-    -   `docker container run -it --rm --name web2 -p 5000:8000 -e FLASK\_APP=app.py -d --restart on-failure web2`
--   exec
-    -   Executes an interactive bash session in the container
-    -   Container must be running, so open a new terminal window and type the code line:
-        -   `docker container exec -it web1 bash`
-            -   Where web1 in the name of the container
-            -   Bash is for the Slim distribution of Linux; use `sh` for Alpine
-        -   Or run a bash command detached in the background `docker exec -t -d web1 bash "ls -al"`
-    -   You'll be logged in under "root" and dropped into wherever you designated the working directory in the dockerfile
-    -   Type ls -la to view the files
-    -   Example of a debug
-        -   Python app isn't showing changes after running it with a volume flag (-v)
-        -   You exec a bash session inside the container
-        -   Delete some .pyc files (might be corrupted somehow) that are created when python runs flask
-            -   rm \*.pyc
-            -   ls -la to confirm
-        -   Go to local script and make changes, save
-        -   Go to terminal window where container is running and see changes to scripts detected in the terminal
-        -   Go to browser where app is running and refresh
-        -   Wait a few secs and changes show up. Yay.
-        -   Go back to bash terminal window, ctrl + d to kill it
+        -   See `exec` command above
 
-## Networking Containers {#sec-docker-func-nc}
+## Networking Containers {#sec-docker-fund-nc}
 
 -   Internal networks (LANs), external networks (WAN)
     -   WAN is a wide area network. Can be public or private. Stretches across city or industrial park, etc
@@ -400,24 +462,24 @@
     -   Shows eth0 inet address is mapped to container id
 -   Create custom network
     -   Allows us to connect containers by name which means if the addresses change, the apps won't break.
-    -   `docker network create --driver bridge <name>`
+    -   `docker network create -\-driver bridge <name>`
         -   The bridge driver is used for networking containers on the same docker host
         -   For networking across multiple docker hosts, the overlay driver is used. (would need to research this further)
     -   Inspect network
         -   `docker network inspect <name>`
     -   Add container to custom network
         -   Add --net \<network name\> to the run-container instruction
-            -   [Example]{.ribbon-highlight}: `docker container run -it --rm name web2 -p 5000:5000 -e FLASK\_APP=app.py -d --net firstnetwork web2`
-            -   [Example]{.ribbon-highlight}: `docker container run -it --rm name redis -p 6379:6379 -d --net firstnetwork redis:3.2-alpine`
+            -   [Example]{.ribbon-highlight}: `docker container run -it -\-rm name web2 -p 5000:5000 -e FLASK\_APP=app.py -d -\-net firstnetwork web2`
+            -   [Example]{.ribbon-highlight}: `docker container run -it -\-rm name redis -p 6379:6379 -d -\-net firstnetwork redis:3.2-alpine`
                 -   This containers only linked up with the app running on the browser when they were run on the custom network and not the default docker bridge network
-                -   In debug mode: `docker container run -it --name web2 -p 5000:5000 -e FLASK\_APP=app.py -e FLASK\_DEBUG=1 -v /C/Users/tbats/Documents/R/Projects/Docker/Courses/cloud-guru-docker-fund/09-linking-containers-with-docker-networks:/app -d --rm --net firstnetwork web2`
+                -   In debug mode: `docker container run -it -\-name web2 -p 5000:5000 -e FLASK\_APP=app.py -e FLASK\_DEBUG=1 -v /C/Users/tbats/Documents/R/Projects/Docker/Courses/cloud-guru-docker-fund/09-linking-containers-with-docker-networks:/app -d -\-rm -\-net firstnetwork web2`
             -   Containers will show up when you inspect firstnetwork
             -   Can now ping using container names (assuming both containers have been added to the network)
                 -   `docker exec web2 ping redis`
                     -   web2 is the container doing the pinging
                     -   redis being pinged 
 
-## Data Volumes {#sec-docker-func-dv}
+## Data Volumes {#sec-docker-fund-dv}
 
 -   Allows data to persist on docker host after the container is stopped
 
@@ -462,7 +524,7 @@
 
 -   Add volume flag, data volume name, and destination to container
 
-    -   `docker container run -it --rm name redis -p 6379:6379 -d --net firstnetwork -v web2\_redis:/data  redis:3.2-alpine`
+    -   `docker container run -it -\-rm name redis -p 6379:6379 -d -\-net firstnetwork -v web2\_redis:/data  redis:3.2-alpine`
         -   web2_redis is the name we gave to the data volume
         -   /data is designated by the redis people
             -   This technique works for mysql, postgres, elasticsearch, etc. You just have to figure out the WHERE they decided that they want you to store your data (i.e. the /data part)
@@ -570,7 +632,7 @@
         1.  Build app image
         2.  Run app image
         3.  Run redis image with flags, --volume -from \<app container name\>
-            -   `docker container run -it --rm name redis -p 6379:6379 -d --net firstnetwork -v web2\_redis:/data --volume -from web2 redis:3.2-alpine`
+            -   `docker container run -it -\-rm name redis -p 6379:6379 -d -\-net firstnetwork -v web2\_redis:/data -\-volume -from web2 redis:3.2-alpine`
     -   Files in app's public folder will be in redis's container
         -   Steps
             -   Go into redis container
@@ -586,7 +648,7 @@
         -   Add -v /app/public to the app run command
         -   Add the --volume -from flags to the redis container run command like before
 
-## Optimizing {#sec-docker-func-opt}
+## Optimizing {#sec-docker-fund-opt}
 
 -   .dockerignore
 
@@ -624,7 +686,7 @@
         -   First line (indent of the lines is the same in the file)
 
 ```         
-RUN apk add --no-cache --virtual .build-deps \
+RUN apk add -\-no-cache -\-virtual .build-deps \
 ```
 
 -   Second line, add dependencies
@@ -642,17 +704,17 @@ postgressql-dev dependency2 dependency3 \
     -o \( -type f -a -name '*.pyc' -o -name '*.pyo' \) \
     -exec rm -rf '{}' + \
 && runDeps="$( \
-    scanelf --needed --nobanner --recursive /usr/local \
+    scanelf -\-needed -\-nobanner -\-recursive /usr/local \
             | awk '{ gsub(/,/, "\nso:", $2); print "so:" $2 }' \
             | sort -u \
-            | xargs -r apk info --installed \
+            | xargs -r apk info -\-installed \
             | sort -u \
 )" \
-&& apk add --virtual .rundeps $runDeps \
+&& apk add -\-virtual .rundeps $runDeps \
 && apk del .build-deps
 ```
 
-## Running Scripts When a Container Starts {#sec-docker-func-arswacs}
+## Running Scripts When a Container Starts {#sec-docker-fund-arswacs}
 
 -   Instead of making multiple similar dockerfiles/images, you can use entry points into one dockerfile/image
     -   Examples:
@@ -691,7 +753,7 @@ ENTRYPOINT ["/docker-entrypoint.sh"]
 -   Run app container
 
 ```         
-docker container run -it --name webentrypoint -p 5000:5000 -e FLASK_APP=app.py -e FLASK_DEBUG=1 --rm --net firstnetwork webentrypoint
+docker container run -it -\-name webentrypoint -p 5000:5000 -e FLASK_APP=app.py -e FLASK_DEBUG=1 -\-rm -\-net firstnetwork webentrypoint
 ```
 
 -   Name and image values changed to webentrypoint
@@ -705,7 +767,7 @@ docker container run -it --name webentrypoint -p 5000:5000 -e FLASK_APP=app.py -
 -   Re-run the app container
 
 ```         
-docker container run -it --name webentrypoint -p 5000:5000 -e FLASK_APP=app.py -e FLASK_DEBUG=1 -e WEB2_COUNTER_MSG="Docker fans will have visited this page" --rm --net firstnetwork webentrypoint
+docker container run -it -\-name webentrypoint -p 5000:5000 -e FLASK_APP=app.py -e FLASK_DEBUG=1 -e WEB2_COUNTER_MSG="Docker fans will have visited this page" -\-rm -\-net firstnetwork webentrypoint
 ```
 
 -   WEB2_COUNTER_MSG is an environment variable that was given a default value inside the docker-entrypoint.sh script.
@@ -749,7 +811,7 @@ exec "$@"
 
 -   Says that after running everything in this script, then run the CMD stuff in the dockerfile
 
-## Docker Utility Functions {#sec-docker-func-duf}
+## Docker Utility Functions {#sec-docker-fund-duf}
 
 -   Can be run in any directory
 -   `docker system df`
@@ -770,7 +832,7 @@ exec "$@"
     -   Add -a flag to remove ALL unused images
         -   \*\*only run if want every image not being used by a running container to be deleted\*\*
 
-## Docker Compose {#sec-docker-func-dc}
+## Docker Compose {#sec-docker-fund-dc}
 
 -   Note dash between docker and compose in commands
 
@@ -855,7 +917,7 @@ exec "$@"
             ``` yaml
             result:
               build: ./result
-              command: nodemon --debug server.js
+              command: nodemon -\-debug server.js
               volumes:
                 - ./result:/app
               ports:
@@ -948,12 +1010,12 @@ exec "$@"
     -   `{}` - curly brackets are for adding options to the volume, such as being read-only (see docker docs for more options)
         -   In this example no options are supplied so it's empty (still necessary though)
 
-## Managing a Web App With Docker-Compose {#sec-docker-func-mawawdc}
+## Managing a Web App With Docker-Compose {#sec-docker-fund-mawawdc}
 
 -   Note dash between docker and compose in commands
 -   Current directory need to have the docker-compose.yml file
     -   Unless you use the -f flag
--   `docker-compose --help`
+-   `docker-compose -\-help`
     -   Info on commands
 -   `docker-compose build`
     -   Builds an image of any service in the yaml file with a build property
@@ -982,7 +1044,7 @@ exec "$@"
         -   Can probably specify a container
             -   eg docker-compose stop web
     -   Can also use ctrl+c, but (as of 2017) there's a bug that throws an error and aborts instead
--   `docker-compose up --build -d`
+-   `docker-compose up -\-build -d`
     -   Runs both build and up commands at once
     -   -d says run in the background
 -   `docker-compose ps`
