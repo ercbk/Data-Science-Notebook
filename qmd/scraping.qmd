@@ -721,18 +721,19 @@
 -   Sometimes dynamically served html tables can be scraped via a simple POST request avoiding Selenium procedures
 -   [Example]{.ribbon-highlight}: Table ([source](https://www.etiennebacher.com/posts/2023-05-09-making-post-requests-with-r/))\
     ![](_resources/Scraping.resources/post-ex1-table-1.png){.lightbox width="332"}
+    -   The user sets some inputs like city and date range, and clicks the hourglass button to submit. Then this table pops up below.
+
     -   Set-Up
 
         ``` r
         library(httr)       # make POST requests
         library(polite)     # be polite when we scrape
         library(rvest)      # extract HTML tables
-        library(data.table) # for some data cleaning
         ```
 
     -   Find Query String and Header Parameters
 
-        -   Input parameters and monitor network tab\
+        -   Input parameters and monitor network tab
 
             ::: {layout-row="2"}
             ![](_resources/Scraping.resources/post-ex1-inputs-1.png){.lightbox group="post-ex1-inpmon" width="332"}\
@@ -743,48 +744,171 @@
         -   Find out which one is the POST request\
             ![](_resources/Scraping.resources/post-ex1-req-url-meth-1.png){.lightbox width="432"}
 
-        -   Get the query string and parameters\
+            -   What we want is `search_lib.php`. It has a POST request method in the Headers tab, and the Preview tab shows table we want
+            -   The **request URL** is also under the Headers tab at the top.
+            -   The json file may look interesting since data often comes in json, but t's just some table format settings I think.
+
+        -   Get the query string and parameters
+
+            ::: {layout-col="2"}
             ![](_resources/Scraping.resources/post-ex1-query-params-1.png){.lightbox group="post-ex1-query" width="332"}\
+
             ![](_resources/Scraping.resources/post-ex1-query-str-1.png){.lightbox group="post-ex1-query" width="332"}
+            :::
+
+            -   Under the Payload tab with [view parsed]{.arg-text} selected, there's a nice clean list of parameters that are the **inputs** we set in the first step
+                -   Image appears to show [view source]{.arg-text} selected, but that's just because it changes to the other one once selected
+            -   With [view source]{.arg-text} selected, we see the **query string** that's used to encapsulate the inputs.
 
         -   Copy the headers\
             ![](_resources/Scraping.resources/post-ex1-headers-1.png){.lightbox width="360"}
 
-    -   Formulate Query
+            ```         
+            fetch("http://historico.oepm.es/logica/search_lib.php", {
+              "headers": {
+                "accept": "*/*",
+                "accept-language": "en-US,en;q=0.9",
+                "content-type": "application/x-www-form-urlencoded; charset=UTF-8",
+                "x-requested-with": "XMLHttpRequest"
+              },
+              "referrer": "http://historico.oepm.es/buscador.php",
+              "referrerPolicy": "strict-origin-when-cross-origin",
+              "body": "cadena=Madrid&tb=SPH_MATCH_ALL&rangoa=1826%2C1966&indexes%5B%5D=privilegios&indexes%5B%5D=patentes&indexes%5B%5D=patentes_upm&indexes%5B%5D=marcas&timestamp=Thu Dec 26 2024 08:49:42 GMT-0500 (Eastern Standard Time)",
+              "method": "POST",
+              "mode": "cors",
+              "credentials": "include"
+            });
+            ```
 
-        ``` r
-        city <- "madrid"
-        year1 <- 1850
-        year2 <- 1870
+            -   Right-clicking `search_lib.php` gives us some options. Select "Copy as fetch."
+            -   Under ["headers"]{.arg-text}, we see the necessary **header parameters** that are required: ["accept"]{.arg-text}, ["accept-language"]{.arg-text}, ["content-type"]{.arg-text}, and ["x-requested-with"]{.arg-text}.
+            -   No idea what these mean or why these are the particular ones requiredd
+            -   There is a list of other parameters that could probably be added. You can find them in the Headers tab underneath Request Headers or by selecting Copy Request Headers as seen in the image.
+                -   By using "Copy as fetch," we only get the absolutely necessary ones (I think).
 
-        query <- paste0(
-          "cadena=", city, "&tb=SPH_MATCH_ALL&rangoa=", year1, "%2C", year2,
-          "&indexes%5B%5D=privilegios&indexes%5B%5D=patentes&indexes%5B%5D",
-          "=patentes_upm&indexes%5B%5D=marcas"
-        ```
+        -   Formulate Query
 
-    -   Send Request
+            ``` r
+            city <- "madrid"
+            year1 <- 1850
+            year2 <- 1870
 
-        ``` r
-        # use politely() to tell the website who is performing the requests and to add
-        # a delay between requests (here we only do one)
-        polite_POST <- politely(POST, verbose=TRUE) 
+            query <- paste0(
+              "cadena=", city, "&tb=SPH_MATCH_ALL&rangoa=", year1, "%2C", year2,
+              "&indexes%5B%5D=privilegios&indexes%5B%5D=patentes&indexes%5B%5D",
+              "=patentes_upm&indexes%5B%5D=marcas"
+            ```
 
-        POST_response <- polite_POST(
-          "http://historico.oepm.es/logica/search_lib.php",
-          add_headers(
-            "accept" = "*/*",
-            "accept-language" = "en-GB,en-US;q=0.9,en;q=0.8",
-            "content-type" = "application/x-www-form-urlencoded; charset=UTF-8",
-            "x-requested-with" = "XMLHttpRequest"
-          ),
-          body = query
-        )
-        ```
+            -   We choose some **input** values that we desire and place them in appropriate spots of our **query string**.
 
-    -   Extract Table
+        -   Send Request
 
-        ``` r
-        content(POST_response, "parsed") |> 
-          html_table()
-        ```
+            ``` r
+            # 
+            polite_POST <- politely(POST, verbose=TRUE) 
+
+            POST_response <- polite_POST(
+              "http://historico.oepm.es/logica/search_lib.php",
+              add_headers(
+                "accept" = "*/*",
+                "accept-language" = "en-GB,en-US;q=0.9,en;q=0.8",
+                "content-type" = "application/x-www-form-urlencoded; charset=UTF-8",
+                "x-requested-with" = "XMLHttpRequest"
+              ),
+              body = query
+            )
+            ```
+
+            -   `politely` tells the website who is performing the requests and to add a delay between requests (here we only do one)
+
+            -   In POST, we set the **request URL**, the **header parameters**, the finalized **query string**.
+
+        -   Extract Primary Table
+
+            ``` r
+            content(POST_response, "parsed") |> 
+              html_table() |> 
+              head(n = 5)
+            #> [[1]]
+            #> # A tibble: 12 × 7
+            #>    ``    TIPO       SUBTIPO       EXPEDIENTE FECHA DENOMINACION_TITULO
+            #>    <lgl> <chr>      <chr>              <int> <chr> <chr>              
+            #>  1 NA    Marca      ""                   103 1870… La Deliciosa       
+            #>  2 NA    Marca      "Marca de Fá…         54 1867… Fuente de los Cana…
+            #>  3 NA    Marca      "Marca de Fá…         50 1868… Campanadas para in…
+            #>  4 NA    Marca      "Marca de Fá…         66 1868… Compañía Española  
+            #>  5 NA    Marca      "Marca de Fá…         76 1869… Tinta Universal   
+            #> # ℹ 1 more variable: SOLICITANTE <chr>
+            ```
+
+        -   Extract the nested table
+
+            -   Clicking the "+" in the first row of the table results in a pop-up table with more information (See first image)
+
+            -   Click + and monitor Network tab
+
+                -   The name the pops up is "ficha.php?id=1030&db=maruam"
+
+            -   Get the request URL
+
+                -   You can right-click that name \>\> Copy \>\> Copy URL or Left-click the name and the Request URL will be in the Headers tab
+                -   "http://historico.oepm.es/logica/ficha.php?id=1030&db=maruam"
+                -   Notice that this was a GET request method
+
+            -   Issue: The [id]{.arg-text} and [db]{.arg-text} parameter values cannot be obtained from the primary table nor can be guessed.
+
+                -   By inspecting the "+" button, you can see that the [id]{.arg-text} and [db]{.arg-text} values are captured in a HTML a-tag\
+                    ![](_resources/Scraping.resources/post-ex1-inspect-butt-1.png){.lightbox width="432" height="50"}
+
+            -   Obtain the values from the HTML of the POST response
+
+                ``` r
+                list_attrs <- content(POST_response, "parsed") |> # <1>
+                  html_nodes("td > a") |> 
+                  html_attrs()
+
+                info <- lapply(list_attrs, function(x) { # <2>
+                  out <- x[names(x) %in% c("data-id", "data-db")]
+                  if (length(out) == 0) return(NULL)
+                  data.frame(id = out[1], db = out[2])
+                })
+
+                info <- Filter(Negate(is.null), info) # <3>
+
+                out <- rbindlist(info) # <4>
+                head(out)
+                #>     id     db
+                #> 1:   6 maruam
+                #> 2: 130 maruam
+                #> 3: 461 maruam
+                #> 4: 523 maruam
+                #> 5: 560 maruam
+                #> 6: 581 maruam
+                ```
+
+                1.  Get all the attributes for all "+" buttons
+                2.  For each "+" button, extract only the id and db attributes
+                3.  Remove cases where there are no attributes
+                4.  Transform the list into a clean dataframe
+
+            -   Values can now be looped through the GET request url string
+
+                ``` r
+                read_html(
+                  paste0("http://historico.oepm.es/logica/ficha.php?id=", 
+                         6, "&db=", "maruam")
+                ) |> 
+                  html_table() |> 
+                  head(n = 5)
+                #> [[1]]
+                #>  # A tibble: 14 × 2
+                #>     X1                             X2                                   
+                #>     <chr>                          <chr>                                
+                #>   1 Número de Marca                "103"                                
+                #>   2 Denominación Breve             "La Deliciosa"                       
+                #>   3 Fecha Solicitud                "27-10-1870"                         
+                #>   4 Fecha Concesión                "24-03-1871"                         
+                #>   5 Fecha de publicación Concesión ""           
+                ```
+
+                -   Data is in long format and needs cleaned. See [repo](https://github.com/etiennebacher/webscraping-patents-spain/blob/main/demo.R) for complete code.
