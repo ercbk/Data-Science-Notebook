@@ -14,13 +14,110 @@
 -   Resources
 
     -   [Web Scraping with R](https://steviep42.github.io/webscraping/book/)
+    -   Parallelization
+        -   [Webscraping with RSelenium and rvest](https://ivanmillanes.netlify.app/post/2020-06-30-webscraping-with-rselenium-and-rvest/#parallel-framework)
+        -   [Webscraping Dynamic Websites with R](https://www.appsilon.com/post/webscraping-dynamic-websites-with-r)
 
--   In loops, use `Sys.sleep` (probably) after EVERY selenium function. Sys.sleep(1) might be all that's required. ([{selenider}]{style="color: #990000"} fixes this problem)
+-   Waiting for stuff to load
 
-    -   See Projects \> foe \> gb-level-1_9-thread \> scrape-gb-levels.R
-    -   Might not always be needed, but absolutely need if you're filling out a form and submitting it.
-    -   Might even need one at the top of the loop
-    -   If a Selenium function stops working, adding Sys.sleeps are worth a try.
+    -   [{selenider}]{style="color: #990000"} fixes this problem
+
+    -   In loops, use `Sys.sleep` (probably) after EVERY selenium function. Sys.sleep(1) might be all that's required.
+
+        -   See Projects \> foe \> gb-level-1_9-thread \> scrape-gb-levels.R
+        -   Might not always be needed, but absolutely need if you're filling out a form and submitting it.
+        -   Might even need one at the top of the loop
+        -   If a Selenium function stops working, adding Sys.sleeps are worth a try.
+
+    -   Using a while-loop in order to account for uncertain loading times
+
+        -   [Example]{.ribbon-highlight}: ([source](https://www.rselenium-teaching.etiennebacher.com/#/loading-times-8))
+
+            ``` r
+            for (page_index in 1:2348) {
+
+              # Try to find the buttons "Ver Mais"
+              all_buttons_loaded <- FALSE
+              iterations <- 0
+              while(!all_buttons_loaded & iterations < 20) {
+                tryCatch(
+                  {
+                    test <- remote_driver$
+                      findElements(using = 'id', value = "link_ver_detalhe")
+
+                    if (inherits(test, "list") && length(test) > 0)  {
+                      all_buttons_loaded <<- TRUE
+                    }
+                  },
+                  error = function(e) {
+                    iterations <<- iterations + 1 
+                    Sys.sleep(0.5)
+                  }
+                )
+              }
+
+              if (!all_buttons_loaded & iterations == 20) {
+                next
+              }
+
+              # ... more stuff
+
+            }
+            ```
+
+-   Keeping track of progress can help to find where the error occurred ([source](https://www.rselenium-teaching.etiennebacher.com/#/display-and-save-information-1))
+
+    -   Areas that indicate stages within a scraping script
+
+        -   Show which page is being scraped;
+        -   Show which modal of this page is being scraped;
+        -   Show the status of this scraping (success/failure).
+
+    -   [Example]{.ribbon-highlight}:
+
+        ``` r
+        # save calls to message() in an external file
+        log_appender(appender_file("data/modals/00_logfile"))
+        log_messages()
+
+        for (page_index in 1:2348) {
+
+          message(paste("Start scraping of page", page_index))
+
+          for (modal_index in buttons) {
+            # open modal
+            # get HTML and save it in an external file
+            # leave modal
+
+            message(paste("  Scraped modal", modal_index))
+          }
+
+          # Once all modals of a page have been scraped, go to the next page (except
+          # if we're on the last page)
+
+          message(paste("Finished scraping of page", page_index))
+        }
+        ```
+
+-   Best practice to scrape the html page and clean it in separate scripts
+
+    -   Keeping the raw html files helps with reproducibility
+
+    -   Example:
+
+        ``` r
+        buttons[[modal_index]]$clickElement()
+
+        Sys.sleep(1.5)
+
+        # Get the HTML and save it
+        tmp <- remote_driver$getPageSource()[[1]]
+        write(tmp, file = paste0("data/modals/page-", page_index, "-modal-", modal_index, ".html"))
+
+        # Leave the modal
+        body <- remote_driver$findElement(using = "xpath", value = "/html/body")
+        body$sendKeysToElement(list(key = "escape"))
+        ```
 
 -   **Sometimes** `clickElement( )` **stops working for no apparent reason**. When this happens used `sendKeysToElement(list("laptops",key="enter"))`
 
@@ -173,6 +270,12 @@
 
 ## RSelenium {#sec-scrap-rsel .unnumbered}
 
+-   Use Selenium if:
+
+    -   The HTML you want is not directly accessible, i.e needs some interactions (clicking on a button, connect to a website…),
+    -   The URL doesn’t change with the inputs,
+    -   You can’t access the data directly in the “network” tab of the console and you can’t reproduce the `POST` request.
+
 -   Along with installing package you have to know the version of the browser driver of the browser you're going to use
 
     -   https://chromedriver.chromium.org/downloads
@@ -194,7 +297,7 @@
 
         -   If no exact driver version matches your browser version,
             -   Each version of the Chrome driver supports Chrome with matching major, minor, and build version numbers.
-                -   Example: Chrome driver 73.0.3683.20  supports all Chrome versions that start with 73.0.3683
+            -   Example: Chrome driver 73.0.3683.20  supports all Chrome versions that start with 73.0.3683
 
 -   [Start server and create remote driver]{.underline}
 
@@ -875,7 +978,7 @@
 
                 info <- Filter(Negate(is.null), info) # <3>
 
-                out <- rbindlist(info) # <4>
+                out <- data.table::rbindlist(info) # <4>
                 head(out)
                 #>     id     db
                 #> 1:   6 maruam
