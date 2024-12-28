@@ -29,6 +29,7 @@
             -   Calculate a 3 months rolling running total using a window that includes the current month.
             -   Calculate a 7 months rolling running total using a window where the current month is always the middle month
             -   Calculate the number of consecutive days spent in each country
+        -   Three-day moving average of the temperature in each city
     -   CTE
         -   Average monthly cost per campaign for the company's marketing efforts
         -   Count the number of interactions of new users
@@ -1322,6 +1323,40 @@
     -   **Don’t use EXPLAIN ANALYZE when resources are scarce like production monitoring, and when a query never finishes*,* EXPLAIN will suffice and it doesn’t run the query**
     -   Also see [Databases, Engineering \>\> Cost Optimizations](db-engineering.qmd#sec-db-eng-costopt){style="color: green"}
 
+-   `FILTER` - Only the input rows for which the filter clause evaluates to true are fed to the aggregate function; other rows are discarded ([postgres docs](https://www.postgresql.org/docs/14/sql-expressions.html))
+
+    -   Especially useful when you want to perform multiple aggregations in your query.
+    -   More readable than using CASE WHEN
+    -   Also see
+        -   [Window Functions](sql.qmd#sec-sql-winfun){style="color: green"} \>\>
+            -   Calculate the number consecutive days spent in each country
+            -   Three-day moving average of the temperature in each city
+        -   [Arrays](sql.qmd#sec-sql-arr){style="color: green"} \>\> `ARRAY_AGG`
+    -   [Example]{.ribbon-highlight}: Multiple Aggregations ([source](https://www.timescale.com/learn/understanding-filter-in-postgresql-with-examples))
+        -   With FILTER
+
+            ``` sqlpostgresql
+            SELECT
+            	min(revenue) FILTER (WHERE make = ‘Ford’) min_ford,
+            	max(revenue) FILTER (WHERE make = ‘Ford’) max_ford,
+            	min(revenue) FILTER (WHERE make = ‘Renault’) min_renault,
+            	max(revenue) FILTER (WHERE make = ‘Renault’) max_renault
+            FROM
+            	car_sales;
+            ```
+
+        -   With CASE WHEN
+
+            ``` sqlpostgresql
+            SELECT
+            	min(CASE WHEN make = ‘Ford’ THEN revenue ELSE null END) min_ford,
+            	max(CASE WHEN make = ‘Ford’ THEN revenue ELSE null END) max_ford,
+            	min(CASE WHEN make = ‘Renault’ THEN revenue ELSE null END) min_renault,
+            	max(CASE WHEN make = ‘Renault’ THEN revenue ELSE null END) max_renault
+            FROM
+            	car_sales;
+            ```
+
 -   `GETDATE()` - Gets the current date
 
 -   `GO` - Not a sql function. Used by some interpreters as a reset.
@@ -1724,6 +1759,19 @@
             United Kingdom  2018-08-29  2018-09-10  12
             United States   2018-08-05  2018-08-10  5
             ```
+
+-   [Example]{.ribbon-highlight}: Three-day moving average of the temperature in each city (postgres, [source](https://www.timescale.com/learn/understanding-filter-in-postgresql-with-examples))
+
+    ``` sqlpostgresql
+    SELECT city, day, temperature,
+        MAX(temperature) FILTER (WHERE temperature > 70)
+        OVER (
+          PARTITION BY city
+          ORDER BY day ASC
+          ROWS BETWEEN 2 PRECEDING AND CURRENT ROW) max_3day
+    FROM city_data
+    ORDER BY city, day;
+    ```
 
 ## Common Table Expressions (CTE) {#sec-sql-ctes .unnumbered}
 
@@ -2281,6 +2329,36 @@
         | Levi's | ['jacket','jeans']          |
         | Uniqlo | ['shirts','t-shirts','vest'] |
         ```
+
+    -   [Example]{.ribbon-highlight}: With FILTER in a CTE (postgres?, [source](https://towardsdatascience.com/measuring-cross-product-adoption-using-dbt-set-similarity-fdf7c1f88bc2))
+
+        ``` sqlpostgresql
+        -- without group by # <1>
+        with product_users as (
+            select
+                array_agg(user_id) filter (where doc_storage = true)
+                    as doc_storage_users,
+                array_agg(user_id) filter (where photo_storage = true)
+                    as photo_storage_users
+            from Sales
+        )
+
+        -- with group by # <2>
+        with product_users as (
+            select
+                user_category,
+                array_agg(user_id) filter (where doc_storage = true)
+                    as doc_storage_users,
+                array_agg(user_id) filter (where photo_storage = true)
+                    as photo_storage_users
+            from Sales
+            group by user_category
+        )
+        ```
+
+        1.  I think the author wanted an array output, but to *also* use `FILTER`. `FILTER` can only be used with aggregate functions. This shows that `ARRAY_AGG` doesn't necessarily need `GROUP BY` function
+
+        2.  Customers are aggregated by the storage they bought and their user category
 
 -   `ARRAY_SIZE` - function takes an array or a variant as input and returns the number of items within the array/variant ([doc](https://docs.snowflake.com/en/sql-reference/functions/array_size.html))
 
