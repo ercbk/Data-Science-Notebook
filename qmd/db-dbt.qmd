@@ -193,7 +193,9 @@
     -   [Example]{.ribbon-highlight} [Starter Project](https://github.com/dbt-labs/dbt-init/tree/master/starter-project)\
         ![](./_resources/DB,_dbt.resources/1_bgUI3LTLdY19EFRwSyZh1A%20(2).png){.lightbox width="115"}
 
--   `profiles.yml`![](_resources/DB,_dbt.resources/projfiles-profile-ex1-1.png){.lightbox width="232"}
+-   `profiles.yml`
+
+    ![](_resources/DB,_dbt.resources/projfiles-profile-ex1-1.png){.lightbox width="232"}
 
     -   Not included in project directory
     -   Only have to worry about this file if you set up dbt locally.
@@ -230,16 +232,34 @@
 -   `packages.yml`
 
     -   [Docs](https://docs.getdbt.com/docs/build/packages)
-
     -   List of external dbt packages you want to use in your project
+    -   After adding the packages to packages.yml, run `dbt deps` to install the packages.
+    -   Packages get installed in the `dbt_packages` directory — by default this directory is ignored by git, to avoid duplicating the source code for the package.
+    -   When you update a version or revision in your `packages.yml` file, it isn't automatically updated in your dbt project. You should run `dbt deps` to update the package. You may also need to run a full refresh of the models in this package.
+    -   [Examples]{.ribbon-highlight}
+        -   Specific Version
 
-    -   Format
+            ``` yaml
+            packages:
+                - package: dbt-labs/dbt_utils
+                  version: 0.7.3
+            ```
 
-        ``` yaml
-        packages:
-            - package: dbt-labs/dbt_utils
-              version: 0.7.3
-        ```
+        -   Range of Versions
+
+            ``` yaml
+            packages:
+              - package: calogica/dbt_expectations
+                version: [">=0.7.0", "<0.8.0"]
+            ```
+
+-   `dependencies.yml`
+
+    -   [Docs](https://docs.getdbt.com/docs/collaborate/govern/project-dependencies#when-to-use-package-dependencies)
+    -   Designed for the [dbt Mesh](#0) and [cross-project reference](#0) workflow
+    -   Can contain both types of dependencies: "package" and "project" dependencies
+    -   If your dbt project doesn't require the use of Jinja within the package specifications, you can simply rename your existing `packages.yml` to `dependencies.yml`.
+    -   However, if your project's package specifications use Jinja, particularly for scenarios like adding an environment variable or a [Git token method](https://docs.getdbt.com/docs/build/packages#git-token-method) in a private Git package specification, you should continue using the `packages.yml` file name.
 
 ## Directories {#sec-db-dbt-dir .unnumbered}
 
@@ -696,7 +716,7 @@
 ## Packages {#sec-db-dbt-pkgs .unnumbered}
 
 -   Available Packages: [link](https://hub.getdbt.com/)
--   Install Packages - `dbt deps`
+-   See [Project Files](db-dbt.qmd#sec-db-dbt-projfil){style="color: green"} \>\> packages.yml
 -   Packages
     -   [dbt-athena](https://github.com/Tomme/dbt-athena) - Adaptor for AWS Athena
     -   [audit-helper](https://github.com/dbt-labs/dbt-audit-helper/tree/0.4.0/)
@@ -706,6 +726,7 @@
     -   [dbtplyr](https://github.com/emilyriederer/dbtplyr) - Macros
         -   dplyr tidy selectors, across, etc.
     -   [dbt-duckdb](https://github.com/jwills/dbt-duckdb) - Adapter for duckdb
+    -   [elementary](https://docs.elementary-data.com/introduction) - Includes schema change alerts and anomaly detection tests. It is great for tracking trends in your data to see if anything falters from the usual
     -   [dbt-expectations](https://hub.getdbt.com/calogica/dbt_expectations/latest/)
         -   Data validation based on great expectations py lib
     -   [external-tables](https://github.com/dbt-labs/dbt-external-tables)
@@ -734,69 +755,164 @@
 
 ![](./_resources/DB,_dbt.resources/image.png){.lightbox width="532"}
 
+### Misc {#sec-db-dbt-dvaut-misc .unnumbered}
+
+-   Test both your raw data (sources) and transformed data (models). It’s important to test both to help you pinpoint where issues originate, helping in the debugging process.
+    -   [Source Tests]{.underline}: Confirms that you are transforming quality data, allowing you to be confident in the input of your data models. When you are confident in the input, data quality issues can then be attributed to transformation code.
+    -   [Model Tests]{.underline}: They come after source testing. When adding a test to a model, you are setting expectations on how the code you’ve written should transform your data.
+        -   If the data produced by a model passed a test when it was first written, but now fails, its most likely due to something in the data changing that your code can no longer handle.
+-   Built-in support for CI/CD pipelines to test your "models" and stage them before committing to production
+-   Run test - `dbt test`
+-   See also
+    -   [Docs](https://docs.getdbt.com/docs/building-a-dbt-project/tests)
+    -   [Packages](db-dbt.qmd#sec-db-dbt-pkgs){style="color: green"}
+    -   [How to do Unit Testing in dbt](https://towardsdatascience.com/how-to-do-unit-testing-in-dbt-cb5fb660fbd8)
+-   Most of the tests are defined in a models-type .yml file in the models directory
+-   Can be applied to a model or a column
+-   Test that the primary key column is unique and not null
+-   Differences from [Contracts](db-dbt.qmd#sec-db-dbt-comp-mod-yaml){style="color: green"}
+    -   Tests are more configurable, such as with [custom severity thresholds](https://docs.getdbt.com/reference/resource-configs/severity).
+    -   Tests are asier to debug after finding failures, because you can query the already-built model, or [store the failing records in the data warehouse](https://docs.getdbt.com/reference/resource-configs/store_failures).
+
+### Macros {#sec-db-dbt-dvaut-mac .unnumbered}
+
+-   Custom (aka Singular) tests should be located in a tests folder.
+    -   dbt will evaluate the SQL statement.
+
+    -   The test will pass if no row is returned and failed if at least one or more rows are returned.
+
+    -   Useful for testing for some obscurity in the data
+
+    -   [Example]{.ribbon-highlight}: Check for duplicate rows when joining two tables
+
+        ``` sql
+        select
+        a.id
+        from {{ ref(‘table_a’) }} a
+        left join {{ ref(‘table_b’) }} b
+        on a.b_id = b.id
+        group by a.id
+        having count(b.id)>1
+        ```
+
+        -   i.e. If I join table a with table b, there should only be one record for each unique id in table a
+        -   Process
+            -   Join the tables on their common field
+            -   Group them by the id that should be distinct
+            -   Count the number of duplicates created from the join.
+                -   This tells me that something is wrong with the data.
+                -   Add a having clause to filter out the non-dups
+
+### Mock Data {#sec-db-dbt-dvaut-mock .unnumbered}
+
+![](./_resources/DB,_dbt.resources/image.1.png){.lightbox width="175"}
+
+-   Data used for unit testing SQL code
+-   To ensure completeness, it's best if analysts or business stakeholders are the ones provide test cases or test data
+-   Store in the "data" folder (typically .csv files)
+    -   each CSV file represents one source table
+    -   should be stored in a separate schema (e.g. unit_testing) from production data
+    -   dbt seed (see below, Other \>\> seeds) command is used to load mock data into the data warehouse
+
+### Tests {#sec-db-dbt-dvaut-test .unnumbered}
+
 -   Misc
-    -   Built-in support for CI/CD pipelines to test your "models" and stage them before committing to production
-    -   Run test - `dbt test`
-    -   See also
-        -   [Docs](https://docs.getdbt.com/docs/building-a-dbt-project/tests)
-        -   [Packages](db-dbt.qmd#sec-db-dbt-pkgs){style="color: green"}
-        -   [How to do Unit Testing in dbt](https://towardsdatascience.com/how-to-do-unit-testing-in-dbt-cb5fb660fbd8)
-    -   Most of the tests are defined in a models-type .yml file in the models directory
-    -   Can be applied to a model or a column
-    -   Test that the primary key column is unique and not null
-    -   Differences from [Contracts](db-dbt.qmd#sec-db-dbt-comp-mod-yaml){style="color: green"}
-        -   Tests are more configurable, such as with [custom severity thresholds](https://docs.getdbt.com/reference/resource-configs/severity).
-        -   Tests are asier to debug after finding failures, because you can query the already-built model, or [store the failing records in the data warehouse](https://docs.getdbt.com/reference/resource-configs/store_failures).
--   Macros: Pre-Made or Custom
-    -   Custom (aka Singular) tests should be located in a tests folder.
-        -   dbt will evaluate the SQL statement.
+    -   Notes from [How to Test Your Data Models with dbt](https://learnanalyticsengineering.substack.com/p/how-to-test-your-data-models-with)
+    -   Packages
+        -   dbt-expectations, dbt-utils, elementary
+    -   Besides Freshness, Uniqueness, and Not NULL, only add more tests if there's an actionable next step when they fail.
+    -   Considerations
+        -   Which source fields are used in downstream data models? Are there qualities you should be testing to ensure the transformations downstream turn out as expected?
+            -   e.g. testing the datatype of an amount field that’s used in a SUM calculation downstream
+        -   Are there [id]{.var-text} fields used in JOINs downstream? Would adding a [relationships test](https://docs.getdbt.com/reference/resource-properties/data-tests#relationships) prevent joining records that don’t exist?
+        -   Are CASE statements used in your model code? Should there be an [accepted_values test](https://docs.getdbt.com/reference/resource-properties/data-tests#accepted_values) at the source to ensure all possible values are captured?
+-   [Freshness]{.underline} ([docs](https://docs.getdbt.com/reference/resource-properties/freshness)) - Used to define the acceptable amount of time between the most recent record, and now, for a table
+    -   The built-in test only available for sources, but dbt_expectations has one for models
 
-        -   The test will pass if no row is returned and failed if at least one or more rows are returned.
+    -   Freshness tests on sources should match the frequency of your ingestion syncs
 
-        -   Useful for testing for some obscurity in the data
+        -   See [Production, Tools \>\> Ingestion](production-tools.qmd#sec-prod-tools-dating){style="color: green"} \>\> Concepts \>\> Sync Methods
+        -   e.g. If you sync your data every hour because you expect new records in a source every hour, your freshness tests should reflect this.
 
-        -   [Example]{.ribbon-highlight}: Check for duplicate rows when joining two tables
+    -   Should only be configured for *critical* data sources. If you aren’t using a data source despite having it documented, freshness tests may only contribute to test bloat.
 
-            ``` sql
-            select
-            a.id
-            from {{ ref(‘table_a’) }} a
-            left join {{ ref(‘table_b’) }} b
-            on a.b_id = b.id
-            group by a.id
-            having count(b.id)>1
-            ```
+    -   Identify the timestamp field that represents when your data was created or ingested.
 
-            -   i.e. If I join table a with table b, there should only be one record for each unique id in table a
-            -   Process
-                -   Join the tables on their common field
-                -   Group them by the id that should be distinct
-                -   Count the number of duplicates created from the join.
-                    -   This tells me that something is wrong with the data.
-                    -   Add a having clause to filter out the non-dups
--   Mock data\
-    ![](./_resources/DB,_dbt.resources/image.1.png){.lightbox width="175"}
-    -   Data used for unit testing SQL code
-    -   To ensure completeness, it's best if analysts or business stakeholders are the ones provide test cases or test data
-    -   Store in the "data" folder (typically .csv files)
-        -   each CSV file represents one source table
-        -   should be stored in a separate schema (e.g. unit_testing) from production data
-        -   dbt seed (see below, Other \>\> seeds) command is used to load mock data into the data warehouse
--   Tests
-    -   Freshness ([docs](https://docs.getdbt.com/reference/resource-properties/freshness)) - Used to define the acceptable amount of time between the most recent record, and now, for a table
-        -   [Example]{.ribbon-highlight}
+        -   Examples
+            -   A [created_at]{.var-text} field directly from the source itself
+            -   An autogenerated field by your ingestion tool
+                -   e.g. Airbyte’s [\_airbyte_extracted_at]{.var-text} field which is automatically created in each data source
 
-            ``` yaml
-            sources:
-              - name: users
-                freshness:
-                  warn_after:
-                    count: 3
-                    period: day
-                  error_after:
-                    count: 5
-                    period: day
-            ```
+    -   [Example]{.ribbon-highlight}
+
+        ``` yaml
+        sources:
+          - name: sales_pipeline
+            freshness:
+               warn_after:
+                  count: 2
+                  period: hour
+               error_after:
+                  count: 2
+                  period: hour
+            loaded_at_field: _airbyte_extracted_at
+        ```
+
+    -   [Example]{.ribbon-highlight}: dbt_expectations
+
+        ``` yaml
+        models:
+          - name: sales_mrr
+              - name: mrr_computed_at 
+                tests:
+                   - dbt_expectations.expect_row_values_to_have_recent_data:
+                       datepart: week
+                       interval: 1
+        ```
+-   [Uniqueness]{.underline} - Tests that the value in a field is unique across all records.
+    -   Important to apply to the primary key of every source and model to ensure this field accurately represents a unique record
+
+    -   [Example]{.ribbon-highlight}
+
+        ``` yaml
+        sources:
+          - name: sales_pipeline
+            columns:
+              - name: opportunity_id
+                tests:
+                  - unique
+        ```
+-   [Not NULL]{.underline} - Should be applied to every field where you expect there to be a value, particularly on the primary key.
+    -   [Example]{.ribbon-highlight}
+
+        ``` yaml
+        sources:
+          - name: sales_pipeline
+            columns:
+              - name: opportunity_id
+                tests:
+                  - unique
+                  - not_null
+        ```
+-   [Recency]{.underline} - Asserts that a timestamp column in the reference model contains data that is at least as recent as the defined date interval.
+    -   Can be useful for incremental models
+
+    -   [Example]{.ribbon-highlight}: [dbt-utils](https://github.com/dbt-labs/dbt-utils?tab=readme-ov-file#recency-source)
+
+        ``` yaml
+        version: 2
+
+        models:
+          - name: model_name
+            tests:
+              - dbt_utils.recency:
+                  datepart: day
+                  field: created_at
+                  interval: 1
+        ```
+
+### Examples {#sec-db-dbt-dvaut-ex .unnumbered}
+
 -   [Example]{.ribbon-highlight}: `project.yml`\
     ![](./_resources/DB,_dbt.resources/1-65vBHGQB1CXpJMrtRwsY3A.png){.lightbox width="532"}
 -   [Example]{.ribbon-highlight}: Unit Test
