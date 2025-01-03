@@ -35,3 +35,167 @@
     -   $\beta$: Fixed effects coefficients
     -   $Z_i$: A design matrix for the random effects that's assumed to be a subset of $X_i$
     -   $b_i$: Random effects coefficients
+
+## Examples {#sec-me-glmm-ex .unnumbered}
+
+-   [Example 1]{.ribbon-highlight}: GAM with Varying Intercepts ([source](https://freerangestats.info/blog/2024/12/23/depression-and-vote))\
+
+    -   Did counties with more depressed people voted more for Trump?
+
+    ::: panel-tabset
+    ## Data and Cleaning
+
+    ``` r
+    library(tidyverse)
+
+    # https://stacks.cdc.gov/view/cdc/129404
+    dep <- readxl::read_excel("cdc_129404_DS1.xlsx", skip = 1)
+    election_data_url <- "https://raw.githubusercontent.com/tonmcg/US_County_Level_Election_Results_08-24/refs/heads/master/2024_US_County_Level_Presidential_Results.csv"
+    votes <- read_csv(election_data_url)
+
+    votes_dep_dat <- votes |>
+      inner_join(dep, by = c("county_fips" = "CountyFIPS code")) |>
+      mutate(cpe = `Crude Prevalence Estimate` / 100,
+             aape = `Age-adjusted Prevalence Estimate` / 100)
+    glimpse(votes_dep_dat)
+    #> Rows: 3,107
+    #> Columns: 18
+    #> $ state_name                                           <chr> "Alabama", "Alabama", "Alabama", "Alabama", "Alabama", "Alabama", "Alaba…
+    #> $ county_fips                                          <chr> "01001", "01003", "01005", "01007", "01009", "01011", "01013", "01015", …
+    #> $ county_name                                          <chr> "Autauga County", "Baldwin County", "Barbour County", "Bibb County", "Bl…
+    #> $ votes_gop                                            <dbl> 20447, 95144, 5578, 7563, 25271, 1099, 5167, 34841, 8704, 11342, 16901, …
+    #> $ votes_dem                                            <dbl> 7429, 24763, 4120, 1617, 2569, 2983, 3248, 13170, 5402, 1550, 2697, 2511…
+    #> $ total_votes                                          <dbl> 28139, 120973, 9766, 9230, 28024, 4104, 8459, 48435, 14215, 12965, 19708…
+    #> $ diff                                                 <dbl> 13018, 70381, 1458, 5946, 22702, -1884, 1919, 21671, 3302, 9792, 14204, …
+    #> $ per_gop                                              <dbl> 0.7266427, 0.7864895, 0.5711653, 0.8193933, 0.9017628, 0.2677875, 0.6108…
+    #> $ per_dem                                              <dbl> 0.26401080, 0.20469857, 0.42187180, 0.17518960, 0.09167142, 0.72685185, …
+    #> $ per_point_diff                                       <dbl> 0.46263193, 0.58179098, 0.14929347, 0.64420368, 0.81009135, -0.45906433,…
+    #> $ CountyName                                           <chr> "Autauga", "Baldwin", "Barbour", "Bibb", "Blount", "Bullock", "Butler", …
+    #> $ `State Name`                                         <chr> "Alabama", "Alabama", "Alabama", "Alabama", "Alabama", "Alabama", "Alaba…
+    #> $ `Crude Prevalence Estimate`                          <dbl> 24.52297, 24.61480, 23.68052, 24.80906, 26.65236, 22.00814, 23.88319, 26…
+    #> $ `95% Confidence Interval for Crude Estimates`        <chr> "23.3-25.8", "23.3-26", "22.7-24.8", "23.6-26.1", "25.3-28.1", "21-23.1"…
+    #> $ `Age-adjusted Prevalence Estimate`                   <dbl> 24.9, 25.7, 24.2, 25.1, 27.5, 22.4, 24.9, 27.0, 24.9, 27.5, 27.6, 25.3, …
+    #> $ `95% Confidence Interval for Age-adjusted Estimates` <chr> "23.6-26.4", "24.3-27.1", "23.1-25.3", "23.9-26.4", "26-29", "21.3-23.6"…
+    #> $ cpe                                                  <dbl> 0.2452297, 0.2461480, 0.2368052, 0.2480906, 0.2665236, 0.2200814, 0.2388…
+    #> $ aape                                                 <dbl> 0.249, 0.257, 0.242, 0.251, 0.275, 0.224, 0.249, 0.270, 0.249, 0.275, 0.…
+    ```
+
+    -   [per_gop]{.var-text}: Percentage of votes cast for the Republican presidential candidate
+    -   [cpe]{.var-text}: Crude Prevalence Estimate (percentage); depression measure
+
+    ## Binomial Model
+
+    ``` r
+    mod_bin_inter <- 
+      lme4::glmer(per_gop ~ cpe + (1 | state_name), 
+                  family = "binomial", 
+                  weights = total_votes,
+                  data = votes_dep_dat)
+
+    summary(mod_bin_inter)
+    #> Random effects:
+    #>  Groups     Name        Variance Std.Dev.
+    #>  state_name (Intercept) 0.4636   0.6809  
+    #> Number of obs: 3107, groups:  state_name, 50
+    #> 
+    #> Fixed effects:
+    #>             Estimate Std. Error z value Pr(>|z|)    
+    #> (Intercept) -3.27338    0.09572   -34.2   <2e-16 ***
+    #> cpe         16.40275    0.01073  1529.1   <2e-16 ***
+    #> ---
+    #> Signif. codes:  0 ‘***’ 0.001 ‘**’ 0.01 ‘*’ 0.05 ‘.’ 0.1 ‘ ’ 1
+    #> 
+    #> Correlation of Fixed Effects:
+    #>     (Intr)
+    #> cpe -0.022
+    ```
+
+    -   This lets the vote for Trump in any state vary for all the state-specific things that aren’t in our model.
+    -   States weighted based on their overall number of voters, which makes particular sense for a binomial or similar family response.
+    -   [{lme4}]{style="color: #990000"} doesn't support a quasi-binomial distribution. With the binomial distribution, it's assumed that the relationship between the mean and variance is $p(1-p)/n$ which means overdispersion isn't being handled correctly.
+        -   This results in CIs that are too narrow.
+    -   We see an overall (constant nation-wide) relationship (fixed effect) between depression ([cpe]{.var-text}) and voting ([per_gop]{.var-text}) in the counties (observation-level) within each state.
+
+    ## GAM with Varying Intercepts
+
+    ``` r
+    # must be a factor to use as a random effect in gam
+    votes_dep_dat <- mutate(votes_dep_dat, state_name = as.factor(state_name))
+
+    mod_quasi_bin_inter <- 
+      mgcv::gam(per_gop ~ cpe + s(state_name, bs = 're') , 
+                family = quasibinomial, 
+                weights = total_votes,
+                data = votes_dep_dat)
+
+    #> per_gop ~ cpe + s(state_name, bs = "re")
+    #> 
+    #> Parametric coefficients:
+    #>             Estimate Std. Error t value Pr(>|t|)    
+    #> (Intercept)  -3.2466     0.2802  -11.59   <2e-16 ***
+    #> cpe          16.3333     0.6224   26.24   <2e-16 ***
+    #> ---
+    #> Signif. codes:  0 ‘***’ 0.001 ‘**’ 0.01 ‘*’ 0.05 ‘.’ 0.1 ‘ ’ 1
+    #> 
+    #> Approximate significance of smooth terms:
+    #>                 edf Ref.df     F p-value    
+    #> s(state_name) 48.44     49 20.54  <2e-16 ***
+    #> ---
+    #> Signif. codes:  0 ‘***’ 0.001 ‘**’ 0.01 ‘*’ 0.05 ‘.’ 0.1 ‘ ’ 1
+    #> 
+    #> R-sq.(adj) =  0.345   Deviance explained = 40.3%
+    #> GCV = 3333.9  Scale est. = 3387.6    n = 3107
+
+    broom::glance(mod_quasi_bin_inter)
+    #> # A tibble: 1 × 9
+    #>      df logLik   AIC   BIC  deviance df.residual  nobs adj.r.squared  npar
+    #>   <dbl>  <dbl> <dbl> <dbl>     <dbl>       <dbl> <int>         <dbl> <int>
+    #> 1  50.4     NA    NA    NA 10024845.       3057.  3107         0.345    52
+    ```
+
+    -   [{mgcv}]{style="color: #990000"} does have a quasi-binomial family available
+
+    -   The standard error for [cpe]{.var-text} is much higher 0.6224, compared to 0.0107 in the Binomial model
+
+        -   This will result in more realistic CI intervals
+
+    -   Visualization\
+        ![](_resources/Mixed-Effects-GLMM.resources/ex1-quasi-bin-inter.png){.lightbox width="532"}
+
+        <Details>
+
+        <Summary>Code</Summary>
+
+        ``` r
+        aug_quasi_bin_inter <- 
+          broom::augment(mod_quasi_bin_inter, 
+                         type.predict = "response") |> 
+          mutate(lower = .fitted - 1.96 * .se.fit,
+                 upper = .fitted + 1.96 * .se.fit)
+
+
+        ggplot(aug_quasi_bin_inter, 
+               aes(x = cpe, 
+                   group = state_name)) +
+          geom_point(aes(y = per_gop, 
+                         color = state_name), 
+                     alpha = 0.5) +
+          geom_ribbon(aes(ymin = lower, 
+                          ymax = upper), 
+                      fill = "gray", 
+                      alpha = 0.5) +
+          geom_line(aes(y = .fitted, 
+                        color = state_name)) +
+          scale_y_continuous(limits = c(0, 1), 
+                             label = scales::label_percent()) +
+          scale_x_continuous(label = scales::label_percent()) +
+          scale_color_viridis_d(option = "turbo") + 
+          labs(x = "Crude prevalence estimate of depression",
+               y = "Percentage vote for Trump in 2024 election",
+               subtitle = "Lines are quasibinomial generalized additive model with state-level random intercept",
+               title = "Counties with more depression voted more for Trump") +
+          theme_notebook(legend.position = "none")
+        ```
+
+        </Details>
+    :::
