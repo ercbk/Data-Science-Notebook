@@ -17,7 +17,7 @@
         -   Performs variable selection on both the fixed and random effects simultaneously through MCP, SCAD, or LASSO penalties.
         -   Supports Binomial, Gaussian, and Poisson data with canonical links
     -   [{]{style="color: #990000"}[mgcv::gamm](https://cran.r-project.org/web/packages/mgcv/mgcv.pdf){style="color: #990000"}[}]{style="color: #990000"} - Fits the specified generalized additive mixed model (GAMM) to data, by a call to [{nlme::lme}]{style="color: #990000"} in the normal errors identity link case, or by a call to `gammPQL` (a modification of glmmPQL from [{MASS}]{style="color: #990000"}) otherwise.
-        -   **There is a bug (as of Jan 2025) in `gamm` that prohibits the random effects from being included in the fitted values when the [random]{.arg-text} argument is used and there's *not* a spline in the formula** (See [Examples](mixed-effects-glmm.qmd#sec-me-glmm-ex){style="color: green"} \>\> Example 1)
+        -   \*\* There is a bug (as of Jan 2025) in `gamm` that prohibits the random effects from being included in the fitted values when the [random]{.arg-text} argument is used and there's *not* a spline in the formula \*\* (See [Examples](mixed-effects-glmm.qmd#sec-me-glmm-ex){style="color: green"} \>\> Example 1)
             -   In docs for the function, it does say that a manual calculation is required, but I've only found that to be the case in the specification stated above.
         -   Performs poorly with binary data, since it uses PQL. It is better to use `gam` with `s(...,bs="re")` terms, or [{gamm4}]{style="color: #990000"}.
         -   Usually much slower than `gam`
@@ -56,9 +56,10 @@
 
 ## Examples {#sec-me-glmm-ex .unnumbered}
 
--   [Example 1]{.ribbon-highlight}: GAMM with Varying Intercepts ([source](https://freerangestats.info/blog/2024/12/23/depression-and-vote))\
+-   [Example 1]{.ribbon-highlight}: GAMM with Varying Intercepts ([source](https://freerangestats.info/blog/2024/12/23/depression-and-vote), [source](https://freerangestats.info/blog/2025/01/03/depression-and-vote-again))\
 
     -   Did counties with more depressed people voted more for Trump?
+    -   Binomial and Quasi-Binomial distributions are used to model a percent response variable
 
     ::: panel-tabset
     ## Data and Cleaning
@@ -190,6 +191,8 @@
 
     -   Either the `gam` function or the `gamm` function can be used to fit this model by using `s(state_name, bs = "re")`. It should NOT be fit using `gamm` and the [random]{.arg-text} argument, unless you aren't interested the fitted values or you want to include the random effects manually.
 
+        -   Using the California data as my test case, I also noticed that using `gamm` without a spline produced negative fitted values which I don't think should be possible with a Quasi-Binomial.
+
     -   `gamm` vs. `gam` (with spline "re" specification)
 
         -   Even though there are differences, these are practically the same model
@@ -281,13 +284,18 @@
     #> 
     #> R-sq.(adj) =  0.0981   
     #>   Scale est. = 3005.3    n = 3107
+
+    AIC(mod_quasi_bin_inter_spat_lme$lme, mod_quasi_bin_inter_spl$lme)
+    #>                                  df      AIC
+    #> mod_quasi_bin_inter_spat_lme$lme  7 8806.902
+    #> mod_quasi_bin_inter_spl$lme       4 8879.840
     ```
 
     -   With a spline function in the formula, there will now be random effects included with the fitted values when using `gamm` with [random]{.arg-text} argument
 
         -   I assume this is a bug.
 
-    -   The goal was to account for some of the probable spatial autorcorrelation, but the R^2^ indicates a worse fit.
+    -   The hope was to account for some of the probable spatial autorcorrelation. The R^2^ indicates an even worse fit while potentially more predictive given the lower AIC.
 
         -   See [Mixed Effects, Residual Covariance Structures \>\> Examples](mixed-effects-residual-covar.qmd#sec-me-rcs-ex){style="color: green"} \>\> Spatial Autocorrelation \>\> Example 1
 
@@ -337,6 +345,9 @@
 
         </Details>
 
+        -   A closer look at the black ribbons in these plots will show some states have some really squiggly lines (overfitting). This must be due to the longitude and latitude spline. I attempted to reduce the number on knots, and even at [k = 2]{.arg-text}, some ribbons remained very squiggly. I'm not sure why some of these lines werent' affected. I didn't drill down into the individual states data and fitted values further to see what was going on.
+        -   Some state's data and their trend lines (ribbons) didn't seem to match either.
+
     -   Centroid Calculations
 
         <Details>
@@ -349,9 +360,10 @@
         download.file('https://www2.census.gov/geo/tiger/GENZ2023/shp/cb_2023_us_county_500k.zip',
                       destfile = "../../Data/cb_2023_us_county_500k.zip", mode = "wb")
 
-        unzip("../../Data/cb_2023_us_county_500k.zip")
+        unzip("../../Data/cb_2023_us_county_500k.zip",
+              exdir = "../../Data")
 
-        counties <- st_read("cb_2023_us_county_500k.shp")
+        counties <- st_read("../../Data/cb_2023_us_county_500k.shp")
         county_cent <- counties |>
           st_centroid() 
 
@@ -369,3 +381,41 @@
 
         </Details>
     :::
+
+-   [Example 2]{.ribbon-highlight}: GAMM with Varying Intercepts and Varying Slopes ([source](https://freerangestats.info/blog/2024/12/23/depression-and-vote))
+
+    ``` r
+    mod_quasi_bin_intslp_spat <- 
+      mgcv::gamm(per_gop ~ cpe + s(long, lat),
+                 random = list(state_name = ~1 + cpe), 
+                 weights = total_votes, 
+                 family = quasibinomial, 
+                 data = dat_votes_dep_spat
+
+    summary(mod_quasi_bin_intslp_spat$gam)
+    #> Parametric coefficients:
+    #>             Estimate Std. Error t value Pr(>|t|)    
+    #> (Intercept)  -2.0995     0.5203  -4.035 5.59e-05 ***
+    #> cpe          10.4828     2.5033   4.188 2.90e-05 ***
+    #> ---
+    #> Signif. codes:  0 ‘***’ 0.001 ‘**’ 0.01 ‘*’ 0.05 ‘.’ 0.1 ‘ ’ 1
+    #> 
+    #> Approximate significance of smooth terms:
+    #>               edf Ref.df     F p-value    
+    #> s(long,lat) 26.15  26.15 8.248  <2e-16 ***
+    #> ---
+    #> Signif. codes:  0 ‘***’ 0.001 ‘**’ 0.01 ‘*’ 0.05 ‘.’ 0.1 ‘ ’ 1
+    #> 
+    #> R-sq.(adj) =  0.186   
+    #>   Scale est. = 2597.3    n = 3107
+
+    AIC(mod_quasi_bin_intslp_spat$lme, mod_quasi_bin_inter_spat_lme$lme)
+    #>                                  df      AIC
+    #> mod_quasi_bin_intslp_spat$lme     9 8605.691
+    #> mod_quasi_bin_inter_spat_lme$lme  7 8806.902
+    ```
+
+    -   This is a continuation from Example 1 where [mod_quasi_bin_inter_spat_lme]{.var-text} is a varying intercepts only model
+    -   This is an overall better model — better fit (higher R^2^) and more predictive (lower AIC)
+    -   Development of this model continues at [Mixed Effects, Residual Covariance Structures \>\> Examples](mixed-effects-residual-covar.qmd#sec-me-rcs-ex){style="color: green"} \>\> Spatial Autocorrelation \>\> Example 1
+    -   Visualization code can be found in Example 1
