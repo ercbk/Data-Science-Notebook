@@ -146,3 +146,89 @@
                     -   Not sure if that is just smoothed line with a point estimate of Travel Potential at each location or how exactly those values are calculated.
                         -   50m isn't a large distance so maybe all the locations aren't shown on the Y-Axis and the number of calculations produces an already, mostly, smooth line on it's own.
                     -   Partitioning a buffer zone into rings or some kind of interpolation could provided more granular estimates around the central buffer location.
+
+## Nearest Neighbors {#sec-geo-anal-nn .unnumbered}
+
+-   [Misc]{.underline}
+    -   Notes from [{spdep}]{style="color: #990000"} vignette, [Creating Neighbours using sf objects](https://r-spatial.github.io/spdep/articles/nb_sf.html), and its docs.
+    -   Packages
+        -   [{]{style="color: #990000"}[spdep](https://r-spatial.github.io/spdep/){style="color: #990000"}[}]{style="color: #990000"} - Spatial Dependence: Weighting Schemes, Statistics
+-   [Graph-based]{.underline}
+    -   **Relative Neighbor Graph (RNG)**
+
+        $$
+        d(x,y) \le \min\{\;\max\{d(x,z),d(y,z)\}\;|\; z \in S\;\}
+        $$
+
+        -   Neighbors are defined such that two points $x$ and $y$ are connected if the direct distance $d(x,y)$ is less than or equal to the minimum of the maximum distances from $x$ and $y$ to any third point $z \in S$
+
+    -   **Gabriel Graph (GG)**
+
+        $$
+        d(x,y) \le \min\{(d(x,z)^2 + d(y,z)^2)^{1/2} \;|\;z \in S\}
+        $$
+
+        -   Neighbors $x$ and $y$ are connected if the distance $d(x, y)$ is less than or equal to the square root of the summ of squared distances from $x$ and $y$ to any third point $z \in S$
+
+    -   **Sphere of Influence Graph (SOI)**
+
+        -   For a point set $S$, $x$ and $y$ are connected if their respective "spheres of influence" (circles centered at $x$ and $y$ with radii equal to the distance to their nearest neighbors) intersect in at least two places
+
+    -   Hierarchical Relationship: RNG $\subseteq$ GG $\subseteq$ SOI\
+        ![](_resources/Geospatial-Analysis.resources/graph_based_neighbors-1.png){.lightbox width="632"}
+
+        -   All the connections made by RNG will be made by GG, and all the connections made by GG will be made by SOI
+        -   RNG is the most restrictive while SOI is the least.
+
+    -   [Example]{.ribbon-highlight}: SOI\
+        ![](_resources/Geospatial-Analysis.resources/nn-graph-ex-soi-gg-1.png){.lightbox}
+
+        ``` r
+        library(spdep)
+        library(sf)
+        library(dbscan)
+
+        NY8_sf <- 
+          st_read(system.file(
+                    "shapes/NY8_bna_utm18.gpkg", 
+                    package = "spData"), 
+                  quiet = TRUE)
+        # validate geometries
+        table(st_is_valid(NY8_sf))
+        #> TRUE 
+        #>  281 
+
+        # calculate centroids in counties that will be nodes
+        NY8_ct_sf <- 
+          st_centroid(st_geometry(NY8_sf), 
+                      of_largest_polygon = TRUE)
+        coords_ct <- st_coordinates(NY8_ct_sf)
+
+        # convert point matrix to neighbor list
+        NY84_nb <- tri2nb(NY8_ct_sf)
+        # fit the soi graph and convert graph obj to a neighbor list
+        NY85_nb_soi <- 
+          graph2nb(soi.graph(NY84_nb, NY8_ct_sf))
+        NY85_nb_gg <- 
+          graph2nb(gabrielneigh(NY8_ct_sf))
+
+        par(mfrow = c(1, 2)
+        plot(st_geometry(NY8_sf), border = "gray")
+        plot(NY85_nb_soi,
+             coords_ct,
+             add = TRUE)
+        title(main = "Sphere of Influence", cex.main = 0.6)
+
+        plot(st_geometry(NY8_sf), border = "gray")
+        plot(NY85_nb_gg, 
+             coords_ct, 
+             add = TRUE)
+        title(main = "Gabriel Graph", cex.main = 0.6)
+        ```
+
+        -   I thought the difference would be more apparent between the two methods, but they're pretty similar.
+        -   I feel the GG graph is more connected overall, but the SOI is more densely connected where the nodes are denser.
+        -   There are two neighbor list conversions:
+            -   `tri2nb` returns a special list required as input for `soi.graph`. Also, I think [{dbscan}]{style="color: #990000"} is required for `soi.graph` but maybe not the others.
+            -   `graph2nb` converts a graph object to a neighbor list that's used for graphing the network
+        -   The RNG method (`relativeneigh`) is fit the same way as the GG method.

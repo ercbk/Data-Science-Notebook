@@ -83,6 +83,22 @@
 
     -   May need API key from Census Bureau (see [{tigris}]{style="color: #990000"} docs)
 
+    -   Validate geometries when loading a shape file
+
+        ``` r
+        NY8_sf <- 
+          st_read(system.file(
+                    "shapes/NY8_bna_utm18.gpkg", 
+                    package = "spData"), 
+                  quiet = TRUE)
+        # validate geometries
+        table(st_is_valid(NY8_sf))
+        #> TRUE 
+        #>  281 
+        ```
+
+        -   If `st_is_valid` returns FALSE, then you can run `st_make_valid`
+
     -   [Example]{.ribbon-highlight}: Counties in California
 
         ``` r
@@ -227,17 +243,27 @@
 
 ## Projections {#sec-geo-proc-proj .unnumbered}
 
--   Resources
+-   Misc
 
-    -   [Spatial Reference](https://spatialreference.org/)
+    -   Resources
 
-        -   Search
-            -   [Example]{.ribbon-highlight}: [Polar](https://spatialreference.org/ref/epsg/?search=polar) region
-                -   [Ellis](https://freerangestats.info/blog/2024/08/24/polar-maps) used a combination of WGS 84 (south) and NSIDC (north).
-        -   [Explorer](https://spatialreference.org/explorer.html)
-            -   Click a place on the map, choose "projected" (other options available), choose ESPG (other options available), then a list of projections is the output
-            -   [Example]{.ribbon-highlight}: Berlin\
-                ![](_resources/Geospatial,_Processing.resources/spat-ref-1.png){.lightbox width="432"}
+        -   [Spatial Reference](https://spatialreference.org/)
+            -   Search
+                -   [Example]{.ribbon-highlight}: [Polar](https://spatialreference.org/ref/epsg/?search=polar) region
+                    -   [Ellis](https://freerangestats.info/blog/2024/08/24/polar-maps) used a combination of WGS 84 (south) and NSIDC (north).
+            -   [Explorer](https://spatialreference.org/explorer.html)
+                -   Click a place on the map, choose "projected" (other options available), choose ESPG (other options available), then a list of projections is the output
+                -   [Example]{.ribbon-highlight}: Berlin\
+                    ![](_resources/Geospatial,_Processing.resources/spat-ref-1.png){.lightbox width="432"}
+        -   **epsg:** The EPSG code (if available), a standardized code for coordinate systems.
+
+        <!-- -->
+
+        -   **proj4string:** A text string defining the projection parameters in PROJ.4 format.
+
+        <!-- -->
+
+        -   **wkt:** The Well-Known Text representation of the CRS.
 
 -   WGS 84
 
@@ -342,3 +368,83 @@
 
         -   Latitude and longitude are converted to point geometry to match the polygon point geometry
         -   An inner join is used on the data and california polygon to get the points that are only in California.
+
+## sf {#sec-geo-proc-sf .unnumbered}
+
+-   [Misc]{.underline}
+    -   GEOS and S2 are engines
+        -   Some arguments work with different versions
+
+        -   Check versions
+
+            ``` r
+            sf_extSoftVersion()["GEOS"]
+            #>     GEOS 
+            #> "3.12.1" 
+            ```
+-   [Distances]{.underline}
+    -   [Planar Distances]{.underline} (Euclidean, feet or meters)
+        -   If your study area is small (e.g., a city block, a small park), the difference between planar and Great Circle distances will be minimal, and planar distances are usually sufficient
+        -   Uses Planar (projected) Coordinate Systems,
+            -   *UTM (Universal Transverse Mercator*)**:** Divides the Earth into 60 zones, each 6 degrees of longitude wide. Each zone has its own origin and projection parameters designed to minimize distortion within that zone.
+                -   e.g. UTM Zone 18N
+            -   *State Plane Coordinate System***:** Used in the United States, each state (or sometimes a portion of a state) has its own projection and parameters optimized for that specific area
+    -   [Great Circle Distances]{.underline} (latitude, longitude, degrees)
+        -   If your study area is large (e.g., a state, a country, multiple continents), the Earth's curvature becomes significant, and you *must* use Great Circle distances.
+        -   Uses Geographic (spherical) Coordinate Systems
+            -   A latitude and longitude system in degrees, which are angles measured on the Earth's surface. They are inherently spherical (or more accurately, ellipsoidal).
+            -   e.g. WGS 84 (World Geodetic System 1984), a widely used geographic coordinate system based on the WGS 84 ellipsoid with EPSG code 4326
+-   [Points in Polygons]{.underline}
+    -   [`st_centroid`](https://r-spatial.github.io/sf/reference/geos_unary.html)- Finds the point in the center of a polygon
+
+        -   This could be in a body of water (i.e. outside the polygon) for some oddly shaped boundaries such as counties with coastal inlets or bays, or gerrymandered districts, etc.
+
+        -   [Example]{.ribbon-highlight}
+
+            ``` r
+            # spherical
+            NY8_sf <- 
+              st_read(
+                system.file("shapes/NY8_bna_utm18.gpkg", 
+                            package = "spData"), 
+                quiet = TRUE
+              )
+            NY8_ct_sf <- 
+              st_centroid(
+                st_geometry(NY8_sf), 
+                of_largest_polygon = TRUE
+              )
+            # planar
+            st_is_longlat(NY8_ct_sf)
+            #> [1] FALSE
+
+            ny8_crs <- st_crs(NY8_sf)
+            # Set the CRS of the centroid geometry
+            NY8_ct_sf_sph <- 
+              st_set_crs(NY8_ct_sf, 
+                         ny8_crs)
+            # spherical
+            st_is_longlat(NY8_ct_sf)
+            #> [1] TRUE
+            ```
+
+    -   [`st_point_the_surface`](https://r-spatial.github.io/sf/reference/geos_unary.html) - Guarantees that the point will fall on the surface of a member polygon. (Code is the same as `st_centroid`)
+
+        -   The point won't necessarily be near the center.
+        -   Can generate random points in a polygon for labels
+
+    -   Generate a (potentially) more central point guaranteed to be within the polgon
+
+        ``` r
+        ny8_circs <- 
+          st_inscribed_circle(st_geometry(NY8_sf), 
+                              nQuadSegs = 0)
+
+        NY8_cic_sf <- 
+          st_cast(ny8_circs, 
+                  to = "POINT")
+        ```
+
+        -   `st_inscribed_circle`: Calculates the largest circle that can fit entirely *within* each geometry in [NY8_sf]{.var-text}.
+            -   [nQuadSegs]{.arg-text} controls the number of segments used to approximate the circle. When set to 0, it returns a 2-point LINESTRING (center point and a point on the circle). This representation is more accurate (center + radius) and efficient than using a polygon. This setting is only available for GEOS \>= "3.9.0". In general, a higher value (e.g. default = 30) results in a smoother polygon.
+        -   `st_cast`: Converts the 2-point LINESTRING to just a (center) point ([to = "POINT"]{.arg-text})
