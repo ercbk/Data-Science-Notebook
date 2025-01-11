@@ -150,27 +150,60 @@
 ## Nearest Neighbors {#sec-geo-anal-nn .unnumbered}
 
 -   [Misc]{.underline}
-    -   Notes from [{spdep}]{style="color: #990000"} vignette, [Creating Neighbours using sf objects](https://r-spatial.github.io/spdep/articles/nb_sf.html), and its docs.
+    -   Notes from [{spdep}]{style="color: #990000"} vignettes and its docs.
     -   Packages
         -   [{]{style="color: #990000"}[spdep](https://r-spatial.github.io/spdep/){style="color: #990000"}[}]{style="color: #990000"} - Spatial Dependence: Weighting Schemes, Statistics
-            -   Just about everything gets converted to a neighbor list of some sort at the end (e.g. adding spatial weights, moran's test, plotting)
-            -   Types of Neighbor Lists
-                -   `cell2nb` - Takes regular, flat, [square grids]{.underline} (via ncols, nrows) as inputs
-                    -   [type = rook]{.arg-text} (default)(shared edge) or [queen]{.arg-text} (shared edge or vertex)
-                    -   [torus = TRUE]{.arg-text}: The grid is mapped onto a torus, removing edge effects.
-                -   `graph2nb` - Takes a [graph-based]{.underline} neighbor object
-                    -   [sym = FALSE]{.arg-text} says if node A is a neighbor of node B, that doesn't necessarily mean that node B is a neighbor of node A
-                -   `grid2nb` - Takes [GridTopology]{.underline} class object (?)
-                    -   Maybe these are like H3 hexagonal grids
-                -   `knn2nb` - Takes a [k-NN]{.underline} object
-                    -   [sym = FALSE]{.arg-text} says if node A is a neighbor of node B, that doesn't necessarily mean that node B is a neighbor of node A
-                -   `poly2nb` - Takes a [sf object with (multi-)polygons]{.underline} or a list of polygon objects with class SpatialPolygon
-                    -   Builds a neighbours list based on regions with contiguous boundaries, that is sharing one or more boundary point.
-                -   `tri2nb` - Takes a coordinates matrix (e.g. centroids) and is the input for `soi.graph`
+    -   Plot differences between neighbor algorithms
+        -   It can be difficult to compare algorithms, so this helps make the differences more discernable.
+
+        -   [Example]{.ribbon-highlight}: From Example: SOI and GG
+
+            ``` r
+            diffs <- diffnb(NY85_nb_soi, NY85_nb_gg)
+
+            plot(st_geometry(NY8_sf), 
+                 border = "gray", 
+                 reset = FALSE,
+                 main = "Differences between SOI (black) and GG (red)")
+            plot(NY85_nb_soi, 
+                 coords = coords_ct, 
+                 add = TRUE)
+            plot(diffs, 
+                 coords = coords_ct, 
+                 add = TRUE, 
+                 col = "red", 
+                 lty = 2)
+            ```
+-   [Neighbor Lists]{.underline}
+    -   Just about everything gets converted to a neighbor list of some sort at the end (e.g. adding spatial weights, moran's test, plotting)
+    -   Types of Neighbor Lists
+        -   `cell2nb` - Takes regular, flat, [square grids]{.underline} (via ncols, nrows) as inputs
+            -   [type = rook]{.arg-text} (default)(shared edge) or [queen]{.arg-text} (shared edge or vertex)
+            -   [torus = TRUE]{.arg-text}: The grid is mapped onto a torus, removing edge effects.
+        -   `graph2nb` - Takes a [graph-based]{.underline} neighbor object
+            -   [sym = FALSE]{.arg-text} says if node A is a neighbor of node B, that doesn't necessarily mean that node B is a neighbor of node A
+        -   `grid2nb` - Takes [GridTopology]{.underline} class object (?)
+            -   Maybe these are like H3 hexagonal grids
+        -   `knn2nb` - Takes a [k-NN]{.underline} object
+            -   [sym = FALSE]{.arg-text} says if node A is a neighbor of node B, that doesn't necessarily mean that node B is a neighbor of node A
+        -   `poly2nb` - Takes a [sf object with (multi-)polygons]{.underline} or a list of polygon objects with class SpatialPolygon
+            -   Builds a neighbours list based on regions with contiguous boundaries, that is sharing one or more boundary point.
+        -   `tri2nb` - Takes a coordinates matrix (e.g. centroids) and is the input for `soi.graph`
 -   [Spatial Weights]{.underline}
     -   A spatial weights matrix defines how closely related each pair of nodes are
     -   `nb2listw` will add spatial weights to your neighbors list
-    -   Styles
+    -   `nb2listwdist` - Supplements `nb2listw` with additional options
+        -   Defaults: [type = "idw"]{.arg-text}, [alpha = 1]{.arg-text}, [style = "raw"]{.arg-text} (i.e. no normalization)
+        -   If both [type]{.arg-text} and [style]{.arg-text} are specified, I'd guess that normalization is applied to the weights and not the distances. (i.e. first [type]{.arg-text} applied, then [style]{.arg-text})
+        -   Types
+            -   Inverse Distance Weighting (IDW)\
+                $$w_{ij} = d_{ij}^{-\alpha}$$
+                -   IDW weights show extreme behaviour close to 0 and can take on the value infinity. In such cases, the infinite values are replaced by the largest finite weight present in the weights list.
+            -   Double-Power Distance Weights\
+                $$w_{ij} = e^{-\alpha \cdot d_{ij}}$$
+            -   Exponential Distance Decay\
+                $$w_{ij} = \left[1 - \left(\frac{d_{ij}}{d_{\textrm{max}}}\right)^{\alpha}\right]^{\alpha}$$
+    -   Normalization Styles
         -   **Row-Standardized (W)**
 
             -   Each row is standardized to sum to 1
@@ -216,6 +249,12 @@
             -   Each raw weight is divided by square root of row sums
             -   More robust to outliers or extreme values
             -   [Example]{.ribbon-highlight}: Analyzing disease clusters in areas with very uneven population density. Variance stabilization helps prevent false positives in dense areas
+
+        -   **Min/Max**
+
+            -   Divides the weights by the minimum of the maximum row sums and maximum column sums of the input weights
+
+            -   Similar to U and C styles
 -   [Graph-based]{.underline}
     -   **Relative Neighbor Graph (RNG)**
 
@@ -265,9 +304,13 @@
         NY8_ct_sf <- 
           st_centroid(st_geometry(NY8_sf), 
                       of_largest_polygon = TRUE)
+        class(NY8_ct_sf)
+        #> [1] "sfc_POINT" "sfc" 
         coords_ct <- st_coordinates(NY8_ct_sf)
+        class(coords_ct)
+        #> [1] "matrix" "array" 
 
-        # convert point matrix to neighbor list
+        # convert point list to neighbor list
         NY84_nb <- tri2nb(coords = NY8_ct_sf)
         # fit the soi graph and convert graph obj to a neighbor list
         NY85_nb_soi <- 
@@ -276,7 +319,7 @@
         NY85_nb_gg <- 
           graph2nb(gabrielneigh(coords = NY8_ct_sf))
 
-        par(mfrow = c(1, 2)
+        par(mfrow = c(1, 2))
         plot(st_geometry(NY8_sf), border = "gray")
         plot(NY85_nb_soi,
              coords = coords_ct,
@@ -319,7 +362,7 @@
 
         -   See Graph-based \>\> Example for code for [NY8_sf]{.var-text}, [NY8_ct_sf]{.var-text}, and [coords_ct]{.var-text}
 
-            -   Where [NY8_ct_sf]{.var-text} is point list of county centroids and [coords_ct]{.var-text} is the same thing but in a point matrix
+            -   Where [NY8_ct_sf]{.var-text} is a point list of county centroids and [coords_ct]{.var-text} is the same thing but in a point matrix
 
         -   `knn2nb` coverts the knn graph object to a neighbor list for graphing
 
