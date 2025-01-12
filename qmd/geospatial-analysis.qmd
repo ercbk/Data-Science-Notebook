@@ -147,13 +147,13 @@
                         -   50m isn't a large distance so maybe all the locations aren't shown on the Y-Axis and the number of calculations produces an already, mostly, smooth line on it's own.
                     -   Partitioning a buffer zone into rings or some kind of interpolation could provided more granular estimates around the central buffer location.
 
-## Nearest Neighbors {#sec-geo-anal-nn .unnumbered}
+## Spatial Weights {#sec-geo-anal-swgt .unnumbered}
 
 -   [Misc]{.underline}
     -   Notes from [{spdep}]{style="color: #990000"} vignettes and its docs.
     -   Packages
         -   [{]{style="color: #990000"}[spdep](https://r-spatial.github.io/spdep/){style="color: #990000"}[}]{style="color: #990000"} - Spatial Dependence: Weighting Schemes, Statistics
-    -   Spatial Weights Workflows
+    -   Workflows
         -   Possibly include plotting differences to compare neighbor algorithms to see which best aligns with analysis goals, and testing symmetry and disjointedness of the results. (See [Diagnostics, Geospatial](diagnostics-geospatial.qmd#sec-diag-geo){style="color: green"})
         -   Graph-based
             -   Create a points list object (e.g. `st_centroid`) $\rightarrow$ Fit neighbors algorithm (e.g. `gabrielneigh`) $\rightarrow$ Convert to neighbors list (e.g. `graph2nb`) $\rightarrow$ Add spatial weights (e.g. `nb2listw`)
@@ -161,6 +161,7 @@
         -   Distance-based
             -   Create a points list object (e.g. `st_centroid`) $\rightarrow$ Add back CRS specification to convert to geographical coordinates (e.g. `st_transform`,`st_set_crs`) $\rightarrow$ Fit neighbors algorithm (e.g. `knearneigh`) $\rightarrow$ Convert to neighbors list (e.g. `knn2nb`) $\rightarrow$ Add spatial weights (e.g. `nb2listw`)
                 -   Alternatively if you have latitude and longitude columns, convert to sf object via `st_as_sf` instead of creating a points list object (See [Geospatial, Preprocessing \>\> Projections](geospatial-processing.qmd#sec-geo-proc-proj){style="color: green"})
+                -   The conversion to geographical coordinates isn't necessary but the distances are more accurated than planar distances.
         -   Polygon-based (aka Contiguity-based)
             -   Make sure you have sf object or list of SpatialPolygon objects $\rightarrow$ Create neighbors list via `poly2nb` $\rightarrow$ Add spatial weights (e.g. `nb2listw`)
     -   Plot differences between neighbor algorithms
@@ -186,23 +187,28 @@
             ```
 -   [Neighbors Lists]{.underline}
     -   Just about everything gets converted to a neighbor list of some sort at the end (e.g. adding spatial weights, moran's test, plotting)
+    -   `edit` can be used to interactively add links (e.g. not detected erroneously) or remove links (e.g. mountain range separates boundaries).
     -   Types of Neighbor Lists
         -   `cell2nb` - Takes regular, flat, [square grids]{.underline} (via ncols, nrows) as inputs
             -   [type = rook]{.arg-text} (default)(shared edge) or [queen]{.arg-text} (shared edge or vertex)
             -   [torus = TRUE]{.arg-text}: The grid is mapped onto a torus, removing edge effects.
         -   `graph2nb` - Takes a [graph-based]{.underline} neighbor object
-            -   [sym = FALSE]{.arg-text} says if node A is a neighbor of node B, that doesn't necessarily mean that node B is a neighbor of node A
+            -   [sym = FALSE]{.arg-text} says don't add links to create symmetry
+                -   No symmetry means if node A is a neighbor of node B, that doesn't necessarily mean that node B is a neighbor of node A
             -   [sym = TRUE]{.arg-text} will insert links to restore symmetry, but the graphs then no longer exactly fulfil their neighbour criteria.
         -   `grid2nb` - Takes [GridTopology]{.underline} class object (?)
             -   Maybe these are like H3 hexagonal grids
         -   `knn2nb` - Takes a [k-NN]{.underline} object
-            -   [sym = FALSE]{.arg-text} says if node A is a neighbor of node B, that doesn't necessarily mean that node B is a neighbor of node A
+            -   [sym = FALSE]{.arg-text}says don't add links to create symmetry
+                -   No symmetry means if node A is a neighbor of node B, that doesn't necessarily mean that node B is a neighbor of node A
                 -   In the overwhelming majority of cases, k-NN leads to asymmetric neighbours
             -   `is.symmetric.nb` can be used to check for symmetry
         -   `poly2nb` - Takes a [sf object with (multi-)polygons]{.underline} or a list of polygon objects with class SpatialPolygon
             -   Builds a neighbours list based on regions with contiguous boundaries, that is sharing one or more boundary point.
             -   [snap]{.arg-text} allows the shared boundary points to be a short distance from one another.
                 -   e.g. A narrow body of water separates the boundaries where there's a ferry or a bridge that could in essence make the boundaries contiguous.
+                -   Sometimes there are geographical artefacts present which screw up the algorithm detecting continguous boundaries. By increasing the snap value, you can absorb the artefacts and detect the contiguous boundary between the shapes.
+                    -   There is also an `edit` function to interactively add missing neighbor links.
                 -   Defaults
                     -   For SpatialPolygons objects and sf objects with no coordinate reference system, it's 1.490116e-08 whichs is `sqrt(.Machine$double.eps)`
                     -   For sf objecst with coordinate reference systems, it's 1e-7 (approx 10mm) that's converted to units of the coordinate system.
@@ -264,7 +270,7 @@
             -   Divides the weights by the minimum of the maximum row sums and maximum column sums of the input weights
             -   Similar to U and C styles
 -   [Graph-based]{.underline}
-    -   Misc
+    -   [Misc]{.underline}
 
         -   No option to use Great Circle distances for geographical coordinates, only Euclidean distance (planar)
         -   All the graph-based neighbour schemes always ensure that all the points will have at least one neighbour.
@@ -276,6 +282,7 @@
         $$
 
         -   Neighbors are defined such that two points $x$ and $y$ are connected if the direct distance $d(x,y)$ is less than or equal to the minimum of the maximum distances from $x$ and $y$ to any third point $z \in S$
+        -   Does Not guarantee symmetry
 
     -   **Gabriel Graph (GG)**
 
@@ -284,10 +291,12 @@
         $$
 
         -   Neighbors $x$ and $y$ are connected if the distance $d(x, y)$ is less than or equal to the square root of the summ of squared distances from $x$ and $y$ to any third point $z \in S$
+        -   Does NOT guarantee symmetry
 
     -   **Sphere of Influence Graph (SOI)**
 
         -   For a point set $S$, $x$ and $y$ are connected if their respective "spheres of influence" (circles centered at $x$ and $y$ with radii equal to the distance to their nearest neighbors) intersect in at least two places
+        -   Guarantees symmetry
 
     -   Hierarchical Relationship: RNG $\subseteq$ GG $\subseteq$ SOI\
         ![](_resources/Geospatial-Analysis.resources/graph_based_neighbors-1.png){.lightbox width="632"}
@@ -430,6 +439,7 @@
 
         -   `nbdists` returns the Euclidean distances along the connections of k-NN graph
             -   Where [NY88_nb_sf]{.var-text} is the neighbor list of the k-NN graph object (see k-NN example) and [NY8_ct_sf]{.var-text} and [coords_ct]{.var-text} are the point list and point matrix of county centroids respectively (see Graph-based example)
+            -   The max of these distances is 26,564.68 meters or 26.6 km
         -   The 75^th^ percentile of the max of those distances is used as the upper threshold for the distance neighbors algorithm.
         -   If [longlat = TRUE]{.arg-text}, then Great Circle distance in kilometers is used
             -   See below the k-NN example for switching centroids to geographical coordinates
