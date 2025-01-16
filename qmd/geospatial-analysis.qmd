@@ -412,7 +412,7 @@ lightbox:
 
         -   `knn2nb` coverts the knn graph object to a neighbor list for graphing
 
-        -   If [longlat = TRUE]{.arg-text}, Great Circle distances in kilometers are used
+        -   If [longlat = TRUE]{.arg-text}, Great Circle distances in kilometers are used (See DIstance Neighbors \>\> Example 2)
 
             ``` r
             # Convert to geographic coordinates
@@ -430,11 +430,10 @@ lightbox:
 -   [Distance Neighbors]{.underline}
     -   Identifies neighbors within a euclidean (default) distance range using a k-NN graph
 
-        -   So, if upper threshold is a *fraction* (e.g. 75%) of the max edge distance, then more links will be made.
-            -   Over 100% (e.g. 1.45) then fewer links are made.
+        -   So, larger the upper threshold, then more links will be made.
         -   This fraction could correspond to a "reasonable" walking or driving distance if you're studying neighborhood effects.
 
-    -   [Example]{.ribbon-highlight}: ([source](https://r-spatial.github.io/spdep/articles/nb_sf.html#distance-neighbours))\
+    -   [Example 1]{.ribbon-highlight}: ([source](https://r-spatial.github.io/spdep/articles/nb_sf.html#distance-neighbours))\
         ![](_resources/Geospatial-Analysis.resources/nn-dist-ex-1.png){.lightbox group="nn-ex1-1"}
 
         ``` r
@@ -466,7 +465,66 @@ lightbox:
             -   Where [NY88_nb_sf]{.var-text} is the neighbor list of the k-NN graph object (see k-NN example) and [NY8_ct_sf]{.var-text} and [coords_ct]{.var-text} are the point list and point matrix of county centroids respectively (see Graph-based example)
             -   The max of these distances is 26,564.68 meters or 26.6 km
         -   The 75^th^ percentile of the max of those distances is used as the upper threshold for the distance neighbors algorithm.
-        -   If [longlat = TRUE]{.arg-text}, then Great Circle distance in kilometers is used
-            -   See below the k-NN example for switching centroids to geographical coordinates
+        -   If [longlat = TRUE]{.arg-text}, then Great Circle distance in kilometers is used (See Example 2)
         -   If [x]{.arg-text} is an "sf" object and [use_s2 = TRUE]{.arg-text}, spherical distances in kilometers are used.
-            -   See this vignette [section](https://r-spatial.github.io/spdep/articles/nb_sf.html#distance-neighbours-1) for a discussion on this setting
+            -   See this vignette [section](https://r-spatial.github.io/spdep/articles/nb_sf.html#distance-neighbours-1) for a discussion on this setting and [dwithin]{.arg-text}
+            -   `sf_use_s2(TRUE)` might also need to be set
+
+    -   [Example 2]{.ribbon-highlight}: Geological Distances\
+        ![](_resources/Geospatial-Analysis.resources/dist-neigh-ex2-1.png){.lightbox width="255"}
+
+        ``` r
+        ny_sf <- 
+          st_read(system.file(
+            "shapes/NY8_bna_utm18.gpkg", 
+            package = "spData"), 
+            quiet = TRUE)
+
+        ny_sf_ll <- st_transform(ny_sf, 4326)
+
+        # calculate centroids in counties that will be nodes
+        ny_ct_ll <- 
+          st_centroid(st_geometry(ny_sf_ll), 
+                      of_largest_polygon = TRUE)
+        st_is_longlat(ny_ct_ll)
+        #> [1] TRUE
+
+        # matrix format needed for plots
+        coords_ct_ll <- st_coordinates(ny_ct_ll)
+
+        # knn w/longlat = TRUE
+        ny_nb_ll <- 
+          knn2nb(knearneigh(ny_ct_ll, 
+                            k = 4,
+                            longlat = TRUE))
+
+        # Get maximum neighbor distance
+        dsts_ll <- unlist(nbdists(nb = ny_nb_ll, 
+                                  coords = ny_ct_ll))
+        max_1nn <- max(dsts_ll)
+        max_1nn
+        #> [1] 32.04742
+
+        # neighbors within range
+        ny_dn_ll <- 
+          dnearneigh(ny_ct_ll, 
+                     d1 = 0, 
+                     d2 = 0.005 * max_1nn, 
+                     longlat = TRUE)
+
+        # boundaries
+        plot(st_geometry(ny_sf_ll), 
+             border="grey", 
+             reset = FALSE,
+             main = paste0("Distance based neighbours 0 to ", 
+                           format(round(0.005 * max_1nn, 2)), " km"))
+        # nodes and edges
+        plot(ny_dn_ll, 
+             coords_ct_ll,
+             add = TRUE)
+        ```
+
+        -   Notice the distance is in kilometers and not meters
+        -   Since we're using geographical coordinates in our distance and centroid calcuations our boundaries have to be in the same coordinate system when plotting
+            -   If we weren't worried about plotting, then `st_tranform` could've been used on the centroids object instead of the dataframe.
+        -   [longlat = TRUE]{.arg-text} was set in both `knearneigh` and `dnearneigh`
