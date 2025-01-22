@@ -154,7 +154,7 @@
 -   Common use cases
 
     |  |  |
-    |---------------------------------------------------|---------------------|
+    |-----------------------------------------------|------------------------|
     | Every element but the first and the last one | \[1:-1\] |
     | Every element in reverse order | \[::-1\] |
     | Every element but the first and the last one in reverse order | \[-2:0:-1\] |
@@ -451,11 +451,29 @@
 
 -   [Github](https://github.com/astral-sh/uv), [Docs](https://docs.astral.sh/uv/)
 
+-   Benchmark ([source](https://pythonspeed.com/articles/faster-pip-installs/))
+
+    | Tool run with single CPU core | Cache | Wallclock time | CPU time |
+    |-------------------------------|-------|---------------:|---------:|
+
+    |                                     |      |      |      |
+    |-------------------------------------|------|-----:|-----:|
+    | `pip install`                       | Cold | 9.3s | 6.2s |
+    | `pip install`                       | Warm | 6.2s | 5.6s |
+    | `uv pip install --compile-bytecode` | Cold | 6.0s | 4.9s |
+    | `uv pip install --compile-bytecode` | Warm | 4.1s | 4.1s |
+
+    -   Pandas and MatPlotLib were installed (14 total packages)
+    -   uv is faster when testing with the same config, but not supernaturally faster than pip.
+    -   If you're installing a lot of dependencies, then using uv's ability to utilize multiple CPUs would likely increase the advantage.
+
 -   Package Manager
 
-    -   Written in Rust so it's fast
-    -   By writing it in Rust, it removes by design half of the bootstrapping problems cursing Python tooling. To install uv, you don't need to worry about which Python you use, where is your venv, and how you are going to deal with the PATH.
+    -   Written in Rust
+        -   By writing it in Rust, it removes by design half of the bootstrapping problems cursing Python tooling. To install uv, you don't need to worry about which Python you use, where is your venv, and how you are going to deal with the PATH.
     -   Drop-In replacement for common pip workflows
+    -   Downloads packages in parallel.
+    -   Disables the bytecode compilation by default, having it be opt-in as opposed to pip's opt-out.
 
 -   Environment Manager
 
@@ -493,26 +511,35 @@
 -   Misc
 
     -   If you installed python using the app-store, replace `python` with `python3`.
-
     -   Don't use sudo to install libraries, since it will install things outside of the virtual environment.
-
     -   Nor should you use "--user", since it's made to install things outside of the virtual environment.
-
     -   Don't mix pip, venv and Anaconda. Avoid Anaconda if you can. If you have to use Anaconda, don't use pip and venv. Limit yourself to Anaconda tools.
-
     -   If you get SSL errors (common if you are in a hotel or a company network) use the [--trusted-host pypi.org --trusted-host files.pythonhosted.org]{.arg-text} options with pip to work around the problem.
-
         -   e.g. `python -m pip install pendulum --trusted-host pypi.org --trusted-host files.pythonhosted.org`
-
     -   If you are behind a corporate proxy that requires authentication (common if you are in a company network), you can use the [--proxy]{.arg-text} option with pip to give the proxy address and your credentials.
-
         -   e.g. `python -m pip install pendulum --proxy http://your_username:yourpassword@proxy_address`
         -   It also works with the https_proxy environment variables
-
     -   `pip config set global.require-virtualenv True` will only allow pip to install packages while a virtual environment is activated.
-
         -   Probably needs to be set back to False when updating pip.
         -   May become the default in Python 3.13
+    -   Optimizations
+        -   Notes from [Faster pip installs: caching, bytecode compilation, and uv](https://pythonspeed.com/articles/faster-pip-installs/)
+        -   Use Wheel files (.whl)
+            -   Make sure you’re using the latest version of pip before installing dependencies. Binary wheels sometimes require newer versions of pip than the one packaged by default by your current Python.
+        -   Don’t use Alpine Linux
+            -   Stick to Linux distributions that use glibc, e.g Debian/Ubuntu/RedHat/etc.. Standard Linux wheels require glibc, but Alpine uses the musl C library.
+                -   Wheels for musl-based distributions like Alpine are available for many projects, but they’re less common.
+            -   Otherwise, if there's no wheel, you'll have to install from source which means a .tar.gz and potentially compiling some C code.
+        -   Caching
+            -   Have a warm cache
+                -   When a package manager like pip downloads a package, it will typically store a copy locally in a cache: some tool-specific directory on the filesystem. That means the next time you install that package, the package manager can check if it already has a cached copy, and if so just install that. This saves download times. If the package is already in the cache, we say the cache is “warm.”
+            -   Most CI systems will have some way to store a cache directory at the end of the run, and then load it at the beginning of the next run.
+            -   Storing and loading the cache also takes time, so if you have many or large dependencies try w/cache and w/o cache and see which is faster.
+        -   Disable bytecode compilation
+            -   After packages are unpacked on to the filesystem, package managers sometimes do one final step: they compile the `.py` source files into `.pyc` bytecode files, and store them in `__pycache__` directories.
+            -   This is an optimization to make loading Python code faster on startup (i.e. `import`).
+            -   Any module you import will still need to be compiled into a `.pyc`, it’s just that the work will happen when your program runs, instead of at package installation time. So if you’re importing all or most modules, overall you might not save any time at all, you’ve just moved the work to a different place.
+            -   This can be worthwhile when you're testing a setup as you might be installing many third-party packages for integration testing, but only using a small amount of those libraries’ code.
 
 -   Install library
 
@@ -1093,11 +1120,35 @@
 
 -   requirements.txt format
 
-    ```         
-    # comment
-    pandas==1.0.0
-    pyspark
-    ```
+    -   Example: With and without versions
+
+        ```         
+        # comment
+        pandas==1.0.0
+        pyspark
+        ```
+
+    -   Example: Using versions and hashes
+
+        ``` python
+        pandas==1.5.3 \
+            --hash=sha256:2d7a9d... \
+            --hash=sha256:4d8e6a...
+        matplotlib==3.7.2 \
+            --hash=sha256:8f28ba... \
+            --hash=sha256:3c1a7c...
+        ```
+
+        -   Hashes can be generated using tools like `pip hash` or `pip-compile` from `pip-tools`.
+
+        -   A package may have multiple hash depending on the OS, file type (e.g. .whl or .tar.gz), or package builds
+
+            -   e.g. a .whl file for Linux might differ from one for Windows because of differences in compiled C extensions.
+
+        -   Why?
+
+            -   Security: By including a hash, you ensure that the downloaded package is exactly the one intended. This helps prevent supply chain attacks where an attacker could replace a legitimate package with a malicious one.
+            -   Integrity: Verifies that the package hasn't been corrupted during download.
 
 -   pip: write names of all the packages in your environment to a requirement.txt file
 
