@@ -51,6 +51,7 @@ lightbox:
 
         -   [lty = 2]{.arg-text} is for dashed lines, yet there are solid red lines in the plot. A solid line indicates a symmetrical link. It happens because dashed lines are drawn from i to j and j to i. This overlap *sometimes* creates a solid line. ([source](https://github.com/r-spatial/spdep/issues/175#issuecomment-2589894277))
             -   Bivand said "sometimes," so perhaps this isn't a sure-fire representation of all the symmetric links.
+            -   The neighbor's list `plot` has an argument for adding arrows to asymmetric links
         -   There appears to be black dashed lines overlapped with red dashed lines. The black dashed lines are just imperfections in the rendering of the solid black lines. Maybe it's the angle that igraph or base R has trouble with, but anyways these instances should be interpreted as solid black lines.
 -   The `all.equal` function ([docs](https://rspatial.github.io/terra/reference/all.equal.html), from [{terra}]{style="color: #990000"}) can be used to examine the differences in distance calculations
 -   A graph of neighbors is not based on planar distances when some neighbor links cross each other.
@@ -516,20 +517,21 @@ lightbox:
 
     -   See Example 1 below for a visual explainer about these terms
 
-    -   **Orders** or **Spatial Lags** are the number of steps away from a node.
+    -   **Spatial Lags** are the number of steps away from a node. The neighbors at a particular spatial lag are that lag's **Order** **of Neighbors** (e.g. 4th lag has 4th order neighbors)
 
-        -   Using the analogy of a social network
-            1.  First-order neighbors (lag 1) are your direct friends
-            2.  Second-order neighbors (lag 2) are friends of your friends (but not your direct friends)
-            3.  Third-order neighbors (lag 3) are friends of friends of friends (but not including any previous connections)
+    -   Using the analogy of a social network
 
-    -   **Tracts** are the number of links that can be traversed at a certain order (i.e. number of steps away from a particular node)
+        1.  First-order neighbors (lag 1) are your direct friends
+        2.  Second-order neighbors (lag 2) are friends of your friends (but not your direct friends)
+        3.  Third-order neighbors (lag 3) are friends of friends of friends (but not including any previous connections)
 
-        -   This is like The Garden of Forking Paths in Statistical Rethinking where rings are orders and paths are tracts. (See [Statistical Rethinking, Chapter 2 \>\> Counting the Ways](https://ercbk.github.io/Statistical-Rethinking-Notebook/qmd/chapter-2.html#sec-ch2-count){style="color: green"})
+    -   This is kind of like The Garden of Forking Paths in Statistical Rethinking where rings are orders and paths are links. (See [Statistical Rethinking, Chapter 2 \>\> Counting the Ways](https://ercbk.github.io/Statistical-Rethinking-Notebook/qmd/chapter-2.html#sec-ch2-count){style="color: green"})
+
+    -   You can increase the number of lags until all the nodes have linked with every other node in the study area. Then, there are no more links to draw and increasing the order doesn't amount to anything.
 
     -   The order at which connectedness peaks could provide insight on a couple things.
 
-        -   It could indicate a characteristic scale of clustering in your datam spatial units (locations) are arranged in a way that maximizes connections at this many orders away.
+        -   It could indicate a characteristic arrangement of clustering of your data's spatial units (locations).
         -   It might reflect the underlying geography - maybe the typical "width" of clusters
         -   At what distance spatial autocorrelation might peak
 
@@ -537,6 +539,10 @@ lightbox:
 
         ::: panel-tabset
         ## Set-up
+
+        The data is a neighbor list for the census tracts of Syracuse, NY with spatial weights. The Polygon-based neighbor algorithm is used.
+
+        Spatial weights are not necessary for computing lags — only neighbors.
 
         ``` r
         pacman::p_load(
@@ -561,22 +567,27 @@ lightbox:
           subset(NY_nb, 
                  !is.na(ny_sf$AREANAME) & ny_sf$AREANAME == "Syracuse city")
 
-        lags <- 9
-
+        # using centroids to represent the census tracts
         sy_coords <- st_geometry(sy_sf) |> 
           st_centroid() |> 
           st_coordinates()
 
+        lags <- 9
         syr_nb_ords <- nblag(Sy0_nb, maxlag = lags)
         my_orders <- c(1, 2, 3, 7, 8)
         nb_ords_sub <- syr_nb_ords[my_orders]
         ```
 
-        -   Thoughts
+        -   `nblag` calculates 9 lags on a Polygons-based neighbors list.
+        -   Only really need these five orders of neighbors (aka lags) to illustrate the connectedness trend.
 
         ## All Nodes
 
         ![](_resources/Geospatial-Spatial-Weights.resources/diag-ex1-allnodes-1.png){.lightbox width="532"}
+
+        <Details>
+
+        <Summary>Code</Summary>
 
         ``` r
         plot_order <- function(nb_ord, ord) {
@@ -597,41 +608,71 @@ lightbox:
         )
         ```
 
-        -   Thoughts
+        </Details>
+
+        -   Order 1 (i.e. Lag 1) is the standard neighbors graph you get when plotting the neighbors list from `poly2nb`
+        -   As the orders increase, the graph becomes denser with links which indicates more connectedness. This connectedness peaks around Order 3 and then declines.
+        -   See Example 2 for a better way to visualize this trend with a heatmap and table.
 
         ## One Node
 
+        ![](_resources/Geospatial-Spatial-Weights.resources/diag-ex1-node-1.png){.lightbox width="582"}
+
+        <Details>
+
+        <Summary>Code</Summary>
+
         ``` r
-        pick_node <- function(item, item_id) {
+        pick_node <- function(item, item_id) { # <1>
           if (item_id != 28) {
-            item <- 0
+            item <- 0L
           }
           return(item)
         }
 
-
-        filter_node <- function(inner_list) {
+        filter_node <- function(inner_list) { # <2>
           num_items <- length(inner_list)
+          attr_list <- attributes(inner_list) # <3>
           filtered_list <- 
             map2(inner_list,
                  1:num_items,
                  pick_node
             )
+          attributes(filtered_list) <- attr_list
+          return(filtered_list)
         }
 
-        syr_nb_node <- 
+        syr_nb_node <-  # <4>
           map(syr_nb_ords,
-               filter_node)
+              filter_node)
 
-        nb_node_ords_sub <- syr_nb_node[my_orders]
+        plot_order2 <- function(nb_ord, ord) {
+          plot(st_geometry(sy_sf), 
+               border = "gray")
+          plot(nb_ord,
+               sy_coords,
+               add = TRUE)
+          title(main = paste("Order", ord), 
+                font.main = 2, # bold
+                cex.main = 1.5) # increase font size 1.5x
+        }
+        par(mfrow = c(3, 3))
         walk2(
-          nb_node_ords_sub,
-          my_orders,
-          plot_order
+          syr_nb_node,
+          1:lags, # number of orders
+          plot_order2
         )
         ```
 
-        -   Thoughts
+        1.  Each node has a numeric vector listing its neighbors. This function sets every node's neighbors vector to 0 that isn't node 28.
+        2.  For a particular order, this function loops through all nodes and applying `pick node` to each one.
+        3.  Each order list is a neighbor list class with various attributes. These attributes are needed for plotting, so I'm adding them back to the returned list.
+        4.  Loops all the orders (lags) in the list generated by `nblag` and applies `filter_node` to each one
+
+        </Details>
+
+        -   These plots show how each order of neighbors expands further and further away from the source node until all the nodes in the study area have been linked.
+        -   Each node can only be linked to the source node once during the process. By Order 7, all nodes in the study region have been linked to this source node. This is indicated by Orders 8 and 9 having no links.
         :::
 
     -   [Example 2]{.ribbon-highlight}: Analyze via Heatmap and Table
@@ -639,15 +680,19 @@ lightbox:
         ::: panel-tabset
         ## Set-Up
 
-        The data is a neighbor list of Syracuse, NY with spatial weights. The Polygon-based neighbor algorithm is used.
+        The data is a neighbor list for the census tracts of Syracuse, NY with spatial weights. The Polygon-based neighbor algorithm is used.
 
         Spatial weights are not necessary for computing lags — only neighbors.
+
+        <Details>
+
+        <Summary>Code</Summary>
 
         ``` r
         pacman::p_load(
           spdep, # nb list manipulation
           dplyr, # data manipulation
-          tidyplots # heatmap
+          tidyplots, # heatmap
           tinytable # table
         )
 
@@ -666,6 +711,8 @@ lightbox:
                  !is.na(ny_sf$AREANAME) & ny_sf$AREANAME == "Syracuse city")
         ```
 
+        </Details>
+
         ## Preprocessing
 
         ``` r
@@ -676,7 +723,7 @@ lightbox:
         # doesn't require weights, just neighbors
         syr_nb_lags <- nblag(Sy0_nb, maxlag = lags)        
 
-        clean_nb <- function(nb_list, orders) {
+        clean_nb <- function(nb_list, orders) { # <1>
           # stops messages, but will need to subset results
           q_as_tibble <- purrr::quietly(as_tibble)
           nb_list |> 
@@ -685,64 +732,81 @@ lightbox:
             # create tibble quietly
             q_as_tibble(.name_repair = "unique") |> 
             # subsetting hack for base pipe
-            (\(x) x[["result"]])() |> 
+            (\(x) x[["result"]])() |>  # <2>
             mutate(order = orders)
         }
 
-        dat_nb <- 
+        dat_nb <-  # <3>
           purrr::map2(
             syr_nb_lags,
             lags_txt,
             clean_nb
           ) |> 
           purrr::list_rbind() |> 
-          rename("num_tracts" = `...1`,
+          rename("tot_neigh" = `...1`,
                  "tot_nodes" = "n") |> 
-          mutate(num_tracts = as.integer(num_tracts),
+          mutate(tot_neigh = as.integer(tot_neigh),
                  order = factor(order, 
                                 ordered = TRUE,
                                 levels = rev(lags_txt))) |> 
-          filter(num_tracts != 0) |> 
-          # make sure each order category has full range of num_tracts
-          tidyr::complete(order, 
-                          num_tracts = 1:max(num_tracts),
+          filter(tot_neigh != 0) |>  # <4>
+          # make sure each order category has full range of tot_neigh
+          tidyr::complete(order,  # <5>
+                          tot_neigh = 1:max(tot_neigh),
                           fill = list(tot_nodes = 0)) |> 
-          relocate(order, .before = "num_tracts")
+          relocate(order, .before = "tot_neigh")
         ```
 
-        -   Thoughts
+        1.  `clean_nb` takes a neighbors list and extracts the neighbor vectors for each node. Then it tallies then the lengths of these neighbors vectors, i.e. how many nodes have 4 neighbors? how many nodes have 5 neighbors, etc.
+        2.  I might've been able to use `purrr::pluck` here, but I went ahead and used the hacky way to extract "results" from the list output of function that quietly creates the tibble (base pipe doesn't allow you to (cleanly) subset ¯\\\_(ツ)\_/¯). `quietly` just doesn't stop the messages, it collects errors, too. So, I needed to subset the list element with the tibble in it.
+        3.  This whole chunk shapes the data into a long format of the connectedness matrix in the [{spdep}]{style="color: #990000"} vignette. Long format is needed for the heatmap function.
+        4.  Bivand includes in his node tallies, the number of nodes with 0 neighbors. I need to remove these values for the heatmap to make sense.
+        5.  I need each order category to hava full range of neighbor values. Otherwise, there'd be blank spots (NAs) in the heatmap. 0 values are used to fill in the blank spots. This function is similar to `expand`.
 
         ## Heatmap
 
-        ![](_resources/Geospatial-Analysis.resources/gwgt-diag-conn-heat-1.png){.lightbox width="482"}
+        ![](_resources/Geospatial-Spatial-Weights.resources/gwgt-diag-conn-heat-1.png){width="582"}
+
+        <Details>
+
+        <Summary>Code</Summary>
 
         ``` r
         dat_nb |> 
-          tidyplot(x = num_tracts, 
+          tidyplot(x = tot_neigh, 
                    y = order, 
                    color = tot_nodes,
                    width = 125,
                    height = 125) |> 
           add_heatmap(rotate_labels = 0) |>
           adjust_colors(colors_continuous_cividis) |>
-          adjust_legend_title("Total Nodes") |> 
+          adjust_legend_title("Total Census Tracts") |> 
           adjust_y_axis(title = "Order") |> 
-          adjust_x_axis(title = "Number of Tracts",
+          adjust_x_axis(title = "Total Neighbors",
                         position = "top") +
           theme_notebook()
         ```
 
-        -   Thoughts
+        </Details>
+
+        -   Each row of the heatmap shows the distribution of nodes (census tracts) among the potential neighbor totals for each lag (i.e. order of neighbors)
+            -   [Example]{style="color: green"}: For the first lag (first row), the brightest yellow cell says there around 16 census tracts that have 6 First Order neighbors (other census tracts) linked to them.
+        -   Connectedness peaks in the Third Order of neighbors (3^rd^ lag) and slightly lessens in the Fourth Order of neighbors. Most nodes in the 4th lag have around 12 or 13 Fourth Order neighbors.
+        -   By the Ninth Order, all nodes have been linked to all other nodes and no more links are possible.
 
         ## Table
 
         ![](_resources/Geospatial-Analysis.resources/gwgt-diag-conn-tbl-1.png){.lightbox width="482"}
 
+        <Details>
+
+        <Summary>Code</Summary>
+
         ``` r
         # Transform data into a matrix-style format
         dat_nb_wide <- dat_nb |> 
           arrange(desc(order)) |> 
-          tidyr::pivot_wider(names_from = num_tracts, 
+          tidyr::pivot_wider(names_from = tot_neigh, 
                              values_from = tot_nodes, 
                              values_fill = 0)
 
@@ -754,7 +818,10 @@ lightbox:
                    color = "white")
         ```
 
-        -   Thoughts
+        </Details>
+
+        -   The table shows the actual number of nodes (census tracts) for each Order (Y-axis) for each potential neighbors total (X-axis).
+        -   The pattern illustrated by spread of the colored cells and high number of neighbors reached shows that connectedness peaks in the 3rd Order of neighbors.
         :::
 
 -   [Disjointedness]{.underline}
