@@ -95,21 +95,24 @@ lightbox:
 
     ``` r
     nb2tbl <- function(nb_list, coords, color = "black") {
-      
+
       nb_len <- length(nb_list)
-      
+
       if (length(color) == 1) {
         nb_col <- rep(color, nb_len)
       } else {
         nb_col <- color
       }
-      
+
+      # flattens neighbor vectors into 1 vector
       cardnb <- card(nb_list)
-      
+
+      # source node indexes
       i <- rep(1:nb_len, cardnb)
+      # neighbor node indexes
       j <- unlist(nb_list)
-      
-      # segment coordinates and colors
+
+      # subsets coords by source, neighbor indexes
       nb_tib <- tibble::tibble(
         x_i = coords[, 1, drop = TRUE][i],
         x_j = coords[, 1, drop = TRUE][j],
@@ -117,9 +120,9 @@ lightbox:
         y_j = coords[, 2, drop = TRUE][j],
         seg_col = nb_col[i]
       )
-      
+
       return(nb_tib)
-      
+
     }
     ```
 
@@ -550,7 +553,7 @@ lightbox:
 
 -   [Connectedness]{.underline}
 
-    -   See Example 1 below for a visual explainer about these terms
+    -   See [Example 1]{style="color: green"} below for a visual explainer about these terms
 
     -   **Spatial Lags** are the number of steps away from a node. The neighbors at a particular spatial lag are that lag's **Order** **of Neighbors** (e.g. 4th lag has 4th order neighbors)
 
@@ -571,7 +574,7 @@ lightbox:
         -   At what distance spatial autocorrelation might peak
         -   Comparing peak connectiveness or the pattern of connectiveness between algorithms could be a way to analyze the sensitivity of algorithm choice, i.e. how much the neighbor algorithm matters to analysis.
 
-    -   [Example 1]{.ribbon-highlight}: Orders and Tracts Visually
+    -   [Example 1]{.ribbon-highlight}: Spatial Lags and Neighbor Orders Visually
 
         ::: panel-tabset
         ## Set-up
@@ -584,6 +587,9 @@ lightbox:
         pacman::p_load(
           spdep,
           purrr
+          ggplot2,
+          ggfx,     # points glow, border glow
+          gganimate
         )
 
         ny_sf <- 
@@ -709,6 +715,167 @@ lightbox:
 
         -   These plots show how each order of neighbors expands further and further away from the source node until all the nodes in the study area have been linked.
         -   Each node can only be linked to the source node once during the process. By Order 7, all nodes in the study region have been linked to this source node. This is indicated by Orders 8 and 9 having no links.
+
+        ## Animate
+
+        ![](_resources/Geospatial-Spatial-Weights.resources/nblags-gg-1.png){.lightbox width="363"}
+
+        <Details>
+
+        <Summary>Code</Summary>
+
+        ``` r
+
+        # converts a nb list to tbl
+        nb2tbl <- function(nb_list, 
+                           coords, 
+                           color = "black") {
+
+          nb_len <- length(nb_list)
+
+          if (length(color) == 1) {
+            nb_col <- rep(color, nb_len)
+          } else {
+            nb_col <- color
+          }
+          
+          # flattens neighbor vectors into 1 vector
+          cardnb <- card(nb_list)
+
+          # source node indexes
+          i <- rep(1:nb_len, cardnb)
+          # neighbor node indexes
+          j <- unlist(nb_list)
+
+          # subsets coords by source, neighbor indexes
+          nb_tib <- tibble::tibble(
+            # segment coords
+            x_i = coords[, 1, drop = TRUE][i],
+            x_j = coords[, 1, drop = TRUE][j],
+            y_i = coords[, 2, drop = TRUE][i],
+            y_j = coords[, 2, drop = TRUE][j],
+            # segment colors
+            seg_col = nb_col[i]
+          )
+
+          return(nb_tib)
+
+        }
+
+        names(syr_nb_node) <- lags_txt
+
+        # convert all lag nb lists to tbls
+        tbl_lags <- 
+          map(
+            syr_nb_node,
+            nb2tbl,
+            coords = sy_coords,
+          ) |> 
+          # creates col for order labels in combined nb tbl
+          list_rbind(names_to = "order") |> 
+          dplyr::mutate(order = factor(order, 
+                                       ordered = TRUE, 
+                                       levels = lags_txt))
+
+        # colors, fonts, theme settings
+        systemfonts::scan_local_fonts()
+
+        # going with syracuse univ. colors
+        # colors for title, subtitle, neighbor points
+        org_dk_stle <- prismatic::clr_darken("#F76900", shift = 0.10)
+        org_lgt_tle <- prismatic::clr_lighten("#F76900", shift = 0.20)
+        org_dk <- prismatic::clr_darken("#F76900", shift = 0.10)
+        org_lgt <- prismatic::clr_lighten("#F76900", shift = 0.30)
+
+        theme_set(theme_void())
+        theme_update(
+          plot.background = element_rect(fill = "#000E54", 
+                                         color = "#000E54"),
+          plot.margin = margin(0, 0, 0, 0),
+          plot.title = element_text(family = "Anybody",
+                                    face = "bold",
+                                    # size = 22, # gganimate setting
+                                    size = 16,
+                                    color = org_lgt_tle,
+                                    hjust = 0.5),
+          plot.subtitle = element_text(family = "Anybody", 
+                                       # size = 14, # gganimate setting
+                                       size = 12,
+                                       color = org_dk_stle,
+                                       hjust = 0.5)
+        )
+
+        # static plot
+        ggplot() +
+          # blur border
+          with_inner_glow(
+            geom_sf(data = sy_sf,
+                    fill = "white")
+          ) +
+          # inactive nodes
+          geom_point(aes(x = sy_coords[, 1], 
+                         y = sy_coords[, 2]),
+                     color = "#000E54") +
+          # active nodes
+          with_outer_glow(
+            geom_point(aes(x_j, y_j),
+                       data = tbl_lags |>
+                         dplyr::filter(order == "Third"),
+                       size = 2.5,
+                       color = org_dk),
+            colour = org_lgt
+          ) +
+          geom_segment(aes(x = x_i,
+                           y = y_i,
+                           xend = x_j,
+                           yend = y_j),
+                       data = tbl_lags |>
+                         dplyr::filter(order == "Third"),
+                       color = "#F76900") +
+          ggtitle(
+            "Syracuse, New York",
+            subtitle = "Third Order Neighbors"
+          )
+
+        # animated
+        plot_anim <- ggplot() +
+          with_inner_glow(
+            geom_sf(data = sy_sf,
+                    fill = "white")
+          ) +
+          geom_point(aes(x = sy_coords[, 1], 
+                         y = sy_coords[, 2]),
+                     color = "#000E54") +
+          with_outer_glow(
+            geom_point(aes(x_j, y_j),
+                       data = tbl_lags,
+                       size = 2.5,
+                       color = org_dk),
+            colour = org_lgt
+          ) +
+          geom_segment(aes(x = x_i,
+                           y = y_i,
+                           xend = x_j,
+                           yend = y_j),
+                       data = tbl_lags,
+                       color = "#F76900") +
+          ggtitle(
+            "Syracuse, New York",
+            subtitle = "{closest_state} Order Neighbors"
+          ) +
+          transition_states(order)
+
+        anim_save("nb-lags.gif", 
+                  animation = last_animation(), 
+                  path = "../../temp-storage")
+        ```
+
+        </Details>
+
+        -   The animated gif goes through all the orders of neighbors in the previous section.
+        -   The gif is 2.6MB which is too big for here given how massive this notebook already is, but it is posted on mastodon/bluesky.
+        -   [{gganimate}]{style="color: #990000"} is magical. Two lines: one to animate and one to change the subtitle, but it's a damn shame that the font family and font face aren't recognized. The font size is also manipulated somehow, so it needs larger settings.
+            -   There's an open [issue](https://github.com/thomasp85/gganimate/issues/504), so hopefully TLP eventually fixes it.
         :::
 
     -   [Example 2]{.ribbon-highlight}: Analyze via Heatmap and Table
