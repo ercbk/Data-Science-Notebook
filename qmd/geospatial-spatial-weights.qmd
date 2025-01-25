@@ -93,8 +93,14 @@ lightbox:
 
 -   Convert neighbors list to a tibble in order to use [{ggplot2}]{style="color: #990000"}
 
+    <Details>
+
+    <Summary>Code</Summary>
+
     ``` r
-    nb2tbl <- function(nb_list, coords, color = "black") {
+    nb2tbl <- function(nb_list, 
+                       coords, 
+                       color = "black") {
 
       nb_len <- length(nb_list)
 
@@ -113,18 +119,37 @@ lightbox:
       j <- unlist(nb_list)
 
       # subsets coords by source, neighbor indexes
-      nb_tib <- tibble::tibble(
-        x_i = coords[, 1, drop = TRUE][i],
-        x_j = coords[, 1, drop = TRUE][j],
-        y_i = coords[, 2, drop = TRUE][i],
-        y_j = coords[, 2, drop = TRUE][j],
-        seg_col = nb_col[i]
-      )
+      if (st_is_longlat(coords)) {
+        # geographic coords (i.e. long/lat)
+        nb_tib <- tibble::tibble(
+          # segment coords
+          x_i = st_coordinates(coords)[, 1, drop = TRUE][i],
+          x_j = st_coordinates(coords)[, 1, drop = TRUE][j],
+          y_i = st_coordinates(coords)[, 2, drop = TRUE][i],
+          y_j = st_coordinates(coords)[, 2, drop = TRUE][j],
+          # segment colors
+          seg_col = nb_col[i]
+        )
+      } else {
+        # projected coords (e.g. utm)
+        nb_tib <- tibble::tibble(
+          # segment coords
+          x_i = coords[, 1, drop = TRUE][i],
+          x_j = coords[, 1, drop = TRUE][j],
+          y_i = coords[, 2, drop = TRUE][i],
+          y_j = coords[, 2, drop = TRUE][j],
+          # segment colors
+          seg_col = nb_col[i]
+        )
+      }
+
 
       return(nb_tib)
 
     }
     ```
+
+    </Details>
 
 ## Spatial Weights {#sec-geo-swgt-swts .unnumbered}
 
@@ -345,6 +370,10 @@ lightbox:
     -   Does NOT guarantee symmetry (almost always asymmetric)
 
     -   [Example]{.ribbon-highlight}: ([source](https://r-spatial.github.io/spdep/articles/nb_sf.html#k-nearest-neighbours))\
+
+        ::: panel-tabset
+        ## Fit Model
+
         ![](_resources/Geospatial-Analysis.resources/nn-knn-ex-1.png){.lightbox group="nn-ex1-1" width="318"}
 
         ``` r
@@ -382,6 +411,76 @@ lightbox:
             sf_use_s2(TRUE)
             pts_ll1_nb <- knn2nb(knearneigh(NY8_ct_ll, k = 4))
             ```
+
+        ## Geographical With [{ggplot2}]{style="color: #990000"}
+
+        ![](_resources/Geospatial-Spatial-Weights.resources/knn-ex1-gg-1.png){.lightbox width="300"}
+
+        <Details>
+
+        <Summary>Code</Summary>
+
+        ``` r
+        ny_sf <- 
+          st_read(system.file(
+            "shapes/NY8_bna_utm18.gpkg", 
+            package = "spData"), 
+            quiet = TRUE)
+
+        ny_sf_ll <- st_transform(ny_sf, 4326)
+
+        ny_ct_ll <- 
+          st_centroid(st_geometry(ny_sf_ll), 
+                      of_largest_polygon = TRUE)
+        st_is_longlat(ny_ct_ll)
+
+        ny_nb_ll <- 
+          knn2nb(knearneigh(ny_ct_ll, 
+                            k = 4,
+                            longlat = TRUE))
+
+        # Convert neighbors list to tibble
+        tbl_nb <- nb2tbl(ny_nb_ll, ny_ct_ll)
+
+        # colors, fonts, theme settings
+        systemfonts::scan_local_fonts()
+        theme_set(theme_void())
+        theme_update(
+          plot.background = element_rect(fill = "#FFFDF9FF", 
+                                         color = "#FFFDF9FF"),
+          plot.margin = margin(0, 0, 0, 0),
+          plot.title = element_text(family = "Anybody",
+                                    face = "bold",
+                                    size = 22,
+                                    color = "#000E54",
+                                    hjust = 0.5),
+          plot.subtitle = element_text(family = "Anybody", 
+                                       size = 12,
+                                       color = "#000E54",
+                                       hjust = 0.5)
+        )
+
+        ggplot() +
+          geom_sf(data = ny_sf_ll,
+                  fill = "#FFFDF9FF") +
+          geom_sf(data = ny_ct_ll,
+                  color = "#000E54") +
+          geom_segment(aes(x = x_i,
+                           y = y_i,
+                           xend = x_j,
+                           yend = y_j),
+                       data = tbl_nb,
+                       color = "#000E54") +
+          ggtitle(
+            "Central New York",
+            subtitle = "k-NN with k = 4"
+          )
+        ```
+
+        -   Code for `nb2tbl` is at the bottom of [Neighbors Lists](geospatial-spatial-weights.html#sec-geo-swgt-nbls){style="color: green"}
+
+        </Details>
+        :::
 -   [Distance Neighbors]{.underline}
     -   Identifies neighbors within a euclidean (default) distance range using a k-NN graph
 
@@ -725,43 +824,6 @@ lightbox:
         <Summary>Code</Summary>
 
         ``` r
-
-        # converts a nb list to tbl
-        nb2tbl <- function(nb_list, 
-                           coords, 
-                           color = "black") {
-
-          nb_len <- length(nb_list)
-
-          if (length(color) == 1) {
-            nb_col <- rep(color, nb_len)
-          } else {
-            nb_col <- color
-          }
-          
-          # flattens neighbor vectors into 1 vector
-          cardnb <- card(nb_list)
-
-          # source node indexes
-          i <- rep(1:nb_len, cardnb)
-          # neighbor node indexes
-          j <- unlist(nb_list)
-
-          # subsets coords by source, neighbor indexes
-          nb_tib <- tibble::tibble(
-            # segment coords
-            x_i = coords[, 1, drop = TRUE][i],
-            x_j = coords[, 1, drop = TRUE][j],
-            y_i = coords[, 2, drop = TRUE][i],
-            y_j = coords[, 2, drop = TRUE][j],
-            # segment colors
-            seg_col = nb_col[i]
-          )
-
-          return(nb_tib)
-
-        }
-
         names(syr_nb_node) <- lags_txt
 
         # convert all lag nb lists to tbls
@@ -876,6 +938,7 @@ lightbox:
         -   The gif is 2.6MB which is too big for here given how massive this notebook already is, but it is posted on mastodon/bluesky.
         -   [{gganimate}]{style="color: #990000"} is magical. Two lines: one to animate and one to change the subtitle, but it's a damn shame that the font family and font face aren't recognized. The font size is also manipulated somehow, so it needs larger settings.
             -   There's an open [issue](https://github.com/thomasp85/gganimate/issues/504), so hopefully TLP eventually fixes it.
+        -   Code for `nb2tbl` is at the bottom of [Neighbors Lists](geospatial-spatial-weights.html#sec-geo-swgt-nbls){style="color: green"}
         :::
 
     -   [Example 2]{.ribbon-highlight}: Analyze via Heatmap and Table
