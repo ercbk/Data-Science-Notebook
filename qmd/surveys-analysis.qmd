@@ -139,7 +139,7 @@
         -   $d_i$ is ...?
 -   **Covariate Balancing Propensity Scores (CBPS)**
     -   When estimating propensity score, there is often a process of adjusting the model and choosing the covariates for better covariate balancing. The goal of CBPS is to allow the researcher to avoid this iterative process and suggest an estimator that is optimizing both the propensity score and the balance of the covariates together.
-    -   Main advantage is in cases when the researcher wants better balance on the covariates than traditional propensity score methods - because one believes the assignment model might be misspecified and would like to avoid the need to fit followup models to improve the balance of the covariates.
+    -   Main advantage is in cases when the researcher wants better balance on the covariates than traditional propensity score methods - because one believes the assignment model might be misspecified and would like to avoid the need to fit follow-up models to improve the balance of the covariates.
     -   Also see
         -   Misc \>\> packages \>\> [{]{style="color: #990000"}[CBPS](https://cran.r-project.org/web/packages/CBPS/){style="color: #990000"}[}]{style="color: #990000"}
         -   [{{balance}}]{style="color: goldenrod"} \>\> Steps \>\> Adjust \>\> Options
@@ -226,38 +226,38 @@
     -   Response Rates with/without weights
     -   Effects on outcome variable
 
-## Modeling {#sec-surveys-anal-modeling .unnumbered}
+## [{tidymodels}]{style="color: #990000"} {#sec-surveys-anal-tidym .unnumbered}
 
--   Tidymodels
+-   [Misc]{.underline}
 
-    -   Misc
+    -   [`step_dummy_multi_choice`](https://recipes.tidymodels.org/reference/step_dummy_multi_choice.html)
 
-        -   [`step_dummy_multi_choice`](https://recipes.tidymodels.org/reference/step_dummy_multi_choice.html)
+        ``` r
+        example_data <- tribble(
+          ~lang_1,    ~lang_2,   ~lang_3,
+          "English",  "Italian", NA,
+          "Spanish",  NA,        "French",
+          "Armenian", "English", "French",
+          NA,         NA,        NA
+        )
 
-            ``` r
-            example_data <- tribble(
-              ~lang_1,    ~lang_2,   ~lang_3,
-              "English",  "Italian", NA,
-              "Spanish",  NA,        "French",
-              "Armenian", "English", "French",
-              NA,         NA,        NA
-            )
+        recipe(~., data = example_data) |>
+          step_dummy_multi_choice(starts_with("lang")) |>
+          prep() |>
+          bake(new_data = NULL)
 
-            recipe(~., data = example_data) |>
-              step_dummy_multi_choice(starts_with("lang")) |>
-              prep() |>
-              bake(new_data = NULL)
+        #> # A tibble: 4 × 5
+        #>   lang_1_Armenian lang_1_English lang_1_French lang_1_Italian lang_1_Spanish
+        #>             <int>          <int>         <int>          <int>          <int>
+        #> 1               0              1             0              1              0
+        #> 2               0              0             1              0              1
+        #> 3               1              1             1              0              0
+        #> 4               0              0             0              0              0
+        ```
 
-            #> # A tibble: 4 × 5
-            #>   lang_1_Armenian lang_1_English lang_1_French lang_1_Italian lang_1_Spanish
-            #>             <int>          <int>         <int>          <int>          <int>
-            #> 1               0              1             0              1              0
-            #> 2               0              0             1              0              1
-            #> 3               1              1             1              0              0
-            #> 4               0              0             0              0              0
-            ```
+        -   Might be useful for preprocessing items with the same possible answers since creating one-hot encodes the typical way would result in duplicate columns.
 
-            -   Might be useful for preprocessing items with the same possible answers since creating one-hot encodes the typical way would result in duplicate columns.
+-   [Weights]{.underline}
 
     -   Frequency weights are used for all parts of the preprocessing, model fitting, and performance estimation operations.
 
@@ -267,26 +267,32 @@
 
         -   Not used with yardstick functions for calculating measures of model performance.
 
-    -   [Example]{.ribbon-highlight}: Importance weights
+    -   [Example]{.ribbon-highlight}: Importance weights w/regularized logistic
 
         ``` r
         training_sim <-
           training_sim %>%
           mutate(
-            case_wts = ifelse(class == "class_1", 60, 1),
+            case_wts = ifelse(class == "class_1", 
+                              60, 
+                              1),
             case_wts = parsnip::importance_weights(case_wts)
           )
 
         set.seed(2)
-        sim_folds <- vfold_cv(training_sim, strata = class)
+        sim_folds <- vfold_cv(training_sim, 
+                              strata = class)
 
         sim_rec <-
-          recipe(class ~ ., data = training_sim) %>%
-          step_ns(starts_with("non_linear"), deg_free = 10) %>%
+          recipe(class ~ ., 
+                 data = training_sim) %>%
+          step_ns(starts_with("non_linear"), 
+                  deg_free = 10) %>%
           step_normalize(all_numeric_predictors())
 
         lr_spec <-
-          logistic_reg(penalty = tune(), mixture = 1) %>%
+          logistic_reg(penalty = tune(), 
+                       mixture = 1) %>%
           set_engine("glmnet")
 
 
@@ -299,9 +305,13 @@
         cls_metrics <- metric_set(sensitivity, specificity)
         grid <- tibble(penalty = 10^seq(-3, 0, length.out = 20))
         set.seed(3)
+
         lr_res <-
           lr_wflow %>%
-          tune_grid(resamples = sim_folds, grid = grid, metrics = cls_metrics)
+          tune_grid(resamples = sim_folds, 
+                    grid = grid, 
+                    metrics = cls_metrics)
+
         autoplot(lr_res) # calibration curves
         ```
 
@@ -320,15 +330,30 @@
             -   Add [case_wts]{.var-text} variable to df
             -   Use `add_case_weights` function in workflow code
 
--   Remove the case weights from a workflow
+        -   Remove the case weights from a workflow
 
-    ``` r
-    lr_unwt_wflow <-
-      lr_wflow %>%
-      remove_case_weights()
-    ```
+            ``` r
+            lr_unwt_wflow <-
+              lr_wflow %>%
+              remove_case_weights()
+            ```
 
-    -   Useful if you want to make a comparison between models
+            -   Useful if you want to make a comparison between models
+
+## [{srvyr}]{style="color: #990000"} {#sec-surveys-anal-srvyr .unnumbered}
+
+-   Survey Design Object - Contains survey data as well as important design information (weights, strata identifiers, etc.).
+    -   Create a Survey Design Object
+
+        ``` r
+        nhis_svy <- as_survey_design(
+         .data = nhis_data,     # Dataset containing all variables
+         weights = SAMPWEIGHT,  # Sampling weights
+         strata = STRATA,       # Strata identifiers
+         ids = PSU,             # Sampling unit identifiers
+         nest = TRUE            # Sampling units are nested in strata
+        )
+        ```
 
 ## Visualization {#sec-surveys-anal-viz .unnumbered}
 
