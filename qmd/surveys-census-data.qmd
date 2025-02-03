@@ -851,6 +851,17 @@ lightbox:
 
 -   Packages
     -   [{]{style="color: #990000"}[ipumsr](https://tech.popdata.org/ipumsr/){style="color: #990000"}[}]{style="color: #990000"}
+        -   [collection = \*]{.arg-text} values for currently available datasets. If you want to check if this list has changed, use `ipums_data_collections`.
+            -   USA: ["usa"]{.arg-text}
+            -   CPS: ["cps"]{.arg-text}
+            -   International: ["ipumsi"]{.arg-text}
+            -   IPUMS Time Use
+                -   ATUS: ["atus"]{.arg-text}
+                -   AHTUS: ["ahtus"]{.arg-text}
+                -   MTUS: ["mtus"]{.arg-text}
+            -   IPUMS Health Surveys
+                -   NHIS: ["nhis"]{.arg-text}
+                -   MEPS: ["meps"]{.arg-text}
     -   [{{]{style="color: goldenrod"}[ipumspy](https://ipumspy.readthedocs.io/en/latest/){style="color: goldenrod"}[}}]{style="color: goldenrod"}
 -   There are plenty of steps to get this data which can seem a little daunting if you haven't dealt with this sort of process before. Some of the tasks:
     -   You have to set up an account where they ask who you are, what you do, and type of research for each type of survey, but it's just information collection and isn't determinative on whether you gain access to the data or not.
@@ -859,6 +870,8 @@ lightbox:
     -   Finding the exact design information needed to perform analyses.
     -   Some of the interfaces are slightly different but the main surveys are very similar.
     -   Need to [get an API key](https://developer.ipums.org/docs/v2/get-started/), of course, to be able to use packages
+        -   For R, it should stored in your `.Renviron` file and under [IPUMS_API_KEY]{.arg-text}
+-   [Available datasets](https://developer.ipums.org/docs/v2/apiprogram/apis/) through the API
 
 ### Design Information {#sec-surv-cens-ipums-di .unnumbered}
 
@@ -919,7 +932,7 @@ lightbox:
 
 -   The workflow is essentially: Select variables $\rightarrow$ Select Years $\rightarrow$ Select Data Format $\rightarrow$ Download
 
--   [Example]{.ribbon-highlight}: NHIS via Website
+-   [Example 1]{.ribbon-highlight}: NHIS via Website
 
     :::: panel-tabset
     ## 1. Getting Started
@@ -1065,3 +1078,124 @@ lightbox:
         -   Some basic information from variable details page, e.g. List of Variables, Availability, Codes, etc.
     -   "DDI" stands for the Data Documentation Initiative (DDI) which is a standard for documenting social science datasets. It's an XML file so it's machine readable (e.g. [{ipumsr}]{style="color: #990000"})
     ::::
+
+-   [Example 2]{.ribbon-highlight}: NHIS via [{ipumsr}]{style="color: #990000"}
+
+    -   API key should be in your `.Renviron`
+
+    -   Find the collection name of the NHIS survey
+
+        ``` r
+        ipums_data_collections()
+        #> # A tibble: 14 × 4
+        #>    collection_name     collection_type code_for_api api_support
+        #>    <chr>               <chr>           <chr>        <lgl>      
+        #>  1 IPUMS USA           microdata       usa          TRUE       
+        #>  2 IPUMS CPS           microdata       cps          TRUE       
+        #>  3 IPUMS International microdata       ipumsi       TRUE       
+        #>  4 IPUMS NHGIS         aggregate data  nhgis        TRUE       
+        #>  5 IPUMS IHGIS         aggregate data  ihgis        FALSE      
+        #>  6 IPUMS ATUS          microdata       atus         TRUE       
+        #>  7 IPUMS AHTUS         microdata       ahtus        TRUE       
+        #>  8 IPUMS MTUS          microdata       mtus         TRUE       
+        #>  9 IPUMS DHS           microdata       dhs          FALSE      
+        #> 10 IPUMS PMA           microdata       pma          FALSE      
+        #> 11 IPUMS MICS          microdata       mics         FALSE      
+        #> 12 IPUMS NHIS          microdata       nhis         TRUE       
+        #> 13 IPUMS MEPS          microdata       meps         TRUE       
+        #> 14 IPUMS Higher Ed     microdata       highered     FALSE           
+        ```
+
+        -   I want NHIS survey, so [nhis]{.arg-text} is what I want
+
+    -   Get the sample (aka survey year) names for the NHIS survey
+
+        ``` r
+        tail(get_sample_info("nhis"))
+        #> # A tibble: 6 × 2
+        #>   name   description
+        #>   <chr>  <chr>      
+        #> 1 ih2018 2018 NHIS  
+        #> 2 ih2019 2019 NHIS  
+        #> 3 ih2020 2020 NHIS  
+        #> 4 ih2021 2021 NHIS  
+        #> 5 ih2022 2022 NHIS  
+        #> 6 ih2023 2023 NHIS 
+        ```
+
+        -   I'm just pulling the 2023 survey, so I need [ih2023]{.arg-text}
+
+    -   Define Extract
+
+        ``` r
+        def_extract_nhis <- 
+          define_extract_micro(
+            collection = "nhis",
+            description = "2023 NHIS via API", # whatever you want
+            samples = "ih2023",
+            variables = c("SEX", 
+                          "AGE", 
+                          "REGION", 
+                          "BMICALC"),
+            data_format = "csv"
+          )
+
+        def_extract_nhis
+        #> Unsubmitted IPUMS NHIS extract 
+        #> Description: 2023 NHIS via API
+        #> 
+        #> Samples: (1 total) ih2023
+        #> Variables: (4 total) SEX, AGE, REGION, BMICALC          
+        ```
+
+        -   There's currently not programmatical way to search for variables. So you'll have to do that via the website. See Example 1.
+        -   All the inputs are subsettable from the extract definition, e.g. `names(usa_extract_definition$variables)`
+
+    -   Submit Request
+
+        ``` r
+        sub_extract_nhis <- submit_extract(def_extract_nhis)
+        #> Successfully submitted IPUMS NHIS extract number 2
+
+        sub_extract_nhis$status
+        #> [1] "queued"
+
+        names(sub_extract_nhis$variables)
+        #>  [1] "YEAR"       "SERIAL"     "STRATA"     "PSU"        "NHISHID"    "REGION"     "PERNUM"     "NHISPID"    "HHX"       
+        #> [10] "SAMPWEIGHT" "ASTATFLG"   "CSTATFLG"   "AGE"        "SEX"        "BMICALC"  
+
+        status_sub_nhis <- wait_for_extract(sub_extract_nhis)
+        #> Checking extract status...
+        #> IPUMS NHIS extract 2 is ready to download.        
+        ```
+
+        -   The extract won’t be downloadable immediately. They'll notify you via email or you can check via function.
+            -   The output can be subset if your script is noninteractive, e.g. `status_sub_nhis$status` which will say "completed" when ready. Other possible values: "queued", "started", "produced", "canceled", and "failed".
+            -   There's also `is_extract_ready` that returns a logical
+        -   Your variable list has been updated by the API to include all the preselected variables (ID variables and YEAR). See Example 1 for a description of the ID variables.
+        -   ASTATFLG and CSTATFLG indicate whether the person is an Adult or Child (1 each is sampled per household in this survey design)
+
+    -   Download Data
+
+        ``` r
+        path_ext_nhis <- 
+          download_extract(
+            extract = sub_extract_nhis,
+            download_dir = "../../Data/ipums/"          
+          )
+        ```
+
+        -   "For microdata extracts, only the file path to the downloaded .xml DDI file will be returned, as it is sufficient for reading the data provided in the associated .dat.gz data file."
+            -   See Example 1 for an explanation of the DDI file.
+        -   The data file name is `nhis_00002_csv.gz`. Since you can download previously requested extracts (e.g. download_extract("nhis:1") for the first nhis requested extract), I'm the 2 in the file name refers to the fact that this is my second NHIS request.
+            -   My history can be checked with `get_extract_history` which retrieves prior extracts, their survey years, and their variables.
+
+    -   Explore the DDI
+
+        ``` r
+        writeLines(ipums_var_desc(ddi_nhis, var = "BMICALC"))
+        #> BMICALC reports the Body Mass Index, a measure of body fat based on height and weight, as calculated by IPUMS NHIS from the public use file data on height and weight.  BMICALC was calculated using the following formula: [Weight in pounds/(Height in inches, squared)] multiplied by 703 and rounded to one digit past the implied decimal point.  Individuals not asked their weight and height are coded "000" (for "Not in universe") for BMICALC.   Individuals whose weight or height was topcoded, bottomcoded, or, for 1997 forward, an outlying value that was suppressed for confidentiality reasons, receive a code of "996" for BMICALC.
+        #> 
+        #> The website of the Centers for Disease Control and Prevention on BMI reports the following "standard weight status categories associated with BMI ranges for adults."  BMI below 18.5 is associated with "underweight" weight status; BMI 18.5 to 24.9 is associated with "normal" weight status; BMI 25.0 to 29.9 is associated with "overweight" weight status; BMI 30.0 and above is associated with "obese" weight status.  
+        #> &nbsp;The CDC website also notes, "the correlation between the BMI number and body fatness is fairly strong; however, the correlation varies by sex, race, and age."  For example, women tend to have more body fat than men at the same BMI; older people, on average, tend to have more body fat than young adults; and highly trained athletes may have a high BMI because of increased muscularity rather than increased body fatness.  The CDC adds, "It is important to remember that BMI is only one factor related to risk for disease," and that other predictors, such as waist circumference and levels of blood pressure and physical activity, are also important.    
+        ```
