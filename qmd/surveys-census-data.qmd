@@ -1,3 +1,8 @@
+---
+lightbox:
+  loop: true
+---
+
 # Census Data {#sec-surv-cens .unnumbered}
 
 ## Misc {#sec-surv-cens-misc .unnumbered}
@@ -30,7 +35,7 @@
                 -   Create large scale repeated regression statistics
                     -   e.g. Run regression for n groups, the group ID should be vertically composed into the variable for the parameter 'location_var'.
                     -   glms, logit, probit, and more.
-    -   [U.S. National Health Interview Survey (NHIS)](https://www.cdc.gov/nchs/nhis/index.html) - Monitored the health of the nation since 1957. NHIS data on a broad range of health topics are collected through personal household interviews. Survey results have been instrumental in providing data to track health status, health care access, and progress toward achieving national health objectives. ([source](https://www.census.gov/programs-surveys/nhis.html)) - Obtained from the IPUMS, an integrated collection of microdata and tabulations from official statistics programs of the U.S. and other countries - Uses a stratified, multistage sample design - Availability
+    -   [U.S. National Health Interview Survey (NHIS)](https://www.cdc.gov/nchs/nhis/index.html) - Monitored the health of the nation since 1957. NHIS data on a broad range of health topics are collected through personal household interviews. Survey results have been instrumental in providing data to track health status, health care access, and progress toward achieving national health objectives. ([source](https://www.census.gov/programs-surveys/nhis.html)). Uses a stratified, multistage sample design.
         -   [IPUMS](https://nhis.ipums.org/nhis-action/variables/group)
         -   [CDC](https://www.cdc.gov/nchs/nhis/documentation/index.html)
     -   [Current Population Survey (CPS)](https://cps.ipums.org/cps/index.shtml) - From 1962 to the present. Data include demographic information, rich employment data, program participation and supplemental data on topics such as fertility, tobacco use, volunteer activities, voter registration, computer and internet use, food security, and more.
@@ -855,17 +860,60 @@
     -   Some of the interfaces are slightly different but the main surveys are very similar.
     -   Need to [get an API key](https://developer.ipums.org/docs/v2/get-started/), of course, to be able to use packages
 
-### Design Information {#sec-surv-cens-ipums-di.unnumbered}
+### Design Information {#sec-surv-cens-ipums-di .unnumbered}
 
 -   You need to know information about the study design so that your variance estimates will be correct. This information will be inputs for the study design object if you're using [{survey}]{style="color: #990000"} or [{srvyr}]{style="color: #990000"}.
+
     -   What is the sampling unit id variable (e.g. primary sampling unit)
     -   Is there stratification? If so, what is the *stratification id* variable?
     -   Is there clustering? If so, what is the *cluster id* variable
         -   And have the cluster ids been *nested* inside the stratification id variable?
     -   Have the *weights* been included or do they need to be calculated?
--   Luckily the weights, stratification, and clustering variable should be automatically included in the dataset (See [Getting the Data](surveys-census-data.qmd#sec-surv-cens-ipums-getdat){style="color: green"}\>\> Example: NHIS via Website \>\> 6. Review and ID Variables)
-    -   Our variables are SAMPWEIGHT, STRATA, and PSU. If you check out the description of STRATA and PSU, it says they're what we require to handle stratification and clustering in our analysis.
-    -   Whether PSU is nested inside STRATA is a different matter.
+
+-   tl;dr
+
+    -   For the NHIS at least, the easiest way to figure out the inputs for your study design object is to look in the [Variance Estimation](https://nhis.ipums.org/nhis/userNotes_variance.shtml) guide where lo and behold, they just give it to you!
+
+        ``` r
+        library(survey)
+        library(srvyr)
+        data <- 
+          as_survey_design(data, 
+                           id = PSU, 
+                           weight = PERWEIGHT, 
+                           strata = STRATA, 
+                           nest = TRUE)
+        summarize(data, 
+                  var1_mean = survey_mean(var1, 
+                                          na.rm = TRUE))
+        ```
+
+-   Other methods to find these variables/parameters (in case other surveys aren't so nice)
+
+    -   Luckily the weights, stratification, and clustering variable should be automatically included in the dataset (See [Getting the Data](surveys-census-data.qmd#sec-surv-cens-ipums-getdat){style="color: green"}\>\> Example: NHIS via Website \>\> 6. Review and ID Variables)
+
+        -   Our variables are SAMPWEIGHT, STRATA, and PSU. If you check out the description of STRATA and PSU, it says they're what we require to handle stratification and clustering in our analysis.
+
+    -   Explore User Guide
+
+        ::: {layout-ncol="2"}
+        ![](_resources/Surveys,_Census_Data.resources/ipums-di-ug-1.png){.lightbox group="di-ug-1" width="332"}
+
+        ![](_resources/Surveys,_Census_Data.resources/ipums-di-ug-2.png){.lightbox group="di-ug-1" width="332"}
+        :::
+
+        -   There's a lot of interesting information on the User Guide page, but to answer the nesting question, we can go to the **Sample Design** user note.
+
+        -   After searching for the word "nest," I find a paragraph that says, "The current sample design selects [clusters of households and non-institutional group quarters (such as college dormitories) that are *nested* within primary sampling units]{.underline} (PSUs). A PSU can consist of a county, a small group of adjacent counties, or a metropolitan statistical area."
+
+        -   After searching for the word "strata," I find this paragraph that says, "\[After creating PSUs\] The second step involves, for some states, dividing the PSUs into two strata defined by population density, generally urban and rural counties. All other states contain only one stratum. The third step involves defining clusters of approximately 2,500 addresses within each stratum, where each address cluster is located entirely within one of the originally defined 1,689 PSUs. Fourth, a specific number of address clusters in each stratum is systematically selected for the NHIS sample."
+
+            -   So households clusters are nested within population-density-defined Strata which are nested within clusters/PSU (groups of counties).
+
+        -   The [documentation](http://gdfe.co/srvyr/reference/as_survey_design.html) for [nest = TRUE]{.arg-text} in a study design object is "relabel cluster ids to enforce nesting within strata," and the definition for the [ids]{.arg-text} argument is "variables specifying cluster ids from largest level to smallest level"
+
+            -   It's confusing to me, because in this example, PSUs are used as cluster ids. So, the study design object is specified to say (from my understanding) that PSUs are nested inside the Strata which is opposite of what is happening.
+            -   I guess the key is from "largest level to smallest level" and since we have multiple levels of clustering, the PSU variable makes sense. It is what it is, but I think it could be worded better.
 
 ### Getting the Data {#sec-surv-cens-ipums-getdat .unnumbered}
 
@@ -880,14 +928,14 @@
 
     ###### Choose a Survey
 
-    ![](_resources/Surveys,_Census_Data.resources/ipums-hs-sel-surv-1.png){.lightbox width="382"}
+    ![](_resources/Surveys,_Census_Data.resources/ipums-hs-sel-surv-1.png){.lightbox group="gtd-nhis-web" width="382"}
 
-    -   There are two [IPUMS Health Surveys](https://healthsurveys.ipums.org/%20available)
+    -   There are two [IPUMS Health Surveys](https://healthsurveys.ipums.org/)
     -   I'm selecting National Health Interview Series
 
     ###### Homepage
 
-    ![](_resources/Surveys,_Census_Data.resources/ipums-hs-homepage-1.png){.lightbox width="382"}
+    ![](_resources/Surveys,_Census_Data.resources/ipums-hs-homepage-1.png){.lightbox group="gtd-nhis-web" width="382"}
 
     -   There are two ways to get to the survey variables interface
 
@@ -895,7 +943,7 @@
 
     ###### Search for Variables
 
-    ![](_resources/Surveys,_Census_Data.resources/ipums-variables-1.png){.lightbox width="382"}
+    ![](_resources/Surveys,_Census_Data.resources/ipums-variables-1.png){.lightbox group="gtd-nhis-web" width="382"}
 
     -   The navbar shows various methods for selecting variables. I know what variables I'm after, so I'm just using the A-Z index. As the figure shows, there are many variables to choose from which can be overwhelming.
 
@@ -904,18 +952,18 @@
     ###### Browsing by Category
 
     ::: {layout-ncol="3"}
-    ![](_resources/Surveys,_Census_Data.resources/ipums-hs-sel-var-2.png){.lightbox group="nhis-nav-var-1" width="132"}
+    ![](_resources/Surveys,_Census_Data.resources/ipums-hs-sel-var-2.png){.lightbox group="gtd-nhis-web" width="132"}
 
-    ![](_resources/Surveys,_Census_Data.resources/ipums-hs-sel-var-3.png){.lightbox group="nhis-nav-var-1" width="142"}
+    ![](_resources/Surveys,_Census_Data.resources/ipums-hs-sel-var-3.png){.lightbox group="gtd-nhis-web" width="142"}
 
-    ![](_resources/Surveys,_Census_Data.resources/ipums-hs-sel-var-4.png){.lightbox group="nhis-nav-var-1" width="132"}
+    ![](_resources/Surveys,_Census_Data.resources/ipums-hs-sel-var-4.png){.lightbox group="gtd-nhis-web" width="132"}
     :::
 
     ## 3. Variable Information
 
     ###### Read Variable Details
 
-    ![](_resources/Surveys,_Census_Data.resources/ipums-hs-var-det-1.png){.lightbox width="432"}
+    ![](_resources/Surveys,_Census_Data.resources/ipums-hs-var-det-1.png){.lightbox group="gtd-nhis-web" width="432"}
 
     -   Clicking on the name of the variable sends you to its details page
     -   Honestly everything here is potentially useful for your analysis.
@@ -943,14 +991,14 @@
 
     ###### Select Variables
 
-    ![](_resources/Surveys,_Census_Data.resources/ipums-select-var-1.png){.lightbox width="432"}
+    ![](_resources/Surveys,_Census_Data.resources/ipums-select-var-1.png){.lightbox group="gtd-nhis-web" width="432"}
 
     -   Here I'm selecting AGE by clicking on the green plus. Also notice that SERIAL has been preselected. So the your dataset comes with some default variables
     -   Proceed to select all the variables that you want.
 
     ###### Select Years
 
-    ![](_resources/Surveys,_Census_Data.resources/ipums-select-yrs-1.png){.lightbox width="332"}
+    ![](_resources/Surveys,_Census_Data.resources/ipums-select-yrs-1.png){.lightbox group="gtd-nhis-web" width="332"}
 
     -   Once you selected all your variables, you click the Select Samples button.
         -   Or if you check your Cart first, it'll tell you to Select Samples.
@@ -961,7 +1009,7 @@
 
     ###### Review Variables
 
-    ![](_resources/Surveys,_Census_Data.resources/ipums-overview-1.png){.lightbox width="332"}
+    ![](_resources/Surveys,_Census_Data.resources/ipums-overview-1.png){.lightbox group="gtd-nhis-web" width="332"}
 
     -   After selecting your samples (i.e. years) and you submit them, it takes you to your Cart where you look over your variables.
     -   Then click Create Data Extract
@@ -985,8 +1033,9 @@
         -   [SERIAL]{.var-text} - A unique id to each **household** in a given survey year. The combination of **YEAR and SERIAL provides a unique identifier** for every household in the IPUMS NHIS database.
         -   [NHISHID]{.var-text} - A unique id to each household in a given survey year. Used to link IPUMS NHIS data with additional household-level data elements, from the NHIS source public use data files, that are not currently available in IPUMS.
             -   So [not currently a useful variable]{.underline}
-        -   [NHISPID]{.var-text} - Same as NHISHID but for persons
-            -   So [not currently a useful variable]{.underline}
+            -   If and when the public use data files become available, there is a guide for using these variables to merge data in the User Guide. The link to the User Guide is in left side panel of the NHIS homepate (See [Design Information](surveys-ensus-data.qmd#sec-surv-cens-ipums-di){style="color: green"} for a pic)
+        -   [NHISPID]{.var-text} - Same as [NHISHID]{.var-text} but for persons
+            -   So [not currently a useful variable]{.underline} (See [NHISHID]{.var-text})
         -   [PERNUM]{.var-text} - Either a **1 or a 2**. Variable that **numbers all persons within each famil**y (prior to 2019) or within each **household** consecutively (starting with "1") in the order in which they appear in the original NHIS data.
             -   [A sample adult and sample child from each household are interviewed]{.underline} instead of collecting detailed information on all members of the household, so there is a maximum of two people per household as reported in PERNUM beginning in 2019.
             -   [Since a 1 or 2 isn't consistent with an adult or a child, I'm not sure how useful this is.]{.underline}
@@ -1000,19 +1049,19 @@
 
     ###### Decide on File Format and Create Extract
 
-    ![](_resources/Surveys,_Census_Data.resources/ipums-dat-format-1.png){.lightbox width="432"}
+    ![](_resources/Surveys,_Census_Data.resources/ipums-dat-format-1.png){.lightbox group="gtd-nhis-web" width="432"}
 
     -   The main thing here is the file format. The default is "Fixed-width text (.dat)" data format, whatever that is. I changed it to .csv.
     -   You can also change it to a Hierarchical structure. Not sure what that is about though (maybe JSON?).
 
     ###### Download Data and Codebook
 
-    ![](_resources/Surveys,_Census_Data.resources/ipums-download-1.png){.lightbox width="432"}
+    ![](_resources/Surveys,_Census_Data.resources/ipums-download-1.png){.lightbox group="gtd-nhis-web" width="432"}
 
     -   Click to download the data
     -   There's a Basic and DDI — I'd get them both.
     -   "Basic" is just a text file, and even though it has a .cbk extension, notebook++ read it just fine\
-        ![](_resources/Surveys,_Census_Data.resources/ipums-nhis-cbk-1.png){.lightbox width="240"}
+        ![](_resources/Surveys,_Census_Data.resources/ipums-nhis-cbk-1.png){.lightbox group="gtd-nhis-web" width="240"}
         -   Some basic information from variable details page, e.g. List of Variables, Availability, Codes, etc.
     -   "DDI" stands for the Data Documentation Initiative (DDI) which is a standard for documenting social science datasets. It's an XML file so it's machine readable (e.g. [{ipumsr}]{style="color: #990000"})
     ::::
