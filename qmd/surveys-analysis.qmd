@@ -370,17 +370,97 @@
 ## [{srvyr}]{style="color: #990000"} {#sec-surveys-anal-srvyr .unnumbered}
 
 -   Survey Design Object - Contains survey data as well as important design information (weights, strata identifiers, etc.).
-    -   Create a Survey Design Object
 
-        ``` r
-        nhis_svy <- as_survey_design(
-         .data = nhis_data,     # Dataset containing all variables
-         weights = SAMPWEIGHT,  # Sampling weights
-         strata = STRATA,       # Strata identifiers
-         ids = PSU,             # Sampling unit identifiers
-         nest = TRUE            # Sampling units are nested in strata
-        )
-        ```
+-   [Example]{.ribbon-highlight}: Basic ([source](https://isi-iass.org/home/wp-content/uploads/Survey_Statistician_2025_January_N91_06.pdf#page9))
+
+    ::: panel-tabset
+    ## Create a Survey Design Object
+
+    ``` r
+    dat_nhis <- 
+      readr::read_csv(gzfile("../../Data/ipums/nhis_00002.csv.gz"))
+
+    svy_nhis <- 
+      as_survey_design(
+        .data = dat_nhis,      # Dataset containing all variables
+        weights = SAMPWEIGHT,  # Sampling weights
+        strata = STRATA,       # Strata identifiers
+        ids = PSU,             # Sampling unit identifiers
+        nest = TRUE            # Sampling units are nested in strata
+      )
+    ```
+
+    -   See [Surveys, Census Data \>\> IPUMS \>\> Get the Data](surveys-census-data.qmd#sec-surv-cens-ipums-getdat){style="color: green"} \>\> Example 2 for the code to get this dataset
+    -   The weights, stratification, and cluster id variable are automatically included in the NHIS dataset.
+    -   The Variance Estimation guide actually gives this code for creating this object. See [Surveys, Census Data \>\> IPUMS \>\> Design Information](surveys-census-data.qmd#sec-surv-cens-ipums-di){style="color: green"}
+
+    ## Recode Missing to NA
+
+    ``` r
+    # Get codes for BMICALC
+    ddi_nhis <- ipumsr::read_ipums_ddi("../../Data/ipums/nhis_00002.xml")
+    ipumsr::ipums_var_info(ddi_nhis, vars = "BMICALC")$val_labels 
+    #> # A tibble: 2 × 2
+    #>     val lbl           
+    #>   <dbl> <chr>         
+    #> 1     0 NIU           # <1>
+    #> 2   996 Not calculable # <2>
+
+    svy_adults_nhis <-   # <3>
+      svy_nhis |> 
+      filter(AGE >= 18) |>
+      mutate(BMI = ifelse(BMICALC == 996, 
+                          NA, 
+                          BMICALC))
+    ```
+
+    1.  A value of 0 represents NIU which stands for "Not in Universe." The Universe (i.e. demographic that gets their BMI calculated) for this variable in the 2023 survey is anyone that is 18 and older. To find this out you have to look at the variable information webpage (See [Surveys, Census Data \>\> IPUMS \>\> Get the Data](surveys-census-data.qmd#sec-surv-cens-ipums-getdat){style="color: green"} \>\> Example 1 \>\> Variable Information)
+    2.  A value of 996 says that the BMI wasn't calculable for other reasons (e.g. confidentiality concerns). You can read about this in the Description on the Variable Information page or through `ipumsr::impums_var_desc`
+    3.  By filtering adults we take care of the 0 values. Then the 996 values are replaced with NAs
+
+    ## Calculate Statistics
+
+    ###### Mean and Median BMI
+
+    ``` r
+    svy_adults_nhis |>
+      summarize(
+        mean_bmi = survey_mean(BMI, 
+                               na.rm = TRUE, 
+                               vartype = c("se", "ci")),
+        median_bmi = survey_median(BMI, na.rm = TRUE)
+      )
+    #> # A tibble: 1 × 6
+    #>   MEAN_BMI MEAN_BMI_se MEAN_BMI_low MEAN_BMI_upp MEDIAN_BMI MEDIAN_BMI_se
+    #>      <dbl>       <dbl>        <dbl>        <dbl>      <dbl>         <dbl>
+    #> 1     28.0      0.0480         27.9         28.1       27.4        0.0255
+    ```
+
+    ###### Group Statistics
+
+    ``` r
+    svy_adults_nhis |>
+      filter(!is.na(BMI)) |>
+      group_by(REGION, SEX) |>
+      summarize(N_OBS = unweighted(n()),
+                MEAN_BMI = survey_mean(BMI))
+
+    #> # A tibble: 8 × 5
+    #> # Groups:   REGION [4]
+    #>   REGION   SEX N_OBS MEAN_BMI MEAN_BMI_se
+    #>    <dbl> <dbl> <int>    <dbl>       <dbl>
+    #> 1      1     1  1953     27.9       0.137
+    #> 2      1     2  2277     27.3       0.170
+    #> 3      2     1  2713     28.4       0.111
+    #> 4      2     2  3187     28.4       0.147
+    #> 5      3     1  4584     28.3       0.101
+    #> 6      3     2  5408     28.3       0.118
+    #> 7      4     1  3161     27.9       0.113
+    #> 8      4     2  3686     27.2       0.126
+    ```
+
+    -   Tried `summarize`'s [.by]{.arg-text} argument but it didn't work
+    :::
 
 ## Visualization {#sec-surveys-anal-viz .unnumbered}
 
