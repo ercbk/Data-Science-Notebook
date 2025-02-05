@@ -296,6 +296,9 @@
 
     -   [Example]{.ribbon-highlight}: Importance weights w/regularized logistic
 
+        ::: panel-tabset
+        ## Create Importance Weights
+
         ``` r
         training_sim <-
           training_sim %>%
@@ -305,7 +308,15 @@
                               1),
             case_wts = parsnip::importance_weights(case_wts)
           )
+        ```
 
+        -   Binary outcome; lasso
+        -   [class_1]{.var-text} (80 obs) is severely imbalanced with [class_2]{.var-text} (4920)
+            -   [class_1]{.var-text} observations get a weight of 60 since 4920/80 = 61.5 which is \~ 60
+
+        ## Recipe
+
+        ``` r
         set.seed(2)
         sim_folds <- vfold_cv(training_sim, 
                               strata = class)
@@ -316,7 +327,14 @@
           step_ns(starts_with("non_linear"), 
                   deg_free = 10) %>%
           step_normalize(all_numeric_predictors())
+        ```
 
+        -   `recipe` will automatically detect the weights (pretty sure it doesn't matter whether no [case_wts]{.var-text} is included in formula, e.g. [class \~ .]{.arg-text})
+            -   Since these are performance weights and `step_ns` and `step_normalize` don't depend on the outcome variable (i.e. supervised), case weights are not used in these transformations.
+
+        ## Specify Model
+
+        ``` r
         lr_spec <-
           logistic_reg(penalty = tune(), 
                        mixture = 1) %>%
@@ -327,8 +345,26 @@
           workflow() %>%
           add_model(lr_spec) %>%
           add_recipe(sim_rec) %>%
-          add_case_weights(case_wts)
+          add_case_weights(case_wts)        
+        ```
 
+        -   Add [case_wts]{.var-text} variable to df
+
+        -   Use `add_case_weights` function in workflow code
+
+        -   To remove the case weights from a workflow:
+
+            ``` r
+            lr_unwt_wflow <-
+              lr_wflow %>%
+              remove_case_weights()
+            ```
+
+            -   Useful if you want to make a comparison between models
+
+        ## Tune
+
+        ``` r
         cls_metrics <- metric_set(sensitivity, specificity)
         grid <- tibble(penalty = 10^seq(-3, 0, length.out = 20))
         set.seed(3)
@@ -341,33 +377,11 @@
 
         autoplot(lr_res) # calibration curves
         ```
-
-        -   Description
-
-            -   Binary outcome; lasso
-            -   [class_1]{.var-text} (80 obs) is severely imbalanced with [class_2]{.var-text} (4920)
-                -   [class_1]{.var-text} observations get a weight of 60 since 4920/80 = 61.5 which is \~ 60
-
-        -   `recipe` will automatically detect the weights (pretty sure it doesn't matter whether no [case_wts]{.var-text} is included in formula, e.g. [class \~ .]{.arg-text})
-
-            -   Since these are performance weights and `step_ns` and `step_normalize` don't depend on the outcome variable (i.e. supervised), case weights are not used in these transformations.
-
-        -   Steps
-
-            -   Add [case_wts]{.var-text} variable to df
-            -   Use `add_case_weights` function in workflow code
-
-        -   Remove the case weights from a workflow
-
-            ``` r
-            lr_unwt_wflow <-
-              lr_wflow %>%
-              remove_case_weights()
-            ```
-
-            -   Useful if you want to make a comparison between models
+        :::
 
 ## [{srvyr}]{style="color: #990000"} {#sec-surveys-anal-srvyr .unnumbered}
+
+-   [Docs](http://gdfe.co/srvyr/)
 
 -   Survey Design Object - Contains survey data as well as important design information (weights, strata identifiers, etc.).
 
@@ -434,6 +448,28 @@
     #>   MEAN_BMI MEAN_BMI_se MEAN_BMI_low MEAN_BMI_upp MEDIAN_BMI MEDIAN_BMI_se
     #>      <dbl>       <dbl>        <dbl>        <dbl>      <dbl>         <dbl>
     #> 1     28.0      0.0480         27.9         28.1       27.4        0.0255
+
+    # long format
+    svy_avg_bmi_long_nhis <- 
+      svy_avg_bmi_nhis |> 
+      as_tibble() |> 
+      pivot_longer(cols = everything(), 
+               names_to = c("statistic", "variable", "uncertainty"), 
+               names_sep = "_" ) |> 
+      pivot_wider(names_from = "uncertainty", 
+                  values_from = "value") |>
+      rename(value = `NA`, 
+             upper = upp, 
+             lower = low) |> 
+      dplyr::relocate(variable, 
+                      .before = statistic)
+
+    svy_avg_bmi_long_nhis
+    #> # A tibble: 2 × 6
+    #>   variable statistic value     se lower upper
+    #>   <chr>    <chr>     <dbl>  <dbl> <dbl> <dbl>
+    #> 1 bmi      mean       28.0 0.0480  27.9  28.1
+    #> 2 bmi      median     27.4 0.0255  NA    NA  
     ```
 
     ###### Group Statistics
