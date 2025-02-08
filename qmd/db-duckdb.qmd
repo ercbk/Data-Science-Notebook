@@ -139,20 +139,66 @@
 
 -   Misc
 
-    -   Currently can't connect to a duckdb database directly (See dbplyr section). Only uses duckdb as a backend to dplyr for files (e.g. parquet, csv) that have been read and virtualized or an in-frame dataframe.
     -   Using `library(duckplyr)` will overwrite all [{dplyr}]{style="color: #990000"} verbs to the duckplyr versions
+
         -   So any [{dplyr}]{style="color: #990000"} features not covered by [{duckplyr}]{style="color: #990000"} won't work
         -   `methods_restore` will return verbs to standard dplyr functions
+
+    -   Set memory limits for duckdb
+
+        ``` r
+        read_sql_duckdb("SELECT current_setting('memory_limit') AS memlimit")
+        #> # A duckplyr data frame: 1 variable
+        #>   memlimit
+        #>   <chr>   
+        #> 1 12.4 GiB
+
+        db_exec("PRAGMA memory_limit = '1GB'")
+
+        read_sql_duckdb("SELECT current_setting('memory_limit') AS memlimit")
+        #> # A duckplyr data frame: 1 variable
+        #>   memlimit 
+        #>   <chr>    
+        #> 1 953.6 MiB
+        ```
+
+        -   Computations carried out by DuckDB allocate RAM in the context of the R process. This memory separate from the memory used by R objects, and is managed by DuckDB.
+        -   See [the DuckDB documentation](#0) for other configuration options
+
+    -   Use `compute()` to run the query and save the results as a duckplyr frame in a temporary table in the duckdb database
+
+        -   [Use to materialize any intermediate result that is too large to fit into memory]{.underline}
+        -   The return value of the function is a duckplyr frame that can be used in further computations.
+        -   Since it's in a temporary table, the data is not persisted after the session ends.
+
+    -   Use `collect()` to retrieve the results to R and returns a plain tibble.
+
+        -   [Use for the final result or write to file if still too large.]{.underline}
+
+    -   `group_by` is not supported. If used, data will be read into memory.
+
+        -   [.by]{.arg-text} arguments are supported though
 
 -   Read files (not in memory)
 
     ``` r
-    duckplyr_df <- duckplyr_df_from_parquet("flights.parquet")
-    dat   <- duckplyr_df_from_csv("Data8277.csv")
+    dat_duck <- read_parquet_duckdb("flights.parquet")
+    dat_duck <- read_csv_duckdb("Data8277.csv")
+    dat_duck <- read_csv_duckdb(c(path_csv_1, path_csv_2))
     ```
 
     -   Detects the schemas
     -   Creates placeholder objects
+
+-   Write data
+
+    ``` r
+    duckdb_tibble(a = 1) |>
+      mutate(b = 2) |>
+      compute_csv(path_csv_out)
+    ```
+
+    -   `compute_parquet` also available
 
 -   Collect Results
 
@@ -401,13 +447,29 @@
 
 -   Connect to a duckdb file and read out of memory
 
-    ``` r
-    con_ro <- 
-      dbConnect(duckdb::duckdb(), 
-                dbdir = "pixar.duckdb", 
-                read_only = TRUE)
-    my_pixar_films <- tbl(con_ro, "pixar_films")
-    ```
+    -   [{duckdb}]{style="color: #990000"}
+
+        ``` r
+        con_ro <- 
+          dbConnect(duckdb::duckdb(), 
+                    dbdir = "pixar.duckdb", 
+                    read_only = TRUE)
+        my_pixar_films <- tbl(con_ro, "pixar_films")
+        ```
+
+    -   [{duckplyr}]{style="color: #990000"}
+
+        ``` r
+        sql_attach <- paste0(
+          "ATTACH DATABASE '",
+          path_duckdb,
+          "' AS external (READ_ONLY)"
+        )
+        db_exec(sql_attach)
+        read_sql_duckdb("SELECT * FROM external.data")
+        ```
+
+        -   Returns a duckplyr frame
 
 -   [Example]{.ribbon-highlight}: Connect, Read in Parallel, and Query
 
@@ -528,6 +590,22 @@
           summarise(freq = n()) %>%
           ungroup() %>%
           collect()
+        ```
+-   [{duckplyr}]{style="color: #990000"}
+    -   Install and Load httpfs (for each session)
+
+        ``` r
+        db_exec("INSTALL httpfs")
+        db_exec("LOAD httpfs")
+        ```
+
+        -   Installation is fast after the first time
+
+    -   Read from URL
+
+        ``` r
+        url <- "https://blobs.duckdb.org/flight-data-partitioned/Year=2024/data_0.parquet"
+        flights_parquet <- read_parquet_duckdb(url)
         ```
 
 ## Extensions {#sec-db-duckdb-ext .unnumbered}
