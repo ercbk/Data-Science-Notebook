@@ -135,49 +135,107 @@
     DBI::dbDisconnect(duck)
     ```
 
-## duckplyr
+## duckplyr {#sec-db-duckdb-duckplyr .unnumbered}
 
--   Misc
+### Misc {#sec-db-duckdb-duckplyr-misc .unnumbered}
 
-    -   Using `library(duckplyr)` will overwrite all [{dplyr}]{style="color: #990000"} verbs to the duckplyr versions
+-   [Currently supported](https://duckplyr.tidyverse.org/articles/limits.html) base functions, dplyr verbs, operations, etc.
+-   Using `library(duckplyr)` will overwrite all [{dplyr}]{style="color: #990000"} verbs to the duckplyr versions
+    -   `methods_restore` will return verbs to standard dplyr functions
 
-        -   So any [{dplyr}]{style="color: #990000"} features not covered by [{duckplyr}]{style="color: #990000"} won't work
-        -   `methods_restore` will return verbs to standard dplyr functions
+### Memory Management {#sec-db-duckdb-duckplyr-mm .unnumbered}
 
-    -   Set memory limits for duckdb
+-   Set memory limits for duckdb
+
+    ``` r
+    read_sql_duckdb("SELECT current_setting('memory_limit') AS memlimit")
+    #> # A duckplyr data frame: 1 variable
+    #>   memlimit
+    #>   <chr>   
+    #> 1 12.4 GiB
+
+    db_exec("PRAGMA memory_limit = '1GB'")
+
+    read_sql_duckdb("SELECT current_setting('memory_limit') AS memlimit")
+    #> # A duckplyr data frame: 1 variable
+    #>   memlimit 
+    #>   <chr>    
+    #> 1 953.6 MiB
+    ```
+
+    -   Computations carried out by DuckDB allocate RAM in the context of the R process. This memory separate from the memory used by R objects, and is managed by DuckDB.
+    -   See [the DuckDB documentation](#0) for other configuration options
+
+-   Any dataframe with class, ["duckplyr_df"]{.arg-text} is lazy (i.e. not in memory)
+
+-   Use `compute()` to run the query and save the results as a duckplyr frame in a temporary table in the duckdb database
+
+    -   [Use to materialize any intermediate result that is too large to fit into memory]{.underline}
+    -   The return value of the function is a duckplyr frame that can be used in further computations.
+    -   Since it's in a temporary table, the data is not persisted after the session ends.
+
+-   Use `collect()` to retrieve the results to R and returns a plain tibble.
+
+    -   [Use for the final result or write to file if still too large.]{.underline}
+
+-   Some dpylr verbs, e.g. `group_by`, are not supported. If used, data will be read into memory. (aka a **Fallback**)
+
+    -   [.by]{.arg-text} arguments are supported though even if `group_by` is not
+    -   To make fallbacks verbose, set `fallback_config(info = TRUE)`
+
+-   Prudence Levels (e.g. `as_duckdb_tibble(prudence = "stingy")`)
+
+    -   ["lavish"]{.arg-text} (careless about resources): Always automatically materialize.
+
+        -   [For small to medium datasets]{.underline}
+        -   The underlying DuckDB computation is carried out upon the first request. (See Triggers in ["stingy"]{.arg-text} section)
+        -   Once the results are computed, they are cached and subsequent requests are fast. 
+        -   Default for `duckdb_tibble` and `as_duckdb_tibble`
+
+    -   ["stingy"]{.arg-text} (avoid spending at all cost): Never automatically materialize, throw an error when attempting to access the data.
+
+        -   [For large datasets]{.underline}
+
+        -   Accessing a column or requesting the number of rows triggers an error.
+
+        -   Results can be materialized explicitly via `collect` and other functions
+
+        -   Non-Triggers: Printing the dataframe, `class`, `names`, etc.
+
+        -   Triggers
+
+            ``` r
+            nrow(flights_stingy)
+            #> Error: Materialization is disabled, use collect() or as_tibble() to materialize.
+            flights_stingy[[1]]
+            #> Error: Materialization is disabled, use collect() or as_tibble() to materialize.
+
+            flights_stingy |>
+              group_by(origin) |>
+              summarize(n = n()) |>
+              ungroup()
+            #> Error in `group_by()`:
+            #> ! This operation cannot be carried out by DuckDB, and the input is
+            #>   a stingy duckplyr frame.
+            #> • Try `summarise(.by = ...)` or `mutate(.by = ...)` instead of
+            #>   `group_by()` and `ungroup()`.
+            #> ℹ Use `compute(prudence = "lavish")` to materialize to temporary storage
+            #>   and continue with duckplyr.
+            ```
+
+    -   ["thrifty"]{.arg-text} (use resources wisely): Only automaticaly materialize the data if it is small, otherwise throw an error.
+
+        -   Data is materialized only if the result has fewer than 1,000,000 cells (rows multiplied by columns). (e.g. 4 columns \* 250,001 rows)
+        -   Default for `read_parquet_duckdb`
+
+    -   Converting from one prudence level to the other
 
         ``` r
-        read_sql_duckdb("SELECT current_setting('memory_limit') AS memlimit")
-        #> # A duckplyr data frame: 1 variable
-        #>   memlimit
-        #>   <chr>   
-        #> 1 12.4 GiB
-
-        db_exec("PRAGMA memory_limit = '1GB'")
-
-        read_sql_duckdb("SELECT current_setting('memory_limit') AS memlimit")
-        #> # A duckplyr data frame: 1 variable
-        #>   memlimit 
-        #>   <chr>    
-        #> 1 953.6 MiB
+        flights_stingy |>
+          as_duckdb_tibble(prudence = "lavish")
         ```
 
-        -   Computations carried out by DuckDB allocate RAM in the context of the R process. This memory separate from the memory used by R objects, and is managed by DuckDB.
-        -   See [the DuckDB documentation](#0) for other configuration options
-
-    -   Use `compute()` to run the query and save the results as a duckplyr frame in a temporary table in the duckdb database
-
-        -   [Use to materialize any intermediate result that is too large to fit into memory]{.underline}
-        -   The return value of the function is a duckplyr frame that can be used in further computations.
-        -   Since it's in a temporary table, the data is not persisted after the session ends.
-
-    -   Use `collect()` to retrieve the results to R and returns a plain tibble.
-
-        -   [Use for the final result or write to file if still too large.]{.underline}
-
-    -   `group_by` is not supported. If used, data will be read into memory.
-
-        -   [.by]{.arg-text} arguments are supported though
+### Operations {#sec-db-duckdb-duckplyr-ops .unnumbered}
 
 -   Read files (not in memory)
 
@@ -200,38 +258,9 @@
 
     -   `compute_parquet` also available
 
--   Collect Results
+### Optimization {#sec-db-duckdb-duckplyr-opt .unnumbered}
 
-    -   With `library(duckplyr)`
-
-        ``` r
-        library(duckplyr)
-        dat <- 
-          palmerpenguins::penguins |>
-          mutate(bill_area = bill_length_mm * bill_depth_mm) |>
-          as_duckplyr_tibble()
-        ```
-
-        -   `as_duckplyr_tibble` triggers the usage of DuckDB for the calculation
-
-            -   If the DuckDB calculation is not possible, then original dplyr implementation is used
-
-        -   Or use `glimpse`, `print` or `nrow` if you don't want to save the results to an object
-
-    -   *Without* `library(duckplyr)` you can still use duckdb for a backend.
-
-        ``` r
-        out <-
-          palmerpenguins::penguins %>%
-          # CAVEAT: factor columns are not supported yet
-          mutate(across(where(is.factor), as.character)) %>%
-          duckplyr::as_duckplyr_tibble() %>%
-          mutate(bill_area = bill_length_mm * bill_depth_mm) %>%
-          summarize(.by = c(species, sex), mean_bill_area = mean(bill_area)) %>%
-          filter(species != "Gentoo")
-        ```
-
-        -   `as_duckplyr_tibble` triggers the usage of DuckDB for the calculation, but verbs after that line function like normal [{dplyr}]{style="color: #990000"} verbs.
+-   I think the query plans go from bottom to top in explaining a chain from top to bottom.
 
 -   Show query plan with `explain`
 
