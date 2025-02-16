@@ -1175,16 +1175,129 @@ lightbox:
         -   The column chart in the final column shows the distribution of census tracts for each order of neighbors.
         :::
 
+-   [Symmetry]{.underline}
+
+    -   Most spatial statistics assume reciprocal relationships and will symmetrize weights if they are asymmetric. (e.g. Moran's I)
+
+    -   Symmetrizing weights can indeed introduce bias if the true underlying spatial process is inherently asymmetric (i.e. influence flows in one direction).
+
+        -   [Examples]{.ribbon-highlight}:
+            -   In watershed studies where upstream locations affect downstream locations but not vice versa
+            -   In wind dispersal where particles move predominantly in one direction
+            -   In economic studies where influence flows from larger to smaller markets but not equally in reverse
+
+    -   Statistical inference often assumes undirected (symmetric) relationships
+
+    -   If your graph is not symmetric, you should ask how can A influence B but B not influence A in a spatial relationship.
+
+    -   `spdep::is.symmetric.nb` can be used to check for symmetry in weight lists (e.g. `spdep::graph2nb`)
+
+        -   The neighbor's list `plot` has an argument for adding arrows to asymmetric links
+
 -   [Disjointedness]{.underline}
 
     -   These are groups of points that are connected to each other but completely separated from other groups
+
     -   Think of islands in an archipelago:
+
         -   Points within each island are connected
         -   But there are no connections between islands
         -   Each island is a "component" or disjoint subgraph
-    -   Could indicate alternative clustering schemes in mixed effects models
-    -   Issues
+
+    -   Subgraphs are troubling for spatial analysis, because there is no connection between the spatial processes in those subgraphs. 
+
+        -   i.e. the ripples in one pond cannot cross into a separate pond if they are not connected.
+
+    -   Other Issues
+
         -   Disjoint components can break an assumption of connectivity between observations (aka spatial continuity)
         -   Block diagonal spatial weight matrices can affect computation of certain models
         -   Might need to analyze each block separately
+
+    -   Could indicate alternative clustering schemes in mixed effects models
+
     -   `spdep::n.comp.nb` gives the number of disjoint connected subgraphs
+
+    -   Argument Options
+
+        -   The [zero.policy]{.arg-text} argument uses zero as the value for neighborless nodes if [TRUE]{.arg-text}, but if [FALSE]{.arg-text} causes `nb2listw` to fail.
+        -   The [adjust.n]{.arg-text} argument to measures of spatial autocorrelation is by default [TRUE]{.arg-text}, and subtracts the count of neighborless nodes from N in an attempt to acknowledge the reduction in information available.
+        -   [snap]{.arg-text} allows the shared boundary points to be a short distance from one another. e.g. islands a short distance from the mainland that are essentially connected via ferry, bridge, etc. By using snap, `poly2nb` can make connections that should be there in all practicality. (Also see [Neighbor Lists](geospatial-spatial-weights.qmd#sec-geo-swgt-nbls){style="color: green"} \>\> `poly2nb`)
+
+    -   [Example]{.ribbon-highlight}: Using [snap]{.arg-text} ([source](https://r-spatial.github.io/spdep/articles/subgraphs.html#no-neighbour-observations))
+
+        ::: panel-tabset
+        ## Before snap
+
+        ![](_resources/Geospatial-Spatial-Weights.resources/diag-disjoint-ex-snap-1.png){.lightbox width="232"}
+
+        ``` r
+        library(spdep)
+
+        file <- "etc/shapes/GB_2024_Wales_50m.gpkg.zip"
+        zipfile <- system.file(file, package="spdep")
+        w50m <- st_read(zipfile)
+
+        nb_W_50m <- poly2nb(w50m, 
+                            row.names = as.character(w50m$Constituency))
+        nb_W_50m
+        ## Neighbour list object:
+        ## Number of regions: 32 
+        ## Number of nonzero links: 136 
+        ## Percentage nonzero weights: 13.28125 
+        ## Average number of links: 4.25 
+        ## 1 region with no links:
+        ## Ynys Môn
+        ## 2 disjoint connected subgraphs
+
+        pts <- st_point_on_surface(st_geometry(w50m))
+        plot(st_geometry(w50m), border="grey75"
+        plot(nb_W_50m, 
+             pts, 
+             add = TRUE)
+        ```
+
+        -   The Welsh constituency, Anglesey, is in the top left corner unconnected to any other location. It's separated from the mainland by the Menai Strait. It should have two neighbors for all practical purposes.
+        -   The summary of the neighbor list confirms that there are 2 disjoint subgraphs
+        -   See [Geospatial, Preprocessing \>\> sf](geospatial-processing.qmd#sec-geo-proc-sf){style="color: green"} \>\> Points in Polygons for details on `st_point_on_surface`
+
+        ## Find the Distance to Neighbors
+
+        ``` r
+        dym <- c(st_distance(w50m[ynys_mon,], w50m))
+
+        sort(dym)[1:12]
+        ## Units: [m]
+        ##  [1]      0.0000    123.4132    277.5414  16658.7265  37985.7086  54096.7729
+        ##  [7]  58146.4320  65550.2491  67696.3323  93741.9873 113007.3659 137858.1826
+        ```
+
+        -   [ynys_mon]{.var-text} is the Welsh name for Anglesey
+        -   The two neighbors we want the algorithm to detect should be within 280 meters.
+
+        ## After snap
+
+        ![](_resources/Geospatial-Spatial-Weights.resources/diag-disjoint-ex-snap-2.png){.lightbox width="232"}
+
+        ``` r
+        nb_W_50m_snap <- 
+          poly2nb(w50m, 
+                  row.names=as.character(w50m$Constituency), 
+                  snap = 280)
+
+        nb_W_50m_snap
+        ## Neighbour list object:
+        ## Number of regions: 32 
+        ## Number of nonzero links: 140 
+        ## Percentage nonzero weights: 13.67188 
+        ## Average number of links: 4.375
+
+        plot(st_geometry(w50m), border="grey75")
+        plot(nb_W_50m_snap, 
+             pts, 
+             add = TRUE)
+        ```
+
+        -   The neighbor list summary doesn't list any disjoint subgraphs and the chart shows two connections to Anglesey.
+        -   This model represents reality more accurately.
+        :::
