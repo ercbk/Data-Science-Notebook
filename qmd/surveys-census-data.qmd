@@ -19,9 +19,19 @@ lightbox:
         -   LODES data is part of the LEHD survey (See below)
 -   Resources
     -   [Analyzing Census Data: Methods, Maps, and Models in R](https://walker-data.com/census-r/index.html) by Kyle Walker
--   Beware of Connecticut
-    -   Changed from having 9 counties to having 8 "Planning Regions" in 2022.
-    -   This affects census tracts as well
+-   State Issues
+    -   Alaska
+        -   Often redraws county-equivalent areas between Dicennial censuses, so it's difficult to perform time series analysis.
+    -   Connecticut
+        -   Changed from having 9 counties to having 8 "Planning Regions" in 2022.
+        -   This affects census tracts as well
+    -   Virginia
+        -   Has counties but also independent cities which are county equivalent
+        -   e.g. Arlington is county but Alexandria is an independent city
+    -   Missouri
+        -   St.Louis is an independent city (county equivalent) but surrounded by St.Louis county
+    -   South Dakota
+        -   Shannon County changed its name to Oglala Lakota County between the 2010 and 2020 Dicennial censuses. Each name will have its own GEOID.
 -   Other Surveys
     -   [American Housing Survey (AHS)](https://www.census.gov/programs-surveys/ahs.html)
         -   Zillow also publishes a bunch of housing data (See [Real Estate \>\> Features](https://ercbk.github.io/Domain-Knowledge-Notebook/qmd/real-estate.html#sec-rlest-feats){style="color: green"})
@@ -77,6 +87,15 @@ lightbox:
 
     -   [{tidycensus}]{style="color: #990000"} [docs](https://walker-data.com/tidycensus/articles/basic-usage.html#geography-in-tidycensus) on various geographies, function arguments, and which surveys (ACS, Census) they're available in.
     -   ACS Geography Boundaries by Year ([link](http://census.gov/programs-surveys/acs/geography-acs/geography-boundaries-by-year-html))
+    -   In the figure:
+        -   Ordered from top to bottom by population size
+        -   The green segments that connect the ancillary geographies on the outside to the primary geographies in the column indicate which primary geography that that ancillary geography is nested within without any overlap.
+            -   School Districts fit entirely within a State, i.e. a school district can't be in more than one state.
+        -   The gray segments show the ancillary geographies that Census Blocks are completely nest within
+        -   Subminor Civil Divisions are completely nested within County Subdivisions
+    -   [Core Based Statistical Area (CBSA)]{.underline}
+        -   Metro Areas: Contains one principle city that has at least 50K people and it's surrounding counties
+        -   Micro Areas: Smaller than Metro Areas
     -   [Public Use Microdata Areas (PUMA)]{.underline}
         -   See Walker's book, [Ch. 9.4](https://walker-data.com/census-r/introduction-to-census-microdata.html#public-use-microdata-areas-pumas)
         -   Redrawn each Dicennial US Census but usually only go into affect via other surveys a couple years afterwards
@@ -478,11 +497,16 @@ lightbox:
 
 ### Misc {#sec-surv-cens-dic-misc .unnumbered}
 
+-   Also see [tidycensus \>\> Variables](surveys-census-data.qmd#sec-surv-cens-tidyc-vars){style="color: green"} (in particular the DHC example)
 -   A complete count — not based on samples like the ACS
 -   Smallest geography is the census block
 -   Applies differential privacy to preserve respondent confidentiality
     -   Adds noise to data. Greater effect at lower levels (i.e. block level)
     -   The exception is that is no differetial privacy for household-level data.
+-   For data prior to 2000, use IPUMS NHGIS
+-   Other [sumfile]{.arg-text} codes
+    -   ["cd118"]{.arg-text} - Population data for the 118th Congress
+    -   ["sf1"]{.arg-text} - 2010 Dicennial Census
 
 ### PL94-171 {#sec-surv-cens-dic-pl .unnumbered}
 
@@ -502,10 +526,13 @@ lightbox:
     ```
 
     -   For 2020, default is [sumfile = "pl"]{.arg-text}
+    -   Using [table = "P1"]{.arg-text} instead of the [variable]{.arg-text} gives you all the variables in table P1
 
 ### DHC {#sec-surv-cens-dic-dhc .unnumbered}
 
 -   Age, Sex, Race, Ethnicity, and Housing Tenure (most popular dataset)
+
+-   Hispanic is an ethnicity that contains many races
 
 -   [sumfile = "dhc"]{.arg-text}
 
@@ -564,9 +591,13 @@ lightbox:
       )
     ```
 
+    -   Wide format and also renames the variable columns to [married]{.var-text} and [partnered]{.var-text}
+
 ### Detailed DHC-A {#sec-surv-cens-dic-dhca .unnumbered}
 
 -   Detailed demographic data; Thousands of racial and ethnic groups; Tabulation by sex and age.
+
+-   The DHC-B file has housing characteristics for the detailed racial and ethnic groups.
 
 -   Different groups are in different tables, so specific groups can be hard to locate.
 
@@ -579,12 +610,19 @@ lightbox:
     -   [sumfile = "ddhca"]{.arg-text}
     -   [pop_group]{.arg-text} - Population group code (See `get_pop_groups` below)
         -   ["all"]{.arg-text} for all groups
-        -   [pop_group_label = TRUE]{.arg-text} - Adds group labels
+        -   [pop_group_label = TRUE]{.arg-text} - Adds a column for group names
 
 -   `get_pop_groups(2020, "ddhca")` - Gets group codes for ethnic groups
 
     -   For various groups there could be at least two variables (e..g Somaili, Somali and any combination)
     -   For time series analysis, analagous groups to 2020's for 2000 is SF2/SF4 and for 2010 is SF2. (SF stands for Summary File)
+
+-   Variables
+
+    ``` r
+    load_variables(2020, "ddhca") %>% # or "ddhcb" for housing-level
+      View()
+    ```
 
 -   `check_ddhca_groups` - Checks which variables are available for a specific group
 
@@ -602,8 +640,7 @@ lightbox:
 -   [Example]{.ribbon-highlight}: Minnesota group populations
 
     ``` r
-    load_variables(2020, "ddhca") %>% 
-      View()
+
     mn_population_groups <- 
       get_decennial(
         geography = "state",
@@ -619,7 +656,7 @@ lightbox:
     -   Includes aggregate categories like European Alone, Other White Alone, etc., so you can't just aggregate the value column to get the total population in Minnesota.
         -   So, in order to calculate ethnic group ratios of the total state or county, etc. population, you need to get those state/county totals from other tables (e.g. PL94-171)
 
--   Use dot density and not chloropleths to visualize these sparse datasets
+-   Use dot density and not chloropleths to visualize these geographically sparse datasets
 
     -   [Example]{.ribbon-highlight}: Somali populations by census tract in Minneapolis\
         ![](_resources/Surveys,_Census_Data.resources/dhca-somali-dot-1.png){.lightbox width="532"}
@@ -639,7 +676,7 @@ lightbox:
           )
 
         somali_dots <- 
-          as_dot_density(
+          tidycensus::as_dot_density(
             hennepin_somali,
             value = "value", # column name which is by default, "value"
             values_per_dot = 25
@@ -653,6 +690,7 @@ lightbox:
         ```
 
         -   [values_per_dot = 25]{.arg-text} says make each dot worth 25 units (e.g. people or housing units)
+        -   Dots are scattered randomly within each census tract
 
 ### Time Series Analysis {#sec-surv-cens-dic-tsa .unnumbered}
 
@@ -671,7 +709,7 @@ lightbox:
     county_pop_10 <- 
       get_decennial(
         geography = "county",
-        variables = "P001001", 
+        variables = "P001001", # county populations
         year = 2010,
         sumfile = "sf1"
       )
@@ -683,7 +721,7 @@ lightbox:
     county_pop_20 <- 
       get_decennial(
         geography = "county",
-        variables = "P1_001N",
+        variables = "P1_001N", # county populations
         year = 2020,
         sumfile = "dhc"
       ) %>%
@@ -714,6 +752,12 @@ lightbox:
 
 ### Misc {#sec-surv-cens-tidyc-misc .unnumbered}
 
+-   Cache shapefiles to speed-up pulling data from the API
+
+    ``` r
+    options(tigris_use_cache = TRUE)
+    ```
+
 -   Get an API key
 
     -   Request a key, then activate the key from the link in your email.(<https://api.census.gov/data/key_signup.html>)
@@ -721,7 +765,7 @@ lightbox:
     -   Set as an environment variable: `census_api_key("<api key>", install = TRUE)`
         -   Or add this line to [.Renviron]{.arg-text} file, [CENSUS_API_KEY='\<api key']{.arg-text}
 
--   Workaround for Trump's Executive Order that halts access the Census Bureau's shapefiles
+-   Workaround for Trump's Executive Order that halts access the Census Bureau's shapefiles (Tigris shapefiles should be back up)
 
     -   Currently [{tigris}]{style="color: #990000"} pulls from the Census Bureau's ftp server, but that's down. The API still works though
 
@@ -802,6 +846,12 @@ lightbox:
 
 ### Variables {#sec-surv-cens-tidyc-vars .unnumbered}
 
+-   Misc
+
+    -   **Variable prefixes mean different things for different surveys**
+
+        -   e.g. P5 in the PL94-171 survey is population for group quarters and P5 in DHC is population for Hispanics or Latinos
+
 -   Search Variables
 
     -   Code: `vars <- load_variables(2022, "acs5")`
@@ -861,8 +911,21 @@ lightbox:
 
         -   `View(vars)` allows you to filter by column (click Filter button) or the whole table (search box)
             -   Workflow: Use search box to filter for general concept (e.g. income). Then use column filter to get specific
+        -   Letter Codes in Names
+            -   H is housing level data (available down to census block level)
+            -   HCT is housing level data only available at census tract and above geographies
+            -   P is person level data
+            -   PCT is similar to HCT
 
 -   [summary_var]{.arg-text} - Argument for supplying an additional variable that you need to calculate some kind of summary statistic
+
+    -   Typically this variable will be the denominator in the statistic calculation for normalization purposes, e.g. comparing demogrpahic percentages between a large county and a small county.
+
+    -   Variables are usually overall totals at the top of a table but there can be multiple options
+
+        -   e.g. If you want percentages of races with non-hispanics, your summary variable would be the total of non-hispanics
+
+        -   e.g. if you wanted percentages of hispanics and non hispances, your summary variable would be the overall total population of that table
 
     -   [Example]{.ribbon-highlight}: Race Percentage per Congressional District
 
@@ -1144,7 +1207,7 @@ lightbox:
 
     ``` r
     san_diego_race_dots <- 
-      as_dot_density(
+      tidycensus::as_dot_density(
         san_diego_race_counts, # see circle maps example for code
         value = "estimate", # group population
         values_per_dot = 200,
@@ -1170,6 +1233,8 @@ lightbox:
     -   `as_dot_density` scatters the dots randomly within a geography. [values_per_dot]{.arg-text}says each dot is 200 units (e.g. people or households). Without shuffling, ggplot will layer each group's dots on top of each other.
 
     -   `annotation_map_tile` from [{ggspatial}]{style="color: #990000"} applies a base map layer as a reference for the user. Base maps have land marks and popular features labeled in the geography and surrounding areas to help the user identify the area being shown.
+
+    -   Dots are randomly placed within the geography (so you could end up with dots in water)
 
 ## IPUMS {#sec-surv-cens-ipums .unnumbered}
 
