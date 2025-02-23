@@ -19,11 +19,36 @@
 -   Resources
     -   Spatial Point Patterns: Methodology and Applications with R (R \>\> Documents \>\> Geospatial)
     -   [An Introduction to Spatial Data Analysis and Statistics: A Course in R](https://paezha.github.io/spatial-analysis-r/)
+-   Other stuff
+    -   Marked Point Patterns - Points with labels
+        -   Sort of a spatial factor analysis
+        -   Correlation: Measures the correlation between marks of points separated by a given distance $r$.
+            -   [Example]{style="color: green"}: A dataset of spruce tree locations that also has their heights. The spatial correlation will tell us if trees of similar heights near each other or further away.
+            -   `spatstat.explore::markcorr`
+                -   Under mark independence, the mark correlation function should be approximately constant (e.g., close to 1 for standardized marks).
+                -   If $\text{markcorr}(r) \gt 1$ , it suggests *positive correlation* between marks at distance r (e.g., tall trees tend to be near other tall trees).
+                -   If $\text{markcorr} \lt 1$, it suggests *negative correlation* between marks at distance r (e.g., tall trees tend to be near short trees).
+            -   (`spatstat.explore::markvario`)
+                -   A spatial variogram measures the variance between marks of points separated by a given distance $r$
+                -   If the estimated variance is greater than the theoretical variance (a constant), $\hat \gamma (r) \gt \gamma (r)$, then marked points at that distance have greater variance and are more dissimilar to each other. (implies negative spatial correlation)
+                -   If $\hat \gamma (r) \approx \gamma (r)$, then marked points are independent at that distance. (implies spatial independence)
+                -   If $\hat \gamma (r) \lt \gamma (r)$, then marked points have smaller variance and are more similar. (implies positive spatial correlation)
+        -   Interactions: Analyze the spatial interaction between *two* different types of points (e.g. one factor variable w/two levels)
+            -   `spatstat.explore::Lcross`
+                -   Requires a multitype point pattern (a marked point pattern whose marks are a factor).
+                    -   e.g. Do trees of species A tend to be close to trees of species B? (species would be a factor variable with levels: A and B)
+                -   $\hat L (r) \gt r$ : Clustering between category 1 and category 2 at distance $r$.
+                -   $\hat L (r) \approx r$ : Independence between category 1 and category 2 at distance $r$.
+                -   $\hat L (r) \lt r$ : Inhibition (repulsion) between category 1 and category 2 at distance $r$.
+                -   If you want to see if the individual categories have random (i.e. poisson) patterns, use `Kall <- alltypes(rescale(amacrine), Lcross)`. In the matrix plot, the diagonal with have the components (i.e. category 1 vs category 1 and category 2 vs category 2).
+            -   There is no `Lmulti` but there is a `Kmulti` which is the same as `Kcross` except instead of the variable needing to be a factor, it can be any form of dichotomization, e.g. diameter \>= 15 and diameter \< 15 or collapsing multiple categories into 2 categories.
 
 ## Terms {#sec-geo-ptpat-terms .unnumbered}
 
 -   [**Intensity**]{style="color: #009499"} - The *expected* number of events per unit area — conventionally denoted by $\lambda$. In most cases the process is not know, so its intensity cannot be directly measured.
 -   [**Density**]{style="color: #009499"} - Empirical estimate of **Intensity** — $\hat \lambda = n / a$ , where $a$ is the area of the region
+-   [**Homogeneity**]{style="color: #009499"} - The points have no preference for any spatial location;
+-   [**Inhomogeneous**]{style="color: #009499"} - The average density of points is spatially varying (i.e. density is a function of location)
 -   [**Quadrats**]{style="color: #009499"} - Cells of a gridded area representing subregions. Useful for analyzing how density varies across a region
     -   Rules of Thumb for choosing the number of quadrats
         -   Each quadrat should have a minimum of two events
@@ -32,6 +57,7 @@
             Q = \frac{2A}{N}
             $$
 -   [**Regularity**]{style="color: #009499"} (or [**Dispersion**]{style="color: #009499"}) - The state at which points tend to be located at similar distances from each other.
+-   [**Stationary**]{style="color: #009499"} - Intensity is constant
 
 ## Basics {#sec-geo-ptpat-bas .unnumbered}
 
@@ -295,6 +321,12 @@
 
 -   [Misc]{.underline}
 
+    -   tl;dr:
+        -   Run the J Function if you want to analyze the overall pattern of the study area
+        -   Run the L Function if you want to analyze patterns at all scales of the study area
+            -   Think... the point pattern of 1st order neighbors area, the pattern of 1st and 2nd order neighbors area, etc.
+            -   Use [correction = "best"]{.arg-text}
+        -   Use a Simulation Envelope for the functions to include uncertainty in the analysis
     -   Assumptions
         -   An appropriate window selection is used
             -   If at all possible, the region should be selected in such a way that it is consistent with the underlying process. This is not always possible, either because the underlying process is not known, or because of limitations in data collection capabilities.
@@ -526,12 +558,25 @@
             -   See Misc \>\> Edge Effects \>\> "rs" (reduced-sample)
         -   ["border.motif"]{.arg-text}: A weighted version of the ["border"]{.arg-text} method
             -   Similar to Misc \>\> Edge Effects \>\> "hanisch"
-        -   ["isotropic"]{.arg-text}/["Ripley"]{.arg-text}: Implemented for rectangular and polygonal windows (not for binary masks).
-        -   ["translate"]{.arg-text}/["translation"]{.arg-text}: The study region is treated as a torus (donut shape), and points near the boundary are "wrapped around" to the opposite side. Implemented for all window geometries, but slow for complex windows.
-        -   ["rigid"]{.arg-text}: Averages over all possible rigid motions of the study region, ensuring that edge effects are accounted for. Implemented for all window geometries, but slow for complex windows.
-        -   ["none"]{.arg-text}: This uncorrected estimate is biased and should not be used for data analysis, *unless* you have an extremely large point pattern (more than 100,000 points).
+        -   ["isotropic"]{.arg-text}/["Ripley"]{.arg-text}: The weight is the circumference of the circle specified by $r$ divided by the circle's proportion of the whole window (without overlapping the boundary)\
+            $$
+            e(u,r) = \frac{2 \pi r}{\text{length}(c(u,r) \cap W)}
+            $$
+            -   "The denominator is the length of the overlap between this circle and the window $W$."
+                -   $u$ is the point and $c(u,r$) is the "circle." It says "length" so maybe it's the arclength of circle that intersects the boundary.
+            -   Implemented for rectangular and polygonal windows (not for binary masks).
+            -   See [{spatstat.explore::edge.Ripley}]{style="color: #990000"}
+        -   ["translate"]{.arg-text}/["translation"]{.arg-text}: Implemented for all window geometries, but slow for complex windows.\
+            $$
+            e(u,r) = \frac{\text{area}(W)}{\text{area}(W \cap (W + y - x))}
+            $$
+            -   $W + y − x$ is the result of shifting the window $W$ by the vector $y − x$. The denominator is the area of the overlap between this shifted window and the original window.
+            -   See [{spatstat.explore::edge.Trans}]{style="color: #990000"}
+        -   ["rigid"]{.arg-text}: There's no documentation for this method that I can find. Looking at the code, it looks similar to ["translate"]{.arg-text} since its seems to have a shifting window feature.
+            -   Implemented for all window geometries, but slow for complex windows.
         -   ["periodic"]{.arg-text}: (aka toroidal) is only defined for rectangular windows.
-        -   ["best"]{.arg-text}: Selects Ripley's ["isotropic"]{.arg-text} correction for a rectangular or polygonal window, and the "translation"{.arg-text} correction for masks.
+        -   ["none"]{.arg-text}: This uncorrected estimate is biased and should not be used for data analysis, *unless* you have an extremely large point pattern (more than 100,000 points).
+        -   ["best"]{.arg-text}: Selects Ripley's ["isotropic"]{.arg-text} correction for a rectangular or polygonal window, and the ["translation"]{.arg-text} correction for masks.
         -   ["good"]{.arg-text}: Selects the best edge correction that can be computed in a reasonable time. This is the same as ["best"]{.arg-text} for datasets with fewer than 3000 points; otherwise the selected edge correction is ["border"]{.arg-text}, unless there are more than 100,000 points, when it is ["none"]{.arg-text}.
 
     -   [Example]{.ribbon-highlight}: [{spatstat.explore::Kest}]{style="color: #990000"}\
@@ -549,6 +594,45 @@
         -   Plot of [pp3.ppp]{.var-text} shown earlier
         -   $\hat K(r) \gt K(r)$ at a smaller scale which indicates clustering,
         -   But also, $\hat K(r) \lt K(r)$ at a larger scale which indicates regularity.
+
+-   [L-Function]{.underline}
+
+    -   Transformation for the K-Function
+
+    -   K-Function Issues
+
+        -   Non-Linearity: For a Poisson process (complete spatial randomness), $K=\pi r^2$, which is a quadratic function. This makes it harder to visually assess deviations from CSR.
+        -   Scale Dependency: The K-function grows with r, making it difficult to compare patterns at different scales.
+
+    -   L-Function Advantages
+
+        -   Linear: Easier to visually assess
+        -   Scale Independent: Can compare point patterns at different scales
+
+    -   Guidelines
+
+        -   $L(r) \gt r$ : The point pattern exhibits *clustering* at distance $r$.
+        -   $L(r) \approx r$ : The point pattern is *random* at distance$r$.
+        -   $L(r) \lt r$ : The point pattern exhibits *regularity* at distance $r$.
+
+    -   [Example]{.ribbon-highlight}: [{spatstat.explore::Lest}]{style="color: #990000"}
+
+        ::: {layout-ncol="2"}
+        ![](_resources/Geospatial-Point-Patterns.resources/tests-lfunc-ex1-1.png){.lightbox width="232"}
+
+        ![](_resources/Geospatial-Point-Patterns.resources/tests-lfunc-ex1-2.png){.lightbox width="350"}
+        :::
+
+        ``` r
+        plot(cells)
+        L <- Lest(cells)
+        plot(L)
+        ```
+
+        -   Basic example from the docs
+        -   At small to intermediate distance, there is regularity, but at further distances, the pattern is random.
+            -   i.e. The distance between points is roughly the same, but the overall pattern is random
+        -   Border (Reduced Sample), Translation, and Isotropic edge corrections are shown
 
 -   [Simulation Envelopes]{.underline}
 
