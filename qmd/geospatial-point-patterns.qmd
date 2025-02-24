@@ -27,6 +27,7 @@
 -   [**Density**]{style="color: #009499"} - Empirical estimate of **Intensity** — $\hat \lambda = n / a$ , where $a$ is the area of the region
 -   [**Homogeneity**]{style="color: #009499"} - In a general sense, this means the points have no preference for any spatial location (e.g. constant intensity)
 -   [**Inhomogeneous**]{style="color: #009499"} - The average density of points is spatially varying (i.e. density is a function of location)
+    -   On p. 689 in the [{spatstat}]{style="color: #990000"} book, a permutation test procedure is performed to test whether a point pattern is correlation-stationary (inhomogeneous) or locally scaled. Testing for whether the pattern is homogeneous or locally scaled and inhomogeneous, etc. could also have been done
 -   [**Quadrats**]{style="color: #009499"} - Cells of a gridded area representing subregions. Useful for analyzing how density varies across a region
     -   Rules of Thumb for choosing the number of quadrats
         -   Each quadrat should have a minimum of two events
@@ -295,40 +296,15 @@
     -   See `spatstat.geom::plot.im` for beaucoup styling options for the density plot. I didn't add it here, but when there aren't any other labels, I kind of liked the [addcontour = TRUE]{.arg-text} as an extra density cue especially for the darker colors.
     -   Note that density color scales have different ranges in the legends
 
-## Dependence Functions {#sec-geo-ptpat-depfun .unnumbered}
+## CSR Tests {#sec-geo-ptpat-csrt .unnumbered}
 
--   [Misc]{.underline}
+-   Completely Spatially Random (CSR)
 
-    -   tl;dr:
-        -   Run the J Function if you want to analyze the overall pattern of the study area
-        -   Run the L Function if you want to analyze patterns at all scales of the study area
-            -   Think... the point pattern of 1st order neighbors area, the pattern of 1st and 2nd order neighbors area, etc.
-            -   Use [correction = "best"]{.arg-text}
-        -   Use a Simulation Envelope for the functions to include uncertainty in the analysis
-    -   Basic Assumptions
-        -   An appropriate window selection is used
-            -   If at all possible, the region should be selected in such a way that it is consistent with the underlying process. This is not always possible, either because the underlying process is not known, or because of limitations in data collection capabilities.
-        -   All events within the window have been identified
-            -   No solutions were given for *sampled* events, so the technique is discouraged.
-    -   From the [{spatstat}]{style="color: #990000"} book
-        -   When interpreting the dependence functions: "the careful scientist will not say that this ‘indicates’ clustering, but that it is ‘consistent with’ clustering, or that it indicates ‘positive association’ between points"
-        -   "Spatial clustering does not imply that the points are organised into identifiable ‘clusters’; merely that they are closer together than would be expected for a completely random pattern."
-        -   Think he's saying that "clustering" implies a cause and further investigation is required in order to call a "spatial inhomogeneity" a cluster.
-    -   Edge Effects for Spacing Functions
-        -   When a window is chosen, if events lie outside the window, this can bias the test results. An event at the edge of window may not be close to another event inside the window but may be close to one just outside the window.
-        -   [Example]{style="color: green"}: Analysis of pizza restaurants in Toronto may be limited to the city limits. This does not mean that establishments do not exist beyond those boundaries. When the extent of the process exceeds the window used in the analysis, the point pattern is observed only partially, and it is possible that the omitted information regarding the location of events beyond the boundary may introduce some bias.
-        -   A bias correction is recommended (especially for F and G but not for J. See K-Function for its correction methods) by using weighting events via [correction]{.arg-text}
-            -   ["rs"]{.arg-text} (reduced-sample): Restricts the analysis to points or locations that are far enough from the boundary so that the entire region of interest (e.g., a circle of radius r) lies within the study area (Available for G and F)
-                -   You're essentially removing data at the edges, so there will be a reduction in power
-            -   ["km"]{.arg-text} (Kaplan-Mier): Treats the boundary as a "censoring" mechanism, where distances beyond the boundary are treated as censored observations. (Available for G and F)
-            -   ["Hanisch"]{.arg-text}: Weights observations based on their proximity to the circle boundary drawn for each value of $r$. Points near the boundary receive lower weights because their neighborhoods are more likely to be truncated. (Available for G)
-            -   ["cs"]{.arg-text}(Chiu-Stoyan): Same idea as the Hanisch method but taylored for the F-Function.
-            -   ["best"]{.arg-text}: Chooses the best option based on the data and window geometry
-            -   ["all"]{.arg-text} : Performs all the corrections, `plot` will plot each corrected empirical curve so you see their effects
+-   These simple numerical indexes of spatial pattern are useful when a large number of different point patterns need to be compared, or to monitor changes in spatial clustering over time. Their main weakness is that they compress all the spatial information into a single number, conflating information from different spatial scales and different spatial locations.
 
 -   [Quadrat-based Chi-Square Test]{.underline}
 
-    -   A Pearson $\chi^2$ independence test that compares the empirical distribution of events by quadrats to the distribution of events as expected under the hypothesis that the underlying process is random.\
+    -   A Pearson $\chi^2$ independence test that compares the empirical distribution of events by quadrats to the distribution of events as expected under the hypothesis that the underlying process is random. (i.e. tests homogeneity assuming independence)\
         $$
             \begin{align}
             &\chi^2 = \sum_i^Q r_i^2\\
@@ -336,7 +312,17 @@
             \end{align}
             $$
 
-    -   $r_i$ is the Pearson residual and $Q$ is the number of quadrats
+        -   $r_i$ is the Pearson residual and $Q$ is the number of quadrats
+
+    -   Hypotheses
+
+        -   H~0~: The point process is homogeneous Poisson process
+        -   H~a~: It's not
+
+    -   Reasons for Rejection of the Null
+
+        -   Intensity is not homogeneous
+        -   Events/points are not independent
 
     -   Issues
 
@@ -344,10 +330,31 @@
         -   Count-based so size of the quadrat matters. With irregular shaped quadrats (e.g. within a city boundary), it might be difficult to create a grid with roughly homogeneous counts.
         -   The test is *not* sensitive to the relative position of the events within the quadrats. So, there could be extreme clustering happening within the quadrats and the test might not reject the Null.
 
+    -   It's recommended to compute the variance-to-mean ratio or $\chi^2$ statistic for different sizes of quadrats, and to plot the statistic against quadrat size.
+
+    -   [{spatstat.explore::quadrat.test}]{style="color: #990000"}
+
+        -   If [lambda]{.arg-text} is provided then the Null is a Poisson point process with that $\lambda$ (i.e. intensity or probably also Poisson mean)
+        -   Multiples from multiple study areas can be pooled: `pool(test1, test2, test3)`
+        -   Can also use `split.ppp(ppp_ff)` and have each point category tested.
+        -   This function has methods for point patterns (class "ppp"), split point patterns (class "splitppp"), point process models (class "ppm" or "slrm"\`) and quadrat count tables (class "quadratcount").
+        -   Plotting the object will display the quadrats, annotated by their observed and expected counts and the Pearson residuals.
+        -   Pearson residuals can be extracted with `residuals`. They evidently aren't standardized, but if standardized, they can be treated as z-scores with values \> 1.96 indicating which quadrats are causing the rejection of the Null. (See [Regression, Diagnostics \>\> Residuals](diagnostics-regression.qmd#sec-diag-reg-res){style="color: green"} \>\> Standardized Residuals)
+
     -   [Example]{.ribbon-highlight}: `quadrat.test` using a ppp object\
         ![](_resources/Geospatial-Point-Patterns.resources/quadtest-fastfood-ex-1.png){.lightbox width="432"}
 
         ``` r
+        library(spatstat)
+        library(sf)
+
+        # sf dfs
+        data("Fast_Food", package = "isdas")
+        data("Toronto", package = "isdas")
+
+        # create a ppp obj
+        ppp_ff <- as.ppp(Fast_Food, as.owin(Toronto))
+
         q_test <- 
           quadrat.test(ppp_ff, 
                        nx = 3, 
@@ -365,13 +372,153 @@
 
         -   All expected counts (assumes a uniform Poisson point process) should be greater than 5 which is why there's a warning.
             -   The docs of this function sound very much like the stuff in my Discrete Analysis notebook, so see that for further details.
-            -   Options seem to be to use [method = "MonteCarlo"]{.arg-text} which relaxes the expected count \> 5 condition or using a smaller grid. My DA notebook also suggests Exact Tests if that's available for this sort of thing.
+            -   Options seem to be to use [method = "MonteCarlo"]{.arg-text} which relaxes the expected count \> 5 condition or using a smaller grid.
         -   p-value \< 0.05 suggests that this is *not* a CSR (completely spatially random — aka uniform Poisson point process) pattern
-            -   If [lambda]{.arg-text} is provided then the Null is a Poisson point process with that $\lambda$ (i.e. intensity or probably also Poisson mean)
-        -   Can also use `split.ppp(ppp_ff)` and have each point category tested.
-        -   This function has methods for point patterns (class "ppp"), split point patterns (class "splitppp"), point process models (class "ppm" or "slrm"\`) and quadrat count tables (class "quadratcount").
-        -   Plotting the object will display the quadrats, annotated by their observed and expected counts and the Pearson residuals.
-        -   Pearson residuals can be extracted with `residuals`. They evidently aren't standardized, but if standardized, they can be treated as z-scores with values \> 1.96 indicating which quadrats are causing the rejection of the Null. (See [Regression, Diagnostics \>\> Residuals](diagnostics-regression.qmd#sec-diag-reg-res){style="color: green"} \>\> Standardized Residuals)
+
+-   [Cressie-Read Power Divergence Test]{.underline}
+
+    -   $\chi^2$-based family of tests
+    -   Hypotheses (Same as previous section)
+        -   H~0~: The point process is homogeneous Poisson process
+        -   H~a~: It's not
+    -   Test Statistic\
+        $$
+        2nI = \frac{2}{\text{CR}(\text{CR} + 1)} \sum_i \left[\left(\frac{X_i}{E_i}\right)^{CR}-1\right]
+        $$
+        -   $X_i$ is the ith observed count
+        -   $E_i$ is the ith expected count
+        -   $\text{CR}$ options
+            -   $\text{CR} = -2$ results in the Neyman modified statistc (NM^2^)
+            -   $\text{CR} = -1$ results in the modified likelihood ratio test statistic (GM^2^)
+            -   $\text{CR} = -\frac{1}{2}$ results in the Freeman-Tukey statistic (T^2^)
+                -   More robust to small expected frequencies
+            -   $\text{CR} = 0$ results in the likelihood ratio test statistic (G^2^)
+                -   More sensitive to small observed frequencies
+            -   $\text{CR} = \frac{2}{3}$ is the recommnedation by Cressie-Read
+                -   A compromise between Pearson's Chi-Square and the Likelihood Ratio
+            -   $\text{CR} = 1$ results in the Pearson $\chi^2$ statistic (previous section)
+                -   Balanced sensitivity to small counts
+    -   [{spatstat.explore::quadrat.test}]{style="color: #990000"} has a [CR]{.arg-text} argument
+
+-   [Clark-Evans Test]{.underline}
+
+    -   Assumes the distribution of a distance-based index is Normal and applies NHST to the pattern's estimated index.
+
+    -   Clark-Evans Index, $R$\
+        $$
+        R =\frac{\sqrt{\bar \lambda}}{m} \sum_i^m d_i
+        $$
+
+        -   $d_i$ is a nearest-neighbor distance for event $i$ out of $m$ events
+        -   $\bar \lambda = n \;/\; |W|$ is the average intestity for the entire point pattern
+
+    -   Guidelines
+
+        -   $R \gt 1$ suggests regularity
+        -   $R =1$ is consistent with a CSR
+        -   $R \lt 1$ suggests clustering
+
+    -   Assumes point process is stationary (i.e. constant intensity)
+
+        -   An inhomogeneous point pattern will typically give R \< 1, and can produce spurious significance
+
+    -   Test requires edge effects correction otherwise R will be positively biased
+
+    -   [Example]{.ribbon-highlight}: [{spatstat}]{style="color: #990000"} book, p. 259\
+        ![](_resources/Geospatial-Point-Patterns.resources/csr-ce-ex1-1.png){.lightbox width="332"}
+
+        ``` r
+        data("redwood")
+        plot(redwood)
+        summary(redwood)
+        #> Planar point pattern:  62 points
+        #> Average intensity 62 points per square unit
+        #> 
+        #> Coordinates are given to 3 decimal places
+        #> i.e. rounded to the nearest multiple of 0.001 units
+        #> 
+        #> Window: rectangle = [0, 1] x [-1, 0] units
+        #>                     (1 x 1 units)
+        #> Window area = 1 square unit
+
+        clarkevans.test(redwood, 
+                        correction = "donnelly",
+                        alternative = "clustered")
+
+        #>  Clark-Evans test
+        #>  Donnelly correction
+        #>  Z-test
+        #> 
+        #> data:  redwood
+        #> R = 0.58499, p-value = 1.906e-11
+        #> alternative hypothesis: clustered (R < 1)
+        ```
+
+-   [Hopskell-Skellam Test]{.underline}
+
+    -   Assumes the distribution of a distance-based index is F and applies NHST to the pattern's estimated index.
+
+    -   Hopskell-Skellam Index, $A$\
+        $$
+        A = \frac{\sum_i^m d_i^2}{\sum_i^m e_i^2}
+        $$
+
+        -   $d_i$ is the distance the event $i$'s nearest neighbor from $m$ randomly sampled events
+        -   $e_i$ is the distance of point $i$'s (event or empty space) nearest neighbor from $m$ randomly sampled points
+
+    -   Guidelines
+
+        -   $A \gt 1$ is consistent with regularity
+        -   $A = 1$ is consistent with CSR
+        -   $A \lt 1$ is consistent with clustering
+
+    -   The Hopkins-Skellam index is much less sensitive than the Clark-Evans index to problems such as edge effect bias and spatial inhomogeneity
+
+    -   [Example]{.ribbon-highlight}: [{spatstat}]{style="color: #990000"} book, p. 259
+
+        ``` r
+        hopskel.test(redwood, alternative="clustered")
+        #>  Hopkins-Skellam test of CSR
+        #>  using F distribution
+        #> 
+        #> data:  redwood
+        #> A = 0.18176, p-value < 2.2e-16
+        #> alternative hypothesis: clustered (A < 1)
+        ```
+
+        -   See the Clark-Evans Test example for details in the [redwood]{.var-text} dataset (ppp object)
+
+## Dependence Functions {#sec-geo-ptpat-depfun .unnumbered}
+
+### Misc {#sec-geo-ptpat-depfun-misc .unnumbered}
+
+-   tl;dr:
+    -   Run the J Function if you want to analyze the overall pattern of the study area
+    -   Run the L Function if you want to analyze patterns at all scales of the study area
+        -   Think... the point pattern of 1st order neighbors area, the pattern of 1st and 2nd order neighbors area, etc.
+        -   Use [correction = "best"]{.arg-text}
+    -   You should probably use both J and L as they technically measure different things but the interpretations of the results have similar implications. i.e. come at the analysis from multiple angles
+    -   Use a Simulation Envelope and Loh bootstrap or Block Variance method for the functions to include uncertainty in the analysis
+-   Basic Assumptions
+    -   An appropriate window selection is used
+        -   If at all possible, the region should be selected in such a way that it is consistent with the underlying process. This is not always possible, either because the underlying process is not known, or because of limitations in data collection capabilities.
+    -   All events within the window have been identified
+        -   No solutions were given for *sampled* events, so the technique is discouraged.
+-   From the [{spatstat}]{style="color: #990000"} book
+    -   When interpreting the dependence functions: "the careful scientist will not say that this ‘indicates’ clustering, but that it is ‘consistent with’ clustering, or that it indicates ‘positive association’ between points"
+    -   "Spatial clustering does not imply that the points are organised into identifiable ‘clusters’; merely that they are closer together than would be expected for a completely random pattern."
+    -   Think he's saying that "clustering" implies a cause and further investigation is required in order to call a "spatial inhomogeneity" a cluster.
+-   Edge Effects for Spacing Functions
+    -   When a window is chosen, if events lie outside the window, this can bias the test results. An event at the edge of window may not be close to another event inside the window but may be close to one just outside the window.
+    -   [Example]{style="color: green"}: Analysis of pizza restaurants in Toronto may be limited to the city limits. This does not mean that establishments do not exist beyond those boundaries. When the extent of the process exceeds the window used in the analysis, the point pattern is observed only partially, and it is possible that the omitted information regarding the location of events beyond the boundary may introduce some bias.
+    -   A bias correction is recommended (especially for F and G but not for J) by using weighting events via [correction]{.arg-text}
+        -   ["rs"]{.arg-text} (reduced-sample): Restricts the analysis to points or locations that are far enough from the boundary so that the entire region of interest (e.g., a circle of radius r) lies within the study area (Available for G and F)
+            -   You're essentially removing data at the edges, so there will be a reduction in power
+        -   ["km"]{.arg-text} (Kaplan-Mier): Treats the boundary as a "censoring" mechanism, where distances beyond the boundary are treated as censored observations. (Available for G and F)
+        -   ["Hanisch"]{.arg-text}: Weights observations based on their proximity to the circle boundary drawn for each value of $r$. Points near the boundary receive lower weights because their neighborhoods are more likely to be truncated. (Available for G)
+        -   ["cs"]{.arg-text}(Chiu-Stoyan): Same idea as the Hanisch method but taylored for the F-Function.
+        -   ["best"]{.arg-text}: Chooses the best option based on the data and window geometry
+        -   ["all"]{.arg-text} : Performs all the corrections, `plot` will plot each corrected empirical curve so you see their effects
 
 ### Spacing Functions {#sec-geo-ptpat-depfun-spfun .unnumbered}
 
@@ -512,6 +659,12 @@
     -   \*Assumes homogeneity of intensity\*
 
     -   Instead of only using distances to first order neighbors, it takes into account multiple orders of neighbors.
+
+    -   The interaction between to points doesn't necessarily happen at $r$. From [{spatstat}]{style="color: #990000"} book, p. 212:
+
+        -   "For point processes which have a well-defined scale of interaction, it is not always true that the greatest deviation in the K-function occurs when r is equal to the scale of interaction. The K-function reflects correlation between pairs of points, not direct dependence. Dependence between points at one scale can give rise to correlation between points at another scale."
+        -   "$K(r)$ accumulates contributions from all distances less than or equal to $r$. If a pattern of emergent seedlings yields $K(r) > \pi r^2$ for the distance $r = 10$ metres, this does not necessarily indicate that seedlings are clustered at distances of 10 metres. A plausible explanation is that seedlings are organised in clusters at a much smaller spatial scale, and the cumulative effect is still evident at 10 metres."
+        -   "The K-function is optimal for detecting interpoint interaction that occurs equally at all distances up to a certain maximum distance $r$"
 
     -   Different types of patterns can be present at different scales ([pp3.ppp]{.var-text} plot)\
         ![](_resources/Geospatial-Point-Patterns.resources/test-kfunc-1.png){.lightbox width="232"}
@@ -703,10 +856,24 @@
         -   $\hat L (r) \lt r$ : Inhibition (repulsion) between category 1 and category 2 at distance $r$.
         -   If you want to see if the individual categories have random (i.e. poisson) patterns, use `Kall <- alltypes(rescale(amacrine), Lcross)`. In the matrix plot, the diagonal with have the components (i.e. category 1 vs category 1 and category 2 vs category 2).
     -   There is no `Lmulti` but there is a `Kmulti` which is the same as `Kcross` except instead of the variable needing to be a factor, it can be any form of dichotomization, e.g. diameter \>= 15 and diameter \< 15 or collapsing multiple categories into 2 categories.
+    -   I-Function
+        -   Summarizes the association between all types in a multi-type point process
+        -   Formula\
+            $$
+            I(r) = \sum_{i = 1}^m  p_i J_{ii}(r) - J_{\boldsymbol{\cdot}\boldsymbol{\cdot}} (r)
+            $$
+            -   $p_i$ is the proportion of type $i$ events
+            -   $J_{ii}$ is the $J$ function for only type $i$ events
+            -   $J_{\boldsymbol{\cdot}\boldsymbol{\cdot}}$ is the standard J function that doesn't take types into account
+        -   Assumes stationarity
+        -   Guidelines
+            -   $I(r) \gt 1$ suggests a positive association between all types
+            -   $I(r) = 0$ if all types (i.e. categories) are independent of each other
+            -   $I(r) \lt 1$ suggests a negative association between all types
 -   [Dot Functions]{.underline}
     -   Analyzes the spatial dependence between 1 category of a variable and the rest of its categories.
     -   Requires the variable to be a factor, but seems to accept factor variables with more than 2 levels
     -   Example of Guidelines (e.g. `Gdot`)
-        -   $\hat G_{i \boldsymbol\cdot} \gt G_{i \boldsymbol\cdot}$ says that category $i$ events are *closer* to the other category event types than expected from a random process, i.e. *Clustered*
-        -   $\hat G_{i \boldsymbol\cdot} \approx G_{i \boldsymbol\cdot}$ says that category $i$ events are spatially independent of other category event types
-        -   $\hat G_{i \boldsymbol\cdot} \lt G_{i \boldsymbol\cdot}$ says that category $i$ events are *further* from other category event types than expected from a random process, i.e. *regularity (dispersion)*
+        -   $\hat G_{i \boldsymbol\cdot} \gt G_{i \boldsymbol\cdot}$ says that category $i$ events are *closer* to any type of category event than expected from a random process, i.e. *Clustered*
+        -   $\hat G_{i \boldsymbol\cdot} \approx G_{i \boldsymbol\cdot}$ says that category $i$ events are spatially independent of category event types
+        -   $\hat G_{i \boldsymbol\cdot} \lt G_{i \boldsymbol\cdot}$ says that category $i$ events are *further* from any type of category event than expected from a random process, i.e. *regularity (dispersion)*
