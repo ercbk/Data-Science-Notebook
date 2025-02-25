@@ -24,10 +24,79 @@
 ## Terms {#sec-geo-ptpat-terms .unnumbered}
 
 -   [**Intensity**]{style="color: #009499"} - The *expected* number of events per unit area — conventionally denoted by $\lambda$. In most cases the process is not know, so its intensity cannot be directly measured.
+    -   [Example]{.ribbon-highlight}: Average Intensity
+
+        ``` r
+        X <- rescale(swedishpines)
+        lam <- intensity(X)
+        # standard error
+        sdX <- sqrt(lam/area(Window(X))))
+        #> 0.08777
+        ```
+
+        -   `rescale` is used to convert the coordinates to a standard unit of length, e.g. unit like 0.1 meters to the base unit meters.
+        -   The standard error is in points per square meter in this case
+            -   Assumes homogeneous intensity
+
+    -   [Example]{.ribbon-highlight}: Per Quadrat
+
+        ``` r
+        swp <- rescale(swedishpines)
+        Q3 <- quadratcount(swp, nx = 3, ny = 3)
+        intensity(Q3)
+        #>              x
+        #> y             [0,3.2) [3.2,6.4) [6.4,9.6]
+        #>   [6.67,10]   0.75000   0.56250   0.65625
+        #>   [3.33,6.67) 0.75000   1.03125   0.84375
+        #>   [0,3.33)    0.46875   0.56250   1.03125
+
+        L3 <- as.numeric(intensity(Q3))
+        # standard error of the mean
+        sem <- sqrt(var(L3)/(length(L3)-1))
+        #> 0.07118
+
+        # Using tesselized quadrats
+        H <- hextess(swp, s = 1)
+        hQ <- quadratcount(swp, tess = H)
+        intensity(hQ, image = TRUE)
+        ```
+
+        -   Standard Error of the Mean assumes that the counts in each quadrat are independent (from other quadrat counts)
+        -   `hextess` produces hex-shaped quadrats. [s]{.arg-text} is the side length of the hexagons (e.g. 1 meter). [image = TRUE]{.arg-text} allows `plot` to create a sort of hex-shaped celled heatmap of the intensities.
+
+    -   [Example]{.ribbon-highlight}: Relative Intensity
+
+        -   A spatial case-control dataset gives the spatial locations of a set of disease cases, and of a separate set of controls (notionally a sample from the population at risk of the disease).
+        -   If the disease risk per head of population does not depend on spatial location, then we would expect the spatially varying intensities of these two point processes to be proportional
+
+    -   Weighted Intensity
+
+        -   Example
+
+            -   When there are multiple disease cases at the same residence, it is then appropriate to weight each residential location by the number of cases.
+            -   Intensity would be the average total number of cases per unit area, not the number of affected residences per unit area.
+
+        -   Example: [{spatstat}]{style="color: #990000"} book, p. 174
+
+            ``` r
+            vols <- 
+              with(marks(finpines),
+                   (pi/12) * height * (diameter/100)^2)
+            Dvol <- 
+              density(finpines, 
+                      weights = vols, 
+                      sigma = bw.ppl)
+            intensity(finpines, weights = vols)
+            #> [1] 0.001274
+            ```
+
+            -   Volume-weighted intensity is the average standing volume of wood per unit area of forest.
+-   [**Isotropic**]{style="color: #009499"} - Same as **Stationarity** but instead of talking about a shifting window, statistical properties are unaffected by rotations, i.e. orientation.
 -   [**Density**]{style="color: #009499"} - Empirical estimate of **Intensity** — $\hat \lambda = n / a$ , where $a$ is the area of the region
--   [**Homogeneity**]{style="color: #009499"} - In a general sense, this means the points have no preference for any spatial location (e.g. constant intensity)
+-   [**Homogeneity**]{style="color: #009499"} - In a general sense, this means the points have no preference for any spatial location (e.g. constant intensity for all windows, quadrats, etc.)
 -   [**Inhomogeneous**]{style="color: #009499"} - The average density of points is spatially varying (i.e. density is a function of location)
     -   On p. 689 in the [{spatstat}]{style="color: #990000"} book, a permutation test procedure is performed to test whether a point pattern is correlation-stationary (inhomogeneous) or locally scaled. Testing for whether the pattern is homogeneous or locally scaled and inhomogeneous, etc. could also have been done
+-   [**Interaction**]{style="color: #009499"} - Stochastic dependence between points
 -   [**Quadrats**]{style="color: #009499"} - Cells of a gridded area representing subregions. Useful for analyzing how density varies across a region
     -   Rules of Thumb for choosing the number of quadrats
         -   Each quadrat should have a minimum of two events
@@ -36,7 +105,7 @@
             Q = \frac{2A}{N}
             $$
 -   [**Regularity**]{style="color: #009499"} (or [**Dispersion**]{style="color: #009499"}) - The state at which points tend to be located at similar distances from each other.
--   [**Stationary**]{style="color: #009499"} - Intensity is constant (homogeneous)
+-   [**Stationary**]{style="color: #009499"} - The size and coordinates of the window doesn't affect the point process' statistical properties. This implies that ntensity is constant (homogeneous).
 
 ## Basics {#sec-geo-ptpat-bas .unnumbered}
 
@@ -247,6 +316,21 @@
 
     -   A map of the kernel density is better able to capture the variations in density across the region.
 
+-   Misc
+
+    -   The choice of bandwidth involves a tradeoff between bias and variance: as bandwidth increases, typically the bias increases and variance decreases.
+    -   Edge effects in uncorrected estimates will show the intensity decreasing at the window boundaries
+    -   Densities estimates at each point can be used as weights in a model: `density(swp, sigma = 1, at = "points")`
+    -   Standard Errors: `dse <- density(swp, 1, se=TRUE)$SE`
+        -   Although the standard error provides an indication of accuracy, and is justified by asymptotic theory, confidence intervals based on the standard error are notoriously unreliable
+        -   Should have a `plot` method
+    -   A fixed smoothing bandwidth (like in `density`) is unsatisfactory if the true intensity varies *greatly* across the spatial domain, because it is likely to cause oversmoothing in the high-intensity areas and undersmoothing in the low intensity areas. (e.g. bad for seismology)
+        -   Solution: **Adaptive Smoothing**
+            -   Dirichlet-Voronoï estimator (f[= 1]{.arg-text}): `adaptive.density(swp, f=1)`
+            -   [{]{style="color: #990000"}[sparr](https://tilmandavies.github.io/sparr/){style="color: #990000"}[}]{style="color: #990000"} - Provides a suite of adaptive kernel spatial smoothing techniques and related tools
+        -   Solution: **Nearest-Neighbor**
+            -   Example: 10th Nearest Neighbor Estimate: `nndensity(swp, k=10)`
+
 -   Process
 
     -   Each quadrat is treated as independent of the others in the window.
@@ -260,6 +344,10 @@
     -   [kernel]{.arg-text}: "gaussian", "epanechnikov", "quartic" or "disc"
     -   [weights]{.arg-text}: Optional weights to be attached to the points
     -   [diggle]{.arg-text}: Logical. If TRUE, use the Jones-Diggle improved edge correction, which is more accurate but slower to compute than the default correction.
+    -   sigma: Bandwidth
+        -   bw.ppl assumes an inhomogeneous Poisson process. Uses a likelihood cross-validation method
+        -   bw.diggle assumes a Cox process, which is more clustered (positively correlated) than a Poisson process. Uses a mean square error cross-validation method
+        -   bw.frac for a fast bandwidth selection rule based on the window geometry
 
 -   [Example]{.ribbon-highlight}: Fast Food in Toronto\
     ![](_resources/Geospatial-Point-Patterns.resources/dens-ff-1.png){.lightbox width="632"}
@@ -831,11 +919,18 @@
 ## Other Stuff {#sec-geo-ptpat-ostuff .unnumbered}
 
 -   Making some general notes on things that I'm not digging deeper into at this time, but that I still want to include while it's still fresh in my mind.
+-   Misc
+    -   [Inhomogeneous Functions]{.underline}
+        -   Instead of assuming the process is stationary, the assumption is that the process is **corrrelation-stationary**
+        -   The functions require an estimate of the intensity function $\lambda(u)$ :
+            -   User-Supplied: A vector of intensity values at the data points, a pixel image, a function, or a fitted point process model (ppm).
+            -   Otherwise, $\lambda(u)$ will be estimated from the data by a leave-one-out kernel smoother. Manually this would be `density(swp, sigma = bw.diggle, at="points")`.
 
 ### Marked Point Patterns {.unnumbered}
 
 -   Points with labels
 -   Basically analysis using 1 variable (label) + coordinates where the variable has information about the event at the location of the coordinates.
+-   Subset marks: e.g. `diameter <- marks(finpines)$diameter`
 -   [Correlation]{.underline}: Measures the correlation between marks of points separated by a given distance $r$.
     -   [Example]{style="color: green"}: A dataset of spruce tree locations that also has their heights. The spatial correlation will tell us if trees of similar heights near each other or further away.
     -   `spatstat.explore::markcorr`
