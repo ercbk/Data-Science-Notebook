@@ -1098,7 +1098,7 @@ lightbox:
 
             -   This will result in a discrete palette with bins of 0-10, 10-20, etc. Looks like an overlap, so I'm sure which bin contains the endpoints.
 
--   [Example]{.ribbon-highlight}: Over 65 in Iowa by census tract\
+-   [Example]{.ribbon-highlight}: [{mapview}]{style="color: #990000"} Over 65 in Iowa by census tract\
     ![](_resources/Surveys,_Census_Data.resources/tidycensus-iowa-65-1.png){.lightbox width="432"}
 
     ``` r
@@ -1121,17 +1121,18 @@ lightbox:
                               direction = -1))
     ```
 
-    -   {mapview} is interactive and great for exploration of data
+    -   [{mapview}]{style="color: #990000"} is interactive and great for exploration of data
 
--   Export as an HTML file
+    -   Export as an HTML file
 
-    ``` r
-    htmlwidgets::saveWidget(m1@map, "iowa_over_65.html")
-    ```
+        ``` r
+        htmlwidgets::saveWidget(m1@map, "iowa_over_65.html")
+        ```
 
-    -   Can embed it elsewhere (html report or website) by adding it as an asset
+        -   Can embed it elsewhere (html report or website) by adding it as an asset
+        -   For [{mapgl}]{style="color: #990000"}, you just use the name of the object and don't need the `@` syntax
 
--   In [{ggplot}]{style="color: #990000"}
+-   [Example]{.ribbon-highlight}: [{ggplot}]{style="color: #990000"}
 
     ``` r
     texas_income_sf <- 
@@ -1145,6 +1146,91 @@ lightbox:
 
     plot(texas_income_sf['estimate'])
     ```
+
+-   [Example]{.ribbon-highlight}: [{mapgl}]{style="color: #990000"} Continuous Choropleth\
+    ![](_resources/Surveys,_Census_Data.resources/map-chlor-mgl-cont-1.png){.lightbox width="432"}
+
+    ``` r
+    maricopa_age <- get_acs(
+      geography = "tract",
+      variables = "B01002_001",
+      state = "AZ",
+      county = "Maricopa",
+      geometry = TRUE,
+      year = 2023
+    )
+    summary(maricopa_age$estimate)
+    #>    Min. 1st Qu.  Median    Mean 3rd Qu.    Max.    NA's 
+    #>    4.00   31.80   36.70   39.26   42.80   76.80      14 
+
+    maplibre(bounds = maricopa_age) |> 
+      add_fill_layer(
+        id = "age",
+        source = maricopa_age,
+        fill_color = interpolate(
+          column = "estimate", # median age per county
+          values = c(4, 77),
+          stops = c("lightblue", "darkblue"),
+          na_color = "lightgrey"
+        ),
+        fill_opacity = 0.7
+      )
+    ```
+
+    -   `interpolate` used for continuous choropleth maps
+    -   [id = "age"]{.arg-text} is just a name you're giving the layer.
+    -   [values]{.arg-text} supplies a range of values to interpolate between. In this case, it's the floor and ceiling of the min and max of the [estimate]{.var-text} column
+    -   [stops]{.arg-text} are the end points of your color gradient
+
+-   [Example]{.ribbon-highlight}: [{mapgl}]{style="color: #990000"} Classed Choropleth\
+    ![](_resources/Surveys,_Census_Data.resources/map-chlor-mgl-class-1.png){.lightbox width="432"}
+
+    ``` r
+    library(viridisLite)
+
+    colors <- viridis(5)
+
+    maplibre(
+      bounds = maricopa_age
+    ) |> 
+      add_fill_layer(
+        id = "maricopa",
+        source = maricopa_age,
+        fill_color = step_expr(
+          column = "estimate",
+          base = colors[1],
+          stops = colors[2:5],
+          values = c(25, 40, 55, 70),
+          na_color = "lightgrey"
+        ),
+        fill_opacity = 0.6
+      ) |> 
+      add_legend(
+        "Median age",
+        values = c(
+          "Under 25",
+          "25 to 40",
+          "40 to 55",
+          "55 to 70",
+          "70 and up"
+        ),
+        colors = colors,
+        type = "categorical"
+      ) |> 
+      fill_opacity = 0.6,
+      tooltip = "estimate",
+      hover_options = list(
+        fill_opacity = 1,
+        fill_color = "red"
+      )
+    ```
+
+    -   ["id = maricopa"]{.arg-text} is just a name you decided to give this layer
+    -   `step_expr` is used for discrete values
+    -   `values` are the left-side values of your bins, I think (e.g. 0-24, 25-39, etc.)
+        -   Basing this on his language "under 25" which I wouldn't think includes 25. Similarly with "70 and up" which should include the left side value. Nothing in the docs that clarifies this.
+    -   `base` is the color of the values in the first bin
+    -   [stops]{.arg-text} are the colors for the rest of the bins
 
 ### Circle Maps {#sec-surv-cens-map-circ .unnumbered}
 
@@ -1197,10 +1283,53 @@ lightbox:
     ```
 
     -   `st_centroid` finds the center point of geography polygons which will be the location of the symbols. If you look at the geometry column it will say POINT, which only has a latitude and longitude, instead of POLYGON, which as multiple coordiates.
-
     -   `scale_size_area` scales the size of the circle according to the count value.
-
         -   [max_size]{.arg-text} is the maximum diameter of the circle which you'll want to adjust to be large enough so that you can differentiate the circles but small enough so you have the least amount of overlap between circles in neighboring geographies (although this is probably inevitable).
+
+-   [Example]{.ribbon-highlight}: [{mapgl}]{style="color: #990000"}
+
+    ``` r
+    maplibre(
+      style = carto_style("positron"),
+      bounds = centroids # guess centroid obj still has bound box attr
+    ) |> 
+      add_circle_layer(
+        id = "circles",
+        source = centroids,
+        circle_radius = step_expr(
+          column = "estimate",
+          values = c(500, 1000, 1500, 2500),
+          base = 2,
+          stops = c(4, 6, 8, 10),
+        ),
+        circle_opacity = 0.6,
+        circle_color = "navy",
+        tooltip = "estimate"
+      ) |> 
+      add_legend(
+        "Hispanic population",
+        values = c(
+          "Under 500",
+          "500-1000",
+          "1000-1500",
+          "1500-2500",
+          "2500 and up"
+        ),
+        sizes = c(2, 4, 6, 8, 10),
+        colors = "navy",
+        type = "categorical",
+        circular_patches = TRUE,
+        position = "top-right"
+      )
+    ```
+
+    -   ["id = circles"]{.arg-text} is just a name you decided to give this layer
+    -   `step_expr` is used for discrete (ordered) values
+    -   `values` are the left-side values of your bins, I think (e.g. 0-499, 500-999, etc.)
+        -   Basing this on his language "under 500" which I wouldn't think includes 500. Similarly with 500 and up which also should include the left-side. Nothing in the docs that clarifies this.
+    -   `base` is the circle size of the values in the first bin
+    -   [stops]{.arg-text} are the circle size for the rest of the bins
+    -   [circular_patches = TRUE]{.arg-text} add the filled circles to the legend
 
 ### Dot Density {#sec-surv-cens-map-dot .unnumbered}
 
@@ -1235,10 +1364,117 @@ lightbox:
     ```
 
     -   `as_dot_density` scatters the dots randomly within a geography. [values_per_dot]{.arg-text}says each dot is 200 units (e.g. people or households). Without shuffling, ggplot will layer each group's dots on top of each other.
-
     -   `annotation_map_tile` from [{ggspatial}]{style="color: #990000"} applies a base map layer as a reference for the user. Base maps have land marks and popular features labeled in the geography and surrounding areas to help the user identify the area being shown.
-
     -   Dots are randomly placed within the geography (so you could end up with dots in water)
+
+-   [Example]{.ribbon-highlight}: [{mapgl}]{style="color: #990000"}
+
+    ``` r
+    library(RColorBrewer)
+
+    groups <- unique(san_diego_race_dots$variable)
+    colors <- brewer.pal(length(groups), "Set1")
+
+    maplibre(
+      style = carto_style("positron"),
+      bounds = san_diego_race_dots
+    ) |> 
+      add_circle_layer(
+        id = "dots",
+        source = san_diego_race_dots,
+        circle_color = match_expr(
+          column = "variable", # race category
+          values = groups,
+          stops = colors
+        ), 
+        circle_radius = interpolate(
+          property = "zoom",
+          values = c(9, 14),
+          stops = c(1, 10)
+        ),
+        before_id = "watername_ocean"
+      ) |> 
+      add_legend(
+        "Race/ethnicity in San Diego<br>1 dot = 200 people",
+        values = groups,
+        colors = colors,
+        circular_patches = TRUE,
+        type = "categorical"
+      )
+    ```
+
+    -   `match_expr` is for categorical values. It matches categories to colors
+
+    -   `interpolate` is used in this instance to dynamically change the size of the dot according the current zoom-level on the map.
+
+        -   The closer the user zooms into an area, the larger the dots become. Just a feature to make the visualization easier to interpret.
+        -   Guessing [values]{.arg-text} is the range of zoom levels and [stops]{.arg-text} is the range of dot sizes
+
+    -   [circular_patches = TRUE]{.arg-text} add the colored dots to the legend
+
+### National Mapping {#sec-surv-cens-map-natl .unnumbered}
+
+-   Issues arise from trying to include Alaska, Hawaii, Puerto Rico, etc.
+
+-   [Example]{.ribbon-highlight}: [{mapgl}]{style="color: #990000"} Median Home Value by State\
+    ![](_resources/Surveys,_Census_Data.resources/map-nat-mgl-1.png){.lightbox width="432"}
+
+    ``` r
+    us_value <- get_acs(
+      geography = "state",
+      variables = "B25077_001",
+      year = 2023,
+      survey = "acs1",
+      geometry = TRUE,
+      resolution = "5m"
+    ) 
+
+    r <- dplyr::range(us_value$estimate, na.rm = TRUE)
+
+    # shift non-contiguous regions into CONUS window
+    us_value_shifted <- tigris::shift_geometry(us_value)
+    us_value_shifted$tooltip <- 
+      paste0(us_value_shifted$NAME, 
+             ": $", 
+             us_value_shifted$estimate)
+
+    # blank basemap
+    style <- list(
+      version = 8,
+      sources = structure(list(), .Names = character(0)),
+      layers = list(
+        list(
+          id = "background",
+          type = "background",
+          paint = list(
+            `background-color` = "lightgrey"
+          )
+        )
+      )
+    )
+
+    maplibre(
+      style = style,
+      center = c(-98.8, 37.68),
+      zoom = 2.5
+    ) |> 
+      set_projection("globe") |> 
+      add_fill_layer(
+        id = "value",
+        source = us_value_shifted,
+        fill_color = interpolate(
+          column = "estimate",
+          values = r,
+          stops = c("#1D00FC", "#00FF2F")
+        ),
+        fill_opacity = 0.7,
+        tooltip = "tooltip"
+      )
+    ```
+
+    -   [resolution = "5m"]{.arg-text} says one inch on the map equals five million inches in the real world. Good for state-level mapping.
+        -   See [tidycensus \>\> Misc](surveys-census-data.qmd#sec-surv-cens-tidyc-misc){style="color: green"} \>\> Workaround \>\> Example for details on resolution
+    -   `shift_geometry` only works for the US and it doesn't work for Guam, American Samoa, and Virgin Islands.
 
 ## IPUMS {#sec-surv-cens-ipums .unnumbered}
 
