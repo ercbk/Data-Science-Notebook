@@ -1,4 +1,4 @@
-# Fundamentals {#sec-docker-fund}
+# Fundamentals {#sec-docker-fund .unnumbered}
 
 ## Misc {#sec-docker-fund-misc .unnumbered}
 
@@ -836,13 +836,13 @@
     -   Add [-a]{.arg-text} flag to remove ALL unused images
         -   \* Only run if want every image not being used by a running container to be deleted \*
 
-## Docker Compose {#sec-docker-fund-dc}
+## Docker Compose {#sec-docker-fund-dc .unnumbered}
+
+-   Misc
 
 -   Note dash between docker and compose in commands
 
--   docker-compose.yml properties
-
-    -   yaml files do not need to be in the same directory as your dockerfiles. You just have to give the path in the build property (see below)
+-   yaml files do not need to be in the same directory as your dockerfiles. You just have to give the path in the build property (see below)
 
 -   [Example]{.ribbon-highlight}:
 
@@ -884,84 +884,90 @@
       redis: {}
     ```
 
--   `version` is the version of the compose api
+    -   [version]{.arg-text} is the version of the compose api
+    -   [services]{.arg-text} are the containers we're building
+        -   Service names (e.g. [redis]{.var-text}, [web]{.var-text}) will end up being the container and image names (See below for the exception)
+    -   Properties
+        -   [image]{.arg-text} - Uses the base:tag format like the value for the FROM instruction in the dockerfile
+        -   [build]{.arg-text} - '.' says build an image from the current directory - If your app has it's own folder then you need to specify the path - e.g. './web'
+        -   [image]{.arg-text} and [build]{.arg-text} property in the same service
+            -   Docker will build 2 of the same image
+                -   One with project name ([build]{.arg-text}) and the other with the [image]{.arg-text} value as the name for the image
+            -   [Example]{.ribbon-highlight} [build: '.']{.arg-text} and [image: 'ercbk/web:1.0]{.arg-text}
+                -   Says build image using dockerfile in current directory and name it [ercbk/web:1.0]{.var-text}
+                -   Useful if the image is going to be pushed to the docker hub
+        -   [ports]{.arg-text}
+            -   Ports to be used for the container (See [Running Containers \>\> Flags](docker-fundamentals.qmd#sec-docker-fund-rc-flag){style="color: green"} \>\> -p)
+                -   The "bind" port (right side) supplied here needs to match the dockerfile
+            -   A \<dash\> indicates a list in yamls.
+                -   [Example]{.ribbon-highlight}: Forward 2 sets of ports
 
--   `services` are the containers we're building
+                    ``` yaml
+                    - '6379:6379'
+                    - '5348:5348'
+                    ```
+        -   [depends_on]{.arg-text}
+            -   Necessary if one service depends on another. Indicates if one container needs to start before another.
+                -   e.g. [web]{.var-text} (app) depends on [redis]{.var-text} (db)
+            -   Takes a value in list format
+    -   [worker]{.var-text}
+        -   Use the same dockerfile for both services
+            -   e.g. [worker]{.var-text} uses the same dockerfile as [web]{.var-text}
+        -   Useful for background services for your app
+            -   [{{celery}}]{style="color: goldenrod"} used for this task (which someone said was garbage)
+        -   Differences
+            -   No need for port to be exposed (therefore overriding the CMD instruction in the dockerfile)
+            -   Uses command property which replaces the CMD instruction in the dockerfile
+    -   [volumes]{.var-text}
+        -   The name given here needs to match the name of the volume given in the services property
+            -   e.g. For this yaml the name of the volume created is [redis]{.var-text}
+        -   `{}` - curly brackets are for adding options to the volume, such as being read-only (see docker docs for more options)
+            -   In this example no options are supplied so it's empty (still necessary though)
 
-    -   Service names (e.g. redis, web) will end up being the container and image names (see below for the exception)
-    -   image property
-        -   uses the base:tag format like the value for the FROM instruction in the dockerfile
-    -   build property
-        -   '.' says build an image from the current directory
-        -   If your app has it's own folder then you need to specify the path
-            -   example './web'
-    -   image and build property in the same service
-        -   docker will build 2 of the same image
-            -   one with project name (build) and the other with the image value as the name for the image
-        -   Example build: '.' and image: 'ercbk/web:1.0
-            -   Says build image using dockerfile in current directory and name it ercbk/web:1.0
-            -   Useful if the image is going to be pushed to the docker hub
-    -   ports
-        -   Ports to be used for the container (see -p flag in running containers section for more details)
-            -   The "bind" port (right side) supplied here needs to match the dockerfile
-        -   A \<dash\> indicates a list in yamls.
-            -   [Example]{.ribbon-highlight}: forward 2 sets of ports
+-   [Example]{.ribbon-highlight}: Databases and Workers communicate on one network while apps communicate on both networks
 
-                ```         
-                - '6379:6379'
-                - '5348:5348'
-                ```
+    ``` yaml
+    result:
+      build: ./result
+      command: nodemon --debug server.js
+      volumes:
+        - ./result:/app
+      ports:
+        - "5001:80"
+      networks:
+        - front-tier
+        - back-tier
+    worker:
+      build: ./worker
+      networks:
+        - back-tier
+    db:
+      image: postgres:9.4
+      volumes:
+        - "db-data:/var/lib/postgresql/data"
+      networks:
+        - back-tier
+    ```
 
--   network
+    -   [networks]{.arg-text}
+        -   Takes list inputs
+        -   Used when multiple networks are created
+    -   [volumes]{.arg-text}
+        -   See [Data Volumes](docker-fundamentals.qmd#sec-docker-fund-dv){style="color: green"}
+        -   \<dash\> means, just like for ports, values for this property are in list format
+        -   In the app service,
+            -   Specify which directory to share
+            -   `.:/app` says share the current local directory which will be the app directory in the container
+        -   In the redis service,
+            -   [web2_redis]{.var-text} is the name we give to the data volume
+            -   `/data` is designated by the redis people
 
-    -   Takes list inputs
-    -   Used when multiple networks are created
-        -   [Example]{.ribbon-highlight}: databases/workers communicate on one network while apps communicate on both networks
+-   Setting Environment Variables
 
-            ``` yaml
-            result:
-              build: ./result
-              command: nodemon --debug server.js
-              volumes:
-                - ./result:/app
-              ports:
-                - "5001:80"
-              networks:
-                - front-tier
-                - back-tier
-            worker:
-              build: ./worker
-              networks:
-                - back-tier
-            db:
-              image: postgres:9.4
-              volumes:
-                - "db-data:/var/lib/postgresql/data"
-              networks:
-                - back-tier
-            ```
+    -   Method 1: [environment]{.arg-text}
 
--   volumes
+        -   [name: value]{.arg-text} pair
 
-    -   See data volumes section for more details
-    -   \<dash\> means, just like for ports, values for this property are in list format
-    -   In the app service,
-        -   Specify which directory to share
-            -   '.:/app" says share the current local directory which will be the app directory in the container
-    -   In the redis service,
-        -   web2_redis is the name we give to the data volume
-        -   /data is designated by the redis people
-
--   depends_on
-
-    -   necessary if one service depends on another. Indicates if one container needs to start before another.
-        -   [Example]{.ribbon-highlight}: web (app) depends on redis (db)
-    -   takes a value in list format
-
--   environment
-
-    -   Method 1 for setting environment variables
-    -   name: value pair
         -   [Example]{.ribbon-highlight}:
 
             ``` yaml
@@ -969,110 +975,91 @@
                 FLASK_DEBUG: 'true'
             ```
 
--   env_file
+    -   Method 2: [env_file]{.arg-text}
 
-    -   Method 2 takes a list of environment files to load
+        -   Takes a list of environment files to load
 
-    -   Loads from top to bottom
+        -   Loads from top to bottom
 
-        -   If any variables in a lower listed file match those in a file listed higher up, then the values in the earlier file get overwritten to the values in the later file
-        -   Useful if you have a stock env file, decide to put the containers into production, then you can just add a production env file to the directory and the yaml
+            -   If any variables in a lower listed file match those in a file listed higher up, then the values in the earlier file get overwritten to the values in the later file
+            -   Useful if you have a stock env file, decide to put the containers into production, then you can just add a production env file to the directory and the yaml
 
-    -   [Example]{.ribbon-highlight}: .env is the name of the file in the current directory (\<dot\> is in the actual name)
+        -   e.g. `.env` is the name of the file in the current directory
 
-    -   [Example]{.ribbon-highlight}: File
+        -   [Example]{.ribbon-highlight}: File
 
-        ```         
-        COMPOSE_PROJECT_NAME=web2
-        PYTHONBUFFERED=true
-        FLASK_APP=app.py
-        FLASK_DEBUG=1
-        ```
+            ``` toml
+            COMPOSE_PROJECT_NAME=web2
+            PYTHONBUFFERED=true
+            FLASK_APP=app.py
+            FLASK_DEBUG=1
+            ```
 
--   The flask variables are the ones we passed in the run containers section
+            -   The flask variables are the ones we passed in the run containers section
+            -   Can configure Docker Compose options here
+                -   e.g. Supply a project name. Otherwise Docker would just use the current directory for the name of the project. Also gets added as a prefix for networks, etc. that Compose will create.
+            -   The Python buffer variable is necessary if you want to see the output from the terminal through Compose
 
--   Can configure Docker Compose options here
+## Docker-Compose Commands {#sec-docker-fund-dcc .unnumbered}
 
-    -   [Example]{.ribbon-highlight}: supply a project name. Otherwise Docker would just use the current directory for the name of the project. Also gets added as a prefix for networks, etc. that Compose will create.
-
--   The Python buffer variable is necessary if you want to see the output from the terminal through Compose
-
--   worker (service)
-
-    -   Use the same dockerfile for both services
-        -   eg Worker uses the same dockerfile as web in the example docker-compose.yml
-    -   Useful for background services for your app
-        -   celery is a python library used this task
-    -   Differences
-        -   No need for port to be exposed (therefore overriding the CMD instruction in the dockerfile)
-        -   Uses command property which replaces the CMD instruction in the dockerfile
-
--   `volumes`
-
-    -   The name given here needs to match the name of the volume given in the services property
-        -   [Example]{.ribbon-highlight}: for this yaml the name of the volume created is "redis"
-    -   `{}` - curly brackets are for adding options to the volume, such as being read-only (see docker docs for more options)
-        -   In this example no options are supplied so it's empty (still necessary though)
-
-## Managing a Web App With Docker-Compose {#sec-docker-fund-mawawdc}
-
--   Note dash between docker and compose in commands
--   Current directory need to have the docker-compose.yml file
+-   Current directory need to have the `docker-compose.yml` file
     -   Unless you use the -f flag
 -   `docker-compose --help`
     -   Info on commands
 -   `docker-compose build`
     -   Builds an image of any service in the yaml file with a build property
-    -   docker image ls will show the built images with the project name as the prefix
-        -   Project name set in the env file (see above)
+    -   `docker image ls` will show the built images with the project name as the prefix
+        -   Project name set in the `.env` file (See above)
 -   `docker-compose pull`
     -   Pulls any other images specified with the image property in the yaml file
         -   Not just local but also pulls from docker hub I think
 -   `docker-compose up`
     -   Runs the project (everything created with project name prefix)
         -   Creates network
-            -   eg web2_defaults
+            -   eg [web2_defaults]{.var-text}
         -   Creates volume
-            -   eg web2_redis
+            -   eg [web2_redis]{.var-text}
         -   Starts containers
-            -   eg web2_redis_1, web2_web_1
-                -   The "\_1" suffix is in case the project calls for multiple instances of the same container
-                    -   Reminder: multiple apps require different ports (binding?) (see -p in running-a-container sections). Would also require setting up a load balancer. (see aws load balancer section below)
+            -   eg [web2_redis_1]{.var-text}, [web2_web_1]{.var-text}
+                -   The `_1` suffix is in case the project calls for multiple instances of the same container
+                -   Reminder: Multiple apps require different ports (binding?). Would also require setting up a load balancer.
+                    -   See [Running Containers \>\> Flags](docker-fundamentals.qmd#sec-docker-fund-rc-flag){style="color: green"} \>\> -p
+                    -   See [Docker, AWS \>\> Create Application Load Balancer](docker-aws.qmd#sec-docker-aws-calb){style="color: green"}
     -   `docker-compose up <service>`
         -   Starts a specific service
-        -   If you start a service with a dependency ("depends_on" specified in yaml), it will also start that dependency service.
-        -   docker compose web
-            -   Starts web but also redis, because web has a specified redis dependency
+        -   If you start a service with a dependency ([depends_on]{.arg-text} specified in yaml), it will also start that dependency service.
+        -   `docker compose web`
+            -   Starts [web]{.var-text} but also [redis]{.var-text}, because [web]{.var-text} has a specified [redis]{.var-text} dependency
 -   `docker-compose stop`
     -   Stops all containers
         -   Can probably specify a container
-            -   eg docker-compose stop web
-    -   Can also use ctrl+c, but (as of 2017) there's a bug that throws an error and aborts instead
+            -   eg `docker-compose stop web`
+    -   Can also use `ctrl+c`, but (as of 2017) there's a bug that throws an error and aborts instead
 -   `docker-compose up --build -d`
     -   Runs both build and up commands at once
-    -   -d says run in the background
+    -   [-d]{.arg-text} says run in the background
 -   `docker-compose ps`
-    -   Similar info as docker container ls but presented slightly differently
+    -   Similar info as `docker container ls` but presented slightly differently
 -   `docker-compose logs -f`
-    -   Since containers running in the background -f needed to logs of the container activity
-    -   It's a realtime log of all containers running in the project, so will require ctrl+c to exit
+    -   Since containers running in the background [-f]{.arg-text} needed to logs of the container activity
+    -   It's a realtime log of all containers running in the project, so will require `ctrl+c` to exit
 -   `docker-compose restart`
     -   Restarts all containers
     -   Can also just specify one container
-        -   eg docker-compose restart redis
+        -   eg `docker-compose restart redis`
 -   `docker-compose exec web`
     -   For a running container, you can execute commands inside the container from the outside
         -   `docker-compose exec web ls -la`
             -   Shows file contents inside container
     -   Opening a shell inside the container
         -   `docker-compose exec web sh`
-            -   No -it flag necessary like for docker container exec (see running-a-container section)
-    -   exit
+            -   No [-it]{.arg-text} flag necessary like for `docker container exec` (See [Running Containers \>\> Commands](docker-fundamentals.qmd#sec-docker-fund-rc-coms){style="color: green"})
+    -   `exit`
         -   Exits the shell
 -   `docker-compose run <service> <command>`
     -   Allows you to instantly run the container, execute a command inside the container, and exit the shell
     -   Equivalent to the command sequence: up $\rightarrow$ exec $\rightarrow$ exit
-    -   [Example]{.ribbon-highlight}: docker-compose run redis redis-server --version
+    -   e.g. `docker-compose run redis redis-server --version`
 -   `docker-compose rm`
     -   Deletes all containers (only stopped ones I assume)
-    -   These will also be removed using the docker system prune from the docker-utility-functions section
+    -   These will also be removed using the `docker system prune` from [Docker Utility Functions](docker-fundamentals.html#sec-docker-fund-duf){style="color: green"}
