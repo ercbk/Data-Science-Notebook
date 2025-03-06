@@ -26,7 +26,9 @@
 -   Shiny has native drilldown capability through `showModal` (See [Improving Shiny app interactivity and performance with ggiraph](https://posit.co/blog/shiny-dashboards-with-ggiraph-and-databases/))
 -   A common source of poor Shiny performance and maintainability is placing a large amount of logic within a single reactive statement such as an `observe()`
     -   Instead of adding a bunch of `renderPlots` to an `observe()`, liberally use reactive variables and your code becomes much cleaner, faster, and more maintainable
--   `options(shiny.autoreload = TRUE)` before running `shiny::runApp(appDir = "./tests", port = 8080)` allows you to make changes to app.R and view them almost instantaeously in the viewer. ([link](https://mstdn.social/@ramikrispin/111631209092613469))
+-   Options
+    -   `options(shiny.autoreload = TRUE)` before running `shiny::runApp(appDir = "./tests", port = 8080)` allows you to make changes to app.R and view them almost instantaeously in the viewer. ([link](https://mstdn.social/@ramikrispin/111631209092613469))
+    -   `options(shiny.maxRequestSize = 20 * 1024^2)` says increase max file upload size to 20MB
 -   Add paragraphs of text to an app via Markdown ([source](https://bsky.app/profile/tanyashapiro.bsky.social/post/3lg4ka2hg6c2o))
     -   Create a markdown file, then pass it into your app with `htmltools::includeMarkdown()`
 -   Comparison with other products ([article](https://www.appsilon.com/post/rshiny-vs-powerbi-vs-spotfire?utm_source=social&utm_medium=mastodon&utm_campaign=blog&utm_term=appsilon-account&utm_content=data-visualization))\
@@ -240,3 +242,80 @@
             -   `ObserveEvent` listens for ui input "show" button to be pressed
             -   `sendCustomMessage` is a js function to send a message from the server to the browser
                 -   identifier ("type") = "notify" says which custom handler to use in the js script
+-   [Example]{.ribbon-highlight}: DT table and Leaflet (sort of) sync ([source](https://github.com/rstudio/shiny-examples/blob/main/063-superzip-example/gomap.js))
+    -   JS Script (`gomap.js`)
+
+        ``` javascript
+        // When locator icon in datatable is clicked, go to that spot on the map
+        $(document).on("click", ".go-map", function(e) {
+          e.preventDefault();
+          $el = $(this);
+          var lat = $el.data("lat");
+          var long = $el.data("long");
+          var zip = $el.data("zip");     // this one    
+          $($("#nav a")[0]).tab("show"); // this one
+          Shiny.onInputChange("goto", {
+            lat: lat,
+            lng: long,
+            zip: zip,                    // and this one
+            nonce: Math.random()
+          });
+        });
+        ```
+
+        -   This [example](https://github.com/Hong-Kong-Districts-Info/hktrafficcollisions/blob/main/inst/app/modules/gomap.js) had a few of the lines deleted (indicated in the comments)
+
+    -   UI and Server
+
+        ``` r
+        # ui --------------
+
+        navbarPage("Superzip", id="nav",
+
+          tabPanel("Interactive map",
+            div(class="outer",
+
+              tags$head(
+                # Include our custom CSS
+                includeCSS("styles.css"),
+                includeScript("gomap.js")
+              ),
+            ...
+          ...
+
+          
+        # server ----------------
+          
+          observe({
+            if (is.null(input$goto))
+              return()
+            isolate({
+              map <- leafletProxy("map")
+              map %>% clearPopups()
+              dist <- 0.5
+              zip <- input$goto$zip
+              lat <- input$goto$lat
+              lng <- input$goto$lng
+              showZipcodePopup(zip, lat, lng)
+              map %>% fitBounds(lng - dist, lat - dist, lng + dist, lat + dist)
+            })
+          })
+
+          output$ziptable <- DT::renderDataTable({
+            df <- cleantable %>%
+              filter(
+                Score >= input$minScore,
+                Score <= input$maxScore,
+                is.null(input$states) | State %in% input$states,
+                is.null(input$cities) | City %in% input$cities,
+                is.null(input$zipcodes) | Zipcode %in% input$zipcodes
+              ) %>%
+              mutate(Action = paste('<a class="go-map" href="" data-lat="', Lat, '" data-long="', Long, '" data-zip="', Zipcode, '"><i class="fa fa-crosshairs"></i></a>', sep=""))
+            action <- DT::dataTableAjax(session, df, outputId = "ziptable")
+
+            DT::datatable(df, options = list(ajax = list(url = action)), escape = FALSE)
+          })
+        }
+        ```
+
+        -   Also see this [example](https://github.com/Hong-Kong-Districts-Info/hktrafficcollisions/blob/7b7a9d17ebac01363d257c1627911b526ba2e3b0/inst/app/modules/hotzones.R#L73)
