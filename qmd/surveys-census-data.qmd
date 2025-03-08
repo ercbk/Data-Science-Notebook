@@ -752,6 +752,115 @@ lightbox:
     -   Distribution shape remains pretty much the same, but decreasing for most age cohorts, i.e. people are leaving the state across most age groups.
         -   e.g. The large hump representing the group of people in there mid-40s in 2000 steadily decreases over time.
 
+-   [Example]{.ribbon-highlight}: Compare 2010 to 2020 Population Densities for Dallas-Ft. Worth\
+    ![](_resources/Surveys,_Census_Data.resources/dicen-ts-3d-popden-1.png){.lightbox width="532"}
+
+    <Details>
+
+    <Summary>Code</Summary>
+
+    ::: panel-tabset
+    ## Data
+
+    ``` r
+    library(tidycensus)
+    library(sf)
+    library(tidyverse)
+    library(tigris)
+    options(tigris_use_cache = TRUE)
+
+    dfw_counties <- counties(year = 2020) %>%
+      filter(CBSAFP == "19100") %>%
+      pull(COUNTYFP)
+
+    # 2010 variable lookup
+    vars10 <- load_variables(2010, "sf1")
+
+    dfw_pop_10 <- get_decennial(
+      geography = "tract",
+      state = "TX",
+      county = dfw_counties,
+      variables = "P001001",
+      sumfile = "sf1",
+      year = 2010,
+      geometry = TRUE
+    ) %>%
+      st_transform(26914) %>%
+      mutate(pop_density = as.numeric(value / (st_area(.) / 2589989.1738453)) )
+
+    dfw_pop_20 <- get_decennial(
+      geography = "tract",
+      variables = "P1_001N",
+      state = "TX",
+      county = dfw_counties,
+      geometry = TRUE,
+      year = 2020,
+      sumfile = "dhc"
+    ) %>%
+      st_transform(26914) %>%
+      mutate(pop_density = as.numeric(value / (st_area(.) / 2589989.1738453)) )
+
+    print(nrow(dfw_pop_10))
+    print(nrow(dfw_pop_20))
+    ```
+
+    -   1,312 Census tracts in DFW in 2010
+    -   1,704 Census tracts in DFW in 2020
+    -   2589989.1738453 is the number of square meters in one square mile
+        -   Converts the area from square meters to square miles to calculate population density in people per square mile.
+
+    ## 3-D Map with Vertical Slider
+
+    ``` r
+    m10_3d <- maplibre(
+      style = carto_style("positron")
+    ) |> 
+      fit_bounds(dfw_pop_10) |> 
+      add_fill_extrusion_layer(
+        id = "dfw10",
+        source = dfw_pop_10,
+        fill_extrusion_color = interpolate(
+          column = "pop_density",
+          values = seq(0, 40000, 8000),
+          stops = plasma(6)
+        ), 
+        fill_extrusion_opacity = 0.7,
+        fill_extrusion_height = get_column("pop_density")
+      ) |> 
+      add_legend(
+        "Population density (persons/sqmi)<br>Left: 2010, Right: 2020", 
+        values = c("0", "8k", "16k", "24k", "32k", "40k"),
+        colors = plasma(6)
+      )
+
+    m20_3d <- maplibre(
+      style = carto_style("positron"),
+    ) |> 
+      add_fill_extrusion_layer(
+        id = "dfw20",
+        source = dfw_pop_20,
+        fill_extrusion_color = interpolate(
+          column = "pop_density",
+          values = seq(0, 40000, 8000),
+          stops = plasma(6)
+        ), 
+        fill_extrusion_opacity = 0.7,
+        fill_extrusion_height = get_column("pop_density")
+      ) |> 
+      add_legend(
+        "Population density (persons/sqmi)<br>Left: 2010, Right: 2020", 
+        values = c("0", "8k", "16k", "24k", "32k", "40k"),
+        colors = plasma(6)
+      )
+
+    compare(m10_3d, m20_3d)
+    ```
+
+    -   Also see [Mapping](surveys-census-data.qmd#sec-surv-cens-map){style="color: green"} for details on [{mapgl}]{style="color: #990000"} functions, arguments, etc.
+    :::
+
+    </Details>
+
 ## tidycensus {#sec-surv-cens-tidyc .unnumbered}
 
 ### Misc {#sec-surv-cens-tidyc-misc .unnumbered}
@@ -768,6 +877,15 @@ lightbox:
         -   Required for hitting the census API over 500 times per day which isn't as hard as you'd think.
     -   Set as an environment variable: `census_api_key("<api key>", install = TRUE)`
         -   Or add this line to [.Renviron]{.arg-text} file, [CENSUS_API_KEY='\<api key']{.arg-text}
+
+-   Other Functions
+
+    -   `county_laea` - County geometry with Alaska and Hawaii shifted and re-scaled
+    -   `fips_codes` - Dataset with FIPS codes for US states and counties
+    -   `interpolate_pw` - Use population-weighted areal interpolation to transfer information from one set of shapes to another
+    -   `moe_sum`, `moe_prop`, `moe_ratio`, and `moe_product` - Formulas to calculate margins of error for derived estimates. (See the [vignette](https://walker-data.com/tidycensus/articles/margins-of-error.html))
+    -   `state_laea` - State geometry with Alaska and Hawaii shifted and re-scaled
+    -   `to_survey` - Convert a data frame returned by `get_pums` to a survey object
 
 -   Workaround for Trump's Executive Order that halts access the Census Bureau's shapefiles (Tigris shapefiles should be back up)
 
@@ -1015,16 +1133,20 @@ lightbox:
 ### Misc {#sec-surv-cens-map-misc .unnumbered}
 
 -   Use [geometry = TRUE]{.arg-text} for any of the `get_*` [{tidycensus}]{style="color: #990000"} functions, and it'll join the shapefile with the census data. Returns a SF (Simple Features) dataframe for mapping.
-
 -   If you only want the shape files without the demographic data, see [{]{style="color: #990000"}[tigris](https://github.com/walkerke/tigris){style="color: #990000"}[}]{style="color: #990000"}
-
 -   For examples with [{]{style="color: #990000"}[tmap](https://r-tmap.github.io/tmap/){style="color: #990000"}[}]{style="color: #990000"}, see [Chapter 6.3](https://walker-data.com/census-r/mapping-census-data-with-r.html#map-making-with-tmap) of Analyzing US Census Data
+-   Comparisons
+    -   [{mapview}]{style="color: #990000"} along with some other packages gives you some tools for comparing maps (useful for eda or exploratory reports, etc.) ([m1]{.arg-text} and [m2]{.arg-text} are mapview objects)
 
--   [{mapview}]{style="color: #990000"} along with some other packages gives you some tools for comparing maps (useful for eda or exploratory reports, etc.) ([m1]{.arg-text} and [m2]{.arg-text} are mapview objects)
+        -   `m1 + m2` - Creates layers that allows you click the layers button and cycle through multiple maps. So I assume you could compare more than two maps here.
+        -   `m1 | m2` - Creates swipe map (need [{leaflet.extras2}]{style="color: #990000"}). There will be a vertical slider that you can interactively slide horizontally to gradually expose one map or the other.
+        -   `sync(m1, m2)` - Uses [{leafsync}]{style="color: #990000"} to create side by side maps. Zooming and cursor movement are synced on both maps.
 
-    -   `m1 + m2` - Creates layers that allows you click the layers button and cycle through multiple maps. So I assume you could compare more than two maps here.
-    -   `m1 | m2` - Creates swipe map (need [{leaflet.extras2}]{style="color: #990000"}). There will be a vertical slider that you can interactively slide horizontally to gradually expose one map or the other.
-    -   `sync(m1, m2)` - Uses [{leafsync}]{style="color: #990000"} to create side by side maps. Zooming and cursor movement are synced on both maps.
+    -   [{mapgl}]{style="color: #990000"} has `compare(m1, m2)` which adds a vertical slider to compare both maps
+-   Zoom-Level Range: 0 (zoomed-out) to 22 (zoomed-in)
+-   Center of the Continental US has the coordinates: `c(-98.5795, 39.8283)`
+    -   Lower or higher: Adjust the 39
+    -   More East or West: Adjust the -98
 
 ### Preprocessing {#sec-surv-cens-map-proc .unnumbered}
 
@@ -1404,12 +1526,9 @@ lightbox:
     ```
 
     -   `match_expr` is for categorical values. It matches categories to colors
-
     -   `interpolate` is used in this instance to dynamically change the size of the dot according the current zoom-level on the map.
-
         -   The closer the user zooms into an area, the larger the dots become. Just a feature to make the visualization easier to interpret.
         -   Guessing [values]{.arg-text} is the range of zoom levels and [stops]{.arg-text} is the range of dot sizes
-
     -   [circular_patches = TRUE]{.arg-text} add the colored dots to the legend
 
 ### National Mapping {#sec-surv-cens-map-natl .unnumbered}
@@ -1418,6 +1537,9 @@ lightbox:
 
 -   [Example]{.ribbon-highlight}: [{mapgl}]{style="color: #990000"} Median Home Value by State\
     ![](_resources/Surveys,_Census_Data.resources/map-nat-mgl-1.png){.lightbox width="432"}
+
+    ::: panel-tabset
+    ## Data
 
     ``` r
     us_value <- get_acs(
@@ -1430,14 +1552,29 @@ lightbox:
     ) 
 
     r <- range(us_value$estimate, na.rm = TRUE)
+    ```
 
+    -   [resolution = "5m"]{.arg-text} says one inch on the map equals five million inches in the real world. Good for state-level mapping.
+        -   See [tidycensus \>\> Misc](surveys-census-data.qmd#sec-surv-cens-tidyc-misc){style="color: green"} \>\> Workaround \>\> Example for details on resolution
+    -   `range` gets the min and max values to calculate the color gradient in `interpolate`
+
+    ## Shift Geometries
+
+    ``` r
     # shift non-contiguous regions into CONUS window
     us_value_shifted <- tigris::shift_geometry(us_value)
     us_value_shifted$tooltip <- 
       paste0(us_value_shifted$NAME, 
              ": $", 
              us_value_shifted$estimate)
+    ```
 
+    -   Moves Alaska, Hawaii, and Puerto Rico just below CONUS
+    -   `shift_geometry` only works for the US and it doesn't work for Guam, American Samoa, and Virgin Islands.
+
+    ## Map
+
+    ``` r
     # blank basemap
     style <- list(
       version = 8,
@@ -1455,7 +1592,7 @@ lightbox:
 
     maplibre(
       style = style,
-      center = c(-98.8, 37.68),
+      center = c(-98.8, 37.68), # pretty much the center of the US but lower
       zoom = 2.5
     ) |> 
       set_projection("globe") |> 
@@ -1472,9 +1609,127 @@ lightbox:
       )
     ```
 
-    -   [resolution = "5m"]{.arg-text} says one inch on the map equals five million inches in the real world. Good for state-level mapping.
-        -   See [tidycensus \>\> Misc](surveys-census-data.qmd#sec-surv-cens-tidyc-misc){style="color: green"} \>\> Workaround \>\> Example for details on resolution
-    -   `shift_geometry` only works for the US and it doesn't work for Guam, American Samoa, and Virgin Islands.
+    -   The blank basemap is created so Alaska and Hawaii aren't shown in the middle of Mexico.
+    :::
+
+-   [Example]{.ribbon-highlight}: [{mapgl}]{style="color: #990000"} *All* the Census Tracts and Fixing Holes
+
+    ::: {layout-ncol="2"}
+    ![Zoom-Out](_resources/Surveys,_Census_Data.resources/map-natl-ctrac-1.png){.lightbox group="map-nat-trac-1" width="332"}
+
+    ![Zoom-In](_resources/Surveys,_Census_Data.resources/map-natl-ctrac-2.png){.lightbox group="map-nat-trac-1" width="332"}
+    :::
+
+    ::: panel-tabset
+    ## Data
+
+    ``` r
+    library(tidycensus)
+    options(tigris_use_cache = TRUE)
+
+    # tract level
+    us_income <- get_acs(
+      geography = "tract",
+      variables = "B19013_001", # median income
+      state = c(state.abb, "DC", "PR"),
+      year = 2023,
+      geometry = TRUE,
+      resolution = "5m"
+    )
+
+    # county-level
+    us_county_income <- get_acs(
+      geography = "county",
+      variables = "B19013_001",
+      year = 2023,
+      geometry = TRUE,
+      resolution = "5m"
+    ) 
+    ```
+
+    -   It can take a few minutes to download all the US census tracts (85K+). I think it has to hit the API multiple times — maybe once per state.
+
+    ## Adjust Simplification Tolerance
+
+    ``` r
+    maplibre(
+      style = carto_style("positron"),
+      center = c(-98.5795, 39.8283), # center of CONUS
+      zoom = 3
+    ) |>
+      set_projection("globe") |> 
+      add_source( 
+        id = "us-tracts",
+        data = us_income,
+        tolerance = 0
+      ) |> 
+      add_fill_layer(
+        id = "fill-layer",
+        source = "us-tracts",
+        fill_color = interpolate(
+          column = "estimate",
+          values = c(10000, 72000, 250000),
+          stops = c("#edf8b1", "#7fcdbb", "#2c7fb8"),
+          na_color = "lightgrey"
+        ),
+        fill_opacity = 0.7,
+        tooltip = "estimate"
+      )
+    ```
+
+    -   Since there's so much data, maplibre will remove data when you're zoomed out and add it back in when you zoom in for best performance. The problem is that it looks like you holes in your map.
+        -   i.e. when zoomed out tracts in big cities will appear gray (or whatever your NA color is).
+        -   Uses the Douglas-Peucker simplification algorithm
+        -   Default tolerance is 0.375 = \~5.6km at zoom level 3 (i.e. shapes with diameters less than 5.6km have their information (color)
+    -   (Not a good solution) Adjust this tolerance by using `add_source` to access [tolerance]{.arg-text}, and instead of using your dataset for [source]{.arg-text} in `add_fill_layer`, you use the value of [id]{.arg-text} in `add_source`.
+
+    ## Zoom-In Tract, Zoom-Out County
+
+    ``` r
+    maplibre(
+      style = carto_style("positron"),
+      center = c(-98.5795, 39.8283), # center of CONUS
+      zoom = 3
+    ) |>
+      set_projection("globe") |> 
+      add_fill_layer(              # tract data
+        id = "fill-layer",
+        source = us_income,
+        fill_color = interpolate(
+          column = "estimate",
+          values = c(10000, 65000, 250000),
+          stops = c("#edf8b1", "#7fcdbb", "#2c7fb8"),
+          na_color = "lightgrey"
+        ),
+        fill_opacity = 0.7,
+        min_zoom = 8,              # only when zoomed-in
+        tooltip = "estimate"
+      ) |> 
+      add_fill_layer(              # county data
+        id = "county-fill-layer",
+        source = us_county_income,
+        fill_color = interpolate(
+          column = "estimate",
+          type = "linear",
+          values = c(10000, 65000, 250000),
+          stops = c("#edf8b1", "#7fcdbb", "#2c7fb8"),
+          na_color = "lightgrey"
+        ),
+        fill_opacity = 0.7,
+        max_zoom = 7.99,           # only when zoomed-out
+        tooltip = "estimate"
+      ) |>
+      add_continuous_legend(
+        "Median household income",
+        values = c("$10k", "$65k", "$250k"),
+        colors = c("#edf8b1", "#7fcdbb", "#2c7fb8")
+      )
+    ```
+
+    -   When zoomed-out, use the county-level data, and when zoomed-in, use the tract-level data. Visualizing around 3,000 counties instead of around 85,000 tracts leads to much better performance when zoomed-out, but it also allows you to keep the tract-level data.
+    -   Counties: [max_zoom = 7.99]{.arg-text}
+    -   Tracts: [min_zoom = 8]{.arg-text}
+    :::
 
 ## IPUMS {#sec-surv-cens-ipums .unnumbered}
 
