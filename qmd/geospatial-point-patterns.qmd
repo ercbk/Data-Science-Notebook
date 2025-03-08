@@ -1028,7 +1028,7 @@ fig-align: left
     -   Guidelines
 
         -   $L(r) \gt r$ : The point pattern exhibits *clustering* at distance $r$.
-        -   $L(r) \approx r$ : The point pattern is *random* at distance$r$.
+        -   $L(r) \approx r$ : The point pattern is *random* at distance $r$.
         -   $L(r) \lt r$ : The point pattern exhibits *inhibition (repulsion)* at distance $r$.
 
     -   [Example]{.ribbon-highlight}: [{spatstat.explore::Lest}]{style="color: #990000"}
@@ -1172,6 +1172,10 @@ fig-align: left
 
     -   Process: Plug the average intensity of the dataset, $\hat \lambda$, (from the [ppp]{.arg-text} object) into random number generating function (`rpoispp` which is something like `rpois`) to get the *Null Landscape*. Then, use those generated values as inputs to `Gest`, `Fest`, or `Kest` to get a curve at multiple $r$ values. Repeat many times to get your Null distribution. If your empirical $\hat G$, $\hat F$, or $\hat K$ function falls within the ribbon of simulated Null values (aka **Simulation Envelope**), then the pattern is random.
 
+    -   If the graph of the estimated function for the data transgresses these limits, it is statistically significant with a p-value of $1/(m+1)$ where $m$ is the number of simulated patterns.
+
+        -   Taking m = 19 gives a test with significance level 0.05.
+
     -   [{spatstat.explore::envelope}]{style="color: #990000"}
 
         -   [global = TRUE]{.arg-text} says calculate global CIs instead of pointwise CIs (See Block Variance caveat)
@@ -1230,7 +1234,8 @@ fig-align: left
         #> Unit of length: 1 metre
         ```
 
-        -   Using the L-Function stablilizes the variance and produces a more powerful test.
+        -   Using the L-Function stablilizes the variance and produces a more powerful test. The function escapes the envelope, so the Null (CSR) is rejected at $\alpha = 0.05$ .
+        -   Inhibition is suggested at $0.6 \le r \le 1.0$
         -   `rescale` is used to convert the coordinates to a standard unit of length, e.g. unit like 0.1 meters to the base unit meters.
 
 -   [Loh's Bootstrap]{.underline}
@@ -1716,8 +1721,125 @@ fig-align: left
 ### Inhomogeneity {.unnumbered}
 
 -   Instead of assuming the process is stationary, the assumption for inhomogeneous functions is that the process is **corrrelation-stationary**. In other words, it assumes that the spatial scale of interaction (i.e. correlation) remains *constant*, while the intensity is spatially *varying*. This is not always the case for inhomogeneous point processes.
+
     -   A formal test for correlation-stationarity is described in Section 16.8.5
+
 -   The functions require an estimate of the intensity function $\lambda(u)$ :
+
     -   User-Supplied: A vector of intensity values at the data points, a pixel image, a function, or a fitted point process model (ppm).
+        -   To reduce bias it is advisable to use a leave-one-out intensity estimator
     -   Otherwise, $\lambda(u)$ will be estimated from the data by a leave-one-out kernel smoother. Manually this would be `density(swp, sigma = bw.diggle, at="points")`.
+
 -   On p. 689 in the [{spatstat}]{style="color: #990000"} book, a permutation test procedure is performed to test whether a point pattern is correlation-stationary (inhomogeneous) or locally scaled. Testing for whether the pattern is homogeneous or locally scaled and inhomogeneous, etc. could also have been done as well I think.
+
+-   [Example]{.ribbon-highlight}: [{spatstat}]{style="color: #990000"} book
+
+    :::::: panel-tabset
+    ## Data
+
+    ::: {layout-ncol="2"}
+    ![Point Pattern](_resources/Geospatial-Point-Patterns.resources/inhom-ex1-numata-ppp-1.png){.lightbox group="inhom-num-pd" width="332"}
+
+    ![Density](_resources/Geospatial-Point-Patterns.resources/inhom-ex1-numata-dens-1.png){.lightbox group="inhom-num-pd" width="332"}
+    :::
+
+    ``` r
+    library(spatstat)
+    numata <- residualspaper$Fig1
+    plot(numata)
+
+    lam_numata <- density(numata, bw.ppl)
+    plot(lam_numata)
+    ```
+
+    -   Japanese Black Pine seedlings and saplings in a 10 meter square study region
+    -   Intensity doesn't seem to be homogeneous. Is it random inhomogneous though?
+
+    ## Homogeneous K and L
+
+    ::: {layout-ncol="2"}
+    ![K-Function](_resources/Geospatial-Point-Patterns.resources/inhom-ex1-num-k-1.png){.lightbox group="inhom-num-kl" width="332"}
+
+    ![L-Function](_resources/Geospatial-Point-Patterns.resources/inhom-ex1-num-l-1.png){.lightbox group="inhom-num-kl" width="332"}
+    :::
+
+    ``` r
+    k_numata <- Kest(numata, correction = "best")
+    plot(k_numata)
+
+    l_numata <- Lest(numata, correction = "best")
+    plot(l_numata)
+    ```
+
+    -   The K-Function pretty much follows the homogeneous, random poisson process line, so this could suggest CSR.
+    -   The more powerful L-Function tells a different story though. It suggests inhibition at small $r$ distances.
+
+    ## Inhomogeneous K and L
+
+    ::: {layout-ncol="2"}
+    ![Inhomogenous K](_resources/Geospatial-Point-Patterns.resources/inhom-ex1-num-kin-1.png){.lightbox group="inhom-num-klin" width="332"}
+
+    ![Inhomogenous L](_resources/Geospatial-Point-Patterns.resources/inhom-ex1-num-lin-1.png){.lightbox group="inhom-num-klin" width="332"}
+    :::
+
+    ``` r
+    kin_numata <- 
+      Kinhom(numata, 
+             sigma = bw.ppl, 
+             correction = "best")
+    plot(kin_numata)
+
+    lin_numata <- 
+      Linhom(numata, 
+             sigma = bw.ppl,
+             correction = "best")
+    plot(lin_numata)
+    ```
+
+    -   Same interpretation as before except the inhomogeneous K-Function would suggest a inhomogeneous, random poisson process.
+
+    ## Global Envelope
+
+    ![Inhomogenous L Envelope](_resources/Geospatial-Point-Patterns.resources/inhom-ex1-num-lin-env-1.png){.lightbox width="432"}
+
+    ``` r
+    env_lin_numata <- 
+      envelope(numata, 
+               Linhom, 
+               sigma = bw.ppl,
+               correction = "best",
+               simulate = expression(rpoispp(lam_numata)),
+               use.theory = TRUE, 
+               nsim = 19, 
+               global = TRUE,
+               verbose = FALSE)
+    env_lin_numata
+    #> Simultaneous critical envelopes for L[inhom](r)
+    #> and observed value for ‘numata’
+    #> Edge correction: “iso”
+    #> Obtained from 19 evaluations of user-supplied expression
+    #> Envelope based on maximum deviation of L[inhom](r) from null value (known exactly)
+    #> Alternative: two.sided
+    #> Significance level of simultaneous Monte Carlo test: 1/20 = 0.05
+    #> ............................................................................
+    #> Math.label               Description                                   
+    #> r    r                        distance argument r                           
+    #> obs  {hat(L)[inhom]^{obs}}(r) observed value of L[inhom](r) for data pattern
+    #> theo {L[inhom]^{theo}}(r)     theoretical value of L[inhom](r)              
+    #> lo   {hat(L)[inhom]^{lo}}(r)  lower critical boundary for L[inhom](r)       
+    #> hi   {hat(L)[inhom]^{hi}}(r)  upper critical boundary for L[inhom](r)       
+    #> ............................................................................
+    #> Default plot formula:  .~r
+    #> where “.” stands for ‘obs’, ‘theo’, ‘hi’, ‘lo’
+    #> Columns ‘lo’ and ‘hi’ will be plotted as shading (by default)
+    #> Recommended range of argument r: [0, 2.5]
+    #> Available range of argument r: [0, 2.5]
+    #> Unit of length: 1 metre
+
+    plot(env_lin_numata, . - r ~ r)
+    ```
+
+    -   The inhomogeneous L-Function escapes the envelope, so the Null (inhomogeneous random poisson process) is rejected at $\alpha = 0.05$ (since the number of simulations = 19).
+    -   As with the previous L-Function results, inhibition is suggested at small r distances.
+    -   `. - r ~ r` centers the L-Function at 0 for easier interpretation
+    ::::::
