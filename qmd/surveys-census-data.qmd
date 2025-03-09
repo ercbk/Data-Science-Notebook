@@ -696,170 +696,448 @@ lightbox:
         -   [values_per_dot = 25]{.arg-text} says make each dot worth 25 units (e.g. people or housing units)
         -   Dots are scattered randomly within each census tract
 
-### Time Series Analysis {#sec-surv-cens-dic-tsa .unnumbered}
+## IPUMS {#sec-surv-cens-ipums .unnumbered}
 
--   [{tidycensus}]{style="color: #990000"} only has 2010 and 2020 censuses
+-   [IPUMS](https://www.ipums.org/) - A University of Minnesota project that's supported by a consortium of other institutions and companies. Provides access to many types of census and survey data through its website and API.
+    -   Includes CPS, ACS, census microtata for 100+ countries, [historical GIS shapefiles](#0), [time use surveys](#0), and more.
+    -   Some or maybe all surveys require registering an account and agreeing to usage constraints.
+    -   Constraints
+        -   You will not redistribute the data without permission
+        -   You will use the data in these data files for statistical reporting and analysis only
+        -   You will not use the data to identify individuals
+        -   Cite the IPUMS data appropriately
+            -   For information on proper citation refer to [citation and use](https://nhis.ipums.org/nhis/citation.shtml). Publications and research reports making use of IPUMS NHIS should be added to our [Bibliography](#0).
 
-    -   See <https://nhgis.org> for older census data
+### Misc {#sec-surv-cens-ipums-misc .unnumbered}
 
--   Issue: county names and boundaries change over time (e.g. Alaska redraws a lot)
+-   Also see [American Community Survey (ACS) \>\> PUMS](surveys-census-data.qmd#sec-surv-cens-acs-pums)
+-   Packages
+    -   [{]{style="color: #990000"}[ipumsr](https://tech.popdata.org/ipumsr/){style="color: #990000"}[}]{style="color: #990000"}
+        -   [collection = \*]{.arg-text} values for currently available datasets. If you want to check if this list has changed, use `ipums_data_collections`.
+            -   USA: ["usa"]{.arg-text}
+            -   CPS: ["cps"]{.arg-text}
+            -   International: ["ipumsi"]{.arg-text}
+            -   IPUMS Time Use
+                -   ATUS: ["atus"]{.arg-text}
+                -   AHTUS: ["ahtus"]{.arg-text}
+                -   MTUS: ["mtus"]{.arg-text}
+            -   IPUMS Health Surveys
+                -   NHIS: ["nhis"]{.arg-text}
+                -   MEPS: ["meps"]{.arg-text}
+    -   [{{]{style="color: goldenrod"}[ipumspy](https://ipumspy.readthedocs.io/en/latest/){style="color: goldenrod"}[}}]{style="color: goldenrod"}
+-   There are plenty of steps to get this data which can seem a little daunting if you haven't dealt with this sort of process before. Some of the tasks:
+    -   You have to set up an account where they ask who you are, what you do, and type of research for each type of survey, but it's just information collection and isn't determinative on whether you gain access to the data or not.
+        -   Once you do it the first time, they're nice enough to fill out the fields for you when you want to get data from another survey.
+    -   There can be oodles of variables to choose from.
+    -   Finding the exact design information needed to perform analyses.
+    -   Some of the interfaces are slightly different but the main surveys are very similar.
+    -   Need to [get an API key](https://developer.ipums.org/docs/v2/get-started/), of course, to be able to use packages
+        -   For R, it should stored in your `.Renviron` file and under [IPUMS_API_KEY]{.arg-text}
+-   [Available datasets](https://developer.ipums.org/docs/v2/apiprogram/apis/) through the API
+-   Coded Value that represents "NIU" mean "Not in Universe"
+    -   Example: For the variable [BMICALC]{.var-text}, the Universe for survey years 2021 and 2023: Sample adults age 18+. Therefore NIU means the person isn't an adult and therefore didn't have their BMI calculated.
 
-    -   Census gives a different GeoID to counties that get renamed even though they're the same county.
-    -   NA values showing up after you calculate how the value changes over time is a good indication of this problem. Check for NAs: `filter(county_change, is.na(value10))`
+### Design Information {#sec-surv-cens-ipums-di .unnumbered}
 
--   [Example]{.ribbon-highlight}: Join 2010 and 2020 and Calculate Percent Change
+-   You need to know information about the study design so that your variance estimates will be correct. This information will be inputs for the study design object if you're using [{survey}]{style="color: #990000"} or [{srvyr}]{style="color: #990000"}.
 
-    ``` r
-    county_pop_10 <- 
-      get_decennial(
-        geography = "county",
-        variables = "P001001", # county populations
-        year = 2010,
-        sumfile = "sf1"
-      )
+    -   What is the sampling unit id variable (e.g. primary sampling unit)
+    -   Is there stratification? If so, what is the *stratification id* variable?
+    -   Is there clustering? If so, what is the *cluster id* variable
+        -   And have the cluster ids been *nested* inside the stratification id variable?
+    -   Have the *weights* been included or do they need to be calculated?
 
-    county_pop_10_clean <- 
-      county_pop_10 %>%
-        select(GEOID, value10 = value) 
+-   tl;dr
 
-    county_pop_20 <- 
-      get_decennial(
-        geography = "county",
-        variables = "P1_001N", # county populations
-        year = 2020,
-        sumfile = "dhc"
-      ) %>%
-        select(GEOID, NAME, value20 = value)
+    -   For the NHIS at least, the easiest way to figure out the inputs for your study design object is to look in the [Variance Estimation](https://nhis.ipums.org/nhis/userNotes_variance.shtml) guide where lo and behold, they just give it to you!
 
-    county_joined <- 
-      county_pop_20 %>%
-        left_join(county_pop_10_clean, by = "GEOID") 
+        ``` r
+        library(survey)
+        library(srvyr)
+        data <- 
+          as_survey_design(data, 
+                           id = PSU, 
+                           weight = PERWEIGHT, 
+                           strata = STRATA, 
+                           nest = TRUE)
+        summarize(data, 
+                  var1_mean = survey_mean(var1, 
+                                          na.rm = TRUE))
+        ```
 
-    county_joined
+-   Other methods to find these variables/parameters (in case other surveys aren't so nice)
 
-    county_change <- 
-      county_joined %>%
-        mutate( 
-          total_change = value20 - value10, 
-          percent_change = 100 * (total_change / value10) 
-        ) 
-    ```
+    -   Luckily the weights, stratification, and clustering variable should be automatically included in the dataset (See [Getting the Data](surveys-census-data.qmd#sec-surv-cens-ipums-getdat){style="color: green"}\>\> Example: NHIS via Website \>\> 6. Review and ID Variables)
 
--   [Example]{.ribbon-highlight}: Age distribution over time in Michigan\
-    ![](_resources/Surveys,_Census_Data.resources/michigan-age-chart-1.png){.lightbox width="432"}
+        -   Our variables are SAMPWEIGHT, STRATA, and PSU. If you check out the description of STRATA and PSU, it says they're what we require to handle stratification and clustering in our analysis.
 
-    -   Code available in the github [repo](https://github.com/walkerke/umich-workshop-2024/blob/main/census-2020/bonus-chart.R) or R/Workshops/tidycensus-umich-workshop-2024-main/census-2020/bonus-chart.R
-    -   Distribution shape remains pretty much the same, but decreasing for most age cohorts, i.e. people are leaving the state across most age groups.
-        -   e.g. The large hump representing the group of people in there mid-40s in 2000 steadily decreases over time.
+    -   Explore User Guide
 
--   [Example]{.ribbon-highlight}: Compare 2010 to 2020 Population Densities for Dallas-Ft. Worth\
-    ![](_resources/Surveys,_Census_Data.resources/dicen-ts-3d-popden-1.png){.lightbox width="532"}
+        ::: {layout-ncol="2"}
+        ![](_resources/Surveys,_Census_Data.resources/ipums-di-ug-1.png){.lightbox group="di-ug-1" width="332"}
 
-    <Details>
+        ![](_resources/Surveys,_Census_Data.resources/ipums-di-ug-2.png){.lightbox group="di-ug-1" width="332"}
+        :::
 
-    <Summary>Code</Summary>
+        -   There's a lot of interesting information on the User Guide page, but to answer the nesting question, we can go to the **Sample Design** user note.
 
-    ::: panel-tabset
-    ## Data
+        -   After searching for the word "nest," I find a paragraph that says, "The current sample design selects [clusters of households and non-institutional group quarters (such as college dormitories) that are *nested* within primary sampling units]{.underline} (PSUs). A PSU can consist of a county, a small group of adjacent counties, or a metropolitan statistical area."
 
-    ``` r
-    library(tidycensus)
-    library(sf)
-    library(tidyverse)
-    library(tigris)
-    options(tigris_use_cache = TRUE)
+        -   After searching for the word "strata," I find this paragraph that says, "\[After creating PSUs\] The second step involves, for some states, dividing the PSUs into two strata defined by population density, generally urban and rural counties. All other states contain only one stratum. The third step involves defining clusters of approximately 2,500 addresses within each stratum, where each address cluster is located entirely within one of the originally defined 1,689 PSUs. Fourth, a specific number of address clusters in each stratum is systematically selected for the NHIS sample."
 
-    dfw_counties <- counties(year = 2020) %>%
-      filter(CBSAFP == "19100") %>%
-      pull(COUNTYFP)
+            -   So households clusters are nested within population-density-defined Strata which are nested within clusters/PSU (groups of counties).
 
-    # 2010 variable lookup
-    vars10 <- load_variables(2010, "sf1")
+        -   The [documentation](http://gdfe.co/srvyr/reference/as_survey_design.html) for [nest = TRUE]{.arg-text} in a study design object is "relabel cluster ids to enforce nesting within strata," and the definition for the [ids]{.arg-text} argument is "variables specifying cluster ids from largest level to smallest level"
 
-    dfw_pop_10 <- get_decennial(
-      geography = "tract",
-      state = "TX",
-      county = dfw_counties,
-      variables = "P001001",
-      sumfile = "sf1",
-      year = 2010,
-      geometry = TRUE
-    ) %>%
-      st_transform(26914) %>%
-      mutate(pop_density = as.numeric(value / (st_area(.) / 2589989.1738453)) )
+            -   It's confusing to me, because in this example, PSUs are used as cluster ids. So, the study design object is specified to say (from my understanding) that PSUs are nested inside the Strata which is opposite of what is happening.
+            -   I guess the key is from "largest level to smallest level" and since we have multiple levels of clustering, the PSU variable makes sense. It is what it is, but I think it could be worded better.
 
-    dfw_pop_20 <- get_decennial(
-      geography = "tract",
-      variables = "P1_001N",
-      state = "TX",
-      county = dfw_counties,
-      geometry = TRUE,
-      year = 2020,
-      sumfile = "dhc"
-    ) %>%
-      st_transform(26914) %>%
-      mutate(pop_density = as.numeric(value / (st_area(.) / 2589989.1738453)) )
+### Getting the Data {#sec-surv-cens-ipums-getdat .unnumbered}
 
-    print(nrow(dfw_pop_10))
-    print(nrow(dfw_pop_20))
-    ```
+-   The workflow is essentially: Select variables $\rightarrow$ Select Years $\rightarrow$ Select Data Format $\rightarrow$ Download
 
-    -   1,312 Census tracts in DFW in 2010
-    -   1,704 Census tracts in DFW in 2020
-    -   2589989.1738453 is the number of square meters in one square mile
-        -   Converts the area from square meters to square miles to calculate population density in people per square mile.
+-   [Example 1]{.ribbon-highlight}: NHIS via Website
 
-    ## 3-D Map with Vertical Slider
+    :::: panel-tabset
+    ## 1. Getting Started
 
-    ``` r
-    m10_3d <- maplibre(
-      style = carto_style("positron")
-    ) |> 
-      fit_bounds(dfw_pop_10) |> 
-      add_fill_extrusion_layer(
-        id = "dfw10",
-        source = dfw_pop_10,
-        fill_extrusion_color = interpolate(
-          column = "pop_density",
-          values = seq(0, 40000, 8000),
-          stops = plasma(6)
-        ), 
-        fill_extrusion_opacity = 0.7,
-        fill_extrusion_height = get_column("pop_density")
-      ) |> 
-      add_legend(
-        "Population density (persons/sqmi)<br>Left: 2010, Right: 2020", 
-        values = c("0", "8k", "16k", "24k", "32k", "40k"),
-        colors = plasma(6)
-      )
+    I'm using this data to follow along with a tutorial. See [Surveys, Analysis \>\> {srvyr}](surveys-analysis.qmd#sec-surveys-anal-srvyr){style="color: green"}.
 
-    m20_3d <- maplibre(
-      style = carto_style("positron"),
-    ) |> 
-      add_fill_extrusion_layer(
-        id = "dfw20",
-        source = dfw_pop_20,
-        fill_extrusion_color = interpolate(
-          column = "pop_density",
-          values = seq(0, 40000, 8000),
-          stops = plasma(6)
-        ), 
-        fill_extrusion_opacity = 0.7,
-        fill_extrusion_height = get_column("pop_density")
-      ) |> 
-      add_legend(
-        "Population density (persons/sqmi)<br>Left: 2010, Right: 2020", 
-        values = c("0", "8k", "16k", "24k", "32k", "40k"),
-        colors = plasma(6)
-      )
+    ###### Choose a Survey
 
-    compare(m10_3d, m20_3d)
-    ```
+    ![](_resources/Surveys,_Census_Data.resources/ipums-hs-sel-surv-1.png){.lightbox group="gtd-nhis-web" width="382"}
 
-    -   Also see [Mapping](surveys-census-data.qmd#sec-surv-cens-map){style="color: green"} for details on [{mapgl}]{style="color: #990000"} functions, arguments, etc.
+    -   There are two [IPUMS Health Surveys](https://healthsurveys.ipums.org/)
+    -   I'm selecting National Health Interview Series
+
+    ###### Homepage
+
+    ![](_resources/Surveys,_Census_Data.resources/ipums-hs-homepage-1.png){.lightbox group="gtd-nhis-web" width="382"}
+
+    -   There are two ways to get to the survey variables interface
+
+    ## 2. Exploring Variables
+
+    ###### Search for Variables
+
+    ![](_resources/Surveys,_Census_Data.resources/ipums-variables-1.png){.lightbox group="gtd-nhis-web" width="382"}
+
+    -   The navbar shows various methods for selecting variables. I know what variables I'm after, so I'm just using the A-Z index. As the figure shows, there are many variables to choose from which can be overwhelming.
+
+    -   Actually **Search** would've been the best option as I could type the variables directly in and add them.
+
+    ###### Browsing by Category
+
+    ::: {layout-ncol="3"}
+    ![](_resources/Surveys,_Census_Data.resources/ipums-hs-sel-var-2.png){.lightbox group="gtd-nhis-web" width="132"}
+
+    ![](_resources/Surveys,_Census_Data.resources/ipums-hs-sel-var-3.png){.lightbox group="gtd-nhis-web" width="142"}
+
+    ![](_resources/Surveys,_Census_Data.resources/ipums-hs-sel-var-4.png){.lightbox group="gtd-nhis-web" width="132"}
     :::
 
-    </Details>
+    ## 3. Variable Information
+
+    ###### Read Variable Details
+
+    ![](_resources/Surveys,_Census_Data.resources/ipums-hs-var-det-1.png){.lightbox group="gtd-nhis-web" width="432"}
+
+    -   Clicking on the name of the variable sends you to its details page
+    -   Honestly everything here is potentially useful for your analysis.
+        -   [Codes]{.arg-text}: Gives you the coded variable values
+            -   e.g. AGE 997 values mean the person refused to give their age
+        -   [Description]{.arg-text}: Gives information such as how a variable is calculated or how it's description has been changed over the years (e.g. more categories added)
+            -   e.g. BMICALC: "\[Weight in pounds/(Height in inches, squared)\] multiplied by 703 and rounded to one digit past the implied decimal point."
+        -   [Comparabilty]{.arg-text}: Tells you if you're comparing apples to apples if you compare a variable across different years of the survey.
+            -   e.g REGION: Comparable prior to 2019 when there was a redesign
+        -   [Universe]{.arg-text}: Tells you what the demographics of the people that are sampled for this variable
+            -   e.g. BMICALC:
+                -   2020 2022: Sample children ages 10-17 and sample adults age 18+.
+                -   2021; 2023: Sample adults age 18+
+        -   [Availability]{.arg-text}: Says which survey years contain this variable
+        -   [Survey Text]{.arg-text}: Gives the exact text of the survey question
+            -   e.g. SEX has experienced many changes in how the question was asked and the responses available.
+        -   [Weights]{.arg-text}: Gives the name of the weights variable depending the on the survey year and links to that weights variables details page.
+            -   e.g. 1963-2018 : PERWEIGHT; 2019-2023 : SAMPWEIGHT
+        -   [NHIS Sources]{.arg-text}: Says which version of the survey was used to obtain the variable
+            -   e.g. SEX
+                -   2023 - In both sample adult and child questionnaires
+                -   2018 - Person (core questionnaire) \## 4. Select Variables and Years
+
+    ## 4. Select Variables and Years
+
+    ###### Select Variables
+
+    ![](_resources/Surveys,_Census_Data.resources/ipums-select-var-1.png){.lightbox group="gtd-nhis-web" width="432"}
+
+    -   Here I'm selecting AGE by clicking on the green plus. Also notice that SERIAL has been preselected. So the your dataset comes with some default variables
+    -   Proceed to select all the variables that you want.
+
+    ###### Select Years
+
+    ![](_resources/Surveys,_Census_Data.resources/ipums-select-yrs-1.png){.lightbox group="gtd-nhis-web" width="332"}
+
+    -   Once you selected all your variables, you click the Select Samples button.
+        -   Or if you check your Cart first, it'll tell you to Select Samples.
+    -   Then, select the years that you want.
+    -   Make sure you have checked each of your selected variable's availability prior
+
+    ## 5. Review and ID Variables
+
+    ###### Review Variables
+
+    ![](_resources/Surveys,_Census_Data.resources/ipums-overview-1.png){.lightbox group="gtd-nhis-web" width="332"}
+
+    -   After selecting your samples (i.e. years) and you submit them, it takes you to your Cart where you look over your variables.
+    -   Then click Create Data Extract
+
+    ###### Preselected Variables
+
+    -   Currently it seems like [PSU]{.var-text}, [STRATA]{.var-text}, and maybe [SERIAL]{.var-text} are the only id variables I'm interested in.
+    -   A closer look at the ID variables:
+        -   [PSU]{.var-text} - **Primary Sampling Unit** that represents the impact of the sample design **clustering** on the estimates of variance and standard errors.
+            -   [Researchers need to use [PSU]{.var-text} in conjunction with [STRATA]{.var-text} to account for stratification and clustering when computing variance estimates]{.underline} with IPUMS NHIS data.
+            -   3-digit numeric variable
+        -   [STRATA]{.var-text} - Represents the impact of the sample design stratification on the estimates of variance and standard errors
+            -   Generally (*not completely*) comparable for 1985 forward but may be affected by changes in the 2019. Says they're working on a way to make it comparable prior to 1985.
+                -   Not exactly sure what "generally" actually means, but it also says, after 2019, "there is no longer a sampling weight to produce household population estimates."
+                -   Might have to do with them switching from sampling everyone in the household to sampling 1 adult and 1 child.
+            -   5-digit numeric variable
+            -   000 indicates not in Universe
+            -   Universe:
+                -   1963-2018: All households.
+                -   2019-2023: Sample adults age 18+ and sample children age 0-17.
+        -   [SERIAL]{.var-text} - A unique id to each **household** in a given survey year. The combination of **YEAR and SERIAL provides a unique identifier** for every household in the IPUMS NHIS database.
+        -   [NHISHID]{.var-text} - A unique id to each household in a given survey year. Used to link IPUMS NHIS data with additional household-level data elements, from the NHIS source public use data files, that are not currently available in IPUMS.
+            -   So [not currently a useful variable]{.underline}
+            -   If and when the public use data files become available, there is a guide for using these variables to merge data in the User Guide. The link to the User Guide is in left side panel of the NHIS homepate (See [Design Information](surveys-census-data.qmd#sec-surv-cens-ipums-di){style="color: green"} for a pic)
+        -   [NHISPID]{.var-text} - Same as [NHISHID]{.var-text} but for persons
+            -   So [not currently a useful variable]{.underline} (See [NHISHID]{.var-text})
+        -   [PERNUM]{.var-text} - Either a **1 or a 2**. Variable that **numbers all persons within each famil**y (prior to 2019) or within each **household** consecutively (starting with "1") in the order in which they appear in the original NHIS data.
+            -   [A sample adult and sample child from each household are interviewed]{.underline} instead of collecting detailed information on all members of the household, so there is a maximum of two people per household as reported in PERNUM beginning in 2019.
+            -   [Since a 1 or 2 isn't consistent with an adult or a child, I'm not sure how useful this is.]{.underline}
+        -   [HHX]{.var-text} - **For sample adults and sample children, HHX reports the person's household number** on the original NHIS data. HHX is unique within sample but only unique across samples when combined with information on year.
+            -   HHX is unique within sample.
+            -   Beginning in 2019, HHX leads with the character "H" followed by six numeric digits. Prior to 2019, HHX consisted only of six numeric digits.
+            -   In the NHISPID, Comparability section, it says that HHX is a component of the 16-digit NHISPID value. So this variable is used for linking person-level data to household-level information.
+            -   [Since NHISPID isn't currently useful, neither is this one.]{.underline}
+
+    ## 6. Create Extract and Download
+
+    ###### Decide on File Format and Create Extract
+
+    ![](_resources/Surveys,_Census_Data.resources/ipums-dat-format-1.png){.lightbox group="gtd-nhis-web" width="432"}
+
+    -   The main thing here is the file format. The default is "Fixed-width text (.dat)" data format, whatever that is. I changed it to .csv.
+    -   You can also change it to a Hierarchical structure. Not sure what that is about though (maybe JSON?).
+
+    ###### Download Data and Codebook
+
+    ![](_resources/Surveys,_Census_Data.resources/ipums-download-1.png){.lightbox group="gtd-nhis-web" width="432"}
+
+    -   Click to download the data
+    -   There's a Basic and DDI — I'd get them both.
+    -   "Basic" is just a text file, and even though it has a .cbk extension, notebook++ read it just fine\
+        ![](_resources/Surveys,_Census_Data.resources/ipums-nhis-cbk-1.png){.lightbox group="gtd-nhis-web" width="240"}
+        -   Some basic information from variable details page, e.g. List of Variables, Availability, Codes, etc.
+        -   The .xml DDI file contains more information. Almost as much as the Variable details webpage. See [Example 2]{style="color: green"} \>\> Explore DDI
+    -   "DDI" stands for the Data Documentation Initiative (DDI) which is a standard for documenting social science datasets. It's an XML file so it's machine readable (e.g. [{ipumsr}]{style="color: #990000"})
+    ::::
+
+-   [Example 2]{.ribbon-highlight}: NHIS via [{ipumsr}]{style="color: #990000"}
+
+    :::: panel-tabset
+    ## Set-Up
+
+    API key should be in your `.Renviron`
+
+    tl;dr See the Download and Read Data tab for the entire piped workflow
+
+    ###### Find the collection name of the NHIS survey
+
+    ``` r
+    ipums_data_collections()
+    #> # A tibble: 14 × 4
+    #>    collection_name     collection_type code_for_api api_support
+    #>    <chr>               <chr>           <chr>        <lgl>      
+    #>  1 IPUMS USA           microdata       usa          TRUE       
+    #>  2 IPUMS CPS           microdata       cps          TRUE       
+    #>  3 IPUMS International microdata       ipumsi       TRUE       
+    #>  4 IPUMS NHGIS         aggregate data  nhgis        TRUE       
+    #>  5 IPUMS IHGIS         aggregate data  ihgis        FALSE      
+    #>  6 IPUMS ATUS          microdata       atus         TRUE       
+    #>  7 IPUMS AHTUS         microdata       ahtus        TRUE       
+    #>  8 IPUMS MTUS          microdata       mtus         TRUE       
+    #>  9 IPUMS DHS           microdata       dhs          FALSE      
+    #> 10 IPUMS PMA           microdata       pma          FALSE      
+    #> 11 IPUMS MICS          microdata       mics         FALSE      
+    #> 12 IPUMS NHIS          microdata       nhis         TRUE       
+    #> 13 IPUMS MEPS          microdata       meps         TRUE       
+    #> 14 IPUMS Higher Ed     microdata       highered     FALSE           
+    ```
+
+    -   Looking for the NHIS survey, so [nhis]{.arg-text} is what I want
+
+    ###### Get the sample (aka survey year) names for the NHIS survey
+
+    ``` r
+    tail(get_sample_info("nhis"))
+    #> # A tibble: 6 × 2
+    #>   name   description
+    #>   <chr>  <chr>      
+    #> 1 ih2018 2018 NHIS  
+    #> 2 ih2019 2019 NHIS  
+    #> 3 ih2020 2020 NHIS  
+    #> 4 ih2021 2021 NHIS  
+    #> 5 ih2022 2022 NHIS  
+    #> 6 ih2023 2023 NHIS 
+    ```
+
+    -   I'm just pulling the 2023 survey, so I need [ih2023]{.arg-text}
+
+    ## Define Extract and Submit
+
+    ###### Define Extract
+
+    ``` r
+    def_extract_nhis <- 
+      define_extract_micro(
+        collection = "nhis",
+        description = "2023 NHIS via API", # whatever you want
+        samples = "ih2023",
+        variables = c("SEX", 
+                      "AGE", 
+                      "REGION", 
+                      "BMICALC"),
+        data_format = "csv"
+      )
+
+    def_extract_nhis
+    #> Unsubmitted IPUMS NHIS extract 
+    #> Description: 2023 NHIS via API
+    #> 
+    #> Samples: (1 total) ih2023
+    #> Variables: (4 total) SEX, AGE, REGION, BMICALC          
+    ```
+
+    -   There's currently not programmatical way to search for variables. So you'll have to do that via the website. See [Example 1]{style="color: green"}.
+    -   All the inputs are subsettable from the extract definition, e.g. `names(usa_extract_definition$variables)`
+
+    ###### Submit Request
+
+    ``` r
+    sub_extract_nhis <- submit_extract(def_extract_nhis)
+    #> Successfully submitted IPUMS NHIS extract number 2
+    sub_extract_nhis$status
+    #> [1] "queued"
+    names(sub_extract_nhis$variables)
+    #>  [1] "YEAR"       "SERIAL"     "STRATA"     "PSU"        "NHISHID"    "REGION"     "PERNUM"     "NHISPID"    "HHX"       
+    #> [10] "SAMPWEIGHT" "ASTATFLG"   "CSTATFLG"   "AGE"        "SEX"        "BMICALC"  
+    status_sub_nhis <- wait_for_extract(sub_extract_nhis)
+    #> Checking extract status...
+    #> IPUMS NHIS extract 2 is ready to download.        
+    ```
+
+    -   The extract won’t be downloadable immediately. They'll notify you via email or you can check via function.
+        -   The output can be subset if your script is noninteractive, e.g. `status_sub_nhis$status` which will say ["completed"]{.arg-text} when ready. Other possible values: ["queued"]{.arg-text}, ["started"]{.arg-text}, ["produced"]{.arg-text}, ["canceled"]{.arg-text}, and ["failed"]{.arg-text}.
+        -   There's also `is_extract_ready` that returns a logical
+    -   Your variable list has been updated by the API to include all the preselected variables (ID variables and [YEAR]{.var-text}). See [Example 1]{style="color: green"} for a description of the ID variables.
+    -   [ASTATFLG]{.var-text} and [CSTATFLG]{.var-text} indicate whether the person is an Adult or Child (1 each is sampled per household in this survey design)
+
+    ## Download and Read Data
+
+    ###### Download and Read Data
+
+    ``` r
+    path_ext_nhis <- 
+      download_extract(
+        extract = sub_extract_nhis,
+        download_dir = "../../Data/ipums/",
+        lower_vars = TRUE
+      )
+    dat_nhis <- read_ipums_micro(path_sub_nhis)
+    ```
+
+    -   "For microdata extracts, only the file path to the downloaded .xml DDI file will be returned, as it is sufficient for reading the data provided in the associated .dat.gz data file."
+
+        -   See [Example 1]{style="color: green"} for an explanation of the DDI file.
+
+    -   The data file name is `nhis_00002_csv.gz`. Since you can download previously requested extracts (e.g. `download_extract("nhis:1")` for the first nhis requested extract), I'm thinking the 2 in the file name refers to the fact that this is my second NHIS request.
+
+    ###### Piped Workflow
+
+    ``` r
+    dat_nhis <- 
+      define_extract_micro(
+        collection = "nhis",
+        description = "2023 NHIS via API", # whatever you want
+        samples = "ih2023",
+        variables = c("SEX", 
+                      "AGE", 
+                      "REGION", 
+                      "BMICALC"),
+        data_format = "csv"
+      ) |> 
+      submit_extract() |> 
+      wait_for_extract() |> 
+      download_extract(
+        download_dir = "../../Data/ipums/",
+        lower_vars = TRUE
+      ) |>       
+      read_ipums_micro()
+    ```
+
+    ###### Search History
+
+    -   Your extract history can be checked with `get_extract_history` which retrieves prior extracts, their survey years, and their variables.
+
+    -   That history can be used to search for past extracts that contain certain variables:
+
+        ``` r
+        purrr::keep(extracts_past_nhis, ~ "BMICALC" %in% names(.x$variables))
+        ```
+
+    ## Explore the DDI
+
+    ###### Read a Variable Description
+
+    ``` r
+    writeLines(ipums_var_desc(ddi_nhis, var = "BMICALC"))
+    ```
+
+    ::: {.callout-note appearance="minimal"}
+    #\> BMICALC reports the Body Mass Index, a measure of body fat based on height and weight, as calculated by IPUMS NHIS from the public use file data on height and weight. BMICALC was calculated using the following formula: \[Weight in pounds/(Height in inches, squared)\] multiplied by 703 and rounded to one digit past the implied decimal point. Individuals not asked their weight and height are coded "000" (for "Not in universe") for BMICALC. Individuals whose weight or height was topcoded, bottomcoded, or, for 1997 forward, an outlying value that was suppressed for confidentiality reasons, receive a code of "996" for BMICALC.\
+
+    #\> The website of the Centers for Disease Control and Prevention on BMI reports the following "standard weight status categories associated with BMI ranges for adults." BMI below 18.5 is associated with "underweight" weight status; BMI 18.5 to 24.9 is associated with "normal" weight status; BMI 25.0 to 29.9 is associated with "overweight" weight status; BMI 30.0 and above is associated with "obese" weight status.\
+
+    #\> The CDC website also notes, "the correlation between the BMI number and body fatness is fairly strong; however, the correlation varies by sex, race, and age." For example, women tend to have more body fat than men at the same BMI; older people, on average, tend to have more body fat than young adults; and highly trained athletes may have a high BMI because of increased muscularity rather than increased body fatness. The CDC adds, "It is important to remember that BMI is only one factor related to risk for disease," and that other predictors, such as waist circumference and levels of blood pressure and physical activity, are also important.
+    :::
+
+    ###### Variable Information
+
+    ``` r
+    info_vars_nhis <- ipums_var_info(ddi_nhis, vars = c("AGE", "REGION"))
+
+    dplyr::glimpse(info_vars_nhis)
+    #> Rows: 2
+    #> Columns: 10
+    #> $ var_name   <chr> "REGION", "AGE"
+    #> $ var_label  <chr> "Region of residence", "Age"
+    #> $ var_desc   <chr> "REGION reports the region of the U.S. where the housing unit containing survey participants was located…
+    #> $ val_labels <list> [<tbl_df[6 x 2]>], [<tbl_df[6 x 2]>]
+    #> $ code_instr <chr> NA, "AGE is a 3-digit-numeric variable.\n\n085:\tTop code for 85 years or older (1963-1968 and 1997-forw…
+    #> $ start      <dbl> 32, 73
+    #> $ end        <dbl> 33, 75
+    #> $ imp_decim  <dbl> 0, 0
+    #> $ var_type   <chr> "integer", "numeric"
+    #> $ rectypes   <lgl> NA, NA
+    ```
+
+    -   Contains all variable information in a tibble
+        -   e.g. The variable description extracted using the helper function in the previous section can be extracted from the tibble.
+    -   The value labels seem to be the different categories and codes. There's also a separate Codes column
+    -   Not sure what the rest of the columns are (e.g. [start]{.var-text} and [end]{.var-text})
+    ::::
 
 ## tidycensus {#sec-surv-cens-tidyc .unnumbered}
 
@@ -987,6 +1265,9 @@ lightbox:
                 -   e.g. Educational Attainment: Percentage of the population 25yrs or older with at least a bachelor's degree.
             -   `"acs5/subject"` for the Subject Tables
             -   `"acs5/cprofile"` for the Comparison Profile
+                -   Has aggregated statistics to compare between survey years
+                -   Only available down to the county level
+                -   Beware of boundary changes when making comparisons (See [Misc](surveys-census-data.qmd#sec-surv-cens-misc){style="color: green"} \>\> State Issues)
 
     -   Contains:
 
@@ -1079,9 +1360,25 @@ lightbox:
 
 ### Migrations Flows {#sec-surv-cens-tidyc-migfl .unnumbered}
 
--   [Example]{.ribbon-highlight}:
+-   Only available for 2020 and later, 5-yr ACS
+
+-   This map type is also good for mapping commuting patterns
+
+-   [Example]{.ribbon-highlight}: Migrations from to Fulton County, GA\
+    ![](_resources/Surveys,_Census_Data.resources/tidyc-migfl-ex1-1.png){.lightbox width="432"}
+
+    ::: panel-tabset
+    ## Data
 
     ``` r
+    pacman::p_load(
+      tidyverse,
+      tidycensus,
+      sf,
+      rdeck
+    )
+    Sys.getenv("MAPBOX_ACCESS_TOKEN")
+
     fulton_inflow <- 
       get_flows(
         geography = "county",
@@ -1098,15 +1395,18 @@ lightbox:
         slice_max(estimate, 
                   n = 30) 
 
-    library(rdeck)
-
-    Sys.getenv("MAPBOX_ACCESS_TOKEN")
-
     fulton_top_origins$centroid1 <- 
       st_transform(fulton_top_origins$centroid1, 4326)
     fulton_top_origins$centroid2 <- 
       st_transform(fulton_top_origins$centroid2, 4326)
+    ```
 
+    -   Only getting the top 30 origins in terms of people that have migrated to Fulton County
+    -   [centroid1]{.var-text} is the center of Fulton County which is the destination and [centroid2]{.var-text} is the origin
+
+    ## Map
+
+    ``` r
     flow_map <- 
       rdeck(
         map_style = mapbox_light(), 
@@ -1126,15 +1426,19 @@ lightbox:
       )
     ```
 
-    -   Width of lines is scaled to counts
+    -   [center = c(-98.422, 38.606)]{.arg-text} is the center of CONUS
+    -   Width of lines is scaled to counts by [get_width]{.arg-text}
+    -   Holding `ctrl + left-flick` allows you to change the pitch and bearing of the view
+    :::
 
 ## Mapping {#sec-surv-cens-map .unnumbered}
 
 ### Misc {#sec-surv-cens-map-misc .unnumbered}
 
--   Use [geometry = TRUE]{.arg-text} for any of the `get_*` [{tidycensus}]{style="color: #990000"} functions, and it'll join the shapefile with the census data. Returns a SF (Simple Features) dataframe for mapping.
--   If you only want the shape files without the demographic data, see [{]{style="color: #990000"}[tigris](https://github.com/walkerke/tigris){style="color: #990000"}[}]{style="color: #990000"}
 -   For examples with [{]{style="color: #990000"}[tmap](https://r-tmap.github.io/tmap/){style="color: #990000"}[}]{style="color: #990000"}, see [Chapter 6.3](https://walker-data.com/census-r/mapping-census-data-with-r.html#map-making-with-tmap) of Analyzing US Census Data
+-   [{rdeck}]{style="color: #990000"} and [{mapgl}]{style="color: #990000"} are performant for visualizing large amounts of data
+-   Use [geometry = TRUE]{.arg-text} for any of the `get_*` [{tidycensus}]{style="color: #990000"} functions, and it'll join the shapefile with the census data. Returns a SF (Simple Features) dataframe for mapping.
+-   If you only want the shape files without the demographic data, see [{]{style="color: #990000"}[tigris](https://github.com/walkerke/tigris){style="color: #990000"}
 -   Comparisons
     -   [{mapview}]{style="color: #990000"} along with some other packages gives you some tools for comparing maps (useful for eda or exploratory reports, etc.) ([m1]{.arg-text} and [m2]{.arg-text} are mapview objects)
 
@@ -1145,7 +1449,7 @@ lightbox:
     -   [{mapgl}]{style="color: #990000"} has `compare(m1, m2)` which adds a vertical slider to compare both maps
 -   Zoom-Level Range: 0 (zoomed-out) to 22 (zoomed-in)
 -   Center of the Continental US has the coordinates: `c(-98.5795, 39.8283)`
-    -   Lower or higher: Adjust the 39
+    -   More North or South: Adjust the 39
     -   More East or West: Adjust the -98
 
 ### Preprocessing {#sec-surv-cens-map-proc .unnumbered}
@@ -1193,6 +1497,82 @@ lightbox:
     -   Can take a couple minutes to run
     -   [cb = FALSE]{.arg-text} says get the regular tigris line files which avoid sliver polygons which are caused by slight misalignment of layers (?)
     -   [area_threshold = 0.5]{.arg-text} says that water areas below the 50^th^ percentile in terms of size are removed. Probably a value you'll have to play around with.
+
+### Workflows {#sec-surv-cens-map-wkflw .unnumbered}
+
+-   [Example]{.ribbon-highlight}: Automate Making 100 Maps
+
+    ::: panel-tabset
+    ## Top 100 Most Populous Counties
+
+    Show the geographic patterns in remote work for the 100 largest counties by population in US
+
+    ``` r
+    pacman::p_load(
+      tidyverse,
+      mapview,
+      tidycensus
+    )
+
+    top100counties <- get_acs(
+      geography = "county",
+      variables = "B01003_001", # total county population
+      year = 2022,
+      survey = "acs1"
+    ) |> 
+      slice_max(estimate, n = 100)
+    ```
+
+    -   MOE is NA means this is true value
+    -   Using ACS 1-Year because we want the most recent data
+
+    ## Get Remote Work Per Tract
+
+    ``` r
+    wfh_tract_list <- top100counties %>%
+     split(~NAME) |>  # splits tibble into a list by county
+     map(function(county) {
+       # extract first 2 chars (state)
+       state_fips <- 
+          str_sub(string = county$GEOID, 
+                  start = 1, 
+                  end = 2) 
+       # extract next 3 chars (county)
+       county_fips <- 
+          str_sub(string = county$GEOID, 
+                  start = 3, 
+                  end = 5) 
+
+       get_acs(
+         geography = "tract",
+         variables = "DP03_0024P", # remote work
+         state = state_fips,
+         county = county_fips,
+         year = 2022,
+         geometry = TRUE
+       )
+
+     })
+    ```
+
+    -   tidycensus also a `fips_codes` dataset
+    -   This hits the API a 100 times.
+
+    ## Make Maps
+
+    ![Denver](_resources/Surveys,_Census_Data.resources/map-wkflw-ex1-1.png){.lightbox fig-align="left" width="432"}
+
+    ``` r
+    wfh_maps <- 
+      map(wfh_tract_list, function(county) {
+        mapview(
+          county, 
+          zcol = "estimate",
+          layer.name = "% working from home"
+        ) 
+      })    
+    ```
+    :::
 
 ### Choropleths {#sec-surv-cens-map-choro .unnumbered}
 
@@ -1739,445 +2119,216 @@ lightbox:
     -   Tracts: [min_zoom = 8]{.arg-text}
     :::
 
-## IPUMS {#sec-surv-cens-ipums .unnumbered}
-
--   [IPUMS](https://www.ipums.org/) - A University of Minnesota project that's supported by a consortium of other institutions and companies. Provides access to many types of census and survey data through its website and API.
-    -   Includes CPS, ACS, census microtata for 100+ countries, [historical GIS shapefiles](#0), [time use surveys](#0), and more.
-    -   Some or maybe all surveys require registering an account and agreeing to usage constraints.
-    -   Constraints
-        -   You will not redistribute the data without permission
-        -   You will use the data in these data files for statistical reporting and analysis only
-        -   You will not use the data to identify individuals
-        -   Cite the IPUMS data appropriately
-            -   For information on proper citation refer to [citation and use](https://nhis.ipums.org/nhis/citation.shtml). Publications and research reports making use of IPUMS NHIS should be added to our [Bibliography](#0).
-
-### Misc {#sec-surv-cens-ipums-misc .unnumbered}
-
--   Also see [American Community Survey (ACS) \>\> PUMS](surveys-census-data.qmd#sec-surv-cens-acs-pums)
--   Packages
-    -   [{]{style="color: #990000"}[ipumsr](https://tech.popdata.org/ipumsr/){style="color: #990000"}[}]{style="color: #990000"}
-        -   [collection = \*]{.arg-text} values for currently available datasets. If you want to check if this list has changed, use `ipums_data_collections`.
-            -   USA: ["usa"]{.arg-text}
-            -   CPS: ["cps"]{.arg-text}
-            -   International: ["ipumsi"]{.arg-text}
-            -   IPUMS Time Use
-                -   ATUS: ["atus"]{.arg-text}
-                -   AHTUS: ["ahtus"]{.arg-text}
-                -   MTUS: ["mtus"]{.arg-text}
-            -   IPUMS Health Surveys
-                -   NHIS: ["nhis"]{.arg-text}
-                -   MEPS: ["meps"]{.arg-text}
-    -   [{{]{style="color: goldenrod"}[ipumspy](https://ipumspy.readthedocs.io/en/latest/){style="color: goldenrod"}[}}]{style="color: goldenrod"}
--   There are plenty of steps to get this data which can seem a little daunting if you haven't dealt with this sort of process before. Some of the tasks:
-    -   You have to set up an account where they ask who you are, what you do, and type of research for each type of survey, but it's just information collection and isn't determinative on whether you gain access to the data or not.
-        -   Once you do it the first time, they're nice enough to fill out the fields for you when you want to get data from another survey.
-    -   There can be oodles of variables to choose from.
-    -   Finding the exact design information needed to perform analyses.
-    -   Some of the interfaces are slightly different but the main surveys are very similar.
-    -   Need to [get an API key](https://developer.ipums.org/docs/v2/get-started/), of course, to be able to use packages
-        -   For R, it should stored in your `.Renviron` file and under [IPUMS_API_KEY]{.arg-text}
--   [Available datasets](https://developer.ipums.org/docs/v2/apiprogram/apis/) through the API
--   Coded Value that represents "NIU" mean "Not in Universe"
-    -   Example: For the variable [BMICALC]{.var-text}, the Universe for survey years 2021 and 2023: Sample adults age 18+. Therefore NIU means the person isn't an adult and therefore didn't have their BMI calculated.
-
-### Design Information {#sec-surv-cens-ipums-di .unnumbered}
-
--   You need to know information about the study design so that your variance estimates will be correct. This information will be inputs for the study design object if you're using [{survey}]{style="color: #990000"} or [{srvyr}]{style="color: #990000"}.
-
-    -   What is the sampling unit id variable (e.g. primary sampling unit)
-    -   Is there stratification? If so, what is the *stratification id* variable?
-    -   Is there clustering? If so, what is the *cluster id* variable
-        -   And have the cluster ids been *nested* inside the stratification id variable?
-    -   Have the *weights* been included or do they need to be calculated?
-
--   tl;dr
-
-    -   For the NHIS at least, the easiest way to figure out the inputs for your study design object is to look in the [Variance Estimation](https://nhis.ipums.org/nhis/userNotes_variance.shtml) guide where lo and behold, they just give it to you!
-
-        ``` r
-        library(survey)
-        library(srvyr)
-        data <- 
-          as_survey_design(data, 
-                           id = PSU, 
-                           weight = PERWEIGHT, 
-                           strata = STRATA, 
-                           nest = TRUE)
-        summarize(data, 
-                  var1_mean = survey_mean(var1, 
-                                          na.rm = TRUE))
-        ```
-
--   Other methods to find these variables/parameters (in case other surveys aren't so nice)
-
-    -   Luckily the weights, stratification, and clustering variable should be automatically included in the dataset (See [Getting the Data](surveys-census-data.qmd#sec-surv-cens-ipums-getdat){style="color: green"}\>\> Example: NHIS via Website \>\> 6. Review and ID Variables)
-
-        -   Our variables are SAMPWEIGHT, STRATA, and PSU. If you check out the description of STRATA and PSU, it says they're what we require to handle stratification and clustering in our analysis.
-
-    -   Explore User Guide
-
-        ::: {layout-ncol="2"}
-        ![](_resources/Surveys,_Census_Data.resources/ipums-di-ug-1.png){.lightbox group="di-ug-1" width="332"}
-
-        ![](_resources/Surveys,_Census_Data.resources/ipums-di-ug-2.png){.lightbox group="di-ug-1" width="332"}
-        :::
-
-        -   There's a lot of interesting information on the User Guide page, but to answer the nesting question, we can go to the **Sample Design** user note.
-
-        -   After searching for the word "nest," I find a paragraph that says, "The current sample design selects [clusters of households and non-institutional group quarters (such as college dormitories) that are *nested* within primary sampling units]{.underline} (PSUs). A PSU can consist of a county, a small group of adjacent counties, or a metropolitan statistical area."
-
-        -   After searching for the word "strata," I find this paragraph that says, "\[After creating PSUs\] The second step involves, for some states, dividing the PSUs into two strata defined by population density, generally urban and rural counties. All other states contain only one stratum. The third step involves defining clusters of approximately 2,500 addresses within each stratum, where each address cluster is located entirely within one of the originally defined 1,689 PSUs. Fourth, a specific number of address clusters in each stratum is systematically selected for the NHIS sample."
-
-            -   So households clusters are nested within population-density-defined Strata which are nested within clusters/PSU (groups of counties).
-
-        -   The [documentation](http://gdfe.co/srvyr/reference/as_survey_design.html) for [nest = TRUE]{.arg-text} in a study design object is "relabel cluster ids to enforce nesting within strata," and the definition for the [ids]{.arg-text} argument is "variables specifying cluster ids from largest level to smallest level"
-
-            -   It's confusing to me, because in this example, PSUs are used as cluster ids. So, the study design object is specified to say (from my understanding) that PSUs are nested inside the Strata which is opposite of what is happening.
-            -   I guess the key is from "largest level to smallest level" and since we have multiple levels of clustering, the PSU variable makes sense. It is what it is, but I think it could be worded better.
-
-### Getting the Data {#sec-surv-cens-ipums-getdat .unnumbered}
-
--   The workflow is essentially: Select variables $\rightarrow$ Select Years $\rightarrow$ Select Data Format $\rightarrow$ Download
-
--   [Example 1]{.ribbon-highlight}: NHIS via Website
-
-    :::: panel-tabset
-    ## 1. Getting Started
-
-    I'm using this data to follow along with a tutorial. See [Surveys, Analysis \>\> {srvyr}](surveys-analysis.qmd#sec-surveys-anal-srvyr){style="color: green"}.
-
-    ###### Choose a Survey
-
-    ![](_resources/Surveys,_Census_Data.resources/ipums-hs-sel-surv-1.png){.lightbox group="gtd-nhis-web" width="382"}
-
-    -   There are two [IPUMS Health Surveys](https://healthsurveys.ipums.org/)
-    -   I'm selecting National Health Interview Series
-
-    ###### Homepage
-
-    ![](_resources/Surveys,_Census_Data.resources/ipums-hs-homepage-1.png){.lightbox group="gtd-nhis-web" width="382"}
-
-    -   There are two ways to get to the survey variables interface
-
-    ## 2. Exploring Variables
-
-    ###### Search for Variables
-
-    ![](_resources/Surveys,_Census_Data.resources/ipums-variables-1.png){.lightbox group="gtd-nhis-web" width="382"}
-
-    -   The navbar shows various methods for selecting variables. I know what variables I'm after, so I'm just using the A-Z index. As the figure shows, there are many variables to choose from which can be overwhelming.
-
-    -   Actually **Search** would've been the best option as I could type the variables directly in and add them.
-
-    ###### Browsing by Category
-
-    ::: {layout-ncol="3"}
-    ![](_resources/Surveys,_Census_Data.resources/ipums-hs-sel-var-2.png){.lightbox group="gtd-nhis-web" width="132"}
-
-    ![](_resources/Surveys,_Census_Data.resources/ipums-hs-sel-var-3.png){.lightbox group="gtd-nhis-web" width="142"}
-
-    ![](_resources/Surveys,_Census_Data.resources/ipums-hs-sel-var-4.png){.lightbox group="gtd-nhis-web" width="132"}
-    :::
-
-    ## 3. Variable Information
-
-    ###### Read Variable Details
-
-    ![](_resources/Surveys,_Census_Data.resources/ipums-hs-var-det-1.png){.lightbox group="gtd-nhis-web" width="432"}
-
-    -   Clicking on the name of the variable sends you to its details page
-    -   Honestly everything here is potentially useful for your analysis.
-        -   [Codes]{.arg-text}: Gives you the coded variable values
-            -   e.g. AGE 997 values mean the person refused to give their age
-        -   [Description]{.arg-text}: Gives information such as how a variable is calculated or how it's description has been changed over the years (e.g. more categories added)
-            -   e.g. BMICALC: "\[Weight in pounds/(Height in inches, squared)\] multiplied by 703 and rounded to one digit past the implied decimal point."
-        -   [Comparabilty]{.arg-text}: Tells you if you're comparing apples to apples if you compare a variable across different years of the survey.
-            -   e.g REGION: Comparable prior to 2019 when there was a redesign
-        -   [Universe]{.arg-text}: Tells you what the demographics of the people that are sampled for this variable
-            -   e.g. BMICALC:
-                -   2020 2022: Sample children ages 10-17 and sample adults age 18+.
-                -   2021; 2023: Sample adults age 18+
-        -   [Availability]{.arg-text}: Says which survey years contain this variable
-        -   [Survey Text]{.arg-text}: Gives the exact text of the survey question
-            -   e.g. SEX has experienced many changes in how the question was asked and the responses available.
-        -   [Weights]{.arg-text}: Gives the name of the weights variable depending the on the survey year and links to that weights variables details page.
-            -   e.g. 1963-2018 : PERWEIGHT; 2019-2023 : SAMPWEIGHT
-        -   [NHIS Sources]{.arg-text}: Says which version of the survey was used to obtain the variable
-            -   e.g. SEX
-                -   2023 - In both sample adult and child questionnaires
-                -   2018 - Person (core questionnaire) \## 4. Select Variables and Years
-
-    ## 4. Select Variables and Years
-
-    ###### Select Variables
-
-    ![](_resources/Surveys,_Census_Data.resources/ipums-select-var-1.png){.lightbox group="gtd-nhis-web" width="432"}
-
-    -   Here I'm selecting AGE by clicking on the green plus. Also notice that SERIAL has been preselected. So the your dataset comes with some default variables
-    -   Proceed to select all the variables that you want.
-
-    ###### Select Years
-
-    ![](_resources/Surveys,_Census_Data.resources/ipums-select-yrs-1.png){.lightbox group="gtd-nhis-web" width="332"}
-
-    -   Once you selected all your variables, you click the Select Samples button.
-        -   Or if you check your Cart first, it'll tell you to Select Samples.
-    -   Then, select the years that you want.
-    -   Make sure you have checked each of your selected variable's availability prior
-
-    ## 5. Review and ID Variables
-
-    ###### Review Variables
-
-    ![](_resources/Surveys,_Census_Data.resources/ipums-overview-1.png){.lightbox group="gtd-nhis-web" width="332"}
-
-    -   After selecting your samples (i.e. years) and you submit them, it takes you to your Cart where you look over your variables.
-    -   Then click Create Data Extract
-
-    ###### Preselected Variables
-
-    -   Currently it seems like [PSU]{.var-text}, [STRATA]{.var-text}, and maybe [SERIAL]{.var-text} are the only id variables I'm interested in.
-    -   A closer look at the ID variables:
-        -   [PSU]{.var-text} - **Primary Sampling Unit** that represents the impact of the sample design **clustering** on the estimates of variance and standard errors.
-            -   [Researchers need to use [PSU]{.var-text} in conjunction with [STRATA]{.var-text} to account for stratification and clustering when computing variance estimates]{.underline} with IPUMS NHIS data.
-            -   3-digit numeric variable
-        -   [STRATA]{.var-text} - Represents the impact of the sample design stratification on the estimates of variance and standard errors
-            -   Generally (*not completely*) comparable for 1985 forward but may be affected by changes in the 2019. Says they're working on a way to make it comparable prior to 1985.
-                -   Not exactly sure what "generally" actually means, but it also says, after 2019, "there is no longer a sampling weight to produce household population estimates."
-                -   Might have to do with them switching from sampling everyone in the household to sampling 1 adult and 1 child.
-            -   5-digit numeric variable
-            -   000 indicates not in Universe
-            -   Universe:
-                -   1963-2018: All households.
-                -   2019-2023: Sample adults age 18+ and sample children age 0-17.
-        -   [SERIAL]{.var-text} - A unique id to each **household** in a given survey year. The combination of **YEAR and SERIAL provides a unique identifier** for every household in the IPUMS NHIS database.
-        -   [NHISHID]{.var-text} - A unique id to each household in a given survey year. Used to link IPUMS NHIS data with additional household-level data elements, from the NHIS source public use data files, that are not currently available in IPUMS.
-            -   So [not currently a useful variable]{.underline}
-            -   If and when the public use data files become available, there is a guide for using these variables to merge data in the User Guide. The link to the User Guide is in left side panel of the NHIS homepate (See [Design Information](surveys-census-data.qmd#sec-surv-cens-ipums-di){style="color: green"} for a pic)
-        -   [NHISPID]{.var-text} - Same as [NHISHID]{.var-text} but for persons
-            -   So [not currently a useful variable]{.underline} (See [NHISHID]{.var-text})
-        -   [PERNUM]{.var-text} - Either a **1 or a 2**. Variable that **numbers all persons within each famil**y (prior to 2019) or within each **household** consecutively (starting with "1") in the order in which they appear in the original NHIS data.
-            -   [A sample adult and sample child from each household are interviewed]{.underline} instead of collecting detailed information on all members of the household, so there is a maximum of two people per household as reported in PERNUM beginning in 2019.
-            -   [Since a 1 or 2 isn't consistent with an adult or a child, I'm not sure how useful this is.]{.underline}
-        -   [HHX]{.var-text} - **For sample adults and sample children, HHX reports the person's household number** on the original NHIS data. HHX is unique within sample but only unique across samples when combined with information on year.
-            -   HHX is unique within sample.
-            -   Beginning in 2019, HHX leads with the character "H" followed by six numeric digits. Prior to 2019, HHX consisted only of six numeric digits.
-            -   In the NHISPID, Comparability section, it says that HHX is a component of the 16-digit NHISPID value. So this variable is used for linking person-level data to household-level information.
-            -   [Since NHISPID isn't currently useful, neither is this one.]{.underline}
-
-    ## 6. Create Extract and Download
-
-    ###### Decide on File Format and Create Extract
-
-    ![](_resources/Surveys,_Census_Data.resources/ipums-dat-format-1.png){.lightbox group="gtd-nhis-web" width="432"}
-
-    -   The main thing here is the file format. The default is "Fixed-width text (.dat)" data format, whatever that is. I changed it to .csv.
-    -   You can also change it to a Hierarchical structure. Not sure what that is about though (maybe JSON?).
-
-    ###### Download Data and Codebook
-
-    ![](_resources/Surveys,_Census_Data.resources/ipums-download-1.png){.lightbox group="gtd-nhis-web" width="432"}
-
-    -   Click to download the data
-    -   There's a Basic and DDI — I'd get them both.
-    -   "Basic" is just a text file, and even though it has a .cbk extension, notebook++ read it just fine\
-        ![](_resources/Surveys,_Census_Data.resources/ipums-nhis-cbk-1.png){.lightbox group="gtd-nhis-web" width="240"}
-        -   Some basic information from variable details page, e.g. List of Variables, Availability, Codes, etc.
-        -   The .xml DDI file contains more information. Almost as much as the Variable details webpage. See [Example 2]{style="color: green"} \>\> Explore DDI
-    -   "DDI" stands for the Data Documentation Initiative (DDI) which is a standard for documenting social science datasets. It's an XML file so it's machine readable (e.g. [{ipumsr}]{style="color: #990000"})
-    ::::
-
--   [Example 2]{.ribbon-highlight}: NHIS via [{ipumsr}]{style="color: #990000"}
-
-    :::: panel-tabset
-    ## Set-Up
-
-    API key should be in your `.Renviron`
-
-    tl;dr See the Download and Read Data tab for the entire piped workflow
-
-    ###### Find the collection name of the NHIS survey
+## Time Series Analysis {#sec-surv-cens-tsa .unnumbered}
+
+-   [Misc]{.underline}
+
+    -   [{tidycensus}]{style="color: #990000"} only has 2010 and 2020 censuses
+        -   See <https://nhgis.org> for older census data
+    -   Issue: county names and boundaries change over time (e.g. Alaska redraws a lot)
+        -   Census gives a different GeoID to counties that get renamed even though they're the same county.
+        -   NA values showing up after you calculate how the value changes over time is a good indication of this problem. Check for NAs: `filter(county_change, is.na(value10))`
+    -   Census Bureau recommends using *non-overlapping* ACS 5-Year surveys
+        -   e.g. 2008-2012, 2013-2017, etc.
+
+-   [Example]{.ribbon-highlight}: Join 2010 and 2020 and Calculate Percent Change
 
     ``` r
-    ipums_data_collections()
-    #> # A tibble: 14 × 4
-    #>    collection_name     collection_type code_for_api api_support
-    #>    <chr>               <chr>           <chr>        <lgl>      
-    #>  1 IPUMS USA           microdata       usa          TRUE       
-    #>  2 IPUMS CPS           microdata       cps          TRUE       
-    #>  3 IPUMS International microdata       ipumsi       TRUE       
-    #>  4 IPUMS NHGIS         aggregate data  nhgis        TRUE       
-    #>  5 IPUMS IHGIS         aggregate data  ihgis        FALSE      
-    #>  6 IPUMS ATUS          microdata       atus         TRUE       
-    #>  7 IPUMS AHTUS         microdata       ahtus        TRUE       
-    #>  8 IPUMS MTUS          microdata       mtus         TRUE       
-    #>  9 IPUMS DHS           microdata       dhs          FALSE      
-    #> 10 IPUMS PMA           microdata       pma          FALSE      
-    #> 11 IPUMS MICS          microdata       mics         FALSE      
-    #> 12 IPUMS NHIS          microdata       nhis         TRUE       
-    #> 13 IPUMS MEPS          microdata       meps         TRUE       
-    #> 14 IPUMS Higher Ed     microdata       highered     FALSE           
-    ```
-
-    -   Looking for the NHIS survey, so [nhis]{.arg-text} is what I want
-
-    ###### Get the sample (aka survey year) names for the NHIS survey
-
-    ``` r
-    tail(get_sample_info("nhis"))
-    #> # A tibble: 6 × 2
-    #>   name   description
-    #>   <chr>  <chr>      
-    #> 1 ih2018 2018 NHIS  
-    #> 2 ih2019 2019 NHIS  
-    #> 3 ih2020 2020 NHIS  
-    #> 4 ih2021 2021 NHIS  
-    #> 5 ih2022 2022 NHIS  
-    #> 6 ih2023 2023 NHIS 
-    ```
-
-    -   I'm just pulling the 2023 survey, so I need [ih2023]{.arg-text}
-
-    ## Define Extract and Submit
-
-    ###### Define Extract
-
-    ``` r
-    def_extract_nhis <- 
-      define_extract_micro(
-        collection = "nhis",
-        description = "2023 NHIS via API", # whatever you want
-        samples = "ih2023",
-        variables = c("SEX", 
-                      "AGE", 
-                      "REGION", 
-                      "BMICALC"),
-        data_format = "csv"
+    county_pop_10 <- 
+      get_decennial(
+        geography = "county",
+        variables = "P001001", # county populations
+        year = 2010,
+        sumfile = "sf1"
       )
 
-    def_extract_nhis
-    #> Unsubmitted IPUMS NHIS extract 
-    #> Description: 2023 NHIS via API
-    #> 
-    #> Samples: (1 total) ih2023
-    #> Variables: (4 total) SEX, AGE, REGION, BMICALC          
+    county_pop_10_clean <- 
+      county_pop_10 %>%
+        select(GEOID, value10 = value) 
+
+    county_pop_20 <- 
+      get_decennial(
+        geography = "county",
+        variables = "P1_001N", # county populations
+        year = 2020,
+        sumfile = "dhc"
+      ) %>%
+        select(GEOID, NAME, value20 = value)
+
+    county_joined <- 
+      county_pop_20 %>%
+        left_join(county_pop_10_clean, by = "GEOID") 
+
+    county_joined
+
+    county_change <- 
+      county_joined %>%
+        mutate( 
+          total_change = value20 - value10, 
+          percent_change = 100 * (total_change / value10) 
+        ) 
     ```
 
-    -   There's currently not programmatical way to search for variables. So you'll have to do that via the website. See [Example 1]{style="color: green"}.
-    -   All the inputs are subsettable from the extract definition, e.g. `names(usa_extract_definition$variables)`
+-   [Example]{.ribbon-highlight}: Age distribution over time in Michigan\
+    ![](_resources/Surveys,_Census_Data.resources/michigan-age-chart-1.png){.lightbox width="432"}
 
-    ###### Submit Request
+    -   Code available in the github [repo](https://github.com/walkerke/umich-workshop-2024/blob/main/census-2020/bonus-chart.R) or R/Workshops/tidycensus-umich-workshop-2024-main/census-2020/bonus-chart.R
+    -   Distribution shape remains pretty much the same, but decreasing for most age cohorts, i.e. people are leaving the state across most age groups.
+        -   e.g. The large hump representing the group of people in there mid-40s in 2000 steadily decreases over time.
+
+-   [Example]{.ribbon-highlight}: Compare 2010 to 2020 Population Densities for Dallas-Ft. Worth\
+    ![](_resources/Surveys,_Census_Data.resources/dicen-ts-3d-popden-1.png){.lightbox width="532"}
+
+    <Details>
+
+    <Summary>Code</Summary>
+
+    ::: panel-tabset
+    ## Data
 
     ``` r
-    sub_extract_nhis <- submit_extract(def_extract_nhis)
-    #> Successfully submitted IPUMS NHIS extract number 2
-    sub_extract_nhis$status
-    #> [1] "queued"
-    names(sub_extract_nhis$variables)
-    #>  [1] "YEAR"       "SERIAL"     "STRATA"     "PSU"        "NHISHID"    "REGION"     "PERNUM"     "NHISPID"    "HHX"       
-    #> [10] "SAMPWEIGHT" "ASTATFLG"   "CSTATFLG"   "AGE"        "SEX"        "BMICALC"  
-    status_sub_nhis <- wait_for_extract(sub_extract_nhis)
-    #> Checking extract status...
-    #> IPUMS NHIS extract 2 is ready to download.        
+    pacman::p_load(
+      tigris,
+      tidyverse,
+      tidycensus,
+      sf,
+      mapgl
+    )
+    options(tigris_use_cache = TRUE)
+
+    dfw_counties <- counties(year = 2020) %>%
+      filter(CBSAFP == "19100") %>%
+      pull(COUNTYFP)
+
+    # 2010 variable lookup
+    vars10 <- load_variables(2010, "sf1")
+
+    dfw_pop_10 <- get_decennial(
+      geography = "tract",
+      state = "TX",
+      county = dfw_counties,
+      variables = "P001001",
+      sumfile = "sf1",
+      year = 2010,
+      geometry = TRUE
+    ) %>%
+      st_transform(26914) %>%
+      mutate(pop_density = as.numeric(value / (st_area(.) / 2589989.1738453)) )
+
+    dfw_pop_20 <- get_decennial(
+      geography = "tract",
+      variables = "P1_001N",
+      state = "TX",
+      county = dfw_counties,
+      geometry = TRUE,
+      year = 2020,
+      sumfile = "dhc"
+    ) %>%
+      st_transform(26914) %>%
+      mutate(pop_density = as.numeric(value / (st_area(.) / 2589989.1738453)) )
+
+    print(nrow(dfw_pop_10))
+    print(nrow(dfw_pop_20))
     ```
 
-    -   The extract won’t be downloadable immediately. They'll notify you via email or you can check via function.
-        -   The output can be subset if your script is noninteractive, e.g. `status_sub_nhis$status` which will say ["completed"]{.arg-text} when ready. Other possible values: ["queued"]{.arg-text}, ["started"]{.arg-text}, ["produced"]{.arg-text}, ["canceled"]{.arg-text}, and ["failed"]{.arg-text}.
-        -   There's also `is_extract_ready` that returns a logical
-    -   Your variable list has been updated by the API to include all the preselected variables (ID variables and [YEAR]{.var-text}). See [Example 1]{style="color: green"} for a description of the ID variables.
-    -   [ASTATFLG]{.var-text} and [CSTATFLG]{.var-text} indicate whether the person is an Adult or Child (1 each is sampled per household in this survey design)
+    -   1,312 Census tracts in DFW in 2010
+    -   1,704 Census tracts in DFW in 2020
+    -   2589989.1738453 is the number of square meters in one square mile
+        -   Converts the area from square meters to square miles to calculate population density in people per square mile.
 
-    ## Download and Read Data
-
-    ###### Download and Read Data
+    ## 3-D Map with Vertical Slider
 
     ``` r
-    path_ext_nhis <- 
-      download_extract(
-        extract = sub_extract_nhis,
-        download_dir = "../../Data/ipums/",
-        lower_vars = TRUE
-      )
-    dat_nhis <- read_ipums_micro(path_sub_nhis)
-    ```
-
-    -   "For microdata extracts, only the file path to the downloaded .xml DDI file will be returned, as it is sufficient for reading the data provided in the associated .dat.gz data file."
-
-        -   See [Example 1]{style="color: green"} for an explanation of the DDI file.
-
-    -   The data file name is `nhis_00002_csv.gz`. Since you can download previously requested extracts (e.g. `download_extract("nhis:1")` for the first nhis requested extract), I'm thinking the 2 in the file name refers to the fact that this is my second NHIS request.
-
-    ###### Piped Workflow
-
-    ``` r
-    dat_nhis <- 
-      define_extract_micro(
-        collection = "nhis",
-        description = "2023 NHIS via API", # whatever you want
-        samples = "ih2023",
-        variables = c("SEX", 
-                      "AGE", 
-                      "REGION", 
-                      "BMICALC"),
-        data_format = "csv"
+    m10_3d <- maplibre(
+      style = carto_style("positron")
+    ) |> 
+      fit_bounds(dfw_pop_10) |> 
+      add_fill_extrusion_layer(
+        id = "dfw10",
+        source = dfw_pop_10,
+        fill_extrusion_color = interpolate(
+          column = "pop_density",
+          values = seq(0, 40000, 8000),
+          stops = plasma(6)
+        ), 
+        fill_extrusion_opacity = 0.7,
+        fill_extrusion_height = get_column("pop_density")
       ) |> 
-      submit_extract() |> 
-      wait_for_extract() |> 
-      download_extract(
-        download_dir = "../../Data/ipums/",
-        lower_vars = TRUE
-      ) |>       
-      read_ipums_micro()
+      add_legend(
+        "Population density (persons/sqmi)<br>Left: 2010, Right: 2020", 
+        values = c("0", "8k", "16k", "24k", "32k", "40k"),
+        colors = plasma(6)
+      )
+
+    m20_3d <- maplibre(
+      style = carto_style("positron"),
+    ) |> 
+      add_fill_extrusion_layer(
+        id = "dfw20",
+        source = dfw_pop_20,
+        fill_extrusion_color = interpolate(
+          column = "pop_density",
+          values = seq(0, 40000, 8000),
+          stops = plasma(6)
+        ), 
+        fill_extrusion_opacity = 0.7,
+        fill_extrusion_height = get_column("pop_density")
+      ) |> 
+      add_legend(
+        "Population density (persons/sqmi)<br>Left: 2010, Right: 2020", 
+        values = c("0", "8k", "16k", "24k", "32k", "40k"),
+        colors = plasma(6)
+      )
+
+    compare(m10_3d, m20_3d)
     ```
 
-    ###### Search History
-
-    -   Your extract history can be checked with `get_extract_history` which retrieves prior extracts, their survey years, and their variables.
-
-    -   That history can be used to search for past extracts that contain certain variables:
-
-        ``` r
-        purrr::keep(extracts_past_nhis, ~ "BMICALC" %in% names(.x$variables))
-        ```
-
-    ## Explore the DDI
-
-    ###### Read a Variable Description
-
-    ``` r
-    writeLines(ipums_var_desc(ddi_nhis, var = "BMICALC"))
-    ```
-
-    ::: {.callout-note appearance="minimal"}
-    #\> BMICALC reports the Body Mass Index, a measure of body fat based on height and weight, as calculated by IPUMS NHIS from the public use file data on height and weight. BMICALC was calculated using the following formula: \[Weight in pounds/(Height in inches, squared)\] multiplied by 703 and rounded to one digit past the implied decimal point. Individuals not asked their weight and height are coded "000" (for "Not in universe") for BMICALC. Individuals whose weight or height was topcoded, bottomcoded, or, for 1997 forward, an outlying value that was suppressed for confidentiality reasons, receive a code of "996" for BMICALC.\
-
-    #\> The website of the Centers for Disease Control and Prevention on BMI reports the following "standard weight status categories associated with BMI ranges for adults." BMI below 18.5 is associated with "underweight" weight status; BMI 18.5 to 24.9 is associated with "normal" weight status; BMI 25.0 to 29.9 is associated with "overweight" weight status; BMI 30.0 and above is associated with "obese" weight status.\
-
-    #\> The CDC website also notes, "the correlation between the BMI number and body fatness is fairly strong; however, the correlation varies by sex, race, and age." For example, women tend to have more body fat than men at the same BMI; older people, on average, tend to have more body fat than young adults; and highly trained athletes may have a high BMI because of increased muscularity rather than increased body fatness. The CDC adds, "It is important to remember that BMI is only one factor related to risk for disease," and that other predictors, such as waist circumference and levels of blood pressure and physical activity, are also important.
+    -   Also see [Mapping](surveys-census-data.qmd#sec-surv-cens-map){style="color: green"} for details on [{mapgl}]{style="color: #990000"} functions, arguments, etc.
     :::
 
-    ###### Variable Information
+    </Details>
 
-    ``` r
-    info_vars_nhis <- ipums_var_info(ddi_nhis, vars = c("AGE", "REGION"))
+-   [Example]{.ribbon-highlight}: Compare 2022 5-Year ACS to the 2017 5-Year ACS
 
-    dplyr::glimpse(info_vars_nhis)
-    #> Rows: 2
-    #> Columns: 10
-    #> $ var_name   <chr> "REGION", "AGE"
-    #> $ var_label  <chr> "Region of residence", "Age"
-    #> $ var_desc   <chr> "REGION reports the region of the U.S. where the housing unit containing survey participants was located…
-    #> $ val_labels <list> [<tbl_df[6 x 2]>], [<tbl_df[6 x 2]>]
-    #> $ code_instr <chr> NA, "AGE is a 3-digit-numeric variable.\n\n085:\tTop code for 85 years or older (1963-1968 and 1997-forw…
-    #> $ start      <dbl> 32, 73
-    #> $ end        <dbl> 33, 75
-    #> $ imp_decim  <dbl> 0, 0
-    #> $ var_type   <chr> "integer", "numeric"
-    #> $ rectypes   <lgl> NA, NA
-    ```
+    -   County Level
 
-    -   Contains all variable information in a tibble
-        -   e.g. The variable description extracted using the helper function in the previous section can be extracted from the tibble.
-    -   The value labels seem to be the different categories and codes. There's also a separate Codes column
-    -   Not sure what the rest of the columns are (e.g. [start]{.var-text} and [end]{.var-text})
-    ::::
+        ``` r
+
+        utah_wfh_compare <- get_acs(
+          geography = "county",
+          variables = c(
+            work_from_home17 = "CP03_2017_024",
+            work_from_home22 = "CP03_2022_024"
+          ),
+          state = "UT",
+          year = 2022
+        )
+        ```
+
+        -   The Comparison Profile dataset has aggregated statistics to compare between ACS 5-Year surveys (See [tidycensus \>\> Variables](surveys-census-data.qmd#sec-surv-cens-tidyc-vars){style="color: green"} \>\> Search Variables)
+
+        -   This dataset only goes down to the county level
+
+    -   Census Tract Level
+
+        ``` r
+        library(sf)
+
+        wfh_17 <- 
+          get_acs(geography = "tract", 
+                  variables = "B08006_017", 
+                  year = 2017,
+                  state = "UT", 
+                  county = "Salt Lake", 
+                  geometry = TRUE) |> 
+          st_transform(6620)
+
+        wfh_22 <- 
+          get_acs(geography = "tract", 
+                  variables = "B08006_017", 
+                  year = 2022,
+                  state = "UT", 
+                  county = "Salt Lake", 
+                  geometry = TRUE) |> 
+          st_transform(6620)
+        ```
