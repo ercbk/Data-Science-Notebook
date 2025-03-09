@@ -640,7 +640,9 @@ title: "Scrapsheet"
 
                 -   get more details
 
-            -   Aerial Interpolation (see [book ](https://walker-data.com/census-r/spatial-analysis-with-us-census-data.html?q=small#small-area-time-series-analysis)for more details)
+            -   Areal Interpolation (see [book](https://walker-data.com/census-r/spatial-analysis-with-us-census-data.html?q=small#small-area-time-series-analysis)for more details)
+
+                -   Interpolating data between sets of boundaries involves the use of weights to re-distribute data from one geography to another
 
                 -   Check for incongruent boundaries
 
@@ -666,55 +668,79 @@ title: "Scrapsheet"
                       st_transform(6620)
                     ```
 
-                    -   Process is quicker on a projected coordinated system
+                    -   The process is quicker on a projected coordinated system
 
                         -   [EPSG:6620](https://epsg.io/6620) is NAD83(2011) / Utah North
 
-                    -   get details on how he found incongruent boundaries
-
-                -   Use st_interpolate_aw
+                -   Area-Weighted Areal Interpolation
 
                     ``` r
                     library(sf)
+                    library(mapview)
+                    library(leafsync)
 
                     wfh_22_to_17 <- wfh_22 |> 
                       select(estimate) |> 
                       st_interpolate_aw(to = wfh_17, extensive = TRUE)
+
+                    m22a <- mapview(wfh_22, zcol = "estimate", layer.name = "2020 geographies")
+                    m17a <- mapview(wfh_22_to_17, zcol = "estimate", layer.name = "2015 geographies")
+
+                    sync(m22a, m17a)
                     ```
 
-                    -   rolls backwards
+                    -   **Area-Weighted Interpolation** allocates information from one geography to another geography by weights based on the area of overlap ([Walker, Ch. 7.3.1](https://walker-data.com/census-r/spatial-analysis-with-us-census-data.html?q=small#area-weighted-areal-interpolation))
+                        -   Typically more accurate when going *backward*, as many new tracts will “roll up” within parent tracts from a previous Census (though not always)(aka rolls backwards)
+                        -   The book has an example that rolls *forwards* from 2015 to 2020.
+                            -   Beware: This may be very inaccurate as assumes that population is evenly distributed over area. It can incorrectly allocate large values to low-density / empty areas.
+                            -   Better to use Population-Weighted Areal Interpolation
+                    -   [extensive = TRUE]{.arg-text} says weighted sums will be computed. Alternatively, if [extensive = FALSE]{.arg-text}, the function returns weighted means.
 
-                    -   Uses area weighting (get details
-
-                -   Population weighted roll forward method
+                -   Population-Weighted Areal Interpolation
 
                     ``` r
                     library(tigris)
                     options(tigris_use_cache = TRUE)
 
-                    salt_lake_blocks <- blocks(
-                      "UT", 
-                      "Salt Lake", 
-                      year = 2020
-                    )
+                    salt_lake_blocks <- 
+                      tigris::blocks(
+                        "UT", 
+                        "Salt Lake", 
+                        year = 2020
+                      )
 
-                    wfh_17_to_22 <- interpolate_pw(
-                      from = wfh_17,
-                      to = wfh_22,
-                      to_id = "GEOID",
-                      weights = salt_lake_blocks,
-                      weight_column = "POP20",
-                      crs = 6620,
-                      extensive = TRUE
-                    )
+                    wfh_17_to_22 <- 
+                      tidycensus::interpolate_pw(
+                        from = wfh_17,
+                        to = wfh_22,
+                        to_id = "GEOID",
+                        weights = salt_lake_blocks,
+                        weight_column = "POP20",
+                        crs = 6620,
+                        extensive = TRUE
+                      )
+
+                    # check result
+                    # m17b <- 
+                    #   mapview(wfh_17, 
+                    #           zcol = "estimate", 
+                    #           layer.name = "2017 geographies")
+                    # m22b <- 
+                    #   mapview(wfh_17_to_22, 
+                    #           zcol = "estimate", 
+                    #           layer.name = "2022 geographies")
+                    # 
+                    # sync(m17b, m22b)
 
                     # calculate change over time
                     wfh_shift <- wfh_17_to_22 %>%
                       select(GEOID, estimate17 = estimate) %>%
                       left_join(
                         select(st_drop_geometry(wfh_22), 
-                               GEOID, estimate22 = estimate), by = "GEOID"
-                      ) %>%
+                               GEOID, 
+                               estimate22 = estimate), 
+                        by = "GEOID"
+                      ) |> 
                       mutate(
                         shift = estimate22 - estimate17,
                         pct_shift = 100 * (shift / estimate17)
@@ -722,6 +748,16 @@ title: "Scrapsheet"
 
                     mapview(wfh_shift, zcol = "shift")
                     ```
+
+                    -   **Population-Weighted Interpolation** uses an underlying dataset that explains the population distribution as weights.
+
+                        -   Recommended to use census block level data to create the weights. ACS only has geographies down to the Block Group level, so the Dicennial Census values are used.
+
+                    -   `blocks` gets the 2020 Dicennial population values at the census block level to calculate the weights
+
+                    -   `interpolate_pw` creates weights based on the 2020 census block populations. Then, it splits the 2017 weighted data into 2022 geographies.
+
+                    -   The 2022 data is joined to the new 2017 data and percent-change can now be calculated since both have 2022 geometries.
 
 ## lab 91
 

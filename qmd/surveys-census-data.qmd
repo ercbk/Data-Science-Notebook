@@ -206,7 +206,7 @@ lightbox:
                     ```
 
                     -   You still get decent granularity for denser populated regions, so patterns will be visable while also getting complete coverage of a study area
-        -   **5-Year**: Useful is smaller geographies and lower MOEs are necessary.
+        -   **5-Year**: Useful for smaller geographies and when lower MOEs are necessary.
     -   Detailed social, economic, housing, and demographic characteristics. Variables covering e.g. income, education, language, housing characteristics
     -   Smallest geography is the Block Group
     -   [census.gov/acs](http://census.gov/acs)
@@ -2131,7 +2131,7 @@ lightbox:
     -   Census Bureau recommends using *non-overlapping* ACS 5-Year surveys
         -   e.g. 2008-2012, 2013-2017, etc.
 
--   [Example]{.ribbon-highlight}: Join 2010 and 2020 and Calculate Percent Change
+-   [Example 1]{.ribbon-highlight}: Join 2010 and 2020 and Calculate Percent Change
 
     ``` r
     county_pop_10 <- 
@@ -2169,14 +2169,14 @@ lightbox:
         ) 
     ```
 
--   [Example]{.ribbon-highlight}: Age distribution over time in Michigan\
+-   [Example 2]{.ribbon-highlight}: Age distribution over time in Michigan\
     ![](_resources/Surveys,_Census_Data.resources/michigan-age-chart-1.png){.lightbox width="432"}
 
     -   Code available in the github [repo](https://github.com/walkerke/umich-workshop-2024/blob/main/census-2020/bonus-chart.R) or R/Workshops/tidycensus-umich-workshop-2024-main/census-2020/bonus-chart.R
     -   Distribution shape remains pretty much the same, but decreasing for most age cohorts, i.e. people are leaving the state across most age groups.
         -   e.g. The large hump representing the group of people in there mid-40s in 2000 steadily decreases over time.
 
--   [Example]{.ribbon-highlight}: Compare 2010 to 2020 Population Densities for Dallas-Ft. Worth\
+-   [Example 3]{.ribbon-highlight}: Compare 2010 to 2020 Population Densities for Dallas-Ft. Worth\
     ![](_resources/Surveys,_Census_Data.resources/dicen-ts-3d-popden-1.png){.lightbox width="532"}
 
     <Details>
@@ -2288,28 +2288,33 @@ lightbox:
 
     </Details>
 
--   [Example]{.ribbon-highlight}: Compare 2022 5-Year ACS to the 2017 5-Year ACS
+-   [Example 4]{.ribbon-highlight}: Compare 2022 5-Year ACS to the 2017 5-Year ACS (*County Level)*
 
-    -   County Level
+    ``` r
 
-        ``` r
+    utah_wfh_compare <- get_acs(
+      geography = "county",
+      variables = c(
+        work_from_home17 = "CP03_2017_024",
+        work_from_home22 = "CP03_2022_024"
+      ),
+      state = "UT",
+      year = 2022
+    )
+    ```
 
-        utah_wfh_compare <- get_acs(
-          geography = "county",
-          variables = c(
-            work_from_home17 = "CP03_2017_024",
-            work_from_home22 = "CP03_2022_024"
-          ),
-          state = "UT",
-          year = 2022
-        )
-        ```
+    -   The Comparison Profile dataset has aggregated statistics to compare between ACS 5-Year surveys (See [tidycensus \>\> Variables](surveys-census-data.qmd#sec-surv-cens-tidyc-vars){style="color: green"} \>\> Search Variables)
+    -   This dataset only goes down to the county level
 
-        -   The Comparison Profile dataset has aggregated statistics to compare between ACS 5-Year surveys (See [tidycensus \>\> Variables](surveys-census-data.qmd#sec-surv-cens-tidyc-vars){style="color: green"} \>\> Search Variables)
+-   [Example 5]{.ribbon-highlight}: Compare 2022 5-Year ACS to the 2017 5-Year ACS (*Tract Level*)
 
-        -   This dataset only goes down to the county level
+    -   There are two methods to calculate change at the census tract level
 
-    -   Census Tract Level
+        -   Interpolate data from 2022 boundaries to 2017 boundaries. Then calculate change.
+        -   Interpolate data from 2017 boundaries to 2022 boundaries. Then calculate change
+
+    -   Data\
+        The data is the number of remote workers by census tract in Salt Lake County (i.e. Salt Lake City) from the 2013-2017 period and the 2018 to 2022 period
 
         ``` r
         library(sf)
@@ -2332,3 +2337,98 @@ lightbox:
                   geometry = TRUE) |> 
           st_transform(6620)
         ```
+
+        -   The process is quicker on a projected coordinated system
+            -   [EPSG:6620](https://epsg.io/6620) is NAD83(2011) / Utah North
+
+    -   2022 to 2017 Boundaries\
+        ![2022 Data to 2017 Boundaries Using Area-Weighted Interpolation](_resources/Surveys,_Census_Data.resources/tsa-ex5-1722-tract-back-1.png){.lightbox group="tsa-ex5-1" width="582"}
+
+        ``` r
+        library(sf)
+        library(mapview)
+        library(leafsync)
+
+        wfh_22_to_17 <- wfh_22 |> 
+          select(estimate) |> 
+          st_interpolate_aw(to = wfh_17, extensive = TRUE)
+
+        m22a <- mapview(wfh_22, zcol = "estimate", layer.name = "2020 geographies")
+        m17a <- mapview(wfh_22_to_17, zcol = "estimate", layer.name = "2015 geographies")
+
+        sync(m22a, m17a)
+        ```
+
+        -   **Area-Weighted Interpolation** allocates information from one geography to another geography by weights based on the area of overlap ([Walker, Ch. 7.3.1](https://walker-data.com/census-r/spatial-analysis-with-us-census-data.html?q=small#area-weighted-areal-interpolation))
+            -   Typically more accurate when going *backward*, as many new tracts will “roll up” within parent tracts from a previous Census (though not always)(aka rolls backwards)
+            -   The book has an example that rolls *forwards* from 2015 to 2020.
+                -   Beware: This may be very inaccurate as assumes that population is evenly distributed over area. It can incorrectly allocate large values to low-density / empty areas.
+                -   Better to use Population-Weighted Areal Interpolation
+        -   The 2022 data is weighted and "rolled" into 2017 census tract boundaries.
+        -   [extensive = TRUE]{.arg-text} says weighted sums will be computed. Alternatively, if [extensive = FALSE]{.arg-text}, the function returns weighted means.
+
+    -   2017 to 2022 Boundaries\
+        ![2017 Data to 2022 Boundaries Using Population-Weighted Interpolation](_resources/Surveys,_Census_Data.resources/tsa-ex5-1722-tract-for-1.png){.lightbox group="tsa-ex5-1" width="582"}
+
+        ``` r
+        library(tigris)
+        options(tigris_use_cache = TRUE)
+
+        salt_lake_blocks <- 
+          tigris::blocks(
+            "UT", 
+            "Salt Lake", 
+            year = 2020
+          )
+
+        wfh_17_to_22 <- 
+          tidycensus::interpolate_pw(
+            from = wfh_17,
+            to = wfh_22,
+            to_id = "GEOID",
+            weights = salt_lake_blocks,
+            weight_column = "POP20",
+            crs = 6620,
+            extensive = TRUE
+          )
+
+        # check result
+        m17b <-
+          mapview(wfh_17,
+                  zcol = "estimate",
+                  layer.name = "2017 geographies")
+        m22b <-
+          mapview(wfh_17_to_22,
+                  zcol = "estimate",
+                  layer.name = "2022 geographies")
+
+        sync(m17b, m22b)
+        ```
+
+        -   **Population-Weighted Interpolation** uses an underlying dataset that explains the population distribution as weights.
+            -   Recommended to use census block level data to create the weights. ACS only has geographies down to the Block Group level, so the Dicennial Census values are used.
+        -   `blocks` gets the 2020 Dicennial population values at the census block level to calculate the weights
+        -   `interpolate_pw` creates weights based on the 2020 census block populations. Then, it splits the 2017 weighted data into 2022 geographies.
+
+    -   Calculate Change\
+        ![Percent Change From 2017 to 2022 in Remote Workers](_resources/Surveys,_Census_Data.resources/tsa-ex5-1722-tract-change-1.png){.lightbox group="tsa-ex5-1" width="582"}
+
+        ``` r
+        wfh_shift <- wfh_17_to_22 %>%
+          select(GEOID, estimate17 = estimate) %>%
+          left_join(
+            select(st_drop_geometry(wfh_22), 
+                   GEOID, 
+                   estimate22 = estimate), 
+            by = "GEOID"
+          ) |> 
+          mutate(
+            shift = estimate22 - estimate17,
+            pct_shift = 100 * (shift / estimate17)
+          )
+
+        mapview(wfh_shift, zcol = "shift")
+        ```
+
+        -   Uses the 2017 data that's been interpolated to 2022 census tract boundaries.
+        -   The 2022 data is joined to the new 2017 data and percent-change can now be calculated since both have 2022 geometries.
