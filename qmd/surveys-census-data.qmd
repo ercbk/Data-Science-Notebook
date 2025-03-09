@@ -2169,12 +2169,108 @@ lightbox:
         ) 
     ```
 
--   [Example 2]{.ribbon-highlight}: Age distribution over time in Michigan\
-    ![](_resources/Surveys,_Census_Data.resources/michigan-age-chart-1.png){.lightbox width="432"}
+-   [Example 2]{.ribbon-highlight}: Age distribution over time in Michigan ([source](https://github.com/walkerke/umich-workshop-2024/blob/main/census-2020/bonus-chart.R))  ![](_resources/Surveys,_Census_Data.resources/michigan-age-chart-1.png){.lightbox width="482"}
 
-    -   Code available in the github [repo](https://github.com/walkerke/umich-workshop-2024/blob/main/census-2020/bonus-chart.R) or R/Workshops/tidycensus-umich-workshop-2024-main/census-2020/bonus-chart.R
     -   Distribution shape remains pretty much the same, but decreasing for most age cohorts, i.e. people are leaving the state across most age groups.
         -   e.g. The large hump representing the group of people in there mid-40s in 2000 steadily decreases over time.
+
+    ::: panel-tabset
+    ## Pull 2000, 2010 Dicennial Data
+
+    ``` r
+    library(tidycensus)
+    library(tidyverse)
+
+    ages <- c(0:99, rep(100, 3))
+
+    male_vars <- 
+      paste0("PCT012", 
+             str_pad(3:105, 
+                     3, 
+                     "left", 
+                     "0"))
+    female_vars <- paste0("PCT012", 107:209)
+
+    names(male_vars) <- ages
+    names(female_vars) <- ages
+
+    all_vars <- c(male_vars, female_vars)
+
+    pull00 <- get_decennial(
+      geography = "state",
+      state = "MI",
+      variables = all_vars,
+      year = 2000
+    ) %>%
+      summarize(value = sum(value, na.rm = TRUE), 
+                .by = variable) %>%
+      mutate(year = "2000")
+
+    pull10 <- get_decennial(
+      geography = "state",
+      state = "MI",
+      variables = all_vars,
+      year = 2010
+    ) %>%
+      summarize(value = sum(value, na.rm = TRUE), 
+                .by = variable) %>%
+      mutate(year = "2010")    
+    ```
+
+    -   This code is crying out for a function, but I'm not going to mess with it right now.
+    -   Population counts are tallied for each age.
+
+    ## Pull 2020 Dicennial Data
+
+    ``` r
+    male_vars20 <- 
+      paste0("PCT12_", 
+             str_pad(3:105, 
+                     3, 
+                     "left", 
+                     "0"), 
+             "N")
+    female_vars20 <- 
+      paste0("PCT12_", 
+             107:209, 
+             "N")
+
+    names(male_vars20) <- ages
+    names(female_vars20) <- ages
+
+    all_vars20 <- c(male_vars20, female_vars20)
+
+    pull20 <- get_decennial(
+      geography = "state",
+      state = "MI",
+      variables = all_vars20,
+      year = 2020,
+      sumfile = "dhc"
+    ) %>%
+      summarize(value = sum(value, na.rm = TRUE), 
+                .by = variable) %>%
+      mutate(year = "2020")
+    ```
+
+    -   2020 has a "N" added to the end of the variable code. Otherwise, everything is the same as the code for 2000 and 2010.
+
+    ## Line Chart
+
+    ``` r
+    all_years <- bind_rows(pull00, pull10, pull20)
+
+    ggplot(all_years, aes(x = as.numeric(variable), y = value, color = year,
+                          group = year)) + 
+      geom_line() + 
+      theme_minimal() + 
+      scale_color_brewer(palette = "Set1") + 
+      scale_y_continuous(labels = scales::label_comma()) + 
+      labs(y = "Population",
+           x = "Single-year age",
+           color = "Year",
+           title = glue::glue("Age distributions in Michigan"))
+    ```
+    :::
 
 -   [Example 3]{.ribbon-highlight}: Compare 2010 to 2020 Population Densities for Dallas-Ft. Worth\
     ![](_resources/Surveys,_Census_Data.resources/dicen-ts-3d-popden-1.png){.lightbox width="532"}
@@ -2309,126 +2405,143 @@ lightbox:
 -   [Example 5]{.ribbon-highlight}: Compare 2022 5-Year ACS to the 2017 5-Year ACS (*Tract Level*)
 
     -   There are two methods to calculate change at the census tract level
-
         -   Interpolate data from 2022 boundaries to 2017 boundaries. Then calculate change.
         -   Interpolate data from 2017 boundaries to 2022 boundaries. Then calculate change
 
-    -   Data\
-        The data is the number of remote workers by census tract in Salt Lake County (i.e. Salt Lake City) from the 2013-2017 period and the 2018 to 2022 period
+    ::: panel-tabset
+    ## Data
 
-        ``` r
-        library(sf)
+    The data is the number of remote workers by census tract in Salt Lake County (i.e. Salt Lake City) from the 2013-2017 period and the 2018 to 2022 period
 
-        wfh_17 <- 
-          get_acs(geography = "tract", 
-                  variables = "B08006_017", 
-                  year = 2017,
-                  state = "UT", 
-                  county = "Salt Lake", 
-                  geometry = TRUE) |> 
-          st_transform(6620)
+    ``` r
+    pacman::p_load(
+      sf,
+      tidycensus,
+      mapview,
+      leafsync,
+      tigris
+    )
+    options(tigris_use_cache = TRUE)
 
-        wfh_22 <- 
-          get_acs(geography = "tract", 
-                  variables = "B08006_017", 
-                  year = 2022,
-                  state = "UT", 
-                  county = "Salt Lake", 
-                  geometry = TRUE) |> 
-          st_transform(6620)
-        ```
+    wfh_17 <- 
+      get_acs(geography = "tract", 
+              variables = "B08006_017", 
+              year = 2017,
+              state = "UT", 
+              county = "Salt Lake", 
+              geometry = TRUE) |> 
+      st_transform(6620)
 
-        -   The process is quicker on a projected coordinated system
-            -   [EPSG:6620](https://epsg.io/6620) is NAD83(2011) / Utah North
+    wfh_22 <- 
+      get_acs(geography = "tract", 
+              variables = "B08006_017", 
+              year = 2022,
+              state = "UT", 
+              county = "Salt Lake", 
+              geometry = TRUE) |> 
+      st_transform(6620)
+    ```
 
-    -   2022 to 2017 Boundaries\
-        ![2022 Data to 2017 Boundaries Using Area-Weighted Interpolation](_resources/Surveys,_Census_Data.resources/tsa-ex5-1722-tract-back-1.png){.lightbox group="tsa-ex5-1" width="582"}
+    -   The process is quicker on a projected coordinated system
+        -   [EPSG:6620](https://epsg.io/6620) is NAD83(2011) / Utah North
 
-        ``` r
-        library(sf)
-        library(mapview)
-        library(leafsync)
+    ## 2022 to 2017 Boundaries
 
-        wfh_22_to_17 <- wfh_22 |> 
-          select(estimate) |> 
-          st_interpolate_aw(to = wfh_17, extensive = TRUE)
+    **Area-Weighted Interpolation** allocates information from one geography to another geography by weights based on the area of overlap ([Walker, Ch. 7.3.1](https://walker-data.com/census-r/spatial-analysis-with-us-census-data.html?q=small#area-weighted-areal-interpolation))
 
-        m22a <- mapview(wfh_22, zcol = "estimate", layer.name = "2020 geographies")
-        m17a <- mapview(wfh_22_to_17, zcol = "estimate", layer.name = "2015 geographies")
+    -   Typically more accurate when going *backward*, as many new tracts will “roll up” within parent tracts from a previous Census (though not always)(aka rolls backwards)
+    -   The book has an example that rolls *forwards* from 2015 to 2020.
+        -   Beware: This may be very inaccurate as assumes that population is evenly distributed over area. It can incorrectly allocate large values to low-density / empty areas.
+        -   Better to use Population-Weighted Areal Interpolation
 
-        sync(m22a, m17a)
-        ```
+    ![2022 Data to 2017 Boundaries Using Area-Weighted Interpolation](_resources/Surveys,_Census_Data.resources/tsa-ex5-1722-tract-back-1.png){.lightbox fig-align="left" group="tsa-ex5-1" width="582"}
 
-        -   **Area-Weighted Interpolation** allocates information from one geography to another geography by weights based on the area of overlap ([Walker, Ch. 7.3.1](https://walker-data.com/census-r/spatial-analysis-with-us-census-data.html?q=small#area-weighted-areal-interpolation))
-            -   Typically more accurate when going *backward*, as many new tracts will “roll up” within parent tracts from a previous Census (though not always)(aka rolls backwards)
-            -   The book has an example that rolls *forwards* from 2015 to 2020.
-                -   Beware: This may be very inaccurate as assumes that population is evenly distributed over area. It can incorrectly allocate large values to low-density / empty areas.
-                -   Better to use Population-Weighted Areal Interpolation
-        -   The 2022 data is weighted and "rolled" into 2017 census tract boundaries.
-        -   [extensive = TRUE]{.arg-text} says weighted sums will be computed. Alternatively, if [extensive = FALSE]{.arg-text}, the function returns weighted means.
+    ``` r
+    wfh_22_to_17 <- wfh_22 |> 
+      select(estimate) |> 
+      st_interpolate_aw(to = wfh_17, extensive = TRUE)
 
-    -   2017 to 2022 Boundaries\
-        ![2017 Data to 2022 Boundaries Using Population-Weighted Interpolation](_resources/Surveys,_Census_Data.resources/tsa-ex5-1722-tract-for-1.png){.lightbox group="tsa-ex5-1" width="582"}
+    m22a <- 
+      mapview(wfh_22, 
+              zcol = "estimate", 
+              layer.name = "2020 geographies")
+    m17a <- 
+      mapview(wfh_22_to_17, 
+              zcol = "estimate", 
+              layer.name = "2015 geographies")
 
-        ``` r
-        library(tigris)
-        options(tigris_use_cache = TRUE)
+    sync(m22a, m17a)
+    ```
 
-        salt_lake_blocks <- 
-          tigris::blocks(
-            "UT", 
-            "Salt Lake", 
-            year = 2020
-          )
+    -   The 2022 data is weighted and "rolled" into 2017 census tract boundaries.
+    -   [extensive = TRUE]{.arg-text} says weighted sums will be computed. Alternatively, if [extensive = FALSE]{.arg-text}, the function returns weighted means.
 
-        wfh_17_to_22 <- 
-          tidycensus::interpolate_pw(
-            from = wfh_17,
-            to = wfh_22,
-            to_id = "GEOID",
-            weights = salt_lake_blocks,
-            weight_column = "POP20",
-            crs = 6620,
-            extensive = TRUE
-          )
+    ## 2017 to 2022 Boundaries
 
-        # check result
-        m17b <-
-          mapview(wfh_17,
-                  zcol = "estimate",
-                  layer.name = "2017 geographies")
-        m22b <-
-          mapview(wfh_17_to_22,
-                  zcol = "estimate",
-                  layer.name = "2022 geographies")
+    **Population-Weighted Interpolation** uses an underlying dataset that explains the population distribution as weights.
 
-        sync(m17b, m22b)
-        ```
+    -   Population-Weighted techniques estimate the populations of the intersections between origin and destination from a third dataset, then use those values for interpolation weights. ([Walker, Ch. 7.3.2](https://walker-data.com/census-r/spatial-analysis-with-us-census-data.html?q=small#population-weighted-areal-interpolation))
+    -   Recommended to use census block level data to create the weights. ACS only has geographies down to the Block Group level, so the Dicennial Census values are used. Alternatively, other datasets can be brought in.
 
-        -   **Population-Weighted Interpolation** uses an underlying dataset that explains the population distribution as weights.
-            -   Recommended to use census block level data to create the weights. ACS only has geographies down to the Block Group level, so the Dicennial Census values are used.
-        -   `blocks` gets the 2020 Dicennial population values at the census block level to calculate the weights
-        -   `interpolate_pw` creates weights based on the 2020 census block populations. Then, it splits the 2017 weighted data into 2022 geographies.
+    ![2017 Data to 2022 Boundaries Using Population-Weighted Interpolation](_resources/Surveys,_Census_Data.resources/tsa-ex5-1722-tract-for-1.png){.lightbox fig-align="left" group="tsa-ex5-1" width="582"}
 
-    -   Calculate Change\
-        ![Percent Change From 2017 to 2022 in Remote Workers](_resources/Surveys,_Census_Data.resources/tsa-ex5-1722-tract-change-1.png){.lightbox group="tsa-ex5-1" width="582"}
+    ``` r
+    salt_lake_blocks <- 
+      tigris::blocks(
+        "UT", 
+        "Salt Lake", 
+        year = 2020
+      )
 
-        ``` r
-        wfh_shift <- wfh_17_to_22 %>%
-          select(GEOID, estimate17 = estimate) %>%
-          left_join(
-            select(st_drop_geometry(wfh_22), 
-                   GEOID, 
-                   estimate22 = estimate), 
-            by = "GEOID"
-          ) |> 
-          mutate(
-            shift = estimate22 - estimate17,
-            pct_shift = 100 * (shift / estimate17)
-          )
+    wfh_17_to_22 <- 
+      tidycensus::interpolate_pw(
+        from = wfh_17,
+        to = wfh_22,
+        to_id = "GEOID",
+        weights = salt_lake_blocks,
+        weight_column = "POP20",
+        crs = 6620,
+        extensive = TRUE
+      )
 
-        mapview(wfh_shift, zcol = "shift")
-        ```
+    # check result
+    m17b <-
+      mapview(wfh_17,
+              zcol = "estimate",
+              layer.name = "2017 geographies")
+    m22b <-
+      mapview(wfh_17_to_22,
+              zcol = "estimate",
+              layer.name = "2022 geographies")
 
-        -   Uses the 2017 data that's been interpolated to 2022 census tract boundaries.
-        -   The 2022 data is joined to the new 2017 data and percent-change can now be calculated since both have 2022 geometries.
+    sync(m17b, m22b)
+    ```
+
+    -   `blocks` gets the 2020 Dicennial population values at the census block level to calculate the weights
+        -   [POP20]{.var-text} is the population count column and is used here, but [HOUSING20]{.var-text}, which represents housing unit counts, could also be used to weight each block.
+    -   `interpolate_pw` creates weights based on the 2020 census block populations. Then, it splits the 2017 weighted data into 2022 geographies.
+
+    ## Calculate Change
+
+    ![Percent Change From 2017 to 2022 in Remote Workers](_resources/Surveys,_Census_Data.resources/tsa-ex5-1722-tract-change-1.png){.lightbox fig-align="left" group="tsa-ex5-1" width="582"}
+
+    ``` r
+    wfh_shift <- wfh_17_to_22 %>%
+      select(GEOID, estimate17 = estimate) %>%
+      left_join(
+        select(st_drop_geometry(wfh_22), 
+               GEOID, 
+               estimate22 = estimate), 
+        by = "GEOID"
+      ) |> 
+      mutate(
+        shift = estimate22 - estimate17,
+        pct_shift = 100 * (shift / estimate17)
+      )
+
+    mapview(wfh_shift, zcol = "shift")
+    ```
+
+    -   Uses the 2017 data that's been interpolated to 2022 census tract boundaries.
+    -   The 2022 data is joined to the new 2017 data and percent-change can now be calculated since both have 2022 geometries.
+    :::
