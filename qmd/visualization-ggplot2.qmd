@@ -519,3 +519,97 @@
     ```
 
     </Details>
+
+-   Comet ([source](https://thef5.substack.com/p/how-to-comet-plots-v2))\
+    ![](_resources/Visualization-ggplot2.resources/besp-comet-1.webp){.lightbox width="432"}
+
+    <Details>
+
+    <Summary>Code</Summary>
+
+    ``` r
+    library(tidyverse)
+    library(jsonlite)
+    library(ggtext)
+    library(ggforce)
+    library(extrafont)
+
+    # Custom ggplot2 theme
+    theme_f5 <- function () { 
+      theme_minimal(base_size = 9, base_family="Roboto") %+replace% 
+        theme(
+          plot.background = element_rect(fill = 'floralwhite', color = "floralwhite"), 
+          panel.grid.minor = element_blank(), 
+          plot.subtitle = element_text(color = 'gray65', hjust = 0, margin=margin(0,0,10,0))
+        )
+    }
+
+    # function for getting team data from pbpstats.com
+    get_data <- function(season) {
+
+      url <- paste0("https://api.pbpstats.com/get-totals/nba?Season=", season, "&SeasonType=Regular%2BSeason&StartType=All&GroupBy=Season&Type=Team")
+
+      x <- fromJSON(url)
+
+      # select variables we care about
+      df <- x$multi_row_table_data %>% 
+        select(TeamAbbreviation, OffPoss, PenaltyOffPoss) %>% 
+        mutate(bonus_pct = PenaltyOffPoss / OffPoss, 
+               season = season)
+
+      return(df)
+
+    }
+
+    # get data from 2023-24 and 2024-25
+    dat <- map_df(c("2023-24", "2024-25"), get_data)
+
+
+    df <- dat %>% 
+      # select relevant variables
+      select(TeamAbbreviation, bonus_pct, season) %>% 
+      # pivot data wide
+      pivot_wider(names_from = season, values_from = bonus_pct) %>% 
+      # rename columns
+      rename(abbr = TeamAbbreviation, 
+             bonus_pct_24 = `2023-24`, 
+             bonus_pct_25 = `2024-25`) %>% 
+      # create an indicator variable that tells us if a team is spending more or less time in bonus
+      mutate(more_less = ifelse(bonus_pct_25 - bonus_pct_24 >= 0, "More Often", "Less Often"), 
+             # convert abbr to a factor and order data by bonus time in 2024-25
+             abbr = as.factor(abbr), 
+             abbr = fct_reorder(abbr, bonus_pct_25))
+
+
+    p <- df %>%
+      ggplot() +
+      geom_link(
+        aes(x = bonus_pct_24, xend = bonus_pct_25,
+            y = abbr, yend = abbr,
+            color = more_less, linewidth = after_stat(index)), n = 1000) +
+      geom_point(
+        aes(x = bonus_pct_25, y = abbr, color = more_less),
+        shape = 21,
+        fill = "white",
+        size = 3.5
+      ) +
+      scale_color_manual(values = c("#E64B35FF", "#00A087FF")) +
+      scale_linewidth(range = c(.01, 4)) +
+      scale_x_continuous(limits = c(.175, .325), breaks = seq(0, .35, .025), labels = scales::percent_format(.1)) + 
+      coord_cartesian(clip = 'off') +
+      theme_f5() +
+      theme(legend.position = 'none',
+            plot.title = element_markdown(size = 11, face = 'bold', family = 'Roboto'), 
+            plot.title.position = 'plot') +
+      labs(
+        title = "Which Teams Are Spending 
+                 <span style='color:#00A087FF'>**More**</span> or 
+                 <span style='color:#E64B35FF'>**Less**</span> Time In the Bonus vs. Last Season?", 
+        subtitle = "Teams sorted by percentage of possessions spent in the bonus in 2024-25",
+        x = "Percentage of Possessions in Bonus",
+        y = "")
+
+    ggsave(plot = p, "bonus_pct_change.png", h = 6, w = 6, dpi = 1000, device = grDevices::png)
+    ```
+
+    </Details>
