@@ -820,14 +820,11 @@
 
 ## API {#sec-scrap-api .unnumbered}
 
-### POST {#sec-scrap-post .unnumbered}
+### POST {#sec-scrap-api-post .unnumbered}
 
 -   Also see [API \>\> Request Methods](apis.qmd#sec-apis-meth){style="color: green"} \>\> POST
-
 -   Sometimes dynamically served html tables can be scraped via a simple POST request avoiding Selenium procedures
-
 -   [Example]{.ribbon-highlight}: Dynamic Table ([source](https://www.etiennebacher.com/posts/2023-05-09-making-post-requests-with-r/))
-
     -   Get API Parameters From Network Tab\
 
         ::::: panel-tabset
@@ -1022,3 +1019,88 @@
         -   Values can now be looped through the GET request url string
         -   Data is in long format and needs cleaned. See [repo](https://github.com/etiennebacher/webscraping-patents-spain/blob/main/demo.R) for complete code.\
         :::
+
+### GET {#sec-scrap-api-get .unnumbered}
+
+-   [Example]{.ribbon-highlight}: Real Estate Addresses
+    -   Get API Parameters From Network Tab
+
+        -   Similar process to the POST example, but with a a couple extra wrinkles.
+
+    -   Call API and Get the Data
+
+        ``` r
+        pacman::p_load(
+          dplyr,
+          stringr,
+          httr2,
+          rvest
+        )
+
+        req_prop <- 
+          request("https://www.cimls.com/external-data/datafiniti-api.php") |>
+          req_throttle(capacity = 1, fill_time_s = 10) |>
+          req_url_query(
+            "city" = "Louisville",
+            "state" = "Kentucky",
+            "page" = "1",
+            "cend" = "3",
+            "prop-type" = "Retail",
+            "range" = "25"
+          ) |> 
+          req_headers(
+            "accept" = "*/*",
+            "accept-language" = "en-US,en;q=0.9",
+            "priority" = "u=1, i",
+            "sec-ch-ua" = "\"Chromium\";v=\"134\", \"Not:A-Brand\";v=\"24\", \"Google Chrome\";v=\"134\"",
+            "sec-ch-ua-mobile" = "?0",
+            "sec-ch-ua-platform" = "\"Windows\"",
+            "sec-fetch-dest" = "empty",
+            "sec-fetch-mode" = "cors",
+            "sec-fetch-site" = "same-origin",
+            "referer" = "https://www.cimls.com/external-data/external-search.php?city=Louisville&state=Kentucky&prop-type=Retail&range=25",
+            "cookie" = cookies
+          )
+
+        resps_prop <- 
+          req_perform_iterative(
+            req = req_prop,
+            next_req = iterate_with_offset(param_name = "page"),
+            max_reqs = 4
+          )
+
+        length(resps_prop)
+        #> [1] 4
+
+        pull_addrs <- function(rsp) {
+          addrs <- 
+            rsp |> 
+            resp_body_html() |> 
+            html_elements(".feature-text") |> 
+            html_text() |> 
+            str_remove_all("\\$.+")
+          
+          tib_addr <- 
+            tibble(addrs_full = addrs) |> 
+            mutate(addrs_full = str_replace_all(addrs_full,
+                                                pattern = "Vly",
+                                                replacement = "Valley"))
+        }
+
+
+        tib_addrs <- 
+          resps_data(resps = resps_prop, resp_data = pull_addrs)
+        tib_addrs
+        ```
+
+    -   To grap the property characteristics, you can adjust the `pull_addrs` function
+
+        ``` r
+        prop_chars <-
+          resp |>
+          resp_body_html() |> 
+          html_nodes("li") |>
+          html_text()
+        ```
+
+        -   Each characteristic is a list element. It would take some additional wrangling to get it tidy. I didn't look at this result too closely, but it shouldn't be too much trouble.
