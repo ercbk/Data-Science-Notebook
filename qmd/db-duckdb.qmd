@@ -52,7 +52,7 @@
     -   Starting the UI
 
         ``` bash
-        $ duckdb -ui
+        duckdb -ui
         ```
 
         ``` sql
@@ -103,9 +103,53 @@
 
 -   Run SQL script: `duckdb -c ".read path\to\script.sql"`
 
-## d/dbplyr {#sec-db-duckdb-dbplyr .unnumbered}
+## dbplyr {#sec-db-duckdb-dbplyr .unnumbered}
 
--   Example: Connect, Read in Parallel, and Summarize
+-   [Example 1]{.ribbon-highlight}: Read and Query Parquet
+
+    ``` r
+    library(duckdb)
+    library(dplyr)
+    library(dbplyr)
+
+    conn <-
+      DBI::dbConnect(
+        duckdb::duckdb(),
+        dbdir = ":memory:"
+      )
+
+    DBI::dbExecute(conn, "SET memory_limit = '5GB';")
+
+    tbl_fsq <- 
+      tbl(
+        conn,
+        "read_parquet('/Users/tbats/Documents/R/Data/foursquare-spaces/*.parquet')"
+      )
+
+    tib_fsq <- 
+      tbl_fsq |> 
+      select(name, 
+             fsq_category_labels, 
+             locality, 
+             region, address, 
+             latitude, 
+             longitude, 
+             geom, 
+             bbox) |>
+      filter(locality == 'Louisville' & region == 'KY') |> 
+      collect() |> 
+      tidyr::unnest_auto(fsq_category_labels) |>
+      filter(stringr::str_detect(fsq_category_labels, "Car Dealership")) |>
+      distinct(name, .keep_all = TRUE)
+    ```
+
+    -   [fsq_category_labels]{.var-text} is a list column with either 1 or more (only saw at most 2) elements
+    -   For other methods of performing this query, see
+        -   [SQL](db-duckdb.qmd#sec-db-duckdb-sql){style="color: green"} \>\> Example 1, Example 2
+        -   [Apache, Arrow \>\> Queries](apache-arrow.qmd#sec-apache-arrow-quer){style="color: green"} \>\> Example: Collect Then Wrangle List Column
+    -   Query doesn't try to blow up RAM. The only memory used with the resultant dataframe.
+
+-   [Example 2]{.ribbon-highlight}: Read CSV in Parallel, Summarize
 
     ``` r
     con <- 
@@ -132,20 +176,26 @@
         max = max(measurement)
       ) |>
       collect()
-    df <- NULL
+
     dbDisconnect(con, shutdown = TRUE)
-    gc()
     ```
 
     -   Competative with running the operation in SQL
 
--   [Example]{.ribbon-highlight} Connect to db; Write a df to table; Query it
+-   [Example 3]{.ribbon-highlight}: Connect to db; Write a df to table; Query it
 
     ``` r
     library(dbplyr)
 
-    duck = DBI::dbConnect(duckdb::duckdb(), dbdir="duck.db", read_only=FALSE)
-    DBI::dbWriteTable(duck, name = "sales", value = sales)
+    duck <- 
+      DBI::dbConnect(duckdb::duckdb(), 
+                     dbdir="duck.db", 
+                     read_only=FALSE)
+
+    DBI::dbWriteTable(duck, 
+                      name = "sales", 
+                      value = sales)
+
     sales_duck <- tbl(duck, "sales")
 
     sales_duck %>%
@@ -168,6 +218,19 @@
 -   [Currently supported](https://duckplyr.tidyverse.org/articles/limits.html) base functions, dplyr verbs, operations, etc.
 -   Using `library(duckplyr)` will overwrite all [{dplyr}]{style="color: #990000"} verbs to the duckplyr versions
     -   `methods_restore` will return verbs to standard dplyr functions
+-   Geospatial data isn't currently supported in duckplyr while duckdb handles them just fine.
+    -   The blob (Binary Large OBject) type represents an arbitrary binary object stored in the database system. The blob type can contain any type of binary data with no restrictions. What the actual bytes represent is opaque to the database system.
+
+        -   I think this is how geospatial columns are stored in parquet
+
+    -   I tried to read a set of parquet files with a geometry column and got this error
+
+        ``` r
+        Error in `rel_to_df()`:
+        ! rel_to_altrep: Unknown column type for altrep: BLOB
+        ```
+
+        -   See this [issue](https://github.com/tidyverse/duckplyr/issues/91) for more details
 
 ### Memory Management {#sec-db-duckdb-duckplyr-mm .unnumbered}
 
@@ -463,6 +526,70 @@
 
 ## SQL {#sec-db-duckdb-sql .unnumbered}
 
+-   Misc
+
+    -   Set a RAM limit
+
+        ``` r
+        DBI::dbExecute(conn, "SET memory_limit = '5GB';")
+        ```
+
+-   [Example 1]{.ribbon-highlight}: Read and Query Parquet (SQL)
+
+    -   Open UI
+
+        ``` powershell
+         duckdb -ui
+        ```
+
+    -   Query
+
+        ``` sql
+        SELECT name, fsq_category_labels, locality, region, address, latitude, longitude, geom, bbox
+        FROM read_parquet('/Users/ercbk/Documents/R/Data/foursquare-spaces/*.parquet')
+        WHERE locality = 'Louisville' and region = 'KY' and fsq_category_labels[1] ILIKE '%Car Dealership%'
+        ```
+
+        -   For other methods of performing this query, see
+            -   Example 2
+            -   [dbplyr](db-duckdb.qmd#sec-db-duckdb-dbplyr){style="color: green"} \>\> Example 1
+            -   [Apache, Arrow \>\> Queries](apache-arrow.qmd#sec-apache-arrow-quer){style="color: green"} \>\> Example: Collect Then Wrangle List Column
+        -   [fsq_category_labels]{.var-text} is an array with strings inside, e.g. "[Retail \> Automotive Retail \> Car Dealership]{.var-text}"
+            -   `[1]` subsets the array, so only the first element of the array is matched. I tried including an `or` and pattern matching the second element, but it just returns all car dealerships no matter if they're in Louisville, KY or not. There's probably a way match both elements in one query but I didn't investigate further — maybe with parentheses surrounding both subset expressions.
+        -   `ILIKE '%Car Dealership%` matches the entire string and is case insensitive (unlike `LIKE`) ([Docs](https://duckdb.org/docs/stable/sql/functions/pattern_matching))
+            -   An underscore (`_`) in pattern stands for (matches) any single character; a percent sign (`%`) matches any sequence of zero or more characters
+
+    -   [Example 2]{.ribbon-highlight}: Read and Query Parquet (DBI)
+
+        ``` r
+        library(duckdb)
+
+        conn <-
+          DBI::dbConnect(
+            duckdb::duckdb(),
+            dbdir = ":memory:"
+          )
+
+        DBI::dbExecute(conn, "SET memory_limit = '5GB';")
+
+        query_fsq <- "
+          SELECT name, fsq_category_labels, locality, region, address, latitude, longitude, geom, bbox
+          FROM read_parquet('/Users/tbats/Documents/R/Data/foursquare-spaces/*.parquet')
+          WHERE locality = 'Louisville' and region = 'KY' and fsq_category_labels[1] ILIKE '%Car Dealership%'
+        "
+
+        df_fsq <- DBI::dbGetQuery(conn, query_fsq)
+
+        DBI::dbDisconnect(conn, shutdown = TRUE)
+        ```
+
+        -   See Example 1 for details on the query
+        -   For other methods of performing this query, see
+            -   Example 1
+            -   [dbplyr](db-duckdb.qmd#sec-db-duckdb-dbplyr){style="color: green"} \>\> Example 1
+            -   [Apache, Arrow \>\> Queries](apache-arrow.qmd#sec-apache-arrow-quer){style="color: green"} \>\> Example: Collect Then Wrangle List Column
+        -   Query doesn't try to blow up RAM. The only memory used with the resultant dataframe.
+
 -   CSV Parser
 
     -   Read first 10 lines
@@ -526,7 +653,7 @@
 
         -   Returns a duckplyr frame
 
--   [Example]{.ribbon-highlight}: Connect, Read in Parallel, and Query
+-   [Example]{.ribbon-highlight}3: Connect, Read in Parallel, and Query
 
     ``` r
     sqltxt <- paste0(
