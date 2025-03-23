@@ -247,7 +247,46 @@
         -   Smaller data pages allow for more fine grained reading (e.g. single row lookup). Larger page sizes incur less space overhead (less page headers) and potentially less parsing overhead (processing headers)
         -   Default: 1MB; For sequential scans, the [docs](https://parquet.apache.org/docs/file-format/configurations/) recommend 8KB for page sizes.
 
--   Convert large csv to parquet
+-   [Example]{.ribbon-highlight}: Foursquare Sample (2025 Mar, Windows 10)
+
+    ``` r
+    fs::dir_ls("~/Documents/R/Data/foursquare-spaces/sample") |> 
+      sapply(fs::file_size) |> 
+      sum()
+    #> [1] 547889604
+
+    library(arrow)
+    library(dplyr)
+    library(dbplyr)
+
+    arr_samp <- open_dataset("~/R/Data/foursquare-spaces/sample/")
+    arr_samp |>
+      select(-bbox) |>
+      write_parquet("~/R/Data/fsq-temp/fuck-me.parquet", 
+                    compression = "zstd", 
+                    chunk_size = 1042559, 
+                    data_page_size = 8000)
+
+    fs::file_size("~/Documents/R/Data/fsq-temp/fuck-me.parquet")
+    #> 416M
+
+    arr_samp |>
+      select(-bbox) |>
+      write_dataset("~/R/Data/fsq-temp/",
+                    format = "parquet",
+                    max_rows_per_file = 1042559,
+                    data_page_size = 8000)
+    ```
+
+    -   A **548 MB** (total) set of five parquet files, sans a column, gets (re-)written to a 416 MB parquet file
+    -   My session started with 94 MB of RAM being in use. After loading [arr_samp]{.var-text}, I was using 162 MB. When writing the parquet file, I started using **3.38 GB of RAM**.
+        -   After completion, the RAM was not released until the R session was terminated.
+    -   Similar results with using `write_dataset`. I was using **3.41 GB of RAM** duing and after writing with the memory not being released until after the R session was terminated.
+        -   These settings resulted in 6 parquet files with the last file only being 14 KB.
+        -   So, I need to increase the [max_rows_per_file]{.arg-text} to get five \~130 MB files.
+        -   If I use the zstd compression that might get it down to 5 files as well.
+
+-   [Example]{.ribbon-highlight}: Convert large csv to parquet
 
     ``` r
     my_data <- read_csv_arrow(
@@ -255,12 +294,13 @@
       as_data_frame = FALSE
     )
     write_parquet(data, "~/dataset/my-data.parquet")
-    dat <- read_parquet("~/dataset/data.parquet", as_data_frame = FALSE) # loaded into memory as an Arrow table
+    dat <- read_parquet("~/dataset/data.parquet", as_data_frame = FALSE) # 
     ```
 
+    -   Reminder: `read_parquet` loads data into memory
     -   Reduces size of data stored substantially (e.g. 15 GB csv to 9.5 GB parquet)
 
--   Lazily download subsetted dataset from S3 and locally convert to parquet with partitions
+-   [Example]{.ribbon-highlight}: Lazily download subsetted dataset from S3 and locally convert to parquet with partitions
 
     ``` r
     data_nyc = "data/nyc-taxi"
