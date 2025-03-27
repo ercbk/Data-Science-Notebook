@@ -3,17 +3,6 @@
 ## Misc {#sec-db-norm-misc .unnumbered}
 
 -   Used to organize relational databases and optimize storage space
--   Normalization is best for OLTP systems (faster writes) while Denormalization is best for OLAP systems (fewer joins means faster reads)
-    -   Questions
-        -   Do we need to optimize for a large amount of write operations?
-        -   Does data rarely change?
-        -   Can we optimize heavy read operations?
-    -   [Example]{style="color: green"}: Weather Station Data
-        -   Characteristics:
-            -   Being time-series data, the data will be append-only
-            -   The data will be updated or deleted infrequently.
-            -   Weather stations require a significant investment to measure different data points, so the schema will rarely change
-            -   Customers will query by location when they look up the average temperature. So, location will be the primary search parameter and may require an index.
 -   Normalization helps prevent these issues: ([source](https://learnanalyticsengineering.substack.com/p/the-5-forms-of-normalization))
     -   Also see [Forms](db-normalization.qmd#sec-db-norm-form){style="color: green"} \>\> 2NF
     -   Update Anomaly
@@ -111,6 +100,145 @@
     -   Maintenance complexity: Denormalized dimensions can be simpler to maintain in some cases.
 -   Don't use external IDs as primary keys
     -   Since you don't control those IDs, they can change the format and break your queries.
+
+## Considerations {#sec-db-norm-consid .unnumbered}
+
+-   Notes from
+    -   [Designing Your Database Schema: Wide vs. Narrow Postgres Tables](https://www.timescale.com/learn/designing-your-database-schema-wide-vs-narrow-postgres-tables)
+    -   [How to Design Your PostgreSQL Database: Two Schema Examples](https://www.timescale.com/learn/how-to-design-postgresql-database-two-schema-examples)
+-   Normalization is best for OLTP systems (faster writes) while Denormalization is best for OLAP systems (fewer joins means faster reads)
+-   [Terms]{.underline}
+    -   **Narrow Tables**: They have few "data value columns" but can contain many metadata or categorizing columns. Narrow tables lead nicely to have many small tables.
+        -   [Example]{.ribbon-highlight}
+
+            ``` sqlpostgresql
+            CREATE TABLE narrow_table (
+                created    TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW(),
+                point_id   UUID NOT NULL DEFAULT gen_random_uuid(),
+                device_id  UUID NOT NULL,
+                metric     TEXT NOT NULL,
+                value      DOUBLE PRECISION NOT NULL
+            );
+
+            -- Example insert statement for the given data:
+            INSERT INTO narrow_table (created, point_id, device_id, metric, value) 
+            VALUES ('2022-01-01 00:00:00.0+00', '123', '10', 'temp', 24);
+            ```
+    -   **Wide Tables**: They have many data value columns. These tables can easily have 200+ columns containing different data points. Wide tables will generally hold all data points, so we will have a single or few tables.
+        -   [Example]{.ribbon-highlight}
+
+            ``` sqlpostgresql
+            CREATE TABLE measurement_table (
+                created        TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW(),
+                point_id       UUID NOT NULL DEFAULT gen_random_uuid(),
+                device_id      UUID NOT NULL,
+                temp           DOUBLE PRECISION,
+                hum            DOUBLE PRECISION,
+                co2            INTEGER,
+                wind_speed     INTEGER,
+                wind_direction INTEGER
+            );
+
+            -- Example insert statement for the given data:
+            INSERT INTO measurement_table (created, point_id, device_id, temp, hum, co2, wind_speed, wind_direction) 
+            VALUES ('2022-01-01 00:00:00.0+00', '123', '10', 24.7, 57.1, 271, NULL, NULL);
+            ```
+    -   **Medium Tables**: These are a happy medium between narrow and wide tables. May need an additional lookup table, not only defining the metrics but also which data type column needs to be queried for each
+        -   [Example]{.ribbon-highlight}
+
+            ``` sqlpostgresql
+            CREATE TABLE medium_table (
+                created     TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW(),
+                point_id    UUID NOT NULL DEFAULT gen_random_uuid(),
+                device_id   UUID NOT NULL,
+                metric      TEXT NOT NULL,
+                int_value   INTEGER,
+                float_value DOUBLE PRECISION
+            );
+
+
+            -- Example insert statement for the given data:
+            INSERT INTO medium_table (point_id, device_id, metric, int_value, float_value) 
+            VALUES ('123', '10', 'temp', NULL, 2);
+            ```
+-   [Questions]{.underline}
+    -   Do we need to optimize for a large amount of write operations?
+    -   Does data rarely change?
+    -   Can we optimize heavy read operations?
+-   [Example]{.ribbon-highlight}: Weather Station Data
+    -   Characteristics:
+
+        -   Being time-series data, the data will be append-only
+        -   The data will be updated or deleted infrequently.
+        -   Weather stations require a significant investment to measure different data points, so the schema will rarely change
+        -   Customers will query by location when they look up the average temperature. So, location will be the primary search parameter and may require an index.
+
+    -   Use a single, wide table.
+
+        -   Prioritize quick reads, so customers will have faster queries (no joins)
+        -   Easier maintenance with one table
+        -   Using multiple tables for different measurements, e.g. temperature, wind speed, would require careful matching of the timestamps in both tables.
+
+    -   Postgres
+
+        ``` sqlpostgresql
+        CREATE TABLE weather (
+            created         TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW(),
+            degrees         DOUBLE PRECISION,
+            city            TEXT NOT NULL,
+            country         TEXT NOT NULL
+            wind_speed      DOUBLE PREVISION,
+            wind_direction  TEXT -- N, NE, E, SE, S, SW, W, NW
+        );
+
+        CREATE INDEX idx_location ON temperatures (country, city);
+        ```
+-   [Example]{.ribbon-highlight}: Website Data
+    -   Characteristics:
+
+        -   The website is constantly writing analytics to monitor and ensure customers have a smooth experience
+        -   Requirements are continually changing—stakeholders want new insights into how the website is performing and how customers are using the website.
+
+    -   Multiple, narrow tables
+
+        -   The database schema will rapidly evolve, so we want complete flexibility in the database schema
+        -   Normalizing will ensure there's no duplication, inserting data is fast, and metrics can easily be added and dropped as needed.
+        -   Until there is more information on how reports are generated, there will be no index added to the tables
+            -   Prematurely adding an index can cause tables to bloat and add overhead to database operations
+
+    -   Postgres
+
+        ``` sqlpostgresql
+        CREATE TABLE customers (
+            id     UUID NOT NULL DEFAULT gen_random_uuid(),
+            name   TEXT,
+        );
+
+        CREATE TABLE pages (
+            id           UUID NOT NULL DEFAULT gen_random_uuid(),
+            name         TEXT,
+            customer_id  UUID NOT NULL,
+            CONSTRAINT fk_customer FOREIGN KEY(customer_id) REFERENCES customers(id)
+        );
+
+        CREATE TABLE page_load_speed (
+            created      TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW(),
+            time_ms      DOUBLE PRECISION,
+            page_id      UUID NOT NULL,
+           customer_id  UUID NOT NULL,
+            CONSTRAINT fk_pages FOREIGN KEY(page_id) REFERENCES pages(id),
+            CONSTRAINT fk_customer FOREIGN KEY(customer_id) REFERENCES customers(id)
+        );
+
+        CREATE TABLE time_to_first_paint (
+            created      TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW(),
+            time_ms      DOUBLE PRECISION,
+            page_id      UUID NOT NULL,
+            customer_id  UUID NOT NULL,
+            CONSTRAINT fk_pages FOREIGN KEY(page_id) REFERENCES pages(id),
+           CONSTRAINT fk_customer FOREIGN KEY(customer_id) REFERENCES customers(id)
+        );
+        ```
 
 ## Entity-Relationship (ER) Modeling {#sec-db-norm-er .unnumbered}
 
