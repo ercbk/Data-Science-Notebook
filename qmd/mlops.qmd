@@ -666,11 +666,19 @@
 
     -   [Projects, Analyses \>\> Misc](project-analyses.qmd#sec-proj-anal-misc){style="color: green"} \>\> Analysis Workflow using [{targets}]{style="color: #990000"}
 
+-   Notes from
+
+    -   [Guest Blog: Reproducible data pipelines in R with {targets}](https://www.esipfed.org/guest-blog-reproducible-data-pipelines-in-r-with-targets/)
+
 -   Resources
 
     -   [Docs](https://docs.ropensci.org/targets/), [User Manual](https://books.ropensci.org/targets/) (ebook), [Getting Started with targets in 4 min](https://vimeo.com/700982360) (Video)
     -   [Working Smarter With targets](https://milesmcbain.github.io/ssa_targets_workshop/) (ebook)
     -   [Carpentries Incubator: Targets Workshop](https://carpentries-incubator.github.io/targets-workshop/)
+    -   Building Reproducible Analytical Pipelines in R, [Ch.13](https://raps-with-r.dev/targets.html)
+        -   Other chapters also mention targets
+
+### Set-Up {#sec-mlops-targets-setup .unnumbered}
 
 -   `use_targets`
 
@@ -682,13 +690,63 @@
             -   Target pipeline
     -   File has commented lines to guide you through the process
 
--   Check Pipeline
+-   Project Structure Example\
+    ![](_resources/MLOps.resources/tar-proj-struct-1.png){.lightbox width="332"}
 
-    -   `tar_manifest(fields = command)`
-        -   lists names of targets and the functions to execute them
-    -   `tar_visnetwork()`
-        -   Shows target dependency graph
-        -   Could be slow if you have a lot of targets, so may want to comment in/out sections of targets and view them in batches.
+    -   Note the naming convention. Numbers indicate a step or phase in the pipeline
+
+### Target Pipeline {#sec-mlops-targets-targpip .unnumbered}
+
+-   Basic Types
+
+    | **Target type** | **Declaration** | **Examples** |
+    |------------------------|------------------------|------------------------|
+    | Object | `tar_targets(NAME,FUNCTION)` | Anything that can be an R object (e.g., plots, models, data.frames) |
+    | File | `tar_targets(NAME,FUNCTION, format=”file”)` | Files (e.g., csv or png output files) |
+    | Dynamic | `tar_targets(NAME,FUNCTION,pattern=map(VALUES))` | A series of object or file targets (e.g., a series of plots), one for each of the `VALUES` |
+
+-   [Example]{.ribbon-highlight}
+
+    ``` r
+    # This file must be named _targets.R
+    library(targets)
+    source('R/myfunctions.R')
+
+    tar_option_set(packages = c('biglm','tidyverse'))
+
+    list(
+        tar_target(file, "data.csv", format = "file"),
+        tar_target(data, get_data(file)),
+        tar_target(model, fit_model(data)),
+        tar_target(plot, plot_model(model, data))
+    )
+    ```
+
+    -   1st arg is the target name (e.g. file, data, model, plot)
+    -   2nd arg is a function
+        -   Function inputs are target names
+        -   Except first target which has a file name for the 2nd arg
+            -   "format" arg says that this target is a file and if the contents change, a re-hash should be triggered.
+
+-   Loading multiple packages and functions ([source](https://github.com/morgankain/serology_methods_sims/blob/main/_targets.R))
+
+    ``` r
+    suppressPackageStartupMessages(source("packages.R"))
+    for (f in list.files(here::here("R"), full.names = TRUE)) source (f)
+    ```
+
+-   Get a target from another project
+
+    ``` r
+    withr::with_dir(
+              "~/workflows/project_name/",
+              targets::tar_load(project_name)
+          )
+    ```
+
+-   `tar_make()` - Finds `_targets.R` and executes the pipeline
+
+    -   Output saved in \_targets \>\> objects
 
 -   Run `tar_make` in the background
 
@@ -703,39 +761,17 @@
     }
     ```
 
--   Get a target from another project
+### Operations {#sec-mlops-targests-ops .unnumbered}
 
-    ``` r
-    withr::with_dir(
-              "~/workflows/project_name/",
-              targets::tar_load(project_name)
-          )
-    ```
+-   Check Pipeline
 
-### Target Pipeline {#sec-mlops-targets-targpip .unnumbered}
-
--   [Example]{.ribbon-highlight}
-
-    ```         
-    list(
-        tar_target(file, "data.csv", format = "file"),
-        tar_target(data, get_data(file)),
-        tar_target(model, fit_model(data)),
-        tar_target(plot, plot_model(model, data))
-    )
-    ```
-
-    -   1st arg is the target name (e.g. file, data, model, plot)
-
-    -   2nd arg is a function
-
-        -   Function inputs are target names
-        -   Except first target which has a file name for the 2nd arg
-            -   "format" arg says that this target is a file and if the contents change, a re-hash should be triggered.
-
--   `tar_make()` - Execute pipeline
-
-    -   Output saved in \_targets \>\> objects
+    -   `tar_manifest(fields = command)`
+        -   lists names of targets and the functions to execute them
+    -   `tar_visnetwork(targets_only = TRUE)`![](_resources/MLOps.resources/tar-visnet-1.png){.lightbox width="532"}
+        -   Shows target dependency graph
+        -   Could be slow if you have a lot of targets, so may want to comment in/out sections of targets and view them in batches.
+        -   Target names reflect their phase (e.g. `p1_dataset` indicates it belongs to Phase 1: fetching data).
+        -   File target names include a suffix for clarity (e.g. `p3_leaflet_map_html` makes it clear this target is an HTML file).
 
 -   `tar_read(target_name)` - Reads the output of a target
 
