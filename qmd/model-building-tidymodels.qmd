@@ -44,23 +44,66 @@
     xgboost::xgb.importance(model = extract_fit_engine(xgb_fit)
     ```
 
--   Utilizing a sparse matrix with blueprint arg
+-   Utilizing a sparse matrix ([article](https://www.tidymodels.org/learn/work/sparse-recipe/), [article](https://www.tidymodels.org/learn/work/sparse-matrix/))
 
-    ``` r
-    wf_sparse <- 
-      workflow() %>%
-      add_recipe(text_rec, blueprint = sparse_bp) %>%
-      add_model(lasso_spec)
-    ```
+    -   Some data inherently as a lot of zeros (e.g. tokenization, graph) but some feature engineering steps also create a lot of zeros (e.g. dummies)
 
-    -   estimates, model performance metrics, etc. are unaffected
+        -   Steps like `step_dummy`, `step_indicate_na`, and `textrecipes::step_tf` will almost always produce a lot of zeroes.
+
+    -   Estimates, model performance metrics, etc. are unaffected
 
     -   Advantages
 
         -   Speed is gained from any specialized model algorithms built for sparse data.
         -   The amount of memory this object requires decreases dramatically.
 
-    -   Engines that can utilize a sparse matrix: glmnet, xgboost, and ranger.
+    -   Limitations
+
+        -   Limited to regression tasks since the outcome has to be numeric to be part of the sparse matrix.
+        -   It only works with non-formula methods for parsnip and workflows
+            -   Use a recipe with `add_recipe()` or select variables directly with `add_variables()` when using a workflow.
+            -   Use `fit_xy` instead of `fit` when using a parsnip object by itself.
+
+    -   In many cases *you don’t need to change anything*, the steps will know when to produce sparse data or not.
+
+        -   [List of sparsity-preserving steps](https://www.tidymodels.org/find/sparse/#steps)
+
+        -   Receipe steps have a sparse argument set to "auto" which means it will perform a sparsity check to see if the data should be transformed to a sparse matrix. If it should, then tidymodels automatically does the transformation
+
+        -   If you know your receipe has a sparsity-nonpreserving step, then you can set that argument to FALSE to bypass the check, e.g. `step_dummy(all_nominal_predictors(), sparse = "no")`
+
+    -   Engines that can utilize a sparse matrix: glmnet, xgboost, ranger, etc.
+
+        -   [List of sparsity-utilizing models](https://www.tidymodels.org/find/sparse/#models)
+
+    -   [Example]{.ribbon-highlight}: With blueprint arg
+
+        ``` r
+        wf_sparse <-
+          workflow() %>%
+          add_recipe(text_rec, blueprint = sparse_bp) %>%
+          add_model(lasso_spec)
+        ```
+
+    -   [Example]{.ribbon-highlight}: Manually
+
+        ``` r
+        library(tidymodels)
+        library(Matrix)
+
+        permeability_sparse <- 
+          as(as.matrix(permeability_qsar), "sparseMatrix")
+
+        rec_spec <- 
+          recipe(permeability ~ ., data = permeability_sparse) |>
+          step_zv(all_predictors())
+
+        mod_spec <- 
+          boost_tree("regression", "xgboost")
+
+        wf_spec <- 
+          workflow(rec_spec, mod_spec)
+        ```
 
 -   If your CV results have close scores --\> increase from 5-fold to 10 fold cv
 
