@@ -4,7 +4,7 @@
 
 -   CV dataset terminology: training, validation, test --\> analysis, assessment, test
 
--   (I don't think this is necessary anymore. Outcome may remain categorical) Transform categorical outcome variables to factors
+-   Transform categorical outcome variables to factors
 
     ``` r
     # outside recipe
@@ -43,67 +43,6 @@
     # returns an engine specific object
     xgboost::xgb.importance(model = extract_fit_engine(xgb_fit)
     ```
-
--   Utilizing a sparse matrix ([article](https://www.tidymodels.org/learn/work/sparse-recipe/), [article](https://www.tidymodels.org/learn/work/sparse-matrix/))
-
-    -   Some data inherently as a lot of zeros (e.g. tokenization, graph) but some feature engineering steps also create a lot of zeros (e.g. dummies)
-
-        -   Steps like `step_dummy`, `step_indicate_na`, and `textrecipes::step_tf` will almost always produce a lot of zeroes.
-
-    -   Estimates, model performance metrics, etc. are unaffected
-
-    -   Advantages
-
-        -   Speed is gained from any specialized model algorithms built for sparse data.
-        -   The amount of memory this object requires decreases dramatically.
-
-    -   Limitations
-
-        -   Limited to regression tasks since the outcome has to be numeric to be part of the sparse matrix.
-        -   It only works with non-formula methods for parsnip and workflows
-            -   Use a recipe with `add_recipe()` or select variables directly with `add_variables()` when using a workflow.
-            -   Use `fit_xy` instead of `fit` when using a parsnip object by itself.
-
-    -   In many cases *you don’t need to change anything*, the steps will know when to produce sparse data or not.
-
-        -   [List of sparsity-preserving steps](https://www.tidymodels.org/find/sparse/#steps)
-
-        -   Receipe steps have a sparse argument set to "auto" which means it will perform a sparsity check to see if the data should be transformed to a sparse matrix. If it should, then tidymodels automatically does the transformation
-
-        -   If you know your receipe has a sparsity-nonpreserving step, then you can set that argument to FALSE to bypass the check, e.g. `step_dummy(all_nominal_predictors(), sparse = "no")`
-
-    -   Engines that can utilize a sparse matrix: glmnet, xgboost, ranger, etc.
-
-        -   [List of sparsity-utilizing models](https://www.tidymodels.org/find/sparse/#models)
-
-    -   [Example]{.ribbon-highlight}: With blueprint arg
-
-        ``` r
-        wf_sparse <-
-          workflow() %>%
-          add_recipe(text_rec, blueprint = sparse_bp) %>%
-          add_model(lasso_spec)
-        ```
-
-    -   [Example]{.ribbon-highlight}: Manually
-
-        ``` r
-        library(tidymodels)
-        library(Matrix)
-
-        permeability_sparse <- 
-          as(as.matrix(permeability_qsar), "sparseMatrix")
-
-        rec_spec <- 
-          recipe(permeability ~ ., data = permeability_sparse) |>
-          step_zv(all_predictors())
-
-        mod_spec <- 
-          boost_tree("regression", "xgboost")
-
-        wf_spec <- 
-          workflow(rec_spec, mod_spec)
-        ```
 
 -   If your CV results have close scores --\> increase from 5-fold to 10 fold cv
 
@@ -925,6 +864,110 @@
         -   `has_role, all_outcomes, all_predictors, all_numeric_predictors, all_nominal_predictors`
     -   based on type
         -   `has_type, all_numeric, all_nominal`
+
+### Utilizing Sparsity {#sec-modbld-tidymod-recipe-spars .unnumbered}
+
+-   Notes from [article](https://www.tidymodels.org/learn/work/sparse-recipe/), [article](https://www.tidymodels.org/learn/work/sparse-matrix/)
+
+-   Some data inherently as a lot of zeros (e.g. tokenization, graph) but some feature engineering steps also create a lot of zeros (e.g. dummies)
+
+    -   Steps like `step_dummy`, `step_indicate_na`, and `textrecipes::step_tf` will almost always produce a lot of zeroes.
+
+-   Estimates, model performance metrics, etc. are unaffected
+
+-   Advantages
+
+    -   Speed is gained from any specialized model algorithms built for sparse data.
+    -   The amount of memory this object requires decreases dramatically.
+
+-   Limitations
+
+    -   Limited to regression tasks since the outcome has to be numeric to be part of the sparse matrix.
+    -   It only works with non-formula methods for parsnip and workflows
+        -   Use a recipe with `add_recipe()` or select variables directly with `add_variables()` when using a workflow.
+        -   Use `fit_xy` instead of `fit` when using a parsnip object by itself.
+
+-   For cases where you *aren't* using [{rsample}]{style="color: #990000"} or [{tune}]{style="color: #990000"} (which require sparse tibbles), you don’t need to change anything, the steps will know when to produce sparse data or not.
+
+    -   [List of sparsity-preserving steps](https://www.tidymodels.org/find/sparse/#steps)
+
+    -   Receipe steps have a sparse argument set to "auto" which means it will perform a sparsity check to see if the data should be transformed to a sparse matrix. If it should, then tidymodels automatically does the transformation
+
+    -   If you know your receipe has a sparsity-nonpreserving step, then you can set that argument to FALSE to bypass the check, e.g. `step_dummy(all_nominal_predictors(), sparse = "no")`
+
+-   `fit` and `predict` both accept sparse matrices as input
+
+-   Engines that can utilize a sparse matrix: glmnet, xgboost, ranger, etc.
+
+    -   [List of sparsity-utilizing models](https://www.tidymodels.org/find/sparse/#models)
+
+-   [Example]{.ribbon-highlight}: With blueprint arg
+
+    ``` r
+    wf_sparse <-
+      workflow() %>%
+      add_recipe(text_rec, blueprint = sparse_bp) %>%
+      add_model(lasso_spec)
+    ```
+
+-   [Example]{.ribbon-highlight}: Manually with [{Matrix}]{style="color: #990000"}
+
+    ``` r
+    library(tidymodels)
+    library(Matrix)
+
+    permeability_sparse <- 
+      as(as.matrix(permeability_qsar), "sparseMatrix")
+
+    rec_spec <- 
+      recipe(permeability ~ ., data = permeability_sparse) |>
+      step_zv(all_predictors())
+
+    mod_spec <- 
+      boost_tree("regression", "xgboost")
+
+    wf_spec <- 
+      workflow(rec_spec, mod_spec)
+    ```
+
+-   [Example]{.ribbon-highlight}: Sparsity for [{resample}]{style="color: #990000"} and [{tune}]{style="color: #990000"}
+
+    ``` r
+    reviews <- readr::read_rds("reviews.rds")
+    reviews |> head()
+    #> 6 x 24818 sparse Matrix of class "dgCMatrix"
+    #>   [[ suppressing 34 column names 'SCORE', 'a', 'all' ... ]]
+    #>                                                                             
+    #> 1 1 2 1 3 1 1 2 1 1 1 1 1 1 1 2 1 1 1 1 1 1 1 1 1 1 2 1 2 1 1 1 1 1 1 ......
+    #> 2 . . . . . . . . . . . . . . . . . . . . . . . . . . . 2 . . . . . . ......
+    #> 3 . 4 . 6 . . . . . . . . . . . 1 5 3 . . . . . . . 2 . . . . . . . . ......
+    #> 4 . . . 1 . . . . . . . . 1 1 1 4 1 1 . . . . . . . . . . . . . . . . ......
+    #> 5 1 4 . . . . . . . . . . . . . . 1 . . . . . . . . 1 . . . . . . . . ......
+    #> 6 . 3 1 2 . . . . . . . . . . . 2 1 1 . . . . . . 4 1 . . . . . . . . ......
+    #> 
+    #>  .....suppressing 24784 columns in show(); maybe adjust options(max.print=, width=)
+    #>  ..............................
+
+    reviews_tbl <- sparsevctrs::coerce_to_sparse_tibble(reviews)
+
+    lobstr::obj_size(reviews)
+    #> 12.75 MB
+    lobstr::obj_size(reviews_tbl)
+    #> 18.27 MB
+
+    reviews_tbl <- reviews_tbl |>
+      mutate(SCORE = factor(SCORE, levels = c(1, 0), labels = c("great", "other")))
+
+    set.seed(1234)
+
+    review_split <- initial_split(reviews_tbl)
+    review_train <- training(review_split)
+    review_test <- testing(review_split)
+
+    review_folds <- vfold_cv(review_train)
+    ```
+
+    -   A "sparse tibble," instead of a sparse matrix, is required to work with [{rsample}]{style="color: #990000"} and [{tune}]{style="color: #990000"}
 
 ### Other {#sec-modbld-tidymod-recipe-other .unnumbered}
 
