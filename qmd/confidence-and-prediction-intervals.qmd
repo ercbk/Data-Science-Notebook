@@ -180,9 +180,13 @@
 ## Bootstrapping {#sec-cipi-boot .unnumbered}
 
 -   Misc
+
     -   Also see
         -   [Mathematics, Statistics \>\> Bootstrapping](mathematics-statistics.qmd#sec-math-statc-boot){style="color: green"}
         -   [Post-Hoc Analysis, General \>\> Frequentist \>\> Bootstrap](post-hoc-analysis-general.qmd#sec-phoc-gen-fdim-boot){style="color: green"}
+    -   Resources
+        -   [Computer Age Statistical Inference](https://hastie.su.domains/CASI/), Ch.11
+            -   Sections covering all the `boot.ci` methods
     -   Do NOT bootstrap the standard deviation
         -   [article](https://eranraviv.com/bootstrap-standard-error-estimates-good-news/)
         -   bootstrap is "based on a weak convergence of moments"
@@ -211,20 +215,115 @@
             -   Samples without replacement to obtain bootstrap data sets that are smaller than the original data set. Uses t-distribution quantiles to calculate the upper and lower endpoints of the interval.
             -   Subsampling with replacement may have theoretical advantages over subsampling without replacement, but this approach is compatible with cross-validation and other methods that are sensitive to ties.
             -   The simulation showed that you probably want at least a sample size of 500, with a subsampling proportion of 90% and between 25 and 100 bootstrap samples to get the appropriate coverage.
+
 -   Steps
+
     1.  Resample with replacement
     2.  Calculate statistic of resample
     3.  Store statistic
     4.  Repeat 10K or so times
     5.  Calculate mean, sd, and quantiles for CIs across all collected statistics
+
 -   CIs
+
     -   Plenty of articles for means and models, see bkmks
     -   `rsample::reg_intervals` is a convenience function for lm, glm, survival models
+
 -   PIs
+
     -   Bootstrapping PIs is a bit complicated
         -   See Shalloway's [article](https://www.bryanshalloway.com/2021/04/05/simulating-prediction-intervals/) (code included)
-        -   only use out-of-sample estimates to produce the interval
-        -   estimate the uncertainty of the sample using the residuals from a separate set of models built with cross-validation
+        -   Only use out-of-sample estimates to produce the interval
+        -   Estimate the uncertainty of the sample using the residuals from a separate set of models built with cross-validation
+
+-   [Example]{.ribbon-highlight}: Group CI ([source](https://www.tidyverse.org/blog/2025/04/rsample-1-3-0/))
+
+    ::: panel-tabset
+    ## Data
+
+    Calculate how much delivery time increases if an item is included in the order *and* whether it's the weekend or a weekday.
+
+    ``` r
+    library(dplyr)
+    data(deliveries, package = "modeldata")
+
+    deliveries
+    #> # A tibble: 10,012 × 31
+    #>    time_to_delivery  hour day   distance item_01 item_02 item_03 item_04 item_05
+    #>               <dbl> <dbl> <fct>    <dbl>   <int>   <int>   <int>   <int>   <int>
+    #>  1             16.1  11.9 Thu       3.15       0       0       2       0       0
+    #>  2             22.9  19.2 Tue       3.69       0       0       0       0       0
+    #>  3             30.3  18.4 Fri       2.06       0       0       0       0       1
+    #>  4             33.4  15.8 Thu       5.97       0       0       0       0       0
+    #>  5             27.2  19.6 Fri       2.52       0       0       0       1       0
+    #>  6             19.6  13.0 Sat       3.35       1       0       0       1       0
+    #>  7             22.1  15.5 Sun       2.46       0       0       1       1       0
+    #>  8             26.6  17.0 Thu       2.21       0       0       1       0       0
+    #>  9             30.8  16.7 Fri       2.62       0       0       0       0       0
+    #> 10             17.4  11.9 Sun       2.75       0       2       1       0       0
+    #> # ℹ 10,002 more rows
+    #> # ℹ 22 more variables: item_06 <int>, item_07 <int>, item_08 <int>,
+    #> #   item_09 <int>, item_10 <int>, item_11 <int>, item_12 <int>, item_13 <int>,
+    #> #   item_14 <int>, item_15 <int>, item_16 <int>, item_17 <int>, item_18 <int>,
+    #> #   item_19 <int>, item_20 <int>, item_21 <int>, item_22 <int>, item_23 <int>,
+    #> #   item_24 <int>, item_25 <int>, item_26 <int>, item_27 <int>
+    ```
+
+    ## Group Variable and Stat Function
+
+    ``` r
+    item_data <-  # <1>
+      deliveries |> 
+      mutate(.weekend = ifelse(day %in% c("Sat", "Sun"), 
+                               "weekend", 
+                               "weekday")) |> 
+      select(time_to_delivery, .weekend, starts_with("item")) |> 
+      tidyr::pivot_longer(starts_with("item"), 
+                          names_to = "item", 
+                          values_to = "value")
+
+    relative_increase <- function(data) {
+      data %>%
+        mutate(includes_item = value > 0) |> # <2>
+        summarize(
+          has = mean(time_to_delivery[includes_item]), # <3>
+          has_not = mean(time_to_delivery[!includes_item]),
+          .by = c(item, .weekend)
+        ) %>%
+        mutate(estimate = has / has_not) |> # <4>
+        select(term = item, .weekend, estimate)
+    }
+    ```
+
+    1.  Create weekend indicatior variable and pivot to long format for the items. **The preceding "." in the name is required for groupwise CIs.**
+    2.  Create indicator as to whether a specific item is included in the orfer
+    3.  Calculate average delivery time for orders with and without the item and for weekend and weekdays
+    4.  Calculate percent increase in delivery time for orders that have the item
+
+    ## Run Bootstrap
+
+    ``` r
+    set.seed(1)
+    item_bootstrap <- bootstraps(item_data, times = 1000)
+
+    item_stats <-
+      item_bootstrap %>%
+      mutate(stats = purrr::map(splits, ~ analysis(.x) %>% relative_increase()))
+
+    item_ci <- int_pctl(item_stats, statistics = stats, alpha = 0.1)
+
+    head(item_ci)
+    #> # A tibble: 6 × 7
+    #>   term    .weekend .lower .estimate .upper .alpha .method   
+    #>   <chr>   <chr>     <dbl>     <dbl>  <dbl>  <dbl> <chr>     
+    #> 1 item_01 weekday   1.05      1.07    1.09    0.1 percentile
+    #> 2 item_01 weekend   1.04      1.07    1.10    0.1 percentile
+    #> 3 item_02 weekday   1.00      1.02    1.03    0.1 percentile
+    #> 4 item_02 weekend   0.996     1.01    1.03    0.1 percentile
+    #> 5 item_03 weekday   1.01      1.02    1.04    0.1 percentile
+    #> 6 item_03 weekend   0.970     0.990   1.01    0.1 percentile    
+    ```
+    :::
 
 ## Conformal Prediction Intervals {#sec-cipi-conf .unnumbered}
 
