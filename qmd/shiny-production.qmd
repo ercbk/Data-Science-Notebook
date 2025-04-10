@@ -373,7 +373,198 @@
 
 ## Deployment {#sec-shiny-prod-deploy .unnumbered}
 
--   AWS\
+-   Notes from Slides: [Shiny without Boundaries: One App, Multiple Destinations](https://github.com/coatless-talks/stat447-shiny-without-boundaries-one-app-multiple-destinations) (Balamuta)
+-   [Shinylive]{.underline}
+    -   [{]{style="color: #990000"}[shinylive](https://posit-dev.github.io/r-shinylive/){style="color: #990000"}[}]{style="color: #990000"}
+    -   Best Practices
+        -   Minimize Dependencies
+            -   Each package increases load time
+            -   Consider alternative implementations
+        -   Optimize App Size
+            -   Compress data files
+            -   Use efficient data structures
+        -   Test Performance
+            -   Check initial load time
+            -   Monitor memory usage
+            -   Test on various devices
+    -   Convert Shiny App to Shinylive App: `shinylive::export(".", "_site")`
+        -   Tutorial: [Deploying an R Shinylive App via GitHub Pages through GitHub Actions](https://github.com/coatless-tutorials/convert-shiny-app-r-shinylive)
+        -   ["."]{.arg-text}: Is your shiny app directory (e.g. working directory)
+        -   ["\_site"]{.arg-text}: Is the directory for the shinylive app
+    -   View locally: `httpuv::runStaticServer("_site")`
+        -   Will give an ip address to view the app in your browser.
+    -   Inspecting
+        -   [{]{style="color: #990000"}[peeky](https://github.com/coatless-rpkg/peeky){style="color: #990000"}[}]{style="color: #990000"} - Helps you extract, examine, and run the source code from Shiny applications that have been converted to run in the browser using Shinylive.
+            -   It works with both standalone applications and Quarto documents containing Shinylive components through the quarto-shinylive extension, supporting both R and Python Shiny applications.
+        -   Manually
+            -   Locate the `app.json` file
+                -   Add to the end of the URL `/app.json` to download.
+            -   Parse JSON structure
+                -   Convert to R list using `jsonlite::fromJSON()`
+            -   Extract file contents
+                -   Get the `content` field for each file
+            -   Reconstruct app
+                -   Write to disk or use in R session
+    -   Quarto
+        -   Add extension to your project: `quarto add quarto-ext/shinylive`
+
+        -   Options
+
+            -   `_quarto.yml`
+
+                ``` yaml
+                format:
+                  html:
+                    resources: 
+                      - shinylive-sw.js
+                filters:
+                  - shinylive
+                ```
+
+            -   Code Cell
+
+                ```` markdown
+                ```{{shinylive-r}}
+                #| standalone: true
+                library(shiny)
+                ui <- fluidPage(...)
+                server <- function(input, output) {...}
+                shinyApp(ui, server)
+                ```
+                ````
+
+        -   Publishing
+
+            -   Github Pages: `quarto publish gh-pages`
+            -   Quarto Pub: `quarto publish quarto-pub`
+
+        -   Github Action (`_quarto.yml`must be in the repository)
+
+            <Details>
+
+            <Summary>Code</Summary>
+
+            ``` yaml
+            on:
+              push:
+                branches: [main, master]
+              release:
+                  types: [published]
+              workflow_dispatch: {}
+
+            name: demo-website
+
+            jobs:
+              demo-website:
+                runs-on: ubuntu-latest
+                concurrency:
+                  group: quarto-website-${{ github.event_name != 'pull_request' || github.run_id }}
+                permissions:
+                  contents: read
+                  pages: write
+                  id-token: write
+                steps:
+                  - name: "Check out repository"
+                    uses: actions/checkout@v4
+
+                  - name: "Setup pandoc"
+                    uses: r-lib/actions/setup-pandoc@v2
+
+                  - name: "Setup R"
+                    uses: r-lib/actions/setup-r@v2
+
+                  - name: "Setup R dependencies for Quarto's knitr engine"
+                    uses: r-lib/actions/setup-r-dependencies@v2
+                    with:
+                      packages:
+                        ## Pin version to ensure consistency
+                        cran::shinylive@0.2.0 
+                        any::knitr
+                        any::rmarkdown
+                        any::downlit
+                        any::xml2
+
+                  - name: "Set up Quarto"
+                    uses: quarto-dev/quarto-actions/setup@v2
+
+                  - name: "Render working directory"
+                    uses: quarto-dev/quarto-actions/render@v2
+
+                  - name: Upload Pages artifact
+                    uses: actions/upload-pages-artifact@v3
+                    with: 
+                      retention-days: 1
+
+                  - name: Deploy to GitHub Pages
+                    id: deployment
+                    uses: actions/deploy-pages@v4
+            ```
+
+            </Details>
+-   [Github Pages]{.underline}
+    -   Steps
+
+        1.  Create repository structure:
+
+            ```         
+            ├── .github/workflows/ 
+            │   └── build-and-deploy.yml 
+            ├── README.md 
+            ├── DESCRIPTION 
+            └── app.R
+            ```
+
+        2.  Enable GitHub Pages in repository settings
+
+            -   Make sure to enable GitHub Pages in the repository settings with Enforce HTTPS checked!
+
+        3.  Configure GitHub Actions workflow
+
+            -   [Example]{.ribbon-highlight}:
+
+                ``` yaml
+                on:
+                  push:
+                    branches: [main, master]
+
+                name: shinylive-deploy
+
+                jobs:
+                  deploy:
+                    runs-on: ubuntu-latest
+                    permissions:
+                      contents: read
+                      pages: write
+                      id-token: write
+
+                    steps:
+                      - uses: actions/checkout@v4
+                      - uses: r-lib/actions/setup-r@v2
+                      - name: "Setup R dependency for Shinylive App export"
+                          uses: r-lib/actions/setup-r-dependencies@v2
+                          with:
+                            packages:
+                              cran::shinylive,
+                              local::.
+
+                      - name: Export app
+                        run: |
+                          shinylive::export(".", "_site")
+                        shell: Rscript {0}
+
+                      - name: Upload Pages artifact
+                        uses: actions/upload-pages-artifact@v3
+                          with: 
+                            retention-days: 1
+
+                      - name: Deploy to GitHub Pages
+                        id: deployment
+                        uses: actions/deploy-pages@v4
+                ```
+-   [shinyelectron]{.underline}
+    -   [{]{style="color: #990000"}[shinyelectron](https://github.com/coatless-rpkg/shinyelectron){style="color: #990000"}[}]{style="color: #990000"} ([Video](https://www.youtube.com/watch?v=mtNPAGnG1_o&ab_channel=TheCoatlessProfessor))
+    -   Converts Shiny web applications into standalone desktop applications for using Electron.
+-   [AWS]{.underline}\
     ![](./_resources/Shiny,_Production.resources/architecture.png){.lightbox width="432"}
     -   Notes from
         -   [Creating a Dashboard Framework with AWS (Part 1)](https://www.r-bloggers.com/2022/03/creating-a-dashboard-framework-with-aws-part-1/)
