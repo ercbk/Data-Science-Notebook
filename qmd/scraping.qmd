@@ -195,25 +195,20 @@
 -   In batch scripts (.bat), sometimes after a major windows update, the Java that selenium uses will trigger Windows Defender (WD) and cause the scraping script to fail (if you have it scheduled). If you run the .bat script manually and then when the WD box rears its ugly head, just click ignore. WD should remember after that and not to mess with it.
 -   RSelenium `findElement(using = "")` options **"class name" :** Returns an element whose class name contains the search value; compound class names are not permitted.
     -   **"css selector" :** Returns an element matching a CSS selector.
-
     -   **"id" :** Returns an element whose ID attribute matches the search value.
-
     -   **"name" :** Returns an element whose NAME attribute matches the search value.
-
     -   **"link text" :** Returns an anchor element whose visible text matches the search value.
-
     -   **"partial link text" :** Returns an anchor element whose visible text partially matches the search value.
-
     -   **"tag name" :** Returns an element whose tag name matches the search value.
-
     -   **"xpath" :** Returns an element matching an XPath expression.
 
 ## Terms {#sec-scrap-terms .unnumbered}
 
+-   [**Event Bubbling**]{style="color: #009499"} - When an event happens on a DOM element (like a click on a button), that event "bubbles up" from the target element to its ancestors in the DOM tree — all the way up to the `<html>` element.
+    -   It allows for event delegation (e.g., you attach one listener to a parent element and handle clicks from all child elements).
+    -   e.g. if there's an event listener attached to a parent element that's listening for a "click," then once the button is clicked. that click signal travels to the parent `<div>` element where the event listener receives it and activates whatever (e.g. logging user clicks on a webpage)
 -   [**Headless Browser**]{style="color: #009499"} - Without a visual interface
-
 -   [**Static Web Page**]{style="color: #009499"}: A web page (HTML page) that contains the same information for all users. Although it may be periodically updated, it does not change with each user retrieval.
-
 -   [**Dynamic Web Page**]{style="color: #009499"}: A web page that provides custom content for the user based on the results of a search or some other request. Also known as "dynamic HTML" or "dynamic content", the "dynamic" term is used when referring to interactive Web pages created for each user.
 
 ## rvest {#sec-scrap-rvest .unnumbered}
@@ -855,10 +850,18 @@
 
     -   The css selector was some long string, but he shortened it to ".sidebar"
 
--   Search and extract table ([source](https://www.youtube.com/watch?v=30AOpjLeOyI&ab_channel=TheCoatlessProfessor))\
+-   Search and extract windy.com table ([source](https://www.youtube.com/watch?v=30AOpjLeOyI&ab_channel=TheCoatlessProfessor))\
     ![](_resources/Scraping.resources/js-search-table-1.PNG){.lightbox width="348"}
 
+    ::: panel-tabset
+    ## Set-Up
+
     ``` r
+    pacman::p_load(
+      chromote,
+      rvest
+    )
+
     # Start a new browser tab session
     chrome_session_windy <- chrome_session$new_session()
 
@@ -869,15 +872,21 @@
 
     # Navigate to windy.com
     chrome_session_windy$Page$navigate("https://www.windy.com")
+    ```
 
+    -   Thoughts
+
+    ## Search
+
+    ``` r
     # Wait for the page to load
     Sys.sleep(0.5) 
-    # First focus the input field
+    # Focus the search input field
     chrome_session_windy$Runtime$evaluate('
       document.querySelector("#q").focus();
     ')
 
-    # Brief pause to ensure focus is complete
+
     Sys.sleep(0.5) 
 
     # Enter search term and trigger search
@@ -909,14 +918,69 @@
         searchInput.dispatchEvent(keyupEvent);
       }', search_query)
     )
-    # Wait for and, then, click the first search result
-    Sys.sleep(0.5) 
+    ```
+
+    -   [%s]{.var-text} is replaced by [search_query]{.var-text}
+
+    ## Full Mouse Click
+
+    ``` r
+    Sys.sleep(0.5)
+
+    # Click the first search result
+
+    # chrome_session_windy$Runtime$evaluate('
+    #     document.querySelector("#plugin-search > div:nth-child(1) > a").click();
+    # ')
+
     chrome_session_windy$Runtime$evaluate('
-        document.querySelector(".results-data a").click();
-      ')
+      const el = document.querySelector("#plugin-search > div:nth-child(1) > a");
 
-    ## Extract weather data ----
+      if (el) {
+        // First, move the mouse over the element (hover)
+        const mouseOverEvent = new MouseEvent("mouseover", {
+          view: window,
+          bubbles: true,
+          cancelable: true
+        });
+        el.dispatchEvent(mouseOverEvent);
 
+        // Then, mouse down (press button)
+        const mouseDownEvent = new MouseEvent("mousedown", {
+          view: window,
+          bubbles: true,
+          cancelable: true
+        });
+        el.dispatchEvent(mouseDownEvent);
+
+        // Then, mouse up (release button)
+        const mouseUpEvent = new MouseEvent("mouseup", {
+          view: window,
+          bubbles: true,
+          cancelable: true
+        });
+        el.dispatchEvent(mouseUpEvent);
+
+        // Finally, the click
+        const clickEvent = new MouseEvent("click", {
+          view: window,
+          bubbles: true,
+          cancelable: true
+        });
+        el.dispatchEvent(clickEvent);
+      }
+    ')
+    ```
+
+    -   Modern front-end libraries sometimes "hijack" events — if they don’t see a full mouse interaction, they ignore the `.click()` (commented out). The JS code shows how to more closely imitate a human mouse click which the website will then respond to by clicking the button.
+    -   The [mouseover]{.var-text} event may not be necessary.
+    -   [cancelable: true]{.arg-text} says that if there is some code attached to the page that is listening for this event and calls `event.preventDefault()`, it can block the event's default behavior.
+        -   You don't actually want the event blocked. This is just to mimic a website's typical behavior.
+        -   Some real browser events are cancelable (like clicks, form submits, keypresses). If you left it out (or used `false`), the page's JavaScript wouldn’t be able to intercept and prevent the action — which might cause weird behavior if the site expects to be able to.
+
+    ## Extract Table
+
+    ``` r
     # Wait for and, then, extract the weather data table
     Sys.sleep(0.5) 
     html <- chrome_session_windy$Runtime$evaluate('
@@ -924,20 +988,94 @@
       ')$result$value
 
     ## Parse the table using `rvest` ----
-    raw_weather_table <- html |>
+    raw_weather_table <- 
+      html |>
       read_html() |> 
       html_node('table') |> # Select the table to extract it without getting a node set
       html_table() |> # Convert the table to a data frame
       as.data.frame()
-
-    raw_weather_table
     ```
 
-    -   [%s]{.var-text} is replaced by [search_query]{.var-text}
+    -   [#detail-data-table]{.var-text} is the CSS selector but he added [table]{.var-text} in front of that. [table]{.var-text} specifies the html tag under which to look for that id
+    -   The
+    :::
 
-    -   [#detail-data-table]{.var-text} is the CSS selector but he added [table]{.var-text} in front of that — not sure why. Without the "\#", this is also the [table id]{.arg-text} in the HTML, so maybe because it's a table id (?).
+-   Adding delays to events
 
-    -   Feel like this might've been solved by RSelenium and the JS wasn't necessary
+    -   [Example]{.ribbon-highlight}: From windy.com example \>\> Full Mouse Click
+
+        ::: panel-tabset
+        ## Sync
+
+        ``` r
+        chrome_session_windy$Runtime$evaluate('
+          const el = document.querySelector("#plugin-search > div:nth-child(1) > a");
+
+          if (el) {
+            // Step 1: Hover
+            setTimeout(() => {
+              const mouseOverEvent = new MouseEvent("mouseover", { bubbles: true, cancelable: true, view: window });
+              el.dispatchEvent(mouseOverEvent);
+
+              // Step 2: Mouse Down (after hover)
+              setTimeout(() => {
+                const mouseDownEvent = new MouseEvent("mousedown", { bubbles: true, cancelable: true, view: window });
+                el.dispatchEvent(mouseDownEvent);
+
+                // Step 3: Mouse Up (after mouse down)
+                setTimeout(() => {
+                  const mouseUpEvent = new MouseEvent("mouseup", { bubbles: true, cancelable: true, view: window });
+                  el.dispatchEvent(mouseUpEvent);
+
+                  // Step 4: Click (after mouse up)
+                  setTimeout(() => {
+                    const clickEvent = new MouseEvent("click", { bubbles: true, cancelable: true, view: window });
+                    el.dispatchEvent(clickEvent);
+                  }, 100); // 100ms after mouseup
+                }, 100); // 100ms after mousedown
+              }, 100); // 100ms after mouseover
+            }, 100); // Initial delay
+          }
+        ')
+        ```
+
+        -   Cascade of `setTimeout` functions isn't nice to look at. See the Async tab for cleaner code
+
+        ## Async
+
+        ``` r
+        chrome_session_windy$Runtime$evaluate('
+          const el = document.querySelector("#plugin-search > div:nth-child(1) > a");
+
+          if (el) {
+            const wait = (ms) => new Promise(resolve => setTimeout(resolve, ms));
+
+            async function simulateClickSequence() {
+              // Hover
+              el.dispatchEvent(new MouseEvent("mouseover", { bubbles: true, cancelable: true, view: window }));
+              await wait(100);
+
+              // Mouse Down
+              el.dispatchEvent(new MouseEvent("mousedown", { bubbles: true, cancelable: true, view: window }));
+              await wait(100);
+
+              // Mouse Up
+              el.dispatchEvent(new MouseEvent("mouseup", { bubbles: true, cancelable: true, view: window }));
+              await wait(100);
+
+              // Click
+              el.dispatchEvent(new MouseEvent("click", { bubbles: true, cancelable: true, view: window }));
+            }
+
+            simulateClickSequence();
+          }
+        ')
+        ```
+
+        -   Events aren't dispatched asynchronously. This format just allows you to use the `await` + `wait` combo and write code that's easier to read than the cascade of `setTimeout` functions
+        -   `wait(ms)` is a tiny helper that pauses for the number of milliseconds you give it.
+        -   `async`lets you `await` pauses between each event.
+        :::
 
 ## API {#sec-scrap-api .unnumbered}
 
