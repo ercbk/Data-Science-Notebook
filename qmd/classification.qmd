@@ -5,7 +5,6 @@
 -   Also see [Regression, Logistic](regression-logistic.qmd#sec-reg-log){style="color: green"}
 -   Guide for suitable baseline models: [link](https://ludwigstumpp.com/ml-baselines)
 -   If you have mislabelled target classes, try AdaSampling to correct the labels ([article](https://towardsdatascience.com/building-classifiers-with-biased-classes-adasampling-comes-to-the-rescue-8212814264e3))
--   Undersampling non-events(0s) is the popular way to balance the target variable in data sets but other ma be worth exploring while building the model.
 
 ## Diagnostics {#sec-class-diag .unnumbered}
 
@@ -44,10 +43,13 @@
             -   N: 2500, 5000; p: 3, 6, 12, 24
             -   "We anticipate that risk miscalibration will remain present regardless of type of model or imbalance correction technique, unless the models are recalibrated. However, class imbalance correction followed by recalibration is only worth the effort if imbalance correction leads to better discrimination of the resulting models."
                 -   They used what looked to be Platt Scaling for recalibration
-            -   Also see [Model Building, tidymodels \>\> Tune](model-building-tidymodels.qmd#sec-modbld-tidymod-tune){style="color: green"} \>\> Tune Model with Multiple Recipes for an example of how downsampling (w/o calibration) + glmnet affects class prediction and GOF metrics
+            -   Also see [Model Building, tidymodels \>\> Tune](model-building-tidymodels.qmd#sec-modbld-tidymod-tune){style="color: green"} \>\> Tune Model with Multiple Recipes for an example of how downsampling (w/o calibration) + glmnet affects class prediction and GOF metrics
     -   **Subsampling** can refer to up/oversampling or down/undersampling.
-    -   It is perfectly ok to train a model on 1M negatives and 10K positives (i.e. plenty of events), as long as you avoid using accuracy as a metric
+    -   [It is perfectly ok to train a model on 1M negatives and 10K positives (i.e. plenty of events), as long as you avoid using accuracy as a metric]{.underline}
         -   1K to 10K events might be enough for the ML algorithm to learn from
+    -   For deep learning
+        -   Loss Functions: Focal Loss and Label Smoothing.
+        -   Optimization: Sharpness-Aware Minimization (SAM)
 
 -   [Issues]{.underline}
 
@@ -69,7 +71,7 @@
       pretty_print()
     ```
 
--   [Downsampling]{.underline}
+-   [Downsampling/Undersampling]{.underline}
 
     -   Use cases for downsampling the majority class
         -   when the training data doesn't fit into memory (and your ML training pipeline requires it to be in memory), or
@@ -83,10 +85,25 @@
             -   e-commerce product classification: filter for products that contain a certain keyword, or combination of keywords.
             -   ads conversion prediction: filter for a certain demographic segment of the user population.
 
+-   [Hybrid]{.underline}
+
+    -   Often done by oversampling the minority class and undersampling the majority class, and as before this could be done in a random fashion.
+    -   Alternative: Removing some observations from both classes that would be nearest neighbors (TOMEK links)
+        -   This should improve the model’s ability to classify the observations among those that remain, as they are more clearly delineated among the features.
+
+-   [Weighting]{.underline}
+
+    -   Logistic Regression
+        -   Weighting would essentially be equivalent to what is done with simple resampling techniques, negating the need to employ the latter.
+        -   e.g. doubling the weight of an observation would be equivalent to having two copies of the observation in the dataset.
+    -   Tree-based Models
+        -   Weighting and resampling are not equivalent.
+        -   e.g. in a random forest, resampling changes the composition of the bootstrap samples used to build the trees, while weighting changes the importance of each observation in the calculation of splits within each tree.
+
 -   [CV]{.underline}
 
     -   It is extremely important that subsampling occurs *inside of resampling*. Otherwise, the resampling process can produce poor estimates of model performance.
-        -   data leakage: if you first upsample the data and then split the data into training (aka analysis set) and validation (aka assessment set) folds, your model can simply memorize the positives from the training data and achieve artificially strong performance on the validation data, causing you to think that the model is much better than it actually is.
+        -   Data Leakage: if you first upsample the data and then split the data into training (aka analysis set) and validation (aka assessment set) folds, your model can simply memorize the positives from the training data and achieve artificially strong performance on the validation data, causing you to think that the model is much better than it actually is.
         -   The subsampling process should only be applied to the analysis (aka training) set. The assessment (aka validation) set should reflect the event rates seen "in the wild."
             -   Does [{recipe}]{style="color: #990000"} handle this correctly?
     -   Process
@@ -112,20 +129,26 @@
                 -   The first level affects the second one by removing easy-to-predict instances from the training set.
         -   In both levels, the imbalanced problem is reduced, which makes the modeling task simpler.
 
--   [Tuning parameters]{.underline} (last resort)
+-   [Tuning parameters]{.underline}
 
+    -   Weighting and resampling often lead to over-prediction of the minority class. This can seen by examining the predicted probabilities directly. Their mean prediction is well beyond the observed rate\
+        ![](_resources/Classification.resources/imbal-pred-prob-logistic.png){.lightbox width="432"}
     -   XGBoost and LightGBM have a parameter called `scale_pos_weight`, which up-weighs positive samples when computing the gradient at each boosting iteration
     -   Unlikely to have a major effect and probably won't generalize well.
+    -   In Python,
+        -   [is_unbalance=True]{.arg-text} in [{LightGBM}]{style="color: goldenrod"}
+        -   [class_weight='balanced']{.arg-text} for logistic regression in [{sklearn}]{style="color: goldenrod"}
 
 ## Calibration {#sec-class-calib .unnumbered}
 
--   [**Calibrated**]{style="color: #009499"}- When the predicted probabilities from a model match the observed distribution of probabilities for each class.
+-   [**Calibrated**]{style="color: #009499"}- When the predicted probabilities from a model match the observed distribution of probabilities for each class. Sometimes described as the reliability of a model's confidence in its predictions.
+    -   Intuitively, if a model assigns a class with 90% probability, that class should appear 90% of the time.
     -   Calibration Plots visualize this comparison of distributions
 -   Calibration mesasure are important for validating a predictive model.
     -   Logistic Regression models are usually well-calibrated, but most ML and DL model predicted probabilities aren't directly produced by the algorithms and aren't usually calibrated
     -   RF models can also benefit from calibration although given enough data, they are already pretty well calibrated
     -   SVM, Naive Bayes, boosted tree algorithms, and DL models benefit most from calibration
--   An unintended consequence of applying calibration modeling can be the worsening of calibration for models that are already well calibrated
+-   An unintended consequence of applying calibration can be the worsening of calibration for models that are already well calibrated
 -   If a model isn't calibrated, then the magnitude of the predicted probability cannot be interpreted as the likelihood of an event
     -   e.g. If 0.66 and 0.67 are two predicted probabilities from an uncalibrated xgboost model, the 0.67 prediction cannot be interpreted as more likely to be an event than the 0.66 prediction.
     -   Miscalibrated predictions don't allow you to have more confidence in a label with a higher probability than a label with a lower probability.
@@ -175,6 +198,11 @@
     -   Decision Trees are even more skewed than RF
     -   Says how rare a prediction is.
         -   In a rf, really low or high probability predictions aren't rare. So, if the model gives you a 0.93, you shouldn't interpet it the way you normally would such a high probability (i.e. high certainty), because a rf inherently pushes its probabilities towards 0 and 1.
+-   Deep Learning Models
+    -   Notes from[Calibration in Deep Learning: A Survey of the State-of-the-Art](https://arxiv.org/abs/2308.01222)
+    -   While increasing the depth and width of neural networks helps to obtain highly predictive power, it also negatively increases calibration errors. Empirical evidence has shown that this poor calibration is linked to overfitting on the negative log-likelihood (NLL).
+    -   Some methods has been proposed to mitigate the impact of data noise on model calibration such as *robust loss functions* or *adversarial training*, have shown promise in improving model robustness to noisy data ([Hendrycks, Mazeika, & Dietterich, 2018](https://arxiv.org/abs/1812.04606); [Delaney, Greene, & Keane, 2021](https://arxiv.org/abs/2107.09734)). Also *Ensemble methods* have been proofed effective in identifying and mitigating the effects of noisy data on model performance ([Lakshminarayanan, Pritzel, & Blundell, 2017](https://arxiv.org/abs/1612.01474); [Malinin, Mlodozeniec, & Gales, 2019](https://arxiv.org/abs/1905.00076)).
+    -   Techniques such as data augmentation ([Muller et al., 2019](https://arxiv.org/abs/1906.02629); [Zhang, Cisse, Dauphin, & Lopez-Paz, 2018](https://arxiv.org/abs/1710.09412)), bias mitigation algorithms ([Kamiran & Calders, 2012](https://link.springer.com/article/10.1007/s10115-011-0463-8)), and fairness-aware model training ([Zemel, Wu, Swersky, Pitassi, & Dwork, 2013](https://paperswithcode.com/paper/learning-fair-representations)) can help mitigate biases during the model development stage.
 
 ### Basic Workflow {.unnumbered}
 
@@ -183,7 +211,7 @@
 -   Process
     -   Split data into Training, Calibration, and Test
     -   For each algorithm, train the algorithm on the *Training* set, and create the calibration model using it and the *Calibration* set.
-        -   Each algorithm with have it's own calibration model
+        -   Each algorithm will have it's own calibration model
         -   See below, Example: AdaBoost in Py using CV calibrator
             -   I like sklearn's ideas for training a calibration model
     -   Use the *Training* set for CV or Nested CV
@@ -227,27 +255,37 @@
     -   [Example]{.ribbon-highlight}: SVM in R
 
         ``` r
-        svm_platt_recal = svm_platt_recal_func(model_fit, calib_dat, test_preds, test_dat)
+        svm_platt_recal <- 
+          svm_platt_recal_func(model_fit, 
+                               calib_dat, 
+                               test_preds, 
+                               test_dat)
 
-        svm_platt_recal_func = function(model_fit, calib_dat, test_preds, test_dat){
+        svm_platt_recal_func <- 
+          function(model_fit, calib_dat, test_preds, test_dat){
+            # Predict on Calibration Set
+            cal_preds_obj <- 
+              predict(model_fit,
+                      calib_dat[, -which(names(calib_dat) == 'outcome_var')],
+                      probability = TRUE)
+            # e1071 has a funky predict output; just getting probabilities 
+            cal_preds <- 
+              as.data.frame(attr(cal_preds_obj, 
+                            'probabilities')[, 2])
+            # Create calibration model
+            cal_obs_preds_df <- 
+              data.frame(y = calib_dat$outcome_var, yhat = cal_preds[, 1])
+            calib_model <- 
+              glm(y ~ yhat, 
+                  data = cal_obs_preds_df, 
+                  family = binomial)
 
-          # Predict on Calibration Set 
-          cal_preds_obj <- predict(model_fit, 
-                                  calib_dat[, -which(names(calib_dat) == 'outcome_var')], 
-                                  probability = TRUE) 
-          # e1071 has a funky predict output; just getting probabilities 
-          cal_preds <- as.data.frame(attr(cal_preds_obj, 'probabilities')[, 2])
-          # Create calibration model
-          cal_obs_preds_df = data.frame(y = calib_dat$outcome_var, yhat = cal_preds[, 1])
-          calib_model <- glm(y ~ yhat, data = cal_obs_preds_df, family = binomial) 
+            # Recalibrate classifiers predicted probabilities on the test set
+            colnames(test_preds) <- c("yhat")
+            recal_preds = predict(calib.model, test_preds, type='response')
 
-          # Recalibrate classifiers predicted probabilities on the test set   
-          colnames(test_preds) <- c("yhat")
-          recal_preds = predict(calib.model, test_preds, type='response')   
-
-          return(recal_preds)
-
-        }
+            return(recal_preds)
+          }
         ```
 
         -   See Istotonic Regression for "model_fit", "calib_dat", "test_preds", and "test_dat"
