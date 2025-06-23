@@ -2138,7 +2138,6 @@ gtag('config', 'G-5J13QCM7YC', { 'anonymize_ip': true});
 <li>Also see <a href="../qmd/regression-logistic.html#sec-reg-log" style="color: green">Regression, Logistic</a></li>
 <li>Guide for suitable baseline models: <a href="https://ludwigstumpp.com/ml-baselines">link</a></li>
 <li>If you have mislabelled target classes, try AdaSampling to correct the labels (<a href="https://towardsdatascience.com/building-classifiers-with-biased-classes-adasampling-comes-to-the-rescue-8212814264e3">article</a>)</li>
-<li>Undersampling non-events(0s) is the popular way to balance the target variable in data sets but other ma be worth exploring while building the model.</li>
 </ul>
 </section>
 <section id="sec-class-diag" class="level2 unnumbered">
@@ -2181,6 +2180,10 @@ gtag('config', 'G-5J13QCM7YC', { 'anonymize_ip': true});
 <li>Balanced random forests undersampling of the majority class. Performance is assesssed using the G-mean, but misclassification error can be requested.</li>
 </ul></li>
 </ul></li>
+<li><strong>Applying SMOTE without re-calibration is bad</strong> (See van Smeden paper, <a href="https://twitter.com/MaartenvSmeden/status/1495668297630633985">thread</a>)
+<ul>
+<li>Or maybe just bad in general (<a href="https://datascience.stackexchange.com/questions/106461/why-smote-is-not-used-in-prize-winning-kaggle-solutions">StackExchange</a>)</li>
+</ul></li>
 <li>Papers
 <ul>
 <li><a href="https://arxiv.org/abs/2202.09101">The harm of class imbalance corrections for risk prediction models: illustration and simulation using logistic regression</a>
@@ -2193,13 +2196,18 @@ gtag('config', 'G-5J13QCM7YC', { 'anonymize_ip': true});
 <ul>
 <li>They used what looked to be Platt Scaling for recalibration</li>
 </ul></li>
-<li>Also see <a href="../qmd/model-building-tidymodels.html#sec-modbld-tidymod-tune" style="color: green">Model Building, tidymodels &gt;&gt;&nbsp;Tune</a> &gt;&gt; Tune Model with Multiple Recipes for an example of how downsampling (w/o calibration) + glmnet affects class prediction and GOF metrics</li>
+<li>Also see <a href="../qmd/model-building-tidymodels.html#sec-modbld-tidymod-tune" style="color: green">Model Building, tidymodels &gt;&gt; Tune</a> &gt;&gt; Tune Model with Multiple Recipes for an example of how downsampling (w/o calibration) + glmnet affects class prediction and GOF metrics</li>
 </ul></li>
 </ul></li>
 <li><strong>Subsampling</strong> can refer to up/oversampling or down/undersampling.</li>
-<li>It is perfectly ok to train a model on 1M negatives and 10K positives (i.e.&nbsp;plenty of events), as long as you avoid using accuracy as a metric
+<li><u>It is perfectly ok to train a model on 1M negatives and 10K positives (i.e.&nbsp;plenty of events), as long as you avoid using accuracy as a metric</u>
 <ul>
 <li>1K to 10K events might be enough for the ML algorithm to learn from</li>
+</ul></li>
+<li>For deep learning
+<ul>
+<li>Loss Functions: Focal Loss and Label Smoothing.</li>
+<li>Optimization: Sharpness-Aware Minimization (SAM)</li>
 </ul></li>
 </ul></li>
 <li><p><u>Issues</u></p>
@@ -2214,13 +2222,15 @@ gtag('config', 'G-5J13QCM7YC', { 'anonymize_ip': true});
 <li>If you only have 10 to 100 positive samples, the model may easily memorize these samples, leading to an overfit model that generalized poorly</li>
 <li>May result in large CIs for your effect estimate (see Gelman <a href="https://statmodeling.stat.columbia.edu/2023/04/04/association-between-low-density-lipoprotein-cholesterol-and-all-cause-mortality/">post</a>)</li>
 </ul></li>
+<li>A potential disadvantage of upsampling is that new data is being created that could cause overfitting. Additionally, by artificially increasing the sample size standard errors will also be artificially decreased.</li>
+<li>A disadvantage of downsampling is that some data, and sometimes a lot of data, is excluded from the model.</li>
 </ul></li>
 <li><p><u>Check Imbalance</u></p>
 <div class="sourceCode" id="cb1"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb1-1"><a href="#cb1-1" aria-hidden="true" tabindex="-1"></a>data <span class="sc">%&gt;%</span></span>
 <span id="cb1-2"><a href="#cb1-2" aria-hidden="true" tabindex="-1"></a>&nbsp; <span class="fu">count</span>(class) <span class="sc">%&gt;%</span></span>
 <span id="cb1-3"><a href="#cb1-3" aria-hidden="true" tabindex="-1"></a>&nbsp; <span class="fu">mutate</span>(<span class="at">prop =</span> n <span class="sc">/</span> <span class="fu">sum</span>(n)) <span class="sc">%&gt;%</span></span>
 <span id="cb1-4"><a href="#cb1-4" aria-hidden="true" tabindex="-1"></a>&nbsp; <span class="fu">pretty_print</span>()</span></code><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></pre></div></li>
-<li><p><u>Downsampling</u></p>
+<li><p><u>Downsampling/Undersampling</u></p>
 <ul>
 <li>Use cases for downsampling the majority class
 <ul>
@@ -2242,11 +2252,32 @@ gtag('config', 'G-5J13QCM7YC', { 'anonymize_ip': true});
 </ul></li>
 </ul></li>
 </ul></li>
+<li><p><u>Hybrid</u></p>
+<ul>
+<li>Often done by oversampling the minority class and undersampling the majority class, and as before this could be done in a random fashion.</li>
+<li>Alternative: Removing some observations from both classes that would be nearest neighbors (TOMEK links)
+<ul>
+<li>This should improve the model’s ability to classify the observations among those that remain, as they are more clearly delineated among the features.</li>
+</ul></li>
+</ul></li>
+<li><p><u>Weighting</u></p>
+<ul>
+<li>Logistic Regression
+<ul>
+<li>Weighting would essentially be equivalent to what is done with simple resampling techniques, negating the need to employ the latter.</li>
+<li>e.g.&nbsp;doubling the weight of an observation would be equivalent to having two copies of the observation in the dataset.</li>
+</ul></li>
+<li>Tree-based Models
+<ul>
+<li>Weighting and resampling are not equivalent.</li>
+<li>e.g.&nbsp;in a random forest, resampling changes the composition of the bootstrap samples used to build the trees, while weighting changes the importance of each observation in the calculation of splits within each tree.</li>
+</ul></li>
+</ul></li>
 <li><p><u>CV</u></p>
 <ul>
 <li>It is extremely important that subsampling occurs <em>inside of resampling</em>. Otherwise, the resampling process can produce poor estimates of model performance.
 <ul>
-<li>data leakage: if you first upsample the data and then split the data into training (aka analysis set) and validation (aka assessment set) folds, your model can simply memorize the positives from the training data and achieve artificially strong performance on the validation data, causing you to think that the model is much better than it actually is.</li>
+<li>Data Leakage: if you first upsample the data and then split the data into training (aka analysis set) and validation (aka assessment set) folds, your model can simply memorize the positives from the training data and achieve artificially strong performance on the validation data, causing you to think that the model is much better than it actually is.</li>
 <li>The subsampling process should only be applied to the analysis (aka training) set. The assessment (aka validation) set should reflect the event rates seen “in the wild.”
 <ul>
 <li>Does <span style="color: #990000">{recipe}</span> handle this correctly?</li>
@@ -2291,18 +2322,26 @@ gtag('config', 'G-5J13QCM7YC', { 'anonymize_ip': true});
 <li>In both levels, the imbalanced problem is reduced, which makes the modeling task simpler.</li>
 </ul></li>
 </ul></li>
-<li><p><u>Tuning parameters</u> (last resort)</p>
+<li><p><u>Tuning parameters</u></p>
 <ul>
+<li>Weighting and resampling often lead to over-prediction of the minority class. This can seen by examining the predicted probabilities directly. Their mean prediction is well beyond the observed rate<br>
+<a href="_resources/Classification.resources/imbal-pred-prob-logistic.png" class="lightbox" data-gallery="quarto-lightbox-gallery-1"><img src="_resources/Classification.resources/imbal-pred-prob-logistic.png" class="img-fluid" width="432"></a></li>
 <li>XGBoost and LightGBM have a parameter called <code>scale_pos_weight</code>, which up-weighs positive samples when computing the gradient at each boosting iteration</li>
 <li>Unlikely to have a major effect and probably won’t generalize well.</li>
+<li>In Python,
+<ul>
+<li><span class="arg-text">is_unbalance=True</span> in <span style="color: goldenrod">{LightGBM}</span></li>
+<li><span class="arg-text">class_weight=‘balanced’</span> for logistic regression in <span style="color: goldenrod">{sklearn}</span></li>
+</ul></li>
 </ul></li>
 </ul>
 </section>
 <section id="sec-class-calib" class="level2 unnumbered">
 <h2 class="unnumbered anchored" data-anchor-id="sec-class-calib">Calibration</h2>
 <ul>
-<li><span style="color: #009499"><strong>Calibrated</strong></span>- When the predicted probabilities from a model match the observed distribution of probabilities for each class.
+<li><span style="color: #009499"><strong>Calibrated</strong></span>- When the predicted probabilities from a model match the observed distribution of probabilities for each class. Sometimes described as the reliability of a model’s confidence in its predictions.
 <ul>
+<li>Intuitively, if a model assigns a class with 90% probability, that class should appear 90% of the time.</li>
 <li>Calibration Plots visualize this comparison of distributions</li>
 </ul></li>
 <li>Calibration mesasure are important for validating a predictive model.
@@ -2311,7 +2350,7 @@ gtag('config', 'G-5J13QCM7YC', { 'anonymize_ip': true});
 <li>RF models can also benefit from calibration although given enough data, they are already pretty well calibrated</li>
 <li>SVM, Naive Bayes, boosted tree algorithms, and DL models benefit most from calibration</li>
 </ul></li>
-<li>An unintended consequence of applying calibration modeling can be the worsening of calibration for models that are already well calibrated</li>
+<li>An unintended consequence of applying calibration can be the worsening of calibration for models that are already well calibrated</li>
 <li>If a model isn’t calibrated, then the magnitude of the predicted probability cannot be interpreted as the likelihood of an event
 <ul>
 <li>e.g.&nbsp;If 0.66 and 0.67 are two predicted probabilities from an uncalibrated xgboost model, the 0.67 prediction cannot be interpreted as more likely to be an event than the 0.66 prediction.</li>
@@ -2371,13 +2410,13 @@ gtag('config', 'G-5J13QCM7YC', { 'anonymize_ip': true});
 </ul></li>
 <li>Calibration curves for nested cv (<a href="https://discourse.datamethods.org/t/proper-way-to-get-an-averaged-calibration-curve-from-nested-resampling/6207">post</a>)</li>
 <li>For calibrated models, sample size affects the how well they’re calibrated<br>
-<a href="./_resources/Classification.resources/image.png" class="lightbox" data-gallery="quarto-lightbox-gallery-1"><img src="./_resources/Classification.resources/image.png" class="img-fluid" width="486"></a>
+<a href="./_resources/Classification.resources/image.png" class="lightbox" data-gallery="quarto-lightbox-gallery-2"><img src="./_resources/Classification.resources/image.png" class="img-fluid" width="486"></a>
 <ul>
 <li>Even for a logistic model, N &gt; 1000 is desired for good calibration</li>
 <li>For a rf, closer to N = 10,000 is probably needed.</li>
 </ul></li>
 <li>Distributions of predicted probabilities<br>
-<a href="./_resources/Classification.resources/image.1.png" class="lightbox" data-gallery="quarto-lightbox-gallery-2"><img src="./_resources/Classification.resources/image.1.png" class="img-fluid" width="486"></a>
+<a href="./_resources/Classification.resources/image.1.png" class="lightbox" data-gallery="quarto-lightbox-gallery-3"><img src="./_resources/Classification.resources/image.1.png" class="img-fluid" width="486"></a>
 <ul>
 <li>Random Forest pushes the probabilities towards 0.0 and 1.0, while the probabilities from the logistic regression are less skewed.</li>
 <li>Decision Trees are even more skewed than RF</li>
@@ -2385,6 +2424,13 @@ gtag('config', 'G-5J13QCM7YC', { 'anonymize_ip': true});
 <ul>
 <li>In a rf, really low or high probability predictions aren’t rare. So, if the model gives you a 0.93, you shouldn’t interpet it the way you normally would such a high probability (i.e.&nbsp;high certainty), because a rf inherently pushes its probabilities towards 0 and 1.</li>
 </ul></li>
+</ul></li>
+<li>Deep Learning Models
+<ul>
+<li>Notes from<a href="https://arxiv.org/abs/2308.01222">Calibration in Deep Learning: A Survey of the State-of-the-Art</a></li>
+<li>While increasing the depth and width of neural networks helps to obtain highly predictive power, it also negatively increases calibration errors. Empirical evidence has shown that this poor calibration is linked to overfitting on the negative log-likelihood (NLL).</li>
+<li>Some methods has been proposed to mitigate the impact of data noise on model calibration such as <em>robust loss functions</em> or <em>adversarial training</em>, have shown promise in improving model robustness to noisy data (<a href="https://arxiv.org/abs/1812.04606">Hendrycks, Mazeika, &amp; Dietterich, 2018</a>; <a href="https://arxiv.org/abs/2107.09734">Delaney, Greene, &amp; Keane, 2021</a>). Also <em>Ensemble methods</em> have been proofed effective in identifying and mitigating the effects of noisy data on model performance (<a href="https://arxiv.org/abs/1612.01474">Lakshminarayanan, Pritzel, &amp; Blundell, 2017</a>; <a href="https://arxiv.org/abs/1905.00076">Malinin, Mlodozeniec, &amp; Gales, 2019</a>).</li>
+<li>Techniques such as data augmentation (<a href="https://arxiv.org/abs/1906.02629">Muller et al., 2019</a>; <a href="https://arxiv.org/abs/1710.09412">Zhang, Cisse, Dauphin, &amp; Lopez-Paz, 2018</a>), bias mitigation algorithms (<a href="https://link.springer.com/article/10.1007/s10115-011-0463-8">Kamiran &amp; Calders, 2012</a>), and fairness-aware model training (<a href="https://paperswithcode.com/paper/learning-fair-representations">Zemel, Wu, Swersky, Pitassi, &amp; Dwork, 2013</a>) can help mitigate biases during the model development stage.</li>
 </ul></li>
 </ul>
 </section>
@@ -2400,7 +2446,7 @@ gtag('config', 'G-5J13QCM7YC', { 'anonymize_ip': true});
 <li>Split data into Training, Calibration, and Test</li>
 <li>For each algorithm, train the algorithm on the <em>Training</em> set, and create the calibration model using it and the <em>Calibration</em> set.
 <ul>
-<li>Each algorithm with have it’s own calibration model</li>
+<li>Each algorithm will have it’s own calibration model</li>
 <li>See below, Example: AdaBoost in Py using CV calibrator
 <ul>
 <li>I like sklearn’s ideas for training a calibration model</li>
@@ -2425,7 +2471,7 @@ gtag('config', 'G-5J13QCM7YC', { 'anonymize_ip': true});
 </section>
 <section id="sec-class-calib-meth" class="level3 unnumbered">
 <h3 class="unnumbered anchored" data-anchor-id="sec-class-calib-meth">Methods</h3>
-<p><a href="./_resources/Classification.resources/image.2.png" class="lightbox" data-gallery="quarto-lightbox-gallery-3"><img src="./_resources/Classification.resources/image.2.png" class="img-fluid" width="352"></a></p>
+<p><a href="./_resources/Classification.resources/image.2.png" class="lightbox" data-gallery="quarto-lightbox-gallery-4"><img src="./_resources/Classification.resources/image.2.png" class="img-fluid" width="352"></a></p>
 <ul>
 <li>Misc
 <ul>
@@ -2464,27 +2510,37 @@ gtag('config', 'G-5J13QCM7YC', { 'anonymize_ip': true});
 <li>Calibrated probabilities are the predicted probabilities of the LR model using your model’s predicted probabilites on the Test set as new data.</li>
 </ul></li>
 <li><p><span class="ribbon-highlight">Example</span>: SVM in R</p>
-<div class="sourceCode" id="cb2"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb2-1"><a href="#cb2-1" aria-hidden="true" tabindex="-1"></a>svm_platt_recal <span class="ot">=</span> <span class="fu">svm_platt_recal_func</span>(model_fit, calib_dat, test_preds, test_dat)</span>
-<span id="cb2-2"><a href="#cb2-2" aria-hidden="true" tabindex="-1"></a></span>
-<span id="cb2-3"><a href="#cb2-3" aria-hidden="true" tabindex="-1"></a>svm_platt_recal_func <span class="ot">=</span> <span class="cf">function</span>(model_fit, calib_dat, test_preds, test_dat){</span>
-<span id="cb2-4"><a href="#cb2-4" aria-hidden="true" tabindex="-1"></a></span>
-<span id="cb2-5"><a href="#cb2-5" aria-hidden="true" tabindex="-1"></a>&nbsp; <span class="co"># Predict on Calibration Set&nbsp;</span></span>
-<span id="cb2-6"><a href="#cb2-6" aria-hidden="true" tabindex="-1"></a>&nbsp; cal_preds_obj <span class="ot">&lt;-</span> <span class="fu">predict</span>(model_fit,&nbsp;</span>
-<span id="cb2-7"><a href="#cb2-7" aria-hidden="true" tabindex="-1"></a>&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; calib_dat[, <span class="sc">-</span><span class="fu">which</span>(<span class="fu">names</span>(calib_dat) <span class="sc">==</span> <span class="st">'outcome_var'</span>)],&nbsp;</span>
-<span id="cb2-8"><a href="#cb2-8" aria-hidden="true" tabindex="-1"></a>&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; <span class="at">probability =</span> <span class="cn">TRUE</span>)&nbsp;</span>
-<span id="cb2-9"><a href="#cb2-9" aria-hidden="true" tabindex="-1"></a>&nbsp; <span class="co"># e1071 has a funky predict output; just getting probabilities&nbsp;</span></span>
-<span id="cb2-10"><a href="#cb2-10" aria-hidden="true" tabindex="-1"></a>&nbsp; cal_preds <span class="ot">&lt;-</span> <span class="fu">as.data.frame</span>(<span class="fu">attr</span>(cal_preds_obj, <span class="st">'probabilities'</span>)[, <span class="dv">2</span>])</span>
-<span id="cb2-11"><a href="#cb2-11" aria-hidden="true" tabindex="-1"></a>&nbsp; <span class="co"># Create calibration model</span></span>
-<span id="cb2-12"><a href="#cb2-12" aria-hidden="true" tabindex="-1"></a>&nbsp; cal_obs_preds_df <span class="ot">=</span> <span class="fu">data.frame</span>(<span class="at">y =</span> calib_dat<span class="sc">$</span>outcome_var, <span class="at">yhat =</span> cal_preds[, <span class="dv">1</span>])</span>
-<span id="cb2-13"><a href="#cb2-13" aria-hidden="true" tabindex="-1"></a>&nbsp; calib_model <span class="ot">&lt;-</span> <span class="fu">glm</span>(y <span class="sc">~</span> yhat, <span class="at">data =</span> cal_obs_preds_df, <span class="at">family =</span> binomial)&nbsp;</span>
-<span id="cb2-14"><a href="#cb2-14" aria-hidden="true" tabindex="-1"></a></span>
-<span id="cb2-15"><a href="#cb2-15" aria-hidden="true" tabindex="-1"></a>&nbsp; <span class="co"># Recalibrate classifiers predicted probabilities on the test set&nbsp; &nbsp;</span></span>
-<span id="cb2-16"><a href="#cb2-16" aria-hidden="true" tabindex="-1"></a>&nbsp; <span class="fu">colnames</span>(test_preds) <span class="ot">&lt;-</span> <span class="fu">c</span>(<span class="st">"yhat"</span>)</span>
-<span id="cb2-17"><a href="#cb2-17" aria-hidden="true" tabindex="-1"></a>&nbsp; recal_preds <span class="ot">=</span> <span class="fu">predict</span>(calib.model, test_preds, <span class="at">type=</span><span class="st">'response'</span>)&nbsp; &nbsp;</span>
-<span id="cb2-18"><a href="#cb2-18" aria-hidden="true" tabindex="-1"></a></span>
-<span id="cb2-19"><a href="#cb2-19" aria-hidden="true" tabindex="-1"></a>&nbsp; <span class="fu">return</span>(recal_preds)</span>
-<span id="cb2-20"><a href="#cb2-20" aria-hidden="true" tabindex="-1"></a></span>
-<span id="cb2-21"><a href="#cb2-21" aria-hidden="true" tabindex="-1"></a>}</span></code><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></pre></div>
+<div class="sourceCode" id="cb2"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb2-1"><a href="#cb2-1" aria-hidden="true" tabindex="-1"></a>svm_platt_recal <span class="ot">&lt;-</span> </span>
+<span id="cb2-2"><a href="#cb2-2" aria-hidden="true" tabindex="-1"></a>  <span class="fu">svm_platt_recal_func</span>(model_fit, </span>
+<span id="cb2-3"><a href="#cb2-3" aria-hidden="true" tabindex="-1"></a>                       calib_dat, </span>
+<span id="cb2-4"><a href="#cb2-4" aria-hidden="true" tabindex="-1"></a>                       test_preds, </span>
+<span id="cb2-5"><a href="#cb2-5" aria-hidden="true" tabindex="-1"></a>                       test_dat)</span>
+<span id="cb2-6"><a href="#cb2-6" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb2-7"><a href="#cb2-7" aria-hidden="true" tabindex="-1"></a>svm_platt_recal_func <span class="ot">&lt;-</span> </span>
+<span id="cb2-8"><a href="#cb2-8" aria-hidden="true" tabindex="-1"></a>  <span class="cf">function</span>(model_fit, calib_dat, test_preds, test_dat){</span>
+<span id="cb2-9"><a href="#cb2-9" aria-hidden="true" tabindex="-1"></a>    <span class="co"># Predict on Calibration Set</span></span>
+<span id="cb2-10"><a href="#cb2-10" aria-hidden="true" tabindex="-1"></a>    cal_preds_obj <span class="ot">&lt;-</span> </span>
+<span id="cb2-11"><a href="#cb2-11" aria-hidden="true" tabindex="-1"></a>      <span class="fu">predict</span>(model_fit,</span>
+<span id="cb2-12"><a href="#cb2-12" aria-hidden="true" tabindex="-1"></a>              calib_dat[, <span class="sc">-</span><span class="fu">which</span>(<span class="fu">names</span>(calib_dat) <span class="sc">==</span> <span class="st">'outcome_var'</span>)],</span>
+<span id="cb2-13"><a href="#cb2-13" aria-hidden="true" tabindex="-1"></a>              <span class="at">probability =</span> <span class="cn">TRUE</span>)</span>
+<span id="cb2-14"><a href="#cb2-14" aria-hidden="true" tabindex="-1"></a>    <span class="co"># e1071 has a funky predict output; just getting probabilities&nbsp;</span></span>
+<span id="cb2-15"><a href="#cb2-15" aria-hidden="true" tabindex="-1"></a>    cal_preds <span class="ot">&lt;-</span> </span>
+<span id="cb2-16"><a href="#cb2-16" aria-hidden="true" tabindex="-1"></a>      <span class="fu">as.data.frame</span>(<span class="fu">attr</span>(cal_preds_obj, </span>
+<span id="cb2-17"><a href="#cb2-17" aria-hidden="true" tabindex="-1"></a>                    <span class="st">'probabilities'</span>)[, <span class="dv">2</span>])</span>
+<span id="cb2-18"><a href="#cb2-18" aria-hidden="true" tabindex="-1"></a>    <span class="co"># Create calibration model</span></span>
+<span id="cb2-19"><a href="#cb2-19" aria-hidden="true" tabindex="-1"></a>    cal_obs_preds_df <span class="ot">&lt;-</span> </span>
+<span id="cb2-20"><a href="#cb2-20" aria-hidden="true" tabindex="-1"></a>      <span class="fu">data.frame</span>(<span class="at">y =</span> calib_dat<span class="sc">$</span>outcome_var, <span class="at">yhat =</span> cal_preds[, <span class="dv">1</span>])</span>
+<span id="cb2-21"><a href="#cb2-21" aria-hidden="true" tabindex="-1"></a>    calib_model <span class="ot">&lt;-</span> </span>
+<span id="cb2-22"><a href="#cb2-22" aria-hidden="true" tabindex="-1"></a>      <span class="fu">glm</span>(y <span class="sc">~</span> yhat, </span>
+<span id="cb2-23"><a href="#cb2-23" aria-hidden="true" tabindex="-1"></a>          <span class="at">data =</span> cal_obs_preds_df, </span>
+<span id="cb2-24"><a href="#cb2-24" aria-hidden="true" tabindex="-1"></a>          <span class="at">family =</span> binomial)</span>
+<span id="cb2-25"><a href="#cb2-25" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb2-26"><a href="#cb2-26" aria-hidden="true" tabindex="-1"></a>    <span class="co"># Recalibrate classifiers predicted probabilities on the test set</span></span>
+<span id="cb2-27"><a href="#cb2-27" aria-hidden="true" tabindex="-1"></a>    <span class="fu">colnames</span>(test_preds) <span class="ot">&lt;-</span> <span class="fu">c</span>(<span class="st">"yhat"</span>)</span>
+<span id="cb2-28"><a href="#cb2-28" aria-hidden="true" tabindex="-1"></a>    recal_preds <span class="ot">=</span> <span class="fu">predict</span>(calib.model, test_preds, <span class="at">type=</span><span class="st">'response'</span>)</span>
+<span id="cb2-29"><a href="#cb2-29" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb2-30"><a href="#cb2-30" aria-hidden="true" tabindex="-1"></a>    <span class="fu">return</span>(recal_preds)</span>
+<span id="cb2-31"><a href="#cb2-31" aria-hidden="true" tabindex="-1"></a>  }</span></code><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></pre></div>
 <ul>
 <li>See Istotonic Regression for “model_fit”, “calib_dat”, “test_preds”, and “test_dat”</li>
 </ul></li>
@@ -2632,7 +2688,7 @@ gtag('config', 'G-5J13QCM7YC', { 'anonymize_ip': true});
 <ul>
 <li><code>CalibratedClassifierCV</code> has both platt scaling (“sigmoid”)(default) and isotonic (“isotonic”) calibration methods (<a href="https://scikit-learn.org/stable/modules/calibration.html#usage">Docs</a>)</li>
 <li>Calibration model is built using the test fold (aka validation fold)<br>
-<a href="./_resources/Classification.resources/image.3.png" class="lightbox" data-gallery="quarto-lightbox-gallery-4"><img src="./_resources/Classification.resources/image.3.png" class="img-fluid" width="386"></a></li>
+<a href="./_resources/Classification.resources/image.3.png" class="lightbox" data-gallery="quarto-lightbox-gallery-5"><img src="./_resources/Classification.resources/image.3.png" class="img-fluid" width="386"></a></li>
 <li><code>ensemble=True</code>
 <ul>
 <li>For each cv split, the base estimator is fit on the training fold, and the calibration model is built using the “test” fold (aka validation fold)
@@ -2711,6 +2767,7 @@ gtag('config', 'G-5J13QCM7YC', { 'anonymize_ip': true});
 </ul></li>
 <li>Also includes a discriminatory VIM, based on the binary splits, that assesses the strength of the general influence of the covariates, irrespective of their class-associatedness.</li>
 </ul></li>
+<li><span style="color: #990000">{</span><a href="https://cran.r-project.org/web/packages/rfPermute/index.html" style="color: #990000">rfPermute</a><span style="color: #990000">}</span> - Estimate Permutation p-Values for Random Forest Importance Metrics</li>
 </ul></li>
 <li>Compute Feature Importance (FI) values on test data only. Computing on training data may lead to wrong conclusions. (<a href="https://arxiv.org/abs/2404.12862">source</a>)</li>
 <li>Permutation Importance
@@ -2760,7 +2817,7 @@ gtag('config', 'G-5J13QCM7YC', { 'anonymize_ip': true});
 <span id="cb7-5"><a href="#cb7-5" aria-hidden="true" tabindex="-1"></a><span class="fu">pull_workflow_fit</span>() <span class="sc">%&gt;%</span>&nbsp;</span>
 <span id="cb7-6"><a href="#cb7-6" aria-hidden="true" tabindex="-1"></a><span class="fu">vip</span>(<span class="at">num_features =</span> <span class="dv">20</span>)</span></code><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></pre></div></li>
 <li><p>glmnet<br>
-<a href="./_resources/Classification.resources/Screenshot (336).png" class="lightbox" data-gallery="quarto-lightbox-gallery-5"><img src="./_resources/Classification.resources/Screenshot (336).png" class="img-fluid" width="433"></a></p>
+<a href="./_resources/Classification.resources/Screenshot (336).png" class="lightbox" data-gallery="quarto-lightbox-gallery-6"><img src="./_resources/Classification.resources/Screenshot (336).png" class="img-fluid" width="433"></a></p>
 <div class="sourceCode" id="cb8"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb8-1"><a href="#cb8-1" aria-hidden="true" tabindex="-1"></a>lin_trained <span class="ot">&lt;-</span> lin_wf <span class="sc">%&gt;%</span></span>
 <span id="cb8-2"><a href="#cb8-2" aria-hidden="true" tabindex="-1"></a>&nbsp; &nbsp; <span class="fu">finalize_workflow</span>(<span class="fu">select_best</span>(lin_tune)) <span class="sc">%&gt;%</span></span>
 <span id="cb8-3"><a href="#cb8-3" aria-hidden="true" tabindex="-1"></a>&nbsp; &nbsp; <span class="fu">fit</span>(train) <span class="co"># or split_obj, test_dat, etc.</span></span>
