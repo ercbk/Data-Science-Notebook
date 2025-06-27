@@ -50,12 +50,12 @@
 ## Python {#sec-prod-datval-py .unnumbered}
 
 -   Misc
-    -   Comparison between [{{pydantic}}]{style="color: goldenrod"} and {{pandas_dq}}
+    -   Comparison between [{pydantic}]{style="color: goldenrod"} and [{pandas_dq}]{style="color: goldenrod"}
         -   Declarative syntax: arguably, Pydantic allows you to define the data schema and validation rules using a more concise and readable syntax. This can make it easier to understand and maintain your code. I find it super helpful to be able to define the ranges of possible values instead of merely the data type.
         -   Built-in validation functions: Pydantic provides various powerful built-in validation functions like conint, condecimal, and constr, which allow you to enforce constraints on your data without having to write custom validation functions.
         -   Comprehensive error handling: When using Pydantic, if the input data does not conform to the defined schema, it raises a ValidationError with detailed information about the errors. This can help you easily identify issues with your data and take necessary action.
         -   Serialization and deserialization: Pydantic automatically handles serialization and deserialization of data, making it convenient to work with different data formats (like JSON) and convert between them.
--   [Example]{.ribbon-highlight}: [{{pydantic}}]{style="color: goldenrod"}
+-   [Example]{.ribbon-highlight}: [{pydantic}]{style="color: goldenrod"}
     -   Set schema and create sample data
 
         ``` python
@@ -127,7 +127,7 @@
             for application in failed_applications:
                 print(f"Failed application: [{application}]{style='color: #990000'}")
         ```
--   [Example]{.ribbon-highlight}: {{pandas_dq}}
+-   [Example]{.ribbon-highlight}: [{pandas_dq}]{style="color: goldenrod"}
     -   Check schema\
         ![](./_resources/Production,_Data_Validation.resources/image.png){.lightbox width="532"}
 
@@ -163,3 +163,70 @@
         ```
 
         -   Variables have been cast into the correct types according to the schema
+
+## {pointblank} {#sec-prod-datval-pb .unnumbered}
+
+-   Python
+    -   [Example]{.ribbon-highlight}: ([source](https://github.com/ivelasq/2025-06-25_marketing-demo/blob/c9f3145d827e184835a71ca820895c7158cf02c3/etl.qmd#L66))
+
+        ``` python
+        import pointblank as pb
+        import polars as pl
+
+        salesforce_data = pl.read_csv("salesforce_leads_snowflake.csv")
+
+        def log_error():
+            """Custom action to log validation errors"""
+            metadata = pb.get_action_metadata()
+            print(f"❌  ERROR: Critical validation failure in step '{metadata['step']}'!")
+
+        def validate_salesforce_data(
+            data: pl.DataFrame,
+            tbl_name: str = "Salesforce",
+            label: str = "Lead Data",
+        ) -> pb.Validate:
+            validation = (
+                pb.Validate(
+                    data=data,
+                    tbl_name=tbl_name,
+                    label=f"{tbl_name} {label}",
+                    thresholds=pb.Thresholds(0.01, 0.02, 0.05),
+                    actions=pb.Actions(error=log_error),
+                    brief=True,
+                )
+                .col_vals_not_null(
+                  columns=pb.ends_with("_id")
+               )
+                .col_vals_not_null(
+                  columns=pb.ends_with("_name")
+               )
+               .col_vals_not_null(
+                columns="company"
+               )
+                .col_vals_regex(
+                  columns="email",
+                  pattern="^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\\.[a-zA-Z]{2,}$"
+               )
+                .col_vals_between(
+                    columns=["opportunity_value", "lead_score"], left=0, right=100
+                )
+                .rows_distinct(columns_subset="lead_id")
+                    .col_vals_gt(
+                    columns=["annual_revenue", "employees"], value=0
+                )
+               .col_vals_in_set(
+                  columns="lead_source",
+                  set=["Web", "Event", "Social Media"]
+               )
+                # Removed the redundant .col_vals_in_set for lead_source
+                .interrogate()
+            )
+            return validation
+          
+        validation_result = validate_salesforce_data(data=salesforce_data_clean)
+
+        print("Above error threshold?", validation_result.above_threshold(level="error"))
+        if validation_result.above_threshold(level="error"):
+            print("RAISING ERROR NOW!")
+            raise ValueError("VALIDATION FAILED - STOPPING RENDER!")
+        ```
