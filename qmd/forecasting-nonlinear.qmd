@@ -1,6 +1,6 @@
-# Nonlinear {#sec-fcast .unnumbered}
+# Nonlinear {#sec-fcast-nlin .unnumbered}
 
-## Misc {#sec-fcast-misc .unnumbered}
+## Misc {#sec-fcast-nlin-misc .unnumbered}
 
 -   Gaps in the time variable can be a problem if you are trying to interpolate between those gaps. (see bkmk, `method = "reml" + s(x, m = 1)`)
 -   Resources
@@ -27,14 +27,129 @@
             -   Exponental distribution's is simple (used in article)
             -   See article for potential solutions
 
-## STL-ELM {#sec-fcast-stlelm .unnumbered}
+## Piecewise Linear {#sec-fcast-nlin-stlelm .unnumbered}
+
+-   Simple approach that manually adds a knot at a specified location
+
+-   [Example]{.ribbon-highlight}: ([source](https://ramikrispin.github.io/r-ladies-rome-workshop/05_forecasting_with_lm.html#piecewise-linear-trend))\
+
+    ::: {layout-ncol="2"}
+    ![Linear](_resources/Forecasting,_Nonlinear.resources/piec-ex1-1.png){.lightbox group="piec-ex1" width="332"}
+
+    ![Piecewise](_resources/Forecasting,_Nonlinear.resources/piec-ex1-2.png){.lightbox group="piec-ex1" width="332"}
+    :::
+
+    ::: panel-tabset
+    ## Linear Model
+
+    ``` r
+    ts1 <-  # <1>
+      ts1 |> 
+      dplyr::filter(index > 1986) |> 
+      dplyr::mutate(trend = seq_len(dplyr::n()))
+    head(ts1)
+    # A tsibble: 6 x 4 [1Y]
+    #>   index       y series_id trend
+    #>   <int>   <int> <chr>     <int>
+    #> 1  1987 7904858 SCA           1
+    #> 2  1988 8113034 SCA           2
+    #> 3  1989 8313776 SCA           3
+    #> 4  1990 8497848 SCA           4
+    #> 5  1991 8634774 SCA           5
+    #> 6  1992 8680613 SCA           6
+
+    md1 <- lm(y ~ trend, data = ts1)
+    fit1 <- 
+      predict(object = md1, 
+              newdata = ts1,  
+              interval = "confidence", 
+              level = 0.95)
+    ts1$fit1 <- fit1[, 1]
+
+    plot_ly() |>
+      add_lines(x = ts1$index, 
+                y = ts1$y, 
+                type = "scatter", 
+                mode = "lines", 
+                name = "Actual") |> 
+      add_lines(x = ts1$index, 
+                y = ts1$fit1, 
+                mode = "lines", 
+                line = list(color = "black", 
+                            dash = "dash"), 
+                name = "Fitted") 
+    ```
+
+    1.  Removes a 0 value for [1986]{.arg-text} and adds a [trend]{.var-text} variable which is just a row index.
+
+    ## Piecewise Model
+
+    ``` r
+    s <- ts1$trend[which(ts1$index == 2008)] # <1>
+    ts1$trend2 <- pmax(0, ts1$trend - s) # <2>
+    ts1[(s-5):nrow(ts1), ] 
+    #> # A tsibble: 21 x 5 [1Y]
+    #>    index        y series_id trend trend2
+    #>    <int>    <int> <chr>     <int>  <dbl>
+    #>  1  2003  9803311 SCA          17      0
+    #>  2  2004  9957412 SCA          18      0
+    #>  3  2005 10124433 SCA          19      0
+    #>  4  2006 10329224 SCA          20      0
+    #>  5  2007 10439220 SCA          21      0
+    #>  6  2008 10515162 SCA          22      0
+    #>  7  2009 10510950 SCA          23      1
+    #>  8  2010 10542584 SCA          24      2
+    #>  9  2011 10625190 SCA          25      3
+    #> 10  2012 10681916 SCA          26      4
+    #> 11  2013 10754908 SCA          27      5
+    #> 12  2014 10781720 SCA          28      6
+    #> 13  2015 10969597 SCA          29      7
+    #> 14  2016 10916368 SCA          30      8
+    #> 15  2017 11004853 SCA          31      9
+    #> 16  2018 11025789 SCA          32     10
+    #> 17  2019 11112094 SCA          33     11
+    #> 18  2020 11186350 SCA          34     12
+    #> 19  2021 11232552 SCA          35     13
+    #> 20  2022 11280329 SCA          36     14
+    #> 21  2023 11355756 SCA          37     15
+
+
+    md2 <- 
+      lm(y ~ trend + trend2, data = ts1)
+    fit2 <- 
+      predict(object = md2, 
+              newdata = ts1,  
+              interval = "confidence", 
+              level = 0.95)
+
+    ts1$fit2 <- fit2[, 1]
+
+    plot_ly() |>
+      add_lines(x = ts1$index, 
+                y = ts1$y, 
+                type = "scatter", 
+                mode = "lines", 
+                name = "Actual") |>
+      add_lines(x = ts1$index, 
+                y = ts1$fit2, 
+                mode = "lines", 
+                line = list(color = "black", 
+                            dash = "dash"), 
+                name = "Fitted") 
+    ```
+
+    1.  This is a yearly time series, so the [index]{.var-text} values are years. [2008]{.arg-text} is where we want to place the knot to account for the change in trend.
+    2.  `pmax` chooses greatest value between zero and the expression. This results in an index starting with the value after the knot location.
+    :::
+
+## STL-ELM {.unnumbered}
 
 -   Seasonal Trend Decomposition using LOESS (STL) - Extreme Learning Machine (ELM)
 -   Hybrid univariate forecasting model for complex series (non-stationary, non-linear)
 -   The univariate series is decomposed into subseries using STL and each subseries is forecast using ELM, then those subseries forecasts are ensembled for the final forecast
     -   Each subseries is simpler and stationary
 
-## VMD-TDNN {#sec-fcast-vmdtdnn .unnumbered}
+## VMD-TDNN {#sec-fcast-nlin-vmdtdnn .unnumbered}
 
 -   Variational Mode Decomposition (VMD) Based Time Delay Neural Network Model (TDNN)
 -   Hybrid univariate forecasting model for complex series (non-stationary, non-linear)
@@ -50,7 +165,7 @@
     -   Central Frequency Method (CFM)
     -   Signal Difference Average (SDA)
 
-## Taken's Embedding {#sec-fcast-tknemb .unnumbered}
+## Taken's Embedding {#sec-fcast-nlin-tknemb .unnumbered}
 
 -   A Dynamic Systems Model that transforms the time series into space where the dimensions are determined by multiples of lags of the time series. This transformation removes the autocorrelation between the data points and allows it to be forecasted.
 
