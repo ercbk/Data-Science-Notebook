@@ -98,6 +98,22 @@
 
     -   STL uses LOESS for the seasonal component which handles fluctuations in that component better than the classical decomposition approach.
 
+    -   Advantages vs X-\* SEATS
+
+        -   Unlike SEATS and X-11, STL will handle any type of seasonality, not only monthly and quarterly data.
+
+        -   The seasonal component is allowed to change over time, and the rate of change can be controlled by the user.
+
+        -   The smoothness of the trend-cycle can also be controlled by the user.
+
+        -   It can be robust to outliers (i.e., the user can specify a robust decomposition), so that occasional unusual observations will not affect the estimates of the trend-cycle and seasonal components. They will, however, affect the remainder component.
+
+    -   A multiplicative decomposition can be obtained by first taking logs of the data, then back-transforming the components.
+
+    -   Decompositions that are between additive and multiplicative can be obtained using a Box-Cox transformation of the data with $0\lt \lambda \lt 1$.
+
+        -   $\lambda = 0$ gives a multiplicative decomposition while $\lambda = 1$ gives an additive decomposition.
+
     -   If we are interested in short- or long-term movements of the time series, we do not care about the various seasonalities. We want to know the trend component of the time series and if it has reached a turning point
 
     -   Is there strong seasonality or trend?
@@ -121,6 +137,35 @@
         -   ["seasadj"]{.arg-text} also available for [.feature_set]{.arg-text}
         -   For [.frequency]{.arg-text}, ["auto"]{.arg-text}, a time-based definition (e.g. ["2 weeks"]{.arg-text}), or a numeric number of observations per frequency (e.g. [10]{.arg-text}).
             -   ["auto"]{.arg-text} or `tk_get_frequency()` will tell you the frequency of your series.
+
+    -   [Example]{.ribbon-highlight}: [{fable}]{style="color: #990000"} ([source](https://otexts.com/fpp3/components.html#example-employment-in-the-us-retail-sector))\
+        ![](_resources/EDA,_Time_Series.resources/seas-stl-ex2-1.png){.lightbox width="532"}
+
+        ``` r
+        dcmp <- us_retail_employment |>
+          model(stl = STL(Employed))
+        components(dcmp)
+        #> # A dable: 357 x 7 [1M]
+        #> # Key:     .model [1]
+        #> # :        Employed = trend + season_year + remainder
+        #>    .model    Month Employed  trend season_year remainder season_adjust
+        #>    <chr>     <mth>    <dbl>  <dbl>       <dbl>     <dbl>         <dbl>
+        #>  1 stl    1990 Jan   13256. 13288.      -33.0      0.836        13289.
+        #>  2 stl    1990 Feb   12966. 13269.     -258.     -44.6          13224.
+        #>  3 stl    1990 Mar   12938. 13250.     -290.     -22.1          13228.
+        #>  4 stl    1990 Apr   13012. 13231.     -220.       1.05         13232.
+        #>  5 stl    1990 May   13108. 13211.     -114.      11.3          13223.
+        #>  6 stl    1990 Jun   13183. 13192.      -24.3     15.5          13207.
+        #>  7 stl    1990 Jul   13170. 13172.      -23.2     21.6          13193.
+        #>  8 stl    1990 Aug   13160. 13151.       -9.52    17.8          13169.
+        #>  9 stl    1990 Sep   13113. 13131.      -39.5     22.0          13153.
+        #> 10 stl    1990 Oct   13185. 13110.       61.6     13.2          13124.
+        #> # ℹ 347 more rows
+
+        components(dcmp) |> autoplot()
+        ```
+
+        -   For more flexible output, two main parameters can be chosen when using STL are the trend-cycle window [trend(window = ?)]{.arg-text} and the seasonal window [season(window = ?)]{.arg-text}. (See source for details)
 
     -   [Daily Seasonal Adjustment (DSA)]{.underline}
 
@@ -160,7 +205,7 @@
 
     -   If the cause behind this change is something that can be determined beforehand, then it can be used as a feature in the model
 
-    -   If you have a monotone series that's expected to continue the new trend, then adding an indicator that will be true for all future data may be useful.
+    -   If you have a monotone series that's expected to continue the new trend, then adding an indicator that will be true for all future data may be useful. ([source](https://ramikrispin.github.io/r-ladies-rome-workshop/05_forecasting_with_lm.html#structural-break-feature))
 
         ``` r
         ts$level_change <- ifelse(ts$date >= as.Date("2018-09-01"), 1, 0)
@@ -276,6 +321,10 @@
         -   "PCA the Features" below
         -   [Anomaly Detection](anomaly-detection.qmd#sec-anomdet){style="color: green"}
 
+    -   A indicator variable can also be used to account for an outlier in the data. Rather than omit the outlier, an indicator variable removes its effect. (FPP 3, [7.4](https://otexts.com/fpp3/useful-predictors.html#dummy-variables))
+
+    -   If deemed a mistake, outliers can be recoded as NA. Then an imputation/interpolation method can be applied.
+
     -   [Example]{.ribbon-highlight}: Using the Remainder to detect outliers ([source](https://ramikrispin.github.io/r-ladies-rome-workshop/02_time_series_decomposition.html#the-irregular-component-1))\
         ![](_resources/EDA,_Time_Series.resources/stat-feat-out-stl-1.png){.lightbox width="480"}
 
@@ -301,6 +350,35 @@
         -   He used 2 and 3 times the standard deviation of the remainder as thresholds for spotting outlier points.
         -   Point are orange (2x) and red (3x) in the observed series. Dashed lines in the remainder indicate the thresholds.
         -   These points require further investiigation as they might be difficult to forecast with standard modeling techniques. Features may be built so that the model can account for them.
+
+    -   [Example]{.ribbon-highlight}: Using quantiles of STL remainder ([source](https://otexts.com/fpp3/missing-outliers.html#outliers))\
+        ![](_resources/EDA,_Time_Series.resources/stat-out-ex2-1.png){.lightbox width="532"}
+
+        ``` r
+        ah_decomp <- tourism |>
+          filter(
+            Region == "Adelaide Hills", Purpose == "Visiting"
+          ) |>
+          # Fit a non-seasonal STL decomposition
+          model(
+            stl = STL(Trips ~ season(period = 1), robust = TRUE)
+          ) |>
+          components()
+        ah_decomp |> autoplot()
+
+        outliers <- ah_decomp |>
+          filter(
+            remainder < quantile(remainder, 0.25) - 3*IQR(remainder) |
+            remainder > quantile(remainder, 0.75) + 3*IQR(remainder)
+          )
+        outliers
+        #> # A dable: 1 x 9 [1Q]
+        #> # Key:     Region, State, Purpose, .model [1]
+        #> # :        Trips = trend + remainder
+        #>   Region      State Purpose .model Quarter Trips trend remainder season_adjust
+        #>   <chr>       <chr> <chr>   <chr>    <qtr> <dbl> <dbl>     <dbl>         <dbl>
+        #> 1 Adelaide H… Sout… Visiti… stl    2002 Q4  81.1  11.1      70.0          81.1
+        ```
 
     -   [Example]{.ribbon-highlight}: [{timetk}]{style="#990000"}\
         ![](_resources/EDA,_Time_Series.resources/timetk_anomaly-1.png){.lightbox width="632"}

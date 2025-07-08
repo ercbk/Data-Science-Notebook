@@ -57,6 +57,20 @@
 -   Models with large numbers (100s) of features increases the opportunity for feature drift\
     ![](./_resources/Feature_Engineering,_Time_Series.resources/1-8r1PGJhLRwVfTpIdbwi76Q.png){.lightbox width="432"}
 
+-   **Outliers**: An indicator variable can also be used to account for an outlier in the data. Rather than omit the outlier, an indicator variable removes its effect. (FPP 3, [7.4](https://otexts.com/fpp3/useful-predictors.html#dummy-variables))
+
+-   **Intervention Variables** (FPP 3, [7.4](https://otexts.com/fpp3/useful-predictors.html#dummy-variables))
+
+    -   e.g. competitor activity, advertising expenditure, industrial action
+
+    -   If the effect is only for one period, use a one hot encode called a spike variable which is equivalent to a indicator variable for handling an outlier
+
+    -   If the effect causes a level shift (i.e., the value of the series changes suddenly and permanently from the time of intervention), then use a “step” variable.
+
+        -   A step variable takes value zero before the intervention and one from the time of intervention onward.
+
+        -   See [EDA, Time Series \>\> Seasonality and Trend](eda-time-series.html#sec-eda-ts-seas){style="color: green"} \>\> Level Changes in Trend
+
 ## Tranformations {#sec-feat-eng-ts-tran .unnumbered}
 
 -   Logging a feature can create more compact ranges, which then enables more efficient neural network training
@@ -156,6 +170,37 @@
     -   Minute, hour
 
     -   Morning/afternoon/ night
+
+    -   [Example]{.ribbon-highlight}: [{fable}]{style="color: #990000"} Linear Regression ([source](https://otexts.com/fpp3/useful-predictors.html#example-australian-quarterly-beer-production-1))
+
+        ``` r
+        fit_beer <- recent_production |>
+          model(TSLM(Beer ~ trend() + season()))
+        report(fit_beer)
+        #> Series: Beer 
+        #> Model: TSLM 
+        #> 
+        #> Residuals:
+        #>    Min     1Q Median     3Q    Max 
+        #> -42.90  -7.60  -0.46   7.99  21.79 
+        #> 
+        #> Coefficients:
+        #>               Estimate Std. Error t value Pr(>|t|)    
+        #> (Intercept)   441.8004     3.7335  118.33  < 2e-16 ***
+        #> trend()        -0.3403     0.0666   -5.11  2.7e-06 ***
+        #> season()year2 -34.6597     3.9683   -8.73  9.1e-13 ***
+        #> season()year3 -17.8216     4.0225   -4.43  3.4e-05 ***
+        #> season()year4  72.7964     4.0230   18.09  < 2e-16 ***
+        #> ---
+        #> Signif. codes:  0 '***' 0.001 '**' 0.01 '*' 0.05 '.' 0.1 ' ' 1
+        #> 
+        #> Residual standard error: 12.2 on 69 degrees of freedom
+        #> Multiple R-squared: 0.924,   Adjusted R-squared: 0.92
+        #> F-statistic:  211 on 4 and 69 DF, p-value: <2e-16
+        ```
+
+        -   For a simple regression model, you want to use dummies instead of one-hot
+        -   `season` automatically takes care of creating the dummies from a tsibble
 
     -   [Example]{.ribbon-highlight}: [`step_date`](https://recipes.tidymodels.org/reference/step_date.html), [`step_time`](https://recipes.tidymodels.org/reference/step_time.html)
 
@@ -486,6 +531,20 @@
 
 ### Fourier Transform (sine, cosine) {#sec-feat-eng-ts-eng-fourier .unnumbered}
 
+-   Notes from
+
+    -   [FPP 3, 7.4](https://otexts.com/fpp3/useful-predictors.html#fourier-series)
+
+-   Often results in fewer predictors than with dummy variables
+
+-   For data with more than one seasonal period, Fourier terms of different frequencies can be included
+
+-   The smoothness of the seasonal pattern can be controlled by [K]{..arg-text}.
+
+    -   Lower [K]{..arg-text} means greater smoothing.
+
+-   The seasonal pattern is not allowed to change over time. But in practice, seasonality is usually remarkably constant so this is not a big disadvantage except for long time series
+
 -   Decision trees based algorithms (Random Forest, Gradient Boosted Trees, XGBoost) build their split rules according to one feature at a time. This means that they will fail to process these two features simultaneously whereas the cos/sin values are expected to be considered as one single coordinates system.
 
 -   Handled differently in different articles so ¯\\\_(ツ)\_/¯
@@ -545,6 +604,38 @@
     #> 10         8   7.56e- 1     -0.655
     #> # ℹ 279 more rows
     ```
+
+-   [Example]{.ribbon-highlight}: [{fable}]{style="color: #990000"} linear regression ([source](https://otexts.com/fpp3/useful-predictors.html#fourier-series))
+
+    ``` r
+    fourier_beer <- recent_production |>
+      model(TSLM(Beer ~ trend() + fourier(K = 2)))
+    report(fourier_beer)
+    #> Series: Beer 
+    #> Model: TSLM 
+    #> 
+    #> Residuals:
+    #>    Min     1Q Median     3Q    Max 
+    #> -42.90  -7.60  -0.46   7.99  21.79 
+    #> 
+    #> Coefficients:
+    #>                    Estimate Std. Error t value Pr(>|t|)    
+    #> (Intercept)        446.8792     2.8732  155.53  < 2e-16 ***
+    #> trend()             -0.3403     0.0666   -5.11  2.7e-06 ***
+    #> fourier(K = 2)C1_4   8.9108     2.0112    4.43  3.4e-05 ***
+    #> fourier(K = 2)S1_4 -53.7281     2.0112  -26.71  < 2e-16 ***
+    #> fourier(K = 2)C2_4 -13.9896     1.4226   -9.83  9.3e-15 ***
+    #> ---
+    #> Signif. codes:  0 '***' 0.001 '**' 0.01 '*' 0.05 '.' 0.1 ' ' 1
+    #> 
+    #> Residual standard error: 12.2 on 69 degrees of freedom
+    #> Multiple R-squared: 0.924,   Adjusted R-squared: 0.92
+    #> F-statistic:  211 on 4 and 69 DF, p-value: <2e-16
+    ```
+
+    -   [K]{.arg-text} specifies how many pairs of sin and cos terms to include.
+        -   The maximum allowed is $K = m/2$ where $m$ is the seasonal period (results in the same number of variables as dummy method).
+    -   [K = 2]{.arg-text} results in a sine wave
 
 ### Change Point Detection {#sec-feat-eng-ts-eng-chgpt .unnumbered}
 
