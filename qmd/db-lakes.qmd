@@ -99,7 +99,21 @@
     -   Try to stay \<1000 entries per level of hierarchy when designing the partitioning format. Otherwise there is paging and things get expensive.
     -   AWS Athena (\$5/TB scanned)
         -   [AWS Athena](https://aws.amazon.com/athena/?whats-new-cards.sort-by=item.additionalFields.postDateTime&whats-new-cards.sort-order=desc) is serverless and intended for ad-hoc SQL queries against data on AWS S3
--   Microsoft Azure Data Lake Storage (ADLS)
+-   Azure
+    -   [Data Lake Storage (ADLS)](https://azure.microsoft.com/en-us/products/storage/data-lake-storage/)
+        -   Big data analytics workloads (Hadoop, Spark, etc.)
+        -   ADLS Gen2 uses a hierarchical namespace which mimics a directory structure (e.g., folders/files). This enables high-performance analytics scenarios.
+        -   Supports HDFS-like interface (e.g. Hadoop)
+        -   Optimized for Azure Synapse, Databricks, HDInsight
+        -   ADLS Gen2 is built on top of Blob Storage, so you pay the same base storage costs plus some for additional capabilities.
+        -   Use Cases
+            -   Building a data lake for analytics workloads
+            -   Integrating with Spark, Synapse, Databricks
+    -   [Blob Storage](https://azure.microsoft.com/en-us/products/storage/blobs/) - Massively scalable and secure object storage for cloud-native workloads, archives, data lakes, HPC, and machine learning
+        -   General-purpose object storage (images, docs, backups, etc.)
+        -   Use Cases:
+            -   Web/mobile app data, backups, media files
+            -   Archiving and static content delivery
 -   [**Minio**](https://min.io/)
     -   Open-Source alternative to AWS S3 storage.
     -   Given that S3 often stores customer PII (either inadvertently via screenshots or actual structured JSON files), Minio is a great alternative to companies mindful of who has access to user data.
@@ -152,7 +166,88 @@
 -   Resources
     -   [Intro](https://duckdb.org/2025/05/27/ducklake) (with examples), [Docs](https://duckdb.org/docs/stable/core_extensions/ducklake.html)
     -   [Catalog Database Options](https://ducklake.select/docs/stable/duckdb/usage/choosing_a_catalog_database)
--   Open source table format which Instead of using a catalog architecture (like in Iceberg) for metadata, DuckLake uses a database to much more efficiently and effectively manage the metadata needed to support changes.
+-   Open source table format which Instead of using a catalog architecture (hierarchical filing system like in Iceberg) for metadata, DuckLake uses a database to much more efficiently and effectively manage the metadata needed to support changes.
     -   Also what Google BigQuery (with **Spanner**) and Snowflake (with **FoundationDB**) have chosen, just without the open formats at the bottom
 -   The SQL database that hosts the *catalog server* can be any halfway competent SQL database that supports ACID and primary key constraints. (e.g. PostgreSQL, SQLite, MySQL and MotherDuck)
 -   Supports integration with any storage system like local disk, local NAS, S3, Azure Blob Store, GCS, etc. The storage prefix for data files (e.g., `s3://mybucket/mylake/`) is specified when the metadata tables are created.
+-   Requires \>version 1.3.1
+-   Operations ([source](https://tomsing1.github.io/blog/posts/ducklake/))
+    -   words
+
+        ``` r
+        db_file <- file.path(tempdir(), "metadata.ducklake")
+        work_dir <- file.path(tempdir(), "lake_data_files")
+
+        con <- dbConnect(duckdb())
+        db_path <- glue_sql('{paste0("ducklake:", db_file)}', .con = con)
+
+        "
+        INSTALL ducklake;
+        ATTACH ?db_path AS my_ducklake (DATA_PATH ?work_dir);
+        USE my_ducklake;
+        "
+
+        dbWriteTable(
+          conn = con, 
+          name = "stats",
+          value = dplyr::filter(stats, contrast %in% c("two_months", "four_months"))
+        )
+        dbWriteTable(con, "exprs", exprs)
+
+        "
+        SELECT contrast, COUNT(symbol) FROM my_ducklake.stats GROUP BY contrast;
+        "
+
+        lazy_df <- 
+          tbl(con, "stats") |>
+          dplyr::filter(symbol == "Cd34")
+        lazy_df
+        #> # Source:   SQL [?? x 9]
+        #> # Database: DuckDB v1.3.1 [root@Darwin 24.5.0:R 4.5.0/:memory:]
+        #>   study     contrast    symbol gene_id      logFC  CI.L  CI.R  P.Value adj.P.Val
+        #>   <chr>     <chr>       <chr>  <chr>        <dbl> <dbl> <dbl>    <dbl>     <dbl>
+        #> 1 Wang_2018 two_months  Cd34   ENSMUSG0000…  1.10 0.935  1.26 2.21e-14  2.23e-10
+        #> 2 Wang_2018 four_months Cd34   ENSMUSG0000…  1.99 1.81   2.18 6.75e-20  7.51e-17
+
+        "
+        FROM ducklake_table_info('my_ducklake')
+        "
+        fs::dir_info(file.path(work_dir, "main", "stats")) |>
+          dplyr::mutate(filename = basename(path)) |>
+          dplyr::select(filename, size)
+
+        dbAppendTable(
+          conn = con, 
+          name = "stats",
+          value = dplyr::filter(stats, contrast %in% c("six_months", "eight_months"))
+        )
+
+        fs::dir_info(file.path(work_dir, "main", "stats")) |>
+          dplyr::mutate(filename = basename(path)) |>
+          dplyr::select(filename, size)
+
+        dbExecute(conn = con, "USE memory; DETACH my_ducklake;")
+        dbDisconnect(con)
+        ```
+
+    -   Python
+
+        ``` python
+        import duckdb
+
+        con = duckdb.connect(database = ":memory:")
+        con.sql("INSTALL ducklake")
+
+        con.sql(
+          f"""
+          ATTACH 'ducklake:{r.db_file}' AS my_ducklake (READ_ONLY);
+          """)
+        df = con.sql(
+          """
+          USE my_ducklake;
+          SELECT * FROM stats LIMIT 1000;
+          """
+        ).to_df()
+
+        con.close()
+        ```
