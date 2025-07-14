@@ -90,8 +90,6 @@
 
 ## Brands {#sec-db-lakes-brands .unnumbered}
 
--   Hadoop
-    -   Traditional format for data lakes
 -   Amazon S3
     -   **Add a hash to your bucket names and explicitly specify your bucket region!!**
         -   Some dude casually named his bucket and was charged \>\$1K in a day, because some software was unintentionally hitting his bucket. Even if they don't have access, just *trying* to access it creates charges. ([link](https://medium.com/@maciej.pocwierz/how-an-empty-s3-bucket-can-make-your-aws-bill-explode-934a383cb8b1))
@@ -99,6 +97,7 @@
     -   Try to stay \<1000 entries per level of hierarchy when designing the partitioning format. Otherwise there is paging and things get expensive.
     -   AWS Athena (\$5/TB scanned)
         -   [AWS Athena](https://aws.amazon.com/athena/?whats-new-cards.sort-by=item.additionalFields.postDateTime&whats-new-cards.sort-order=desc) is serverless and intended for ad-hoc SQL queries against data on AWS S3
+-   [Apache Hudi](https://hudi.apache.org/) - A transactional data lake platform that brings database and data warehouse capabilities to the data lake. Hudi reimagines slow old-school batch data processing with a powerful new incremental processing framework for low latency minute-level analytics.
 -   Azure
     -   [Data Lake Storage (ADLS)](https://azure.microsoft.com/en-us/products/storage/data-lake-storage/)
         -   Big data analytics workloads (Hadoop, Spark, etc.)
@@ -115,14 +114,18 @@
         -   Use Cases:
             -   Web/mobile app data, backups, media files
             -   Archiving and static content delivery
--   [**Minio**](https://min.io/)
-    -   Open-Source alternative to AWS S3 storage.
-    -   Given that S3 often stores customer PII (either inadvertently via screenshots or actual structured JSON files), Minio is a great alternative to companies mindful of who has access to user data.
-        -   Of course, [AWS claims that AWS personnel](https://aws.amazon.com/compliance/privacy-features/#:~:text=We%20prohibit%2C%20and%20our%20systems,or%20to%20comply%20with%20law.) doesn’t have direct access to customer data, but by being closed-source, that statement is just a function of trust.
 -   [Databricks Delta Lake](https://www.databricks.com/product/delta-lake-on-databricks)
 -   [Google Cloud Storage](https://cloud.google.com/storage/?hl=en)
     -   5 GB of US regional storage free per month, not charged against your credits.
--   [Apache Hudi](https://hudi.apache.org/) - A transactional data lake platform that brings database and data warehouse capabilities to the data lake. Hudi reimagines slow old-school batch data processing with a powerful new incremental processing framework for low latency minute-level analytics.
+-   Hadoop
+    -   Traditional format for data lakes
+-   [Linode/Akaime Cloud S3](https://www.linode.com/products/object-storage/)
+-   [Minio](https://min.io/)
+    -   Open-Source alternative to AWS S3 storage.
+    -   Given that S3 often stores customer PII (either inadvertently via screenshots or actual structured JSON files), Minio is a great alternative to companies mindful of who has access to user data.
+        -   Of course, [AWS claims that AWS personnel](https://aws.amazon.com/compliance/privacy-features/#:~:text=We%20prohibit%2C%20and%20our%20systems,or%20to%20comply%20with%20law.) doesn’t have direct access to customer data, but by being closed-source, that statement is just a function of trust.
+-   [Wasabi Object Storage](https://wasabi.com/cloud-object-storage)
+    -   \$7/month per terabyte
 
 ## Lakehouses {#sec-db-lakes-lkhs .unnumbered}
 
@@ -302,7 +305,7 @@
     -   `ATTACH` has the paths for the data files and the metadata files
     -   `USE` sets this db as the default
 
--   Operations
+-   Basic Operations
 
     -   Create Schema and Table
 
@@ -332,3 +335,100 @@
             (3, 'Alice', 'Johnston', '2023-05-05');
         """)
         ```
+
+    -   Check file structure
+
+        ``` python
+        duckdb.sql(f"""
+            FROM glob('{ducklake_files}/*');
+            """)
+
+        #> ┌────────────────────────────────────────────────────────────────────────────────────┐
+        #> │                                        file                                        │
+        #> │                                      varchar                                       │
+        #> ├────────────────────────────────────────────────────────────────────────────────────┤
+        #> │ ../ducklake_basic/data_files/ducklake-01978495-e183-7763-bf40-d9a85988eed9.parquet │
+        #> └────────────────────────────────────────────────────────────────────────────────────┘
+        ```
+
+        -   Flat file structure with UUID-based naming which is quite different from hierarchical folder structures used by other lakehouse formats
+
+    -   Fetch a parquet file and read it
+
+        ``` python
+        # Extract the parquet file name
+        parquet_file = duckdb.sql(f"""
+            SELECT file FROM glob('{ducklake_files}/*.parquet') LIMIT 1;
+            """).fetchone()[0]
+
+        # Inspect the file contents
+        duckdb.sql(f"""
+            SELECT * FROM read_parquet('{parquet_file}');
+            """)
+        #> ┌─────────────┬────────────┬───────────┬─────────────┐
+        #> │ customer_id │ first_name │ last_name │ date_joined │
+        #> │    int32    │  varchar   │  varchar  │    date     │
+        #> ├─────────────┼────────────┼───────────┼─────────────┤
+        #> │           1 │ Jane       │ Dunbar    │ 2023-01-11  │
+        #> │           2 │ Jimmy      │ Smith     │ 2024-08-26  │
+        #> │           3 │ Alice      │ Johnston  │ 2023-05-05  │
+        #> └─────────────┴────────────┴───────────┴─────────────┘
+        ```
+
+    -   View snapshot
+
+        ``` python
+        duckdb.sql("""
+            SELECT * FROM ducklake_snapshots('ducklake_basic_db');
+            """)
+        #> ┌─────────────┬────────────────────────────┬────────────────┬─────────────────────────────────────────────────────────────────────────┐
+        #> │ snapshot_id │       snapshot_time        │ schema_version │                                 changes                                 │
+        #> │    int64    │  timestamp with time zone  │     int64      │                         map(varchar, varchar[])                         │
+        #> ├─────────────┼────────────────────────────┼────────────────┼─────────────────────────────────────────────────────────────────────────┤
+        #> │           0 │ 2025-06-18 19:48:24.41+00  │              0 │ {schemas_created=[main]}                                                │
+        #> │           1 │ 2025-06-18 19:48:24.489+00 │              1 │ {schemas_created=[retail_sales]}                                        │
+        #> │           2 │ 2025-06-18 19:48:24.533+00 │              2 │ {tables_created=[retail_sales.customer]}                                │
+        #> │           3 │ 2025-06-18 19:48:24.554+00 │              2 │ {tables_inserted_into=[2]}                                              │
+        #> └─────────────┴────────────────────────────┴────────────────┴─────────────────────────────────────────────────────────────────────────┘
+        ```
+
+        -   Every operation in DuckLake creates a snapshot — a point-in-time view of the database state
+
+        -   Interpretation
+
+            -   Snapshot 0: Default `main` schema created
+            -   Snapshot 1: Our `retail_sales` schema created
+            -   Snapshot 2: Customer table created
+            -   Snapshot 3: Data inserted into the table
+
+    -   Update and Delete
+
+        ``` python
+        duckdb.sql("""
+            UPDATE customer SET first_name = 'Alice', last_name = 'Fraser' WHERE customer_id = 3;
+            """)
+        duckdb.sql("""
+            DELETE FROM customer WHERE customer_id = 2;
+            """)
+        ```
+
+        -   DuckLake creates separate "delete files" that reference the original data files and specify which rows should be considered deleted. This approach allows for efficient deletes without rewriting large data files.
+
+-   Time Travel
+
+    ``` python
+    max_snapshot_id = duckdb.sql("""
+        SELECT MAX(snapshot_id) FROM ducklake_snapshots('ducklake_basic_db');
+        """).fetchone()[0]
+
+    duckdb.sql(f""" # <1>
+        SELECT * FROM customer AT (VERSION => {max_snapshot_id - 1});
+        """)
+
+    duckdb.sql(f""" # <2>
+        SELECT * FROM customer AT (VERSION => {max_snapshot_id - 2});
+        """)
+    ```
+
+    1.  Query data as it was prior to the latest action
+    2.  Query data as it was prior to the 2 latest actions
