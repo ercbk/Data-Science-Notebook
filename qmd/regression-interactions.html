@@ -2147,6 +2147,7 @@ window.Quarto = {
   <li><a href="#sec-reg-inter-logreg" id="toc-sec-reg-inter-logreg" class="nav-link" data-scroll-target="#sec-reg-inter-logreg">Logistic Regression</a>
   <ul>
   <li><a href="#sec-reg-inter-logreg-misc" id="toc-sec-reg-inter-logreg-misc" class="nav-link" data-scroll-target="#sec-reg-inter-logreg-misc">Misc</a></li>
+  <li><a href="#sec-reg-inter-logreg-contcont" id="toc-sec-reg-inter-logreg-contcont" class="nav-link" data-scroll-target="#sec-reg-inter-logreg-contcont">Continuous:Continuous</a></li>
   <li><a href="#sec-reg-inter-logreg-bincont" id="toc-sec-reg-inter-logreg-bincont" class="nav-link" data-scroll-target="#sec-reg-inter-logreg-bincont">Binary:Continuous</a></li>
   </ul></li>
   <li><a href="#sec-reg-inter-poisnegbin" id="toc-sec-reg-inter-poisnegbin" class="nav-link" data-scroll-target="#sec-reg-inter-poisnegbin">Poisson/Neg.Binomial</a></li>
@@ -2908,21 +2909,126 @@ window.Quarto = {
 </ul></li>
 </ul>
 </section>
+<section id="sec-reg-inter-logreg-contcont" class="level3 unnumbered">
+<h3 class="unnumbered anchored" data-anchor-id="sec-reg-inter-logreg-contcont">Continuous:Continuous</h3>
+<ul>
+<li><span class="ribbon-highlight">Example</span>: Spam or Ham
+<ul>
+<li><p>Set-Up</p>
+<div class="sourceCode" id="cb19"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb19-1"><a href="#cb19-1" aria-hidden="true" tabindex="-1"></a><span class="fu">library</span>(brms)</span>
+<span id="cb19-2"><a href="#cb19-2" aria-hidden="true" tabindex="-1"></a><span class="fu">library</span>(bayestestR)</span>
+<span id="cb19-3"><a href="#cb19-3" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb19-4"><a href="#cb19-4" aria-hidden="true" tabindex="-1"></a><span class="co"># Scaling the predictors first</span></span>
+<span id="cb19-5"><a href="#cb19-5" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb19-6"><a href="#cb19-6" aria-hidden="true" tabindex="-1"></a>model_data <span class="ot">&lt;-</span> model_data <span class="sc">%&gt;%</span></span>
+<span id="cb19-7"><a href="#cb19-7" aria-hidden="true" tabindex="-1"></a>  <span class="fu">mutate</span>(</span>
+<span id="cb19-8"><a href="#cb19-8" aria-hidden="true" tabindex="-1"></a>    <span class="fu">across</span>(</span>
+<span id="cb19-9"><a href="#cb19-9" aria-hidden="true" tabindex="-1"></a>      <span class="fu">all_of</span>(<span class="fu">c</span>(<span class="st">"pc_aggression"</span>,</span>
+<span id="cb19-10"><a href="#cb19-10" aria-hidden="true" tabindex="-1"></a>                    <span class="st">"word_count"</span>,</span>
+<span id="cb19-11"><a href="#cb19-11" aria-hidden="true" tabindex="-1"></a>                    <span class="st">"pc_incoherence"</span>,</span>
+<span id="cb19-12"><a href="#cb19-12" aria-hidden="true" tabindex="-1"></a>                    <span class="st">"exclamation_count"</span>)),</span>
+<span id="cb19-13"><a href="#cb19-13" aria-hidden="true" tabindex="-1"></a>      <span class="sc">~</span> <span class="fu">as.numeric</span>(</span>
+<span id="cb19-14"><a href="#cb19-14" aria-hidden="true" tabindex="-1"></a>        <span class="fu">scale</span>(.x)</span>
+<span id="cb19-15"><a href="#cb19-15" aria-hidden="true" tabindex="-1"></a>        )</span>
+<span id="cb19-16"><a href="#cb19-16" aria-hidden="true" tabindex="-1"></a>      )</span>
+<span id="cb19-17"><a href="#cb19-17" aria-hidden="true" tabindex="-1"></a>    )</span>
+<span id="cb19-18"><a href="#cb19-18" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb19-19"><a href="#cb19-19" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb19-20"><a href="#cb19-20" aria-hidden="true" tabindex="-1"></a><span class="co"># Set our priors based on expected small-to-medium effects</span></span>
+<span id="cb19-21"><a href="#cb19-21" aria-hidden="true" tabindex="-1"></a>d_expected <span class="ot">&lt;-</span> <span class="fl">0.3</span></span>
+<span id="cb19-22"><a href="#cb19-22" aria-hidden="true" tabindex="-1"></a>prior_sd <span class="ot">&lt;-</span> d_expected <span class="sc">*</span> pi <span class="sc">/</span> <span class="fu">sqrt</span>(<span class="dv">3</span>)  <span class="co"># ≈ 0.54</span></span>
+<span id="cb19-23"><a href="#cb19-23" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb19-24"><a href="#cb19-24" aria-hidden="true" tabindex="-1"></a><span class="co"># Define priors for all coefficients</span></span>
+<span id="cb19-25"><a href="#cb19-25" aria-hidden="true" tabindex="-1"></a>priors <span class="ot">&lt;-</span> <span class="fu">c</span>(</span>
+<span id="cb19-26"><a href="#cb19-26" aria-hidden="true" tabindex="-1"></a>  <span class="fu">prior</span>(<span class="fu">normal</span>(<span class="dv">0</span>, <span class="fl">0.54</span>), <span class="at">class =</span> b)  <span class="co"># All slopes get the same prior</span></span>
+<span id="cb19-27"><a href="#cb19-27" aria-hidden="true" tabindex="-1"></a>)</span>
+<span id="cb19-28"><a href="#cb19-28" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb19-29"><a href="#cb19-29" aria-hidden="true" tabindex="-1"></a><span class="co"># Fit the model</span></span>
+<span id="cb19-30"><a href="#cb19-30" aria-hidden="true" tabindex="-1"></a>spam_model <span class="ot">&lt;-</span> <span class="fu">brm</span>(        </span>
+<span id="cb19-31"><a href="#cb19-31" aria-hidden="true" tabindex="-1"></a>  is_spam <span class="sc">~</span> (pc_aggression <span class="sc">+</span> pc_incoherence) <span class="sc">*</span> </span>
+<span id="cb19-32"><a href="#cb19-32" aria-hidden="true" tabindex="-1"></a>            (word_count <span class="sc">+</span> exclamation_count),</span>
+<span id="cb19-33"><a href="#cb19-33" aria-hidden="true" tabindex="-1"></a>  <span class="at">data =</span> model_data,</span>
+<span id="cb19-34"><a href="#cb19-34" aria-hidden="true" tabindex="-1"></a>  <span class="at">family =</span> <span class="fu">bernoulli</span>(),</span>
+<span id="cb19-35"><a href="#cb19-35" aria-hidden="true" tabindex="-1"></a>  <span class="at">prior =</span> priors,</span>
+<span id="cb19-36"><a href="#cb19-36" aria-hidden="true" tabindex="-1"></a>  <span class="at">cores =</span> <span class="dv">4</span>,</span>
+<span id="cb19-37"><a href="#cb19-37" aria-hidden="true" tabindex="-1"></a>  <span class="at">iter =</span> <span class="dv">2000</span>,</span>
+<span id="cb19-38"><a href="#cb19-38" aria-hidden="true" tabindex="-1"></a>  <span class="at">warmup =</span> <span class="dv">1000</span>,</span>
+<span id="cb19-39"><a href="#cb19-39" aria-hidden="true" tabindex="-1"></a>  <span class="at">chains =</span> <span class="dv">4</span>,</span>
+<span id="cb19-40"><a href="#cb19-40" aria-hidden="true" tabindex="-1"></a>  <span class="at">seed =</span> <span class="dv">123</span></span>
+<span id="cb19-41"><a href="#cb19-41" aria-hidden="true" tabindex="-1"></a>)</span>
+<span id="cb19-42"><a href="#cb19-42" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb19-43"><a href="#cb19-43" aria-hidden="true" tabindex="-1"></a><span class="fu">library</span>(marginaleffects)</span>
+<span id="cb19-44"><a href="#cb19-44" aria-hidden="true" tabindex="-1"></a><span class="fu">library</span>(tidybayes)</span>
+<span id="cb19-45"><a href="#cb19-45" aria-hidden="true" tabindex="-1"></a><span class="fu">library</span>(ggdist)</span>
+<span id="cb19-46"><a href="#cb19-46" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb19-47"><a href="#cb19-47" aria-hidden="true" tabindex="-1"></a>rope <span class="ot">=</span> <span class="fu">c</span>(<span class="sc">-</span><span class="fl">0.05</span>,<span class="fl">0.05</span>)</span>
+<span id="cb19-48"><a href="#cb19-48" aria-hidden="true" tabindex="-1"></a>ci  <span class="ot">=</span> <span class="fl">1.0</span></span>
+<span id="cb19-49"><a href="#cb19-49" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb19-50"><a href="#cb19-50" aria-hidden="true" tabindex="-1"></a>main_effects <span class="ot">&lt;-</span> <span class="fu">avg_slopes</span>(spam_model,<span class="at">type =</span> <span class="st">"response"</span>)</span>
+<span id="cb19-51"><a href="#cb19-51" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb19-52"><a href="#cb19-52" aria-hidden="true" tabindex="-1"></a>bayestestR<span class="sc">::</span><span class="fu">ci</span>(main_effects,<span class="at">ci =</span> ci, <span class="at">method =</span> <span class="st">"HDI"</span>)</span>
+<span id="cb19-53"><a href="#cb19-53" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb19-54"><a href="#cb19-54" aria-hidden="true" tabindex="-1"></a><span class="co"># Interaction 1: How does pc_incoherence's effect vary with message length?</span></span>
+<span id="cb19-55"><a href="#cb19-55" aria-hidden="true" tabindex="-1"></a>incoherence_by_wordcount <span class="ot">&lt;-</span> <span class="fu">avg_slopes</span>(</span>
+<span id="cb19-56"><a href="#cb19-56" aria-hidden="true" tabindex="-1"></a>    spam_model,</span>
+<span id="cb19-57"><a href="#cb19-57" aria-hidden="true" tabindex="-1"></a>    <span class="at">variables =</span> <span class="st">"pc_incoherence"</span>,</span>
+<span id="cb19-58"><a href="#cb19-58" aria-hidden="true" tabindex="-1"></a>    <span class="at">newdata   =</span> <span class="fu">datagrid</span>(</span>
+<span id="cb19-59"><a href="#cb19-59" aria-hidden="true" tabindex="-1"></a>        <span class="at">word_count =</span> <span class="fu">quantile</span>(model_data<span class="sc">$</span>word_count, </span>
+<span id="cb19-60"><a href="#cb19-60" aria-hidden="true" tabindex="-1"></a>                            <span class="at">probs =</span> <span class="fu">c</span>(.<span class="dv">05</span>, .<span class="dv">25</span>, .<span class="dv">50</span>, .<span class="dv">75</span>, .<span class="dv">95</span>))</span>
+<span id="cb19-61"><a href="#cb19-61" aria-hidden="true" tabindex="-1"></a>    ),</span>
+<span id="cb19-62"><a href="#cb19-62" aria-hidden="true" tabindex="-1"></a>    <span class="at">type      =</span> <span class="st">"response"</span></span>
+<span id="cb19-63"><a href="#cb19-63" aria-hidden="true" tabindex="-1"></a>)</span>
+<span id="cb19-64"><a href="#cb19-64" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb19-65"><a href="#cb19-65" aria-hidden="true" tabindex="-1"></a><span class="co"># Interaction 2: How pc_incoherence's effect changes with exclamation count</span></span>
+<span id="cb19-66"><a href="#cb19-66" aria-hidden="true" tabindex="-1"></a>incoherence_by_exclamation <span class="ot">&lt;-</span> <span class="fu">avg_slopes</span>(</span>
+<span id="cb19-67"><a href="#cb19-67" aria-hidden="true" tabindex="-1"></a>    spam_model,</span>
+<span id="cb19-68"><a href="#cb19-68" aria-hidden="true" tabindex="-1"></a>    <span class="at">variables =</span> <span class="st">"pc_incoherence"</span>,</span>
+<span id="cb19-69"><a href="#cb19-69" aria-hidden="true" tabindex="-1"></a>    <span class="at">newdata   =</span> <span class="fu">datagrid</span>(</span>
+<span id="cb19-70"><a href="#cb19-70" aria-hidden="true" tabindex="-1"></a>        <span class="at">exclamation_count =</span> <span class="fu">quantile</span>(model_data<span class="sc">$</span>exclamation_count, </span>
+<span id="cb19-71"><a href="#cb19-71" aria-hidden="true" tabindex="-1"></a>                                   <span class="at">probs =</span> <span class="fu">c</span>(.<span class="dv">05</span>, .<span class="dv">25</span>, .<span class="dv">50</span>, .<span class="dv">75</span>, .<span class="dv">95</span>))</span>
+<span id="cb19-72"><a href="#cb19-72" aria-hidden="true" tabindex="-1"></a>    ),</span>
+<span id="cb19-73"><a href="#cb19-73" aria-hidden="true" tabindex="-1"></a>    <span class="at">type      =</span> <span class="st">"response"</span></span>
+<span id="cb19-74"><a href="#cb19-74" aria-hidden="true" tabindex="-1"></a>)</span>
+<span id="cb19-75"><a href="#cb19-75" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb19-76"><a href="#cb19-76" aria-hidden="true" tabindex="-1"></a><span class="co"># Interaction 3: How pc_aggression's effect changes with exclamation count</span></span>
+<span id="cb19-77"><a href="#cb19-77" aria-hidden="true" tabindex="-1"></a>aggression_by_exclamation <span class="ot">&lt;-</span> <span class="fu">avg_slopes</span>(</span>
+<span id="cb19-78"><a href="#cb19-78" aria-hidden="true" tabindex="-1"></a>    spam_model,</span>
+<span id="cb19-79"><a href="#cb19-79" aria-hidden="true" tabindex="-1"></a>    <span class="at">variables =</span> <span class="st">"pc_aggression"</span>,</span>
+<span id="cb19-80"><a href="#cb19-80" aria-hidden="true" tabindex="-1"></a>    <span class="at">newdata   =</span> <span class="fu">datagrid</span>(</span>
+<span id="cb19-81"><a href="#cb19-81" aria-hidden="true" tabindex="-1"></a>        <span class="at">exclamation_count =</span> <span class="fu">quantile</span>(model_data<span class="sc">$</span>exclamation_count, </span>
+<span id="cb19-82"><a href="#cb19-82" aria-hidden="true" tabindex="-1"></a>                                   <span class="at">probs =</span> <span class="fu">c</span>(.<span class="dv">05</span>, .<span class="dv">25</span>, .<span class="dv">50</span>, .<span class="dv">75</span>, .<span class="dv">95</span>))</span>
+<span id="cb19-83"><a href="#cb19-83" aria-hidden="true" tabindex="-1"></a>    ),</span>
+<span id="cb19-84"><a href="#cb19-84" aria-hidden="true" tabindex="-1"></a>    <span class="at">type      =</span> <span class="st">"response"</span></span>
+<span id="cb19-85"><a href="#cb19-85" aria-hidden="true" tabindex="-1"></a>)</span>
+<span id="cb19-86"><a href="#cb19-86" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb19-87"><a href="#cb19-87" aria-hidden="true" tabindex="-1"></a><span class="co"># Interaction 4: How pc_aggression's effect changes with word count</span></span>
+<span id="cb19-88"><a href="#cb19-88" aria-hidden="true" tabindex="-1"></a>aggression_by_wordcount <span class="ot">&lt;-</span> <span class="fu">avg_slopes</span>(</span>
+<span id="cb19-89"><a href="#cb19-89" aria-hidden="true" tabindex="-1"></a>    spam_model,</span>
+<span id="cb19-90"><a href="#cb19-90" aria-hidden="true" tabindex="-1"></a>    <span class="at">variables =</span> <span class="st">"pc_aggression"</span>,</span>
+<span id="cb19-91"><a href="#cb19-91" aria-hidden="true" tabindex="-1"></a>    <span class="at">newdata   =</span> <span class="fu">datagrid</span>(</span>
+<span id="cb19-92"><a href="#cb19-92" aria-hidden="true" tabindex="-1"></a>        <span class="at">word_count =</span> <span class="fu">quantile</span>(model_data<span class="sc">$</span>word_count, </span>
+<span id="cb19-93"><a href="#cb19-93" aria-hidden="true" tabindex="-1"></a>                            <span class="at">probs =</span> <span class="fu">c</span>(.<span class="dv">05</span>, .<span class="dv">25</span>, .<span class="dv">50</span>, .<span class="dv">75</span>, .<span class="dv">95</span>))</span>
+<span id="cb19-94"><a href="#cb19-94" aria-hidden="true" tabindex="-1"></a>    ),</span>
+<span id="cb19-95"><a href="#cb19-95" aria-hidden="true" tabindex="-1"></a>    <span class="at">type      =</span> <span class="st">"response"</span></span>
+<span id="cb19-96"><a href="#cb19-96" aria-hidden="true" tabindex="-1"></a>)</span></code><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></pre></div></li>
+</ul></li>
+</ul>
+</section>
 <section id="sec-reg-inter-logreg-bincont" class="level3 unnumbered">
 <h3 class="unnumbered anchored" data-anchor-id="sec-reg-inter-logreg-bincont">Binary:Continuous</h3>
 <ul>
 <li><span class="ribbon-highlight">Example</span>:
 <ul>
 <li><p>Description</p>
-<div class="sourceCode" id="cb19"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb19-1"><a href="#cb19-1" aria-hidden="true" tabindex="-1"></a>dat_clean <span class="ot">&lt;-</span> dat <span class="sc">%&gt;%</span>&nbsp;</span>
-<span id="cb19-2"><a href="#cb19-2" aria-hidden="true" tabindex="-1"></a>&nbsp; <span class="fu">mutate</span>(<span class="at">f =</span> <span class="fu">factor</span>(f, <span class="at">labels =</span> <span class="fu">c</span>(<span class="st">"female"</span>, <span class="st">"male"</span>)))</span>
-<span id="cb19-3"><a href="#cb19-3" aria-hidden="true" tabindex="-1"></a>concat <span class="ot">&lt;-</span> <span class="fu">glm</span>(y <span class="sc">~</span> f<span class="sc">*</span>s, <span class="at">family =</span> binomial, <span class="at">data =</span> dat_clean)</span>
-<span id="cb19-4"><a href="#cb19-4" aria-hidden="true" tabindex="-1"></a><span class="fu">summary</span>(concat)</span>
-<span id="cb19-5"><a href="#cb19-5" aria-hidden="true" tabindex="-1"></a><span class="co">#&gt; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; Estimate  Std. Error  z value  Pr(&gt;|z|)&nbsp; &nbsp;</span></span>
-<span id="cb19-6"><a href="#cb19-6" aria-hidden="true" tabindex="-1"></a><span class="co">#&gt; (Intercept) -9.25380&nbsp; &nbsp;  1.94189&nbsp;  -4.765  1.89e-06 ***</span></span>
-<span id="cb19-7"><a href="#cb19-7" aria-hidden="true" tabindex="-1"></a><span class="co">#&gt; fmale&nbsp; &nbsp; &nbsp; &nbsp; 5.78681&nbsp; &nbsp;  2.30252&nbsp;   2.513&nbsp;   0.0120 *&nbsp;</span></span>
-<span id="cb19-8"><a href="#cb19-8" aria-hidden="true" tabindex="-1"></a><span class="co">#&gt; s&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; 0.17734&nbsp; &nbsp;  0.03644&nbsp;   4.867  1.13e-06 ***</span></span>
-<span id="cb19-9"><a href="#cb19-9" aria-hidden="true" tabindex="-1"></a><span class="co">#&gt; fmale:s&nbsp; &nbsp;  -0.08955&nbsp; &nbsp;  0.04392&nbsp;  -2.039&nbsp;   0.0414 *</span></span></code><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></pre></div>
+<div class="sourceCode" id="cb20"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb20-1"><a href="#cb20-1" aria-hidden="true" tabindex="-1"></a>dat_clean <span class="ot">&lt;-</span> dat <span class="sc">%&gt;%</span>&nbsp;</span>
+<span id="cb20-2"><a href="#cb20-2" aria-hidden="true" tabindex="-1"></a>&nbsp; <span class="fu">mutate</span>(<span class="at">f =</span> <span class="fu">factor</span>(f, <span class="at">labels =</span> <span class="fu">c</span>(<span class="st">"female"</span>, <span class="st">"male"</span>)))</span>
+<span id="cb20-3"><a href="#cb20-3" aria-hidden="true" tabindex="-1"></a>concat <span class="ot">&lt;-</span> <span class="fu">glm</span>(y <span class="sc">~</span> f<span class="sc">*</span>s, <span class="at">family =</span> binomial, <span class="at">data =</span> dat_clean)</span>
+<span id="cb20-4"><a href="#cb20-4" aria-hidden="true" tabindex="-1"></a><span class="fu">summary</span>(concat)</span>
+<span id="cb20-5"><a href="#cb20-5" aria-hidden="true" tabindex="-1"></a><span class="co">#&gt; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; Estimate  Std. Error  z value  Pr(&gt;|z|)&nbsp; &nbsp;</span></span>
+<span id="cb20-6"><a href="#cb20-6" aria-hidden="true" tabindex="-1"></a><span class="co">#&gt; (Intercept) -9.25380&nbsp; &nbsp;  1.94189&nbsp;  -4.765  1.89e-06 ***</span></span>
+<span id="cb20-7"><a href="#cb20-7" aria-hidden="true" tabindex="-1"></a><span class="co">#&gt; fmale&nbsp; &nbsp; &nbsp; &nbsp; 5.78681&nbsp; &nbsp;  2.30252&nbsp;   2.513&nbsp;   0.0120 *&nbsp;</span></span>
+<span id="cb20-8"><a href="#cb20-8" aria-hidden="true" tabindex="-1"></a><span class="co">#&gt; s&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; 0.17734&nbsp; &nbsp;  0.03644&nbsp;   4.867  1.13e-06 ***</span></span>
+<span id="cb20-9"><a href="#cb20-9" aria-hidden="true" tabindex="-1"></a><span class="co">#&gt; fmale:s&nbsp; &nbsp;  -0.08955&nbsp; &nbsp;  0.04392&nbsp;  -2.039&nbsp;   0.0414 *</span></span></code><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></pre></div>
 <ul>
 <li><span class="var-text">y</span>: Binary Outcome</li>
 <li><span class="var-text">s</span> (IV): Continuous Variable</li>
@@ -2930,12 +3036,12 @@ window.Quarto = {
 <li><span class="var-text">cv1</span>: Continuous Adjustment Variable</li>
 </ul></li>
 <li><p><u>Marginal effects of continuous (IV) by each level of the categorical (moderator)</u></p>
-<div class="sourceCode" id="cb20"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb20-1"><a href="#cb20-1" aria-hidden="true" tabindex="-1"></a><span class="co"># via {marginaleffects}</span></span>
-<span id="cb20-2"><a href="#cb20-2" aria-hidden="true" tabindex="-1"></a><span class="fu">slopes</span>(concat, <span class="at">variables =</span> <span class="st">"s"</span>) <span class="sc">%&gt;%</span></span>
-<span id="cb20-3"><a href="#cb20-3" aria-hidden="true" tabindex="-1"></a>&nbsp; &nbsp; <span class="fu">tidy</span>(<span class="at">by =</span> <span class="st">"f"</span>)</span>
-<span id="cb20-4"><a href="#cb20-4" aria-hidden="true" tabindex="-1"></a><span class="co">#&gt; &nbsp; &nbsp; &nbsp; type term&nbsp; &nbsp; &nbsp;  f&nbsp;  estimate&nbsp;  std.error statistic&nbsp; &nbsp;  p.value&nbsp;  conf.low&nbsp; conf.high</span></span>
-<span id="cb20-5"><a href="#cb20-5" aria-hidden="true" tabindex="-1"></a><span class="co">#&gt; 1 response&nbsp; &nbsp; s&nbsp;   male 0.01473352 0.003237072&nbsp; 4.551498 5.32654e-06 0.00838898 0.02107807</span></span>
-<span id="cb20-6"><a href="#cb20-6" aria-hidden="true" tabindex="-1"></a><span class="co">#&gt; 2 response&nbsp; &nbsp; s  female 0.02569069 0.001750066 14.679842 0.00000e+00 0.02226062 0.02912075</span></span></code><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></pre></div>
+<div class="sourceCode" id="cb21"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb21-1"><a href="#cb21-1" aria-hidden="true" tabindex="-1"></a><span class="co"># via {marginaleffects}</span></span>
+<span id="cb21-2"><a href="#cb21-2" aria-hidden="true" tabindex="-1"></a><span class="fu">slopes</span>(concat, <span class="at">variables =</span> <span class="st">"s"</span>) <span class="sc">%&gt;%</span></span>
+<span id="cb21-3"><a href="#cb21-3" aria-hidden="true" tabindex="-1"></a>&nbsp; &nbsp; <span class="fu">tidy</span>(<span class="at">by =</span> <span class="st">"f"</span>)</span>
+<span id="cb21-4"><a href="#cb21-4" aria-hidden="true" tabindex="-1"></a><span class="co">#&gt; &nbsp; &nbsp; &nbsp; type term&nbsp; &nbsp; &nbsp;  f&nbsp;  estimate&nbsp;  std.error statistic&nbsp; &nbsp;  p.value&nbsp;  conf.low&nbsp; conf.high</span></span>
+<span id="cb21-5"><a href="#cb21-5" aria-hidden="true" tabindex="-1"></a><span class="co">#&gt; 1 response&nbsp; &nbsp; s&nbsp;   male 0.01473352 0.003237072&nbsp; 4.551498 5.32654e-06 0.00838898 0.02107807</span></span>
+<span id="cb21-6"><a href="#cb21-6" aria-hidden="true" tabindex="-1"></a><span class="co">#&gt; 2 response&nbsp; &nbsp; s  female 0.02569069 0.001750066 14.679842 0.00000e+00 0.02226062 0.02912075</span></span></code><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></pre></div>
 <ul>
 <li>Interpetation
 <ul>
@@ -2943,18 +3049,18 @@ window.Quarto = {
 </ul></li>
 </ul></li>
 <li><p><u>Simple effects at values of the IV</u></p>
-<div class="sourceCode" id="cb21"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb21-1"><a href="#cb21-1" aria-hidden="true" tabindex="-1"></a><span class="co"># via {marginaleffects}</span></span>
-<span id="cb21-2"><a href="#cb21-2" aria-hidden="true" tabindex="-1"></a>comp <span class="ot">&lt;-</span> <span class="fu">comparisons</span>(concat2,&nbsp;</span>
-<span id="cb21-3"><a href="#cb21-3" aria-hidden="true" tabindex="-1"></a>&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; <span class="at">variables =</span> <span class="st">"f"</span>,&nbsp;</span>
-<span id="cb21-4"><a href="#cb21-4" aria-hidden="true" tabindex="-1"></a>&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; <span class="at">newdata =</span> <span class="fu">datagrid</span>(<span class="at">s =</span> <span class="fu">seq</span>(<span class="dv">20</span>, <span class="dv">70</span>, <span class="at">by =</span> <span class="dv">2</span>)))</span>
-<span id="cb21-5"><a href="#cb21-5" aria-hidden="true" tabindex="-1"></a><span class="fu">head</span>(comp)</span>
-<span id="cb21-6"><a href="#cb21-6" aria-hidden="true" tabindex="-1"></a><span class="co">#&gt; &nbsp; rowid&nbsp; &nbsp; type&nbsp; &nbsp; &nbsp; &nbsp; term&nbsp; &nbsp; contrast_f comparison&nbsp; std.error statistic&nbsp; &nbsp; p.value&nbsp; &nbsp;  conf.low conf.high&nbsp; &nbsp; f&nbsp; s</span></span>
-<span id="cb21-7"><a href="#cb21-7" aria-hidden="true" tabindex="-1"></a><span class="co">#&gt; 1&nbsp; &nbsp; 1 response interaction male - female&nbsp; 0.1496878 0.09871431&nbsp; 1.516374 0.12942480 -0.043788674 0.3431643 male 20</span></span>
-<span id="cb21-8"><a href="#cb21-8" aria-hidden="true" tabindex="-1"></a><span class="co">#&gt; 2&nbsp; &nbsp; 2 response interaction male - female&nbsp; 0.1724472 0.10430544&nbsp; 1.653291 0.09827172 -0.031987695 0.3768821 male 22</span></span>
-<span id="cb21-9"><a href="#cb21-9" aria-hidden="true" tabindex="-1"></a><span class="co">#&gt; 3&nbsp; &nbsp; 3 response interaction male - female&nbsp; 0.1975119 0.10886095&nbsp; 1.814351 0.06962377 -0.015851616 0.4108755 male 24</span></span>
-<span id="cb21-10"><a href="#cb21-10" aria-hidden="true" tabindex="-1"></a><span class="co">#&gt; 4&nbsp; &nbsp; 4 response interaction male - female&nbsp; 0.2246979 0.11209440&nbsp; 2.004542 0.04501204&nbsp; 0.004996938 0.4443989 male 26</span></span>
-<span id="cb21-11"><a href="#cb21-11" aria-hidden="true" tabindex="-1"></a><span class="co">#&gt; 5&nbsp; &nbsp; 5 response interaction male - female&nbsp; 0.2536377 0.11376972&nbsp; 2.229395 0.02578761&nbsp; 0.030653136 0.4766222 male 28</span></span>
-<span id="cb21-12"><a href="#cb21-12" aria-hidden="true" tabindex="-1"></a><span class="co">#&gt; 6&nbsp; &nbsp; 6 response interaction male - female&nbsp; 0.2837288 0.11375073&nbsp; 2.494303 0.01262048&nbsp; 0.060781436 0.5066761 male 30</span></span></code><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></pre></div>
+<div class="sourceCode" id="cb22"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb22-1"><a href="#cb22-1" aria-hidden="true" tabindex="-1"></a><span class="co"># via {marginaleffects}</span></span>
+<span id="cb22-2"><a href="#cb22-2" aria-hidden="true" tabindex="-1"></a>comp <span class="ot">&lt;-</span> <span class="fu">comparisons</span>(concat2,&nbsp;</span>
+<span id="cb22-3"><a href="#cb22-3" aria-hidden="true" tabindex="-1"></a>&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; <span class="at">variables =</span> <span class="st">"f"</span>,&nbsp;</span>
+<span id="cb22-4"><a href="#cb22-4" aria-hidden="true" tabindex="-1"></a>&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; <span class="at">newdata =</span> <span class="fu">datagrid</span>(<span class="at">s =</span> <span class="fu">seq</span>(<span class="dv">20</span>, <span class="dv">70</span>, <span class="at">by =</span> <span class="dv">2</span>)))</span>
+<span id="cb22-5"><a href="#cb22-5" aria-hidden="true" tabindex="-1"></a><span class="fu">head</span>(comp)</span>
+<span id="cb22-6"><a href="#cb22-6" aria-hidden="true" tabindex="-1"></a><span class="co">#&gt; &nbsp; rowid&nbsp; &nbsp; type&nbsp; &nbsp; &nbsp; &nbsp; term&nbsp; &nbsp; contrast_f comparison&nbsp; std.error statistic&nbsp; &nbsp; p.value&nbsp; &nbsp;  conf.low conf.high&nbsp; &nbsp; f&nbsp; s</span></span>
+<span id="cb22-7"><a href="#cb22-7" aria-hidden="true" tabindex="-1"></a><span class="co">#&gt; 1&nbsp; &nbsp; 1 response interaction male - female&nbsp; 0.1496878 0.09871431&nbsp; 1.516374 0.12942480 -0.043788674 0.3431643 male 20</span></span>
+<span id="cb22-8"><a href="#cb22-8" aria-hidden="true" tabindex="-1"></a><span class="co">#&gt; 2&nbsp; &nbsp; 2 response interaction male - female&nbsp; 0.1724472 0.10430544&nbsp; 1.653291 0.09827172 -0.031987695 0.3768821 male 22</span></span>
+<span id="cb22-9"><a href="#cb22-9" aria-hidden="true" tabindex="-1"></a><span class="co">#&gt; 3&nbsp; &nbsp; 3 response interaction male - female&nbsp; 0.1975119 0.10886095&nbsp; 1.814351 0.06962377 -0.015851616 0.4108755 male 24</span></span>
+<span id="cb22-10"><a href="#cb22-10" aria-hidden="true" tabindex="-1"></a><span class="co">#&gt; 4&nbsp; &nbsp; 4 response interaction male - female&nbsp; 0.2246979 0.11209440&nbsp; 2.004542 0.04501204&nbsp; 0.004996938 0.4443989 male 26</span></span>
+<span id="cb22-11"><a href="#cb22-11" aria-hidden="true" tabindex="-1"></a><span class="co">#&gt; 5&nbsp; &nbsp; 5 response interaction male - female&nbsp; 0.2536377 0.11376972&nbsp; 2.229395 0.02578761&nbsp; 0.030653136 0.4766222 male 28</span></span>
+<span id="cb22-12"><a href="#cb22-12" aria-hidden="true" tabindex="-1"></a><span class="co">#&gt; 6&nbsp; &nbsp; 6 response interaction male - female&nbsp; 0.2837288 0.11375073&nbsp; 2.494303 0.01262048&nbsp; 0.060781436 0.5066761 male 30</span></span></code><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></pre></div>
 <ul>
 <li>Shows the predicted value contrasts for the moderator at different values of the independent variable.
 <ul>
@@ -3003,11 +3109,11 @@ window.Quarto = {
 </ul></li>
 <li><p><u>Plot the simple effects</u><br>
 <a href="./_resources/Regression,_Interactions.resources/image.png" class="lightbox" data-gallery="quarto-lightbox-gallery-3"><img src="./_resources/Regression,_Interactions.resources/image.png" class="img-fluid" width="532"></a></p>
-<div class="sourceCode" id="cb22"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb22-1"><a href="#cb22-1" aria-hidden="true" tabindex="-1"></a><span class="fu">ggplot</span>(comp, <span class="fu">aes</span>(<span class="at">x =</span> s, <span class="at">y =</span> comparison)) <span class="sc">+</span>&nbsp;</span>
-<span id="cb22-2"><a href="#cb22-2" aria-hidden="true" tabindex="-1"></a>&nbsp; <span class="fu">geom_line</span>() <span class="sc">+</span></span>
-<span id="cb22-3"><a href="#cb22-3" aria-hidden="true" tabindex="-1"></a>&nbsp; <span class="fu">geom_ribbon</span>(<span class="fu">aes</span>(<span class="at">ymax=</span>conf.high, <span class="at">ymin=</span>conf.low), <span class="at">alpha=</span><span class="fl">0.4</span>) <span class="sc">+</span>&nbsp;</span>
-<span id="cb22-4"><a href="#cb22-4" aria-hidden="true" tabindex="-1"></a>&nbsp; <span class="fu">geom_hline</span>(<span class="at">yintercept=</span><span class="dv">0</span>, <span class="at">linetype=</span><span class="st">"dashed"</span>) <span class="sc">+</span></span>
-<span id="cb22-5"><a href="#cb22-5" aria-hidden="true" tabindex="-1"></a>&nbsp; <span class="fu">labs</span>(<span class="at">title =</span> <span class="st">"Male-Female Difference"</span>, <span class="at">y=</span><span class="st">"Probability Contrast"</span>)</span></code><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></pre></div>
+<div class="sourceCode" id="cb23"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb23-1"><a href="#cb23-1" aria-hidden="true" tabindex="-1"></a><span class="fu">ggplot</span>(comp, <span class="fu">aes</span>(<span class="at">x =</span> s, <span class="at">y =</span> comparison)) <span class="sc">+</span>&nbsp;</span>
+<span id="cb23-2"><a href="#cb23-2" aria-hidden="true" tabindex="-1"></a>&nbsp; <span class="fu">geom_line</span>() <span class="sc">+</span></span>
+<span id="cb23-3"><a href="#cb23-3" aria-hidden="true" tabindex="-1"></a>&nbsp; <span class="fu">geom_ribbon</span>(<span class="fu">aes</span>(<span class="at">ymax=</span>conf.high, <span class="at">ymin=</span>conf.low), <span class="at">alpha=</span><span class="fl">0.4</span>) <span class="sc">+</span>&nbsp;</span>
+<span id="cb23-4"><a href="#cb23-4" aria-hidden="true" tabindex="-1"></a>&nbsp; <span class="fu">geom_hline</span>(<span class="at">yintercept=</span><span class="dv">0</span>, <span class="at">linetype=</span><span class="st">"dashed"</span>) <span class="sc">+</span></span>
+<span id="cb23-5"><a href="#cb23-5" aria-hidden="true" tabindex="-1"></a>&nbsp; <span class="fu">labs</span>(<span class="at">title =</span> <span class="st">"Male-Female Difference"</span>, <span class="at">y=</span><span class="st">"Probability Contrast"</span>)</span></code><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></pre></div>
 <ul>
 <li><span style="color: #990000">{marginaleffects}</span>
 <ul>
@@ -3020,27 +3126,27 @@ window.Quarto = {
 </ul></li>
 </ul></li>
 <li><p><u>Simple Effects at values of the moderator and adjustment variable</u></p>
-<div class="sourceCode" id="cb23"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb23-1"><a href="#cb23-1" aria-hidden="true" tabindex="-1"></a>concat2 <span class="ot">&lt;-</span> <span class="fu">glm</span>(y <span class="sc">~</span> f<span class="sc">*</span>s <span class="sc">+</span> cv1, <span class="at">family =</span> binomial, <span class="at">data =</span> dat_clean)</span>
-<span id="cb23-2"><a href="#cb23-2" aria-hidden="true" tabindex="-1"></a>comp2 <span class="ot">&lt;-</span> <span class="fu">comparisons</span>(concat2,&nbsp;</span>
-<span id="cb23-3"><a href="#cb23-3" aria-hidden="true" tabindex="-1"></a>&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; <span class="at">variables =</span> <span class="st">"f"</span>,&nbsp;</span>
-<span id="cb23-4"><a href="#cb23-4" aria-hidden="true" tabindex="-1"></a>&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; <span class="at">newdata =</span> <span class="fu">datagrid</span>(<span class="at">s =</span> <span class="fu">seq</span>(<span class="dv">20</span>, <span class="dv">70</span>, <span class="at">by =</span> <span class="dv">2</span>),</span>
-<span id="cb23-5"><a href="#cb23-5" aria-hidden="true" tabindex="-1"></a>&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; <span class="at">cv1 =</span> <span class="fu">c</span>(<span class="dv">40</span>, <span class="dv">50</span>, <span class="dv">60</span>)))</span>
-<span id="cb23-6"><a href="#cb23-6" aria-hidden="true" tabindex="-1"></a><span class="fu">head</span>(comp2)</span>
-<span id="cb23-7"><a href="#cb23-7" aria-hidden="true" tabindex="-1"></a><span class="co">#&gt; &nbsp; rowid&nbsp; &nbsp; type&nbsp; &nbsp; &nbsp; &nbsp; term&nbsp; &nbsp; contrast_f comparison&nbsp; std.error statistic&nbsp; &nbsp; &nbsp; p.value&nbsp; &nbsp; conf.low conf.high&nbsp; &nbsp; f&nbsp; s cv1</span></span>
-<span id="cb23-8"><a href="#cb23-8" aria-hidden="true" tabindex="-1"></a><span class="co">#&gt; 1&nbsp; &nbsp; 1 response interaction male - female&nbsp; 0.2307214 0.15001700&nbsp; 1.537968 1.240564e-01 -0.06330656 0.5247493 male 20&nbsp; 40</span></span>
-<span id="cb23-9"><a href="#cb23-9" aria-hidden="true" tabindex="-1"></a><span class="co">#&gt; 2&nbsp; &nbsp; 2 response interaction male - female&nbsp; 0.6603841 0.20879886&nbsp; 3.162777 1.562722e-03&nbsp; 0.25114590 1.0696224 male 20&nbsp; 50</span></span>
-<span id="cb23-10"><a href="#cb23-10" aria-hidden="true" tabindex="-1"></a><span class="co">#&gt; 3&nbsp; &nbsp; 3 response interaction male - female&nbsp; 0.9135206 0.07865839 11.613773 3.507873e-31&nbsp; 0.75935304 1.0676882 male 20&nbsp; 60</span></span>
-<span id="cb23-11"><a href="#cb23-11" aria-hidden="true" tabindex="-1"></a><span class="co">#&gt; 4&nbsp; &nbsp; 4 response interaction male - female&nbsp; 0.2361502 0.14294726&nbsp; 1.652009 9.853270e-02 -0.04402131 0.5163217 male 22&nbsp; 40</span></span>
-<span id="cb23-12"><a href="#cb23-12" aria-hidden="true" tabindex="-1"></a><span class="co">#&gt; 5&nbsp; &nbsp; 5 response interaction male - female&nbsp; 0.6663811 0.19447902&nbsp; 3.426494 6.114278e-04&nbsp; 0.28520927 1.0475530 male 22&nbsp; 50</span></span>
-<span id="cb23-13"><a href="#cb23-13" aria-hidden="true" tabindex="-1"></a><span class="co">#&gt; 6&nbsp; &nbsp; 6 response interaction male - female&nbsp; 0.9097497 0.07571970 12.014703 2.974362e-33&nbsp; 0.76134178 1.0581575 male 22&nbsp; 60</span></span></code><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></pre></div></li>
+<div class="sourceCode" id="cb24"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb24-1"><a href="#cb24-1" aria-hidden="true" tabindex="-1"></a>concat2 <span class="ot">&lt;-</span> <span class="fu">glm</span>(y <span class="sc">~</span> f<span class="sc">*</span>s <span class="sc">+</span> cv1, <span class="at">family =</span> binomial, <span class="at">data =</span> dat_clean)</span>
+<span id="cb24-2"><a href="#cb24-2" aria-hidden="true" tabindex="-1"></a>comp2 <span class="ot">&lt;-</span> <span class="fu">comparisons</span>(concat2,&nbsp;</span>
+<span id="cb24-3"><a href="#cb24-3" aria-hidden="true" tabindex="-1"></a>&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; <span class="at">variables =</span> <span class="st">"f"</span>,&nbsp;</span>
+<span id="cb24-4"><a href="#cb24-4" aria-hidden="true" tabindex="-1"></a>&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; <span class="at">newdata =</span> <span class="fu">datagrid</span>(<span class="at">s =</span> <span class="fu">seq</span>(<span class="dv">20</span>, <span class="dv">70</span>, <span class="at">by =</span> <span class="dv">2</span>),</span>
+<span id="cb24-5"><a href="#cb24-5" aria-hidden="true" tabindex="-1"></a>&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; <span class="at">cv1 =</span> <span class="fu">c</span>(<span class="dv">40</span>, <span class="dv">50</span>, <span class="dv">60</span>)))</span>
+<span id="cb24-6"><a href="#cb24-6" aria-hidden="true" tabindex="-1"></a><span class="fu">head</span>(comp2)</span>
+<span id="cb24-7"><a href="#cb24-7" aria-hidden="true" tabindex="-1"></a><span class="co">#&gt; &nbsp; rowid&nbsp; &nbsp; type&nbsp; &nbsp; &nbsp; &nbsp; term&nbsp; &nbsp; contrast_f comparison&nbsp; std.error statistic&nbsp; &nbsp; &nbsp; p.value&nbsp; &nbsp; conf.low conf.high&nbsp; &nbsp; f&nbsp; s cv1</span></span>
+<span id="cb24-8"><a href="#cb24-8" aria-hidden="true" tabindex="-1"></a><span class="co">#&gt; 1&nbsp; &nbsp; 1 response interaction male - female&nbsp; 0.2307214 0.15001700&nbsp; 1.537968 1.240564e-01 -0.06330656 0.5247493 male 20&nbsp; 40</span></span>
+<span id="cb24-9"><a href="#cb24-9" aria-hidden="true" tabindex="-1"></a><span class="co">#&gt; 2&nbsp; &nbsp; 2 response interaction male - female&nbsp; 0.6603841 0.20879886&nbsp; 3.162777 1.562722e-03&nbsp; 0.25114590 1.0696224 male 20&nbsp; 50</span></span>
+<span id="cb24-10"><a href="#cb24-10" aria-hidden="true" tabindex="-1"></a><span class="co">#&gt; 3&nbsp; &nbsp; 3 response interaction male - female&nbsp; 0.9135206 0.07865839 11.613773 3.507873e-31&nbsp; 0.75935304 1.0676882 male 20&nbsp; 60</span></span>
+<span id="cb24-11"><a href="#cb24-11" aria-hidden="true" tabindex="-1"></a><span class="co">#&gt; 4&nbsp; &nbsp; 4 response interaction male - female&nbsp; 0.2361502 0.14294726&nbsp; 1.652009 9.853270e-02 -0.04402131 0.5163217 male 22&nbsp; 40</span></span>
+<span id="cb24-12"><a href="#cb24-12" aria-hidden="true" tabindex="-1"></a><span class="co">#&gt; 5&nbsp; &nbsp; 5 response interaction male - female&nbsp; 0.6663811 0.19447902&nbsp; 3.426494 6.114278e-04&nbsp; 0.28520927 1.0475530 male 22&nbsp; 50</span></span>
+<span id="cb24-13"><a href="#cb24-13" aria-hidden="true" tabindex="-1"></a><span class="co">#&gt; 6&nbsp; &nbsp; 6 response interaction male - female&nbsp; 0.9097497 0.07571970 12.014703 2.974362e-33&nbsp; 0.76134178 1.0581575 male 22&nbsp; 60</span></span></code><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></pre></div></li>
 <li><p><u>Plot simple effects and facet by values of the adjustment variable</u><br>
 <a href="./_resources/Regression,_Interactions.resources/image.1.png" class="lightbox" data-gallery="quarto-lightbox-gallery-5"><img src="./_resources/Regression,_Interactions.resources/image.1.png" class="img-fluid" width="632"></a></p>
-<div class="sourceCode" id="cb24"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb24-1"><a href="#cb24-1" aria-hidden="true" tabindex="-1"></a><span class="fu">ggplot</span>(comp2, <span class="fu">aes</span>(<span class="at">x =</span> s, <span class="at">y =</span> comparison, <span class="at">group =</span> <span class="fu">factor</span>(cv1))) <span class="sc">+</span>&nbsp;</span>
-<span id="cb24-2"><a href="#cb24-2" aria-hidden="true" tabindex="-1"></a>&nbsp; <span class="fu">geom_line</span>() <span class="sc">+</span></span>
-<span id="cb24-3"><a href="#cb24-3" aria-hidden="true" tabindex="-1"></a>&nbsp; <span class="fu">geom_ribbon</span>(<span class="fu">aes</span>(<span class="at">ymax=</span>conf.high, <span class="at">ymin=</span>conf.low), <span class="at">alpha=</span><span class="fl">0.4</span>) <span class="sc">+</span>&nbsp;</span>
-<span id="cb24-4"><a href="#cb24-4" aria-hidden="true" tabindex="-1"></a>&nbsp; <span class="fu">geom_hline</span>(<span class="at">yintercept=</span><span class="dv">0</span>, <span class="at">linetype=</span><span class="st">"dashed"</span>) <span class="sc">+</span></span>
-<span id="cb24-5"><a href="#cb24-5" aria-hidden="true" tabindex="-1"></a>&nbsp; <span class="fu">facet_wrap</span>(<span class="sc">~</span> cv1) <span class="sc">+</span></span>
-<span id="cb24-6"><a href="#cb24-6" aria-hidden="true" tabindex="-1"></a>&nbsp; <span class="fu">labs</span>(<span class="at">title =</span> <span class="st">"Male-Female Difference"</span>, <span class="at">y=</span><span class="st">"Probability Contrast"</span>)</span></code><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></pre></div>
+<div class="sourceCode" id="cb25"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb25-1"><a href="#cb25-1" aria-hidden="true" tabindex="-1"></a><span class="fu">ggplot</span>(comp2, <span class="fu">aes</span>(<span class="at">x =</span> s, <span class="at">y =</span> comparison, <span class="at">group =</span> <span class="fu">factor</span>(cv1))) <span class="sc">+</span>&nbsp;</span>
+<span id="cb25-2"><a href="#cb25-2" aria-hidden="true" tabindex="-1"></a>&nbsp; <span class="fu">geom_line</span>() <span class="sc">+</span></span>
+<span id="cb25-3"><a href="#cb25-3" aria-hidden="true" tabindex="-1"></a>&nbsp; <span class="fu">geom_ribbon</span>(<span class="fu">aes</span>(<span class="at">ymax=</span>conf.high, <span class="at">ymin=</span>conf.low), <span class="at">alpha=</span><span class="fl">0.4</span>) <span class="sc">+</span>&nbsp;</span>
+<span id="cb25-4"><a href="#cb25-4" aria-hidden="true" tabindex="-1"></a>&nbsp; <span class="fu">geom_hline</span>(<span class="at">yintercept=</span><span class="dv">0</span>, <span class="at">linetype=</span><span class="st">"dashed"</span>) <span class="sc">+</span></span>
+<span id="cb25-5"><a href="#cb25-5" aria-hidden="true" tabindex="-1"></a>&nbsp; <span class="fu">facet_wrap</span>(<span class="sc">~</span> cv1) <span class="sc">+</span></span>
+<span id="cb25-6"><a href="#cb25-6" aria-hidden="true" tabindex="-1"></a>&nbsp; <span class="fu">labs</span>(<span class="at">title =</span> <span class="st">"Male-Female Difference"</span>, <span class="at">y=</span><span class="st">"Probability Contrast"</span>)</span></code><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></pre></div>
 <ul>
 <li>Interpretation
 <ul>
