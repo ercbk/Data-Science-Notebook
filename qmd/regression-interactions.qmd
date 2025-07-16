@@ -32,6 +32,15 @@
         -   Includes options for correlated interacting variables and specifying variable reliability.
         -   Two-way interactions can include continuous, binary, or ordinal variables.
     -   [{]{style="color: #990000"}[simpr.interaction](https://cran.r-project.org/web/packages/simpr.interaction/index.html){style="color: #990000"}[}]{style="color: #990000"} - Analytically calculate parameters for simulating of moderated multiple regression, based on the correlations among the predictors and outcome and the reliability of predictors.
+-   R Syntax
+    -   Operators (Equivalent Models)
+        -   Colon (`:`) - `lm(y ~ x1 + x2 + x1:x2, data = df)`
+        -   Asterisk (`*`) - `lm(y ~ x1 * x2, data = df)`
+    -   Combinations
+        -   All main effects + all two-way interactions: `(x1 + x2 + x3 + x4)^2`
+        -   All main effects + all possible interactions (up to a three-way interaction): `x1 * x2 * x3`
+        -   Each variable in the first group (`x1`, `x2`) interacts with each variable in the second group (`x3`, `x4`): `(x1 + x2) * (x3 + x4)`
+            -   i.e. `x1:x3`, `x1:x4` and `x2:x3`, `x2:x4`
 -   Rule of Thumb: In a balanced experiment, "you need 16 times the sample size to estimate an interaction than to estimate a main effect" in order to measure the interaction effect with the same precision as the main effect. There are contexts where it's lower depending on the effect size. [Gelman](https://statmodeling.stat.columbia.edu/2023/11/09/you-need-16-times-the-sample-size-to-estimate-an-interaction-than-to-estimate-a-main-effect-explained/)
 -   Selecting values of continuous predictors to use for calculating marginal effects
     -   Mean/Median and quantiles are popular choices
@@ -638,23 +647,21 @@
     -   Set-Up
 
         ``` r
+        library(dplyr)
         library(brms)
-        library(bayestestR)
+        library(marginaleffects)
 
         # Scaling the predictors first
-
-        model_data <- model_data %>%
-          mutate(
-            across(
-              all_of(c("pc_aggression",
-                            "word_count",
-                            "pc_incoherence",
-                            "exclamation_count")),
-              ~ as.numeric(
-                scale(.x)
-                )
-              )
+        model_data <- 
+          model_data |> 
+          mutate(across(all_of(
+            c("pc_aggression",
+              "word_count",
+              "pc_incoherence",
+              "exclamation_count")),
+            ~ as.numeric(scale(.x))
             )
+          )
 
 
         # Set our priors based on expected small-to-medium effects
@@ -680,16 +687,35 @@
           seed = 123
         )
 
-        library(marginaleffects)
+
         library(tidybayes)
         library(ggdist)
 
         rope = c(-0.05,0.05)
         ci  = 1.0
 
-        main_effects <- avg_slopes(spam_model,type = "response")
+        main_effects <- avg_slopes(spam_model, type = "response")
 
-        bayestestR::ci(main_effects,ci = ci, method = "HDI")
+        main_effects
+
+        #>                Term Estimate   2.5 %  97.5 %
+        #>   exclamation_count   0.0246  0.0104  0.0387
+        #>   pc_aggression      -0.0410 -0.0565 -0.0256
+        #>   pc_incoherence     -0.1709 -0.1834 -0.1577
+        #>   word_count          0.0803  0.0635  0.0973
+        #> 
+        #> Type:  response 
+        #> Comparison: dY/dX
+
+        bayestestR::ci(main_effects, method = "HDI")
+        #> Highest Density Interval
+        #> 
+        #> term              | contrast |        95% HDI
+        #> ---------------------------------------------
+        #> exclamation_count |    dY/dX | [ 0.01,  0.04]
+        #> pc_aggression     |    dY/dX | [-0.06, -0.03]
+        #> pc_incoherence    |    dY/dX | [-0.18, -0.16]
+        #> word_count        |    dY/dX | [ 0.06,  0.10]
 
         # Interaction 1: How does pc_incoherence's effect vary with message length?
         incoherence_by_wordcount <- avg_slopes(
@@ -735,7 +761,45 @@
             type      = "response"
         )
 
+        # Extract draws as rvars for each interaction
+        draws_df <- bind_rows(
+            get_draws(incoherence_by_wordcount, shape = "rvar") %>% 
+                as.data.frame() %>%
+                mutate(interaction = "incoherence × word_count"),
+            get_draws(incoherence_by_exclamation, shape = "rvar") %>% 
+                as.data.frame() %>%
+                mutate(interaction = "incoherence × exclamation"),
+            get_draws(aggression_by_exclamation, shape = "rvar") %>% 
+                as.data.frame() %>%
+                mutate(interaction = "aggression × exclamation"),
+            get_draws(aggression_by_wordcount, shape = "rvar") %>% 
+                as.data.frame() %>%
+                mutate(interaction = "aggression × word_count")
+        )
+
+        # Create the visualization
+        draws_df %>% 
+          ggplot(aes(y = interaction,
+                     xdist = rvar,
+                     fill = after_stat(abs(x) < 0.05))) +
+          stat_slab(           
+            colour    = "black",
+            linewidth = .5      
+          ) +
+          geom_vline(xintercept = c(-0.05, 0.05), linetype = "dashed") +
+          scale_fill_manual(values = c("skyblue","gray80")) +
+          labs(x   = "Effect on Spam Probability (%)",
+               y   = "Interaction",
+               fill = "Within ROPE") +
+          geom_vline(xintercept = 0, colour = "black", linewidth = .5) +
+          theme_minimal(base_size = 20)
         ```
+
+        -   By default, {marginaleffects} credible intervals in bayesian models are built as equal-tailed intervals. This can be changed to a highest density interval by setting a global option:
+
+            -   `options("marginaleffects_posterior_interval" = "eti")`
+
+            -   `options("marginaleffects_posterior_interval" = "hdi")`
 
 ### Binary:Continuous {#sec-reg-inter-logreg-bincont .unnumbered}
 
