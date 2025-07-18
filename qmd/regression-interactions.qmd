@@ -330,7 +330,7 @@
         # via {marginaleffects}
         comparisons(contcont,
                     variables = list(effort = c(eff_low, eff_high)),
-                    newdata = datagrid(hours = 4)) %>% 
+                    newdata = datagrid(hours = 4)) |> 
           tidy()
         #> rowid    type        term   contrast_effort comparison std.error statistic      p.value conf.low conf.high   effort hours
         #> 1    1 response interaction     34.8 - 24.5   15.37904   3.97295  3.870938 0.0001084175 7.592203  23.16588 29.65922     4
@@ -339,7 +339,7 @@
         comparisons(contcont,
                     variables = list(effort = "2sd"),
                     newdata = datagrid(hours = 4, 
-                                      grid.type = "counterfactual")) %>% 
+                                      grid.type = "counterfactual")) |> 
           tidy()
         #>       type        term     contrast_effort estimate std.error statistic      p.value conf.low conf.high
         #> 1 response interaction (x + sd) - (x - sd) 15.35743  3.967367  3.870938 0.0001084175 7.581535  23.13333
@@ -347,7 +347,7 @@
 
         -   One reason to look at the tests for the predicted means contrast instead of the slope contrasts is the constant p-value across slope contrasts (see above)
         -   If [hours]{.var-text} isn't specified `emmeans` holds [hours]{.var-text} at the sample mean.
-            -   Using [{marginaleffects}]{style="color: #990000"} and holding [hours]{.var-text} at sample mean (and probably every other variable in the model), `comparisons(contcont, variables = list(effort = "2sd")) %>% tidy()`
+            -   Using [{marginaleffects}]{style="color: #990000"} and holding [hours]{.var-text} at sample mean (and probably every other variable in the model), `comparisons(contcont, variables = list(effort = "2sd")) |> tidy()`
         -   Specification
             -   [hours]{.var-text} has a fixed value and the moderator is allowed to vary between high and low effort
             -   emmeans
@@ -370,7 +370,7 @@
 -   [Example]{.ribbon-highlight}: Does the effect of workout duration in [hours]{.var-text} (IV) on [weight loss]{.var-text} (Outcome) change because you are a [male]{.var-text} or [female]{.var-text} (Moderator)?
 
     ``` r
-    dat <- dat %>% 
+    dat <- dat |> 
       mutate(gender = factor(gender, labels = c("male", "female")) # male = 1, female = 2,
             gender = relevel(gender, ref = "female")
       )
@@ -411,7 +411,7 @@
         #> male           1.59  1.35  896     -1.063      4.25
 
         # via {marginaleffects}
-        slopes(contcat) %>%
+        slopes(contcat) |>
             tidy(by = "gender")
         #>       type  term        contrast gender   estimate std.error statistic    p.value   conf.low conf.high
         #> 1 response  hours          dY/dX   male 1.59113665 1.3523002 1.1766150 0.23934921 -1.0593230  4.241596
@@ -486,7 +486,7 @@
 -   [Example]{.ribbon-highlight}: Do [males]{.var-text} and [females]{.var-text} (IV) lose [weight]{.var-text} (Outcome) differently depending on the type of [exercise]{.var-text} (Moderator) they engage in?
 
     ``` r
-    dat <- dat %>% 
+    dat <- dat |> 
       mutate(gender = factor(gender, labels = c("male", "female")),
             gender = relevel(gender, ref = "female"),
             prog = factor(prog, labels = c("jog","swim","read")),
@@ -644,162 +644,182 @@
 ### Continuous:Continuous {#sec-reg-inter-logreg-contcont .unnumbered}
 
 -   [Example]{.ribbon-highlight}: Spam or Ham
-    -   Set-Up
 
-        ``` r
-        library(dplyr)
-        library(brms)
-        library(marginaleffects)
+    ::: panel-tabset
+    ## Set-Up
 
-        # Scaling the predictors first
-        model_data <- 
-          model_data |> 
-          mutate(across(all_of(
-            c("pc_aggression",
-              "word_count",
-              "pc_incoherence",
-              "exclamation_count")),
-            ~ as.numeric(scale(.x))
-            )
-          )
+    words
 
+    ``` r
+    pacman::p_load(
+      dplyr,
+      brms,
+      marginaleffects,
+      ggdist
+    )
 
-        # Set our priors based on expected small-to-medium effects
-        d_expected <- 0.3
-        prior_sd <- d_expected * pi / sqrt(3)  # ≈ 0.54
-
-        # Define priors for all coefficients
-        priors <- c(
-          prior(normal(0, 0.54), class = b)  # All slopes get the same prior
+    model_data <- 
+      model_data |> 
+      mutate(across(all_of(
+        c("pc_aggression",
+          "word_count",
+          "pc_incoherence",
+          "exclamation_count")),
+        ~ as.numeric(scale(.x))
         )
+      )
+    ```
 
-        # Fit the model
-        spam_model <- brm(        
-          is_spam ~ (pc_aggression + pc_incoherence) * 
-                    (word_count + exclamation_count),
-          data = model_data,
-          family = bernoulli(),
-          prior = priors,
-          cores = 4,
-          iter = 2000,
-          warmup = 1000,
-          chains = 4,
-          seed = 123
-        )
+    -   Scaling the predictors first since our prior will have a mean of 0
 
+    ## Model
 
-        library(tidybayes)
-        library(ggdist)
+    ``` r
+    d_expected <- 0.3 # <1>
+    prior_sd <- d_expected * pi / sqrt(3)  # ≈ 0.54
 
-        rope = c(-0.05,0.05)
-        ci  = 1.0
+    priors <- c( # <2>
+      prior(normal(0, 0.54), class = b)  
+    )
 
-        main_effects <- avg_slopes(spam_model, type = "response")
+    spam_model <- brm(        
+      is_spam ~ (pc_aggression + pc_incoherence) *  # <3>
+                (word_count + exclamation_count),
+      data = model_data,
+      family = bernoulli(),
+      prior = priors,
+      cores = 4,
+      iter = 2000,
+      warmup = 1000,
+      chains = 4,
+      seed = 123
+    )
+    ```
 
-        main_effects
+    1.  Set our priors based on expected small-to-medium effects
+    2.  Setting [class = b]{.arg-text} says all slopes will have the same prior
+    3.  Formula syntax specifies a specific combination subset of all 2-way interactions
 
-        #>                Term Estimate   2.5 %  97.5 %
-        #>   exclamation_count   0.0246  0.0104  0.0387
-        #>   pc_aggression      -0.0410 -0.0565 -0.0256
-        #>   pc_incoherence     -0.1709 -0.1834 -0.1577
-        #>   word_count          0.0803  0.0635  0.0973
-        #> 
-        #> Type:  response 
-        #> Comparison: dY/dX
+    ## Main Effects
 
-        bayestestR::ci(main_effects, method = "HDI")
-        #> Highest Density Interval
-        #> 
-        #> term              | contrast |        95% HDI
-        #> ---------------------------------------------
-        #> exclamation_count |    dY/dX | [ 0.01,  0.04]
-        #> pc_aggression     |    dY/dX | [-0.06, -0.03]
-        #> pc_incoherence    |    dY/dX | [-0.18, -0.16]
-        #> word_count        |    dY/dX | [ 0.06,  0.10]
+    ``` r
+    main_effects <- avg_slopes(spam_model, type = "response")
+    main_effects
+    #>                Term Estimate   2.5 %  97.5 %
+    #>   exclamation_count   0.0246  0.0104  0.0387
+    #>   pc_aggression      -0.0410 -0.0565 -0.0256
+    #>   pc_incoherence     -0.1709 -0.1834 -0.1577
+    #>   word_count          0.0803  0.0635  0.0973
+    #> 
+    #> Type:  response 
+    #> Comparison: dY/dX
 
-        # Interaction 1: How does pc_incoherence's effect vary with message length?
-        incoherence_by_wordcount <- avg_slopes(
-            spam_model,
-            variables = "pc_incoherence",
-            newdata   = datagrid(
-                word_count = quantile(model_data$word_count, 
-                                    probs = c(.05, .25, .50, .75, .95))
-            ),
-            type      = "response"
-        )
+    bayestestR::ci(main_effects, method = "HDI")
+    #> Highest Density Interval
+    #> 
+    #> term              | contrast |        95% HDI
+    #> ---------------------------------------------
+    #> exclamation_count |    dY/dX | [ 0.01,  0.04]
+    #> pc_aggression     |    dY/dX | [-0.06, -0.03]
+    #> pc_incoherence    |    dY/dX | [-0.18, -0.16]
+    #> word_count        |    dY/dX | [ 0.06,  0.10]
+    ```
 
-        # Interaction 2: How pc_incoherence's effect changes with exclamation count
-        incoherence_by_exclamation <- avg_slopes(
-            spam_model,
-            variables = "pc_incoherence",
-            newdata   = datagrid(
-                exclamation_count = quantile(model_data$exclamation_count, 
-                                           probs = c(.05, .25, .50, .75, .95))
-            ),
-            type      = "response"
-        )
+    -   words
 
-        # Interaction 3: How pc_aggression's effect changes with exclamation count
-        aggression_by_exclamation <- avg_slopes(
-            spam_model,
-            variables = "pc_aggression",
-            newdata   = datagrid(
-                exclamation_count = quantile(model_data$exclamation_count, 
-                                           probs = c(.05, .25, .50, .75, .95))
-            ),
-            type      = "response"
-        )
+    ## Interaction Effects
 
-        # Interaction 4: How pc_aggression's effect changes with word count
-        aggression_by_wordcount <- avg_slopes(
-            spam_model,
-            variables = "pc_aggression",
-            newdata   = datagrid(
-                word_count = quantile(model_data$word_count, 
-                                    probs = c(.05, .25, .50, .75, .95))
-            ),
-            type      = "response"
-        )
+    ``` r
+    # Interaction 1 # <1>
+    incoherence_by_wordcount <- avg_slopes(
+        spam_model,
+        variables = "pc_incoherence",
+        newdata   = datagrid(
+            word_count = quantile(model_data$word_count, 
+                                probs = c(.05, .25, .50, .75, .95))
+        ),
+        type      = "response"
+    )
 
-        # Extract draws as rvars for each interaction
-        draws_df <- bind_rows(
-            get_draws(incoherence_by_wordcount, shape = "rvar") %>% 
-                as.data.frame() %>%
-                mutate(interaction = "incoherence × word_count"),
-            get_draws(incoherence_by_exclamation, shape = "rvar") %>% 
-                as.data.frame() %>%
-                mutate(interaction = "incoherence × exclamation"),
-            get_draws(aggression_by_exclamation, shape = "rvar") %>% 
-                as.data.frame() %>%
-                mutate(interaction = "aggression × exclamation"),
-            get_draws(aggression_by_wordcount, shape = "rvar") %>% 
-                as.data.frame() %>%
-                mutate(interaction = "aggression × word_count")
-        )
+    # Interaction 2 # <2>
+    incoherence_by_exclamation <- avg_slopes(
+        spam_model,
+        variables = "pc_incoherence",
+        newdata   = datagrid(
+            exclamation_count = quantile(model_data$exclamation_count, 
+                                       probs = c(.05, .25, .50, .75, .95))
+        ),
+        type      = "response"
+    )
 
-        # Create the visualization
-        draws_df %>% 
-          ggplot(aes(y = interaction,
-                     xdist = rvar,
-                     fill = after_stat(abs(x) < 0.05))) +
-          stat_slab(           
-            colour    = "black",
-            linewidth = .5      
-          ) +
-          geom_vline(xintercept = c(-0.05, 0.05), linetype = "dashed") +
-          scale_fill_manual(values = c("skyblue","gray80")) +
-          labs(x   = "Effect on Spam Probability (%)",
-               y   = "Interaction",
-               fill = "Within ROPE") +
-          geom_vline(xintercept = 0, colour = "black", linewidth = .5) +
-          theme_minimal(base_size = 20)
-        ```
+    # Interaction 3 # <3>
+    aggression_by_exclamation <- avg_slopes(
+        spam_model,
+        variables = "pc_aggression",
+        newdata   = datagrid(
+            exclamation_count = quantile(model_data$exclamation_count, 
+                                       probs = c(.05, .25, .50, .75, .95))
+        ),
+        type      = "response"
+    )
 
-        -   By default, {marginaleffects} credible intervals in bayesian models are built as equal-tailed intervals. This can be changed to a highest density interval by setting a global option:
+    # Interaction 4 # <4>
+    aggression_by_wordcount <- avg_slopes(
+        spam_model,
+        variables = "pc_aggression",
+        newdata   = datagrid(
+            word_count = quantile(model_data$word_count, 
+                                probs = c(.05, .25, .50, .75, .95))
+        ),
+        type      = "response"
+    )
+    ```
 
-            -   `options("marginaleffects_posterior_interval" = "eti")`
+    1.  How [incoherence's]{.var-text} effect changes with [word count]{.var-text}.
+    2.  How [incoherence's]{.var-text} effect changes with [exclamation count]{.var-text}.
+    3.  How [aggression's]{.var-text} effect changes with [exclamation count]{.var-text}.
+    4.  How [aggression's]{.var-text} effect changes with [word count]{.var-text}.
 
-            -   `options("marginaleffects_posterior_interval" = "hdi")`
+    ## Visualize
+
+    ``` r
+    # Extract draws as rvars for each interaction
+    draws_df <- bind_rows(
+        get_draws(incoherence_by_wordcount, shape = "rvar") |> 
+            as.data.frame() |>
+            mutate(interaction = "incoherence × word_count"),
+        get_draws(incoherence_by_exclamation, shape = "rvar") |> 
+            as.data.frame() |>
+            mutate(interaction = "incoherence × exclamation"),
+        get_draws(aggression_by_exclamation, shape = "rvar") |> 
+            as.data.frame() |>
+            mutate(interaction = "aggression × exclamation"),
+        get_draws(aggression_by_wordcount, shape = "rvar") |> 
+            as.data.frame() |>
+            mutate(interaction = "aggression × word_count")
+    )
+
+    draws_df |> 
+      ggplot(aes(y = interaction,
+                 xdist = rvar,
+                 fill = after_stat(abs(x) < 0.05))) +
+      stat_slab(           
+        colour    = "black",
+        linewidth = .5      
+      ) +
+      geom_vline(xintercept = c(-0.05, 0.05), linetype = "dashed") +
+      scale_fill_manual(values = c("skyblue","gray80")) +
+      labs(x   = "Effect on Spam Probability (%)",
+           y   = "Interaction",
+           fill = "Within ROPE") +
+      geom_vline(xintercept = 0, colour = "black", linewidth = .5) +
+      theme_minimal(base_size = 20)
+    ```
+
+    -   By default, [{marginaleffects}]{style="color: #990000"} credible intervals in bayesian models are built as equal-tailed intervals. This can be changed to a highest density interval by setting a global option:
+        -   `options("marginaleffects_posterior_interval" = "eti")`
+        -   `options("marginaleffects_posterior_interval" = "hdi")`\
+    :::
 
 ### Binary:Continuous {#sec-reg-inter-logreg-bincont .unnumbered}
 
@@ -807,7 +827,7 @@
     -   Description
 
         ``` r
-        dat_clean <- dat %>% 
+        dat_clean <- dat |> 
           mutate(f = factor(f, labels = c("female", "male")))
         concat <- glm(y ~ f*s, family = binomial, data = dat_clean)
         summary(concat)
@@ -827,7 +847,7 @@
 
         ``` r
         # via {marginaleffects}
-        slopes(concat, variables = "s") %>%
+        slopes(concat, variables = "s") |>
             tidy(by = "f")
         #>       type term       f   estimate   std.error statistic     p.value   conf.low  conf.high
         #> 1 response    s    male 0.01473352 0.003237072  4.551498 5.32654e-06 0.00838898 0.02107807
