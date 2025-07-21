@@ -691,772 +691,1030 @@
 
 -   [Example 1]{.ribbon-highlight}: Basic
 
-    -   Data
-
-        <Details>
-
-        <Summary>Code</Summary>
-
-        ``` r
-        data(wine, package = "ordinal")
-        glimpse(as_tibble(wine))
-
-        #> Rows: 72
-        #> Columns: 6
-        #> $ response <dbl> 36, 48, 47, 67, 77, 60, 83, 90, 17, 22, 14, 50, 30, 51, 90, 7…
-        #> $ rating   <ord> 2, 3, 3, 4, 4, 4, 5, 5, 1, 2, 1, 3, 2, 3, 5, 4, 2, 3, 3, 2, 5…
-        #> $ temp     <fct> cold, cold, cold, cold, warm, warm, warm, warm, cold, cold, c…
-        #> $ contact  <fct> no, no, yes, yes, no, no, yes, yes, no, no, yes, yes, no, no,…
-        #> $ bottle   <fct> 1, 2, 3, 4, 5, 6, 7, 8, 1, 2, 3, 4, 5, 6, 7, 8, 1, 2, 3, 4, 5…
-        #> $ judge    <fct> 1, 1, 1, 1, 1, 1, 1, 1, 2, 2, 2, 2, 2, 2, 2, 2, 3, 3, 3, 3, 3…
-        ```
-
-        </Details>
-
-        -   Temperature and contact between juice and skins can be controlled when crushing grapes during wine production
-
-        -   Other variables
-
-            -   [response]{.var-text}: alternative outcome; wine bitterness rating on a 0-100 scale
-            -   Random Effects
-                -   [bottle]{.var-text} with 8 levels
-                -   [judge]{.var-text} with 9 levels
-
-    -   Model
-
-        ``` r
-        fm1 <- 
-          ordinal::clm(rating ~ contact + temp, 
-                       data = wine)
-        summary(fm1)
-
-        #> formula: rating ~ contact + temp
-        #> data: wine
-        #> 
-        #> link threshold nobs logLik  AIC    niter max.grad  cond.H
-        #> logit flexible 72  -86.49  184.98  6(0)  4.01e-12  2.7e+01
-        #> 
-        #> Coefficients:
-        #>            Estimate  Std.Error  z value  Pr(>|z|)
-        #> contactyes 1.5278    0.4766     3.205    0.00135 **
-        #> tempwarm   2.5031    0.5287     4.735    2.19e-06 ***
-        #> ---
-        #> Signif. codes: 0 ‘***’ 0.001 ‘**’ 0.01 ‘*’ 0.05 ‘.’ 0.1 ‘ ’ 1
-        #> 
-        #> Threshold coefficients:
-        #>     Estimate Std.Error z value
-        #> 1|2 -1.3444  0.5171    -2.600
-        #> 2|3  1.2508  0.4379     2.857
-        #> 3|4  3.4669  0.5978     5.800
-        #> 4|5  5.0064  0.7309     6.850
-        #> 
-        #> confint(fm1)
-        #>            2.5 %     97.5 %
-        #> tempwarm   1.5097627 3.595225
-        #> contactyes 0.6157925 2.492404
-        ```
-
-        -   Model: $\mbox{logit}(P(Y_i \le j)) = \theta_j − \beta_1(\mbox{temp}_i ) − \beta_2(\mbox{contact}_i)$
-        -   Response is wine [rating]{.var-text} (1 to 5 = most [bitter]{.var-text})
-            -   **The response variable should be an ordered factor class**
-                -   In this example, both explanatory variables were factor variables.
-        -   [cond.H]{.arg-text} - Located in top row of GOF metrics. The condition number of the Hessian is a measure of how identifiable the model is.
-            -   Values larger than [1e4]{.arg-text} indicate that the model may be ill defined
-        -   Regression Coefficients
-            -   [temp]{.var-text}: $\beta_1(\mbox{warm} − \mbox{cold}) = 2.50$
-                -   The reference level is [cold]{.var-text}, and this is the effect of moving from [cold]{.var-text} to [warm]{.var-text}
-            -   [contact]{.var-text}: $\beta_2(\mbox{yes} − \mbox{no}) = 1.53$
-                -   The odds ratio of [bitterness]{.var-text} being rated in category $j$ or above ($\mbox{OR}(Y ≥ j)$) is $e^{\beta_2(\mbox{yes − no})} = e^{1.53} = 4.61$.
-                    -   Note: this is $\mbox{Pr}(Y \ge j)$ which is why we're using the positive $\beta$
-                -   The reference level is [no]{.var-text}, and this is the effect of moving from [no]{.var-text} to [yes]{.var-text}
-            -   Interpretation:
-                -   [contact]{.var-text} and [warm temperature]{.var-text} both lead to higher probabilities of observations in the high categories
-                -   Holding contact at its reference level (no), this says that having warm wine instead of a cold wine increases the log odds of the wine tasting more bitter by 2.50 times.
-                -   The odds of the [rating]{.var-text} being higher are $4.61$ times greater when [contact = yes]{.var-text} than when [contact = no]{.var-text}.
-        -   Thresholds (aka intercepts)
-            -   $\{\theta_j\} = \{−1.34, 1.25, 3.47, 5.01\}$
-            -   Often the thresholds are not of primary interest, but they are an integral part of the model.
-            -   These are the [ratings]{.var-text} thresholds for when [contact = no]{.arg-text}, [temp = cold]{.arg-text} (the reference categories) (see next section for other cateogorical combinations)
-            -   It is not relevant to test whether the thresholds are equal to zero, so no p-values are provided for this test.
-
-    -   Thresholds with [{emmeans}]{style="color: #990000"}
-
-        ``` r
-        emmeans(fm1, ~ cut|contact+temp, mode = "linear.predictor")
-        #> contact = no, temp = cold:
-        #>  cut emmean    SE  df asymp.LCL asymp.UCL
-        #>  1|2 -1.344 0.517 Inf   -2.3579    -0.331
-        #>  2|3  1.251 0.438 Inf    0.3926     2.109
-        #>  3|4  3.467 0.598 Inf    2.2953     4.638
-        #>  4|5  5.006 0.731 Inf    3.5739     6.439
-        #> 
-        #> contact = yes, temp = cold:
-        #>  cut emmean    SE  df asymp.LCL asymp.UCL
-        #>  1|2 -2.872 0.587 Inf   -4.0232    -1.721
-        #>  2|3 -0.277 0.407 Inf   -1.0740     0.520
-        #>  3|4  1.939 0.488 Inf    0.9820     2.896
-        #>  4|5  3.479 0.597 Inf    2.3077     4.650
-        #> 
-        #> contact = no, temp = warm:
-        #>  cut emmean    SE  df asymp.LCL asymp.UCL
-        #>  1|2 -3.847 0.645 Inf   -5.1117    -2.583
-        #>  2|3 -1.252 0.460 Inf   -2.1540    -0.351
-        #>  3|4  0.964 0.434 Inf    0.1123     1.815
-        #>  4|5  2.503 0.540 Inf    1.4441     3.562
-        #> 
-        #> contact = yes, temp = warm:
-        #>  cut emmean    SE  df asymp.LCL asymp.UCL
-        #>  1|2 -5.375 0.768 Inf   -6.8805    -3.870
-        #>  2|3 -2.780 0.531 Inf   -3.8200    -1.740
-        #>  3|4 -0.564 0.408 Inf   -1.3629     0.235
-        #>  4|5  0.976 0.459 Inf    0.0752     1.876
-        #> 
-        #> Results are given on the logit (not the response) scale. 
-        #> Confidence level used: 0.95 
-        ```
-
-    -   Visualize Effects and Thresholds\
-        ![](_resources/Regression,_Ordinal.resources/po-ex1-errorbars-1.png){.lightbox width="382"}
-
-        <Details>
-
-        <Summary>Code</Summary>
-
-        ``` r
-        tidy(fm1, 
-             conf.int = TRUE, 
-             conf.type = "Wald") %>%
-          ggplot(aes(y = term, x = estimate)) +
-          geom_point(size = 2) +
-          geom_linerange(size = 1, 
-                         aes(xmin = conf.low, xmax = conf.high))
-        ```
-
-        </Details>
-
-        -   Effect sizes are logits and thresholds are also on the log scale.
-
-    -   Exponentiate and Summarize\
-        ![](_resources/Regression,_Ordinal.resources/po-ex1-ortbl.png){.lightbox width="220"}
-
-        <Details>
-
-        <Summary>Code</Summary>
-
-        ``` r
-        gtsummary::tbl_regression(fm1, 
-                                  exponentiate = TRUE,
-                                  intercept = TRUE)
-        ```
-
-        </Details>
-
-        -   Not sure the PO model threshold CIs weren't calculated. They were for the
-
-    -   Probabilities
-
-    -   Probabilities
-
-        ``` r
-        probs_fm1 <- 
-          emmeans(fm1, 
-                  specs = ~ contact+temp|rating, 
-                  mode = "prob")
-        #> rating = 1:
-        #>  contact temp    prob      SE  df asymp.LCL asymp.UCL
-        #>  no      cold 0.20679 0.08480 Inf   0.04055    0.3730
-        #>  yes     cold 0.05355 0.02980 Inf  -0.00479    0.1119
-        #>  no      warm 0.02089 0.01320 Inf  -0.00497    0.0467
-        #>  yes     warm 0.00461 0.00352 Inf  -0.00230    0.0115
-        #> 
-        #> rating = 2:
-        #>  contact temp    prob      SE  df asymp.LCL asymp.UCL
-        #>  no      cold 0.57065 0.08680 Inf   0.40045    0.7409
-        #>  yes     cold 0.37765 0.08850 Inf   0.20416    0.5511
-        #>  no      warm 0.20142 0.07230 Inf   0.05965    0.3432
-        #>  yes     warm 0.05380 0.02670 Inf   0.00150    0.1061
-        #> 
-        #> rating = 3:
-        #>  contact temp    prob      SE  df asymp.LCL asymp.UCL
-        #>  no      cold 0.19229 0.06390 Inf   0.06708    0.3175
-        #>  yes     cold 0.44306 0.07940 Inf   0.28744    0.5987
-        #>  no      warm 0.50158 0.07500 Inf   0.35461    0.6485
-        #>  yes     warm 0.30421 0.07810 Inf   0.15122    0.4572
-        #> 
-        #> rating = 4:
-        #>  contact temp    prob      SE  df asymp.LCL asymp.UCL
-        #>  no      cold 0.02362 0.01380 Inf  -0.00343    0.0507
-        #>  yes     cold 0.09582 0.04260 Inf   0.01237    0.1793
-        #>  no      warm 0.20049 0.06760 Inf   0.06798    0.3330
-        #>  yes     warm 0.36360 0.08670 Inf   0.19364    0.5336
-        #> 
-        #> rating = 5:
-        #>  contact temp    prob      SE  df asymp.LCL asymp.UCL
-        #>  no      cold 0.00665 0.00483 Inf  -0.00281    0.0161
-        #>  yes     cold 0.02993 0.01730 Inf  -0.00407    0.0639
-        #>  no      warm 0.07563 0.03780 Inf   0.00158    0.1497
-        #>  yes     warm 0.27378 0.09130 Inf   0.09479    0.4528
-        #> 
-        #> Confidence level used: 0.95 
-        ```
-
-        -   The slope estimates indicate that we should se higher probabilities for higher ratings when [contact = yes]{.arg-text}, [temp = warm]{.arg-text} (bottom rows in each [rating]{.var-text}), and that is indeed what we see.
-        -   When a wine is produced at a warm [temperature]{.var-text} and \[contact\]\[temperature\] with grape skins, there is a 27% chance that the wine will \[rate\]\[temperature\] 5 on the bitterness scale.
-
-    -   Cumulative Probabilities
-
-        -   The chance of achieving a rating *at or below* a certain rating (i.e. the sum of probabilities at and below a certain rating)
-
-            ``` r
-            cum_probs <- 
-              emmeans(
-                fm1,
-                specs = ~ temp + contact | cut,
-                mode = "cum.prob"
-              )
-
-            cum_probs
-            #> cut = 1|2:
-            #>   temp contact cumprob      SE  df asymp.LCL asymp.UCL
-            #> cold no      0.20679 0.08480 Inf   0.04055    0.3730
-            #> warm no      0.02089 0.01320 Inf  -0.00497    0.0467
-            #> cold yes     0.05355 0.02980 Inf  -0.00479    0.1119
-            #> warm yes     0.00461 0.00352 Inf  -0.00230    0.0115
-            #> 
-            #> cut = 2|3:
-            #>   temp contact cumprob      SE  df asymp.LCL asymp.UCL
-            #> cold no      0.77744 0.07580 Inf   0.62894    0.9259
-            #> warm no      0.22230 0.07950 Inf   0.06642    0.3782
-            #> cold yes     0.43119 0.09970 Inf   0.23572    0.6267
-            #> warm yes     0.05841 0.02920 Inf   0.00122    0.1156
-            #> 
-            #> cut = 3|4:
-            #>   temp contact cumprob      SE  df asymp.LCL asymp.UCL
-            #> cold no      0.96973 0.01750 Inf   0.93534    1.0041
-            #> warm no      0.72388 0.08680 Inf   0.55368    0.8941
-            #> cold yes     0.87425 0.05370 Inf   0.76904    0.9795
-            #> warm yes     0.36262 0.09420 Inf   0.17797    0.5473
-            #> 
-            #> cut = 4|5:
-            #>   temp contact cumprob      SE  df asymp.LCL asymp.UCL
-            #> cold no      0.99335 0.00483 Inf   0.98389    1.0028
-            #> warm no      0.92437 0.03780 Inf   0.85033    0.9984
-            #> cold yes     0.97007 0.01730 Inf   0.93608    1.0041
-            #> warm yes     0.72622 0.09130 Inf   0.54722    0.9052
-            #> 
-            #> Confidence level used: 0.95
-            ```
-
-            -   [cut = 2\|3]{.arg-text} when [temp = cold]{.arg-text}, [contact = no]{.arg-text} says the probability of getting a [rating]{.var-text} of 2 or below under those conditions is 77.7%
-            -   [cut]{.arg-text} in the [rating]{.var-text} threshold
-
-    -   Exceedance Probabilities
-
-        -   That chance of achieving a rating *above* a certain rating (i.e. the sum of probabilities above a certain rating)
-
-            ``` r
-            words
-            ```
-
-    -   Contrasts
-
-    -   Absolute Risk Differences
-
-        ``` r
-        pairs(probs_fm1)
-        #> rating = 1:
-        #>  contrast            estimate     SE  df z.ratio p.value
-        #>  no cold - yes cold    0.1532 0.0698 Inf   2.194  0.1248
-        #>  no cold - no warm     0.1859 0.0775 Inf   2.397  0.0776
-        #>  no cold - yes warm    0.2022 0.0838 Inf   2.414  0.0745
-        #>  yes cold - no warm    0.0327 0.0264 Inf   1.237  0.6029
-        #>  yes cold - yes warm   0.0489 0.0273 Inf   1.792  0.2772
-        #>  no warm - yes warm    0.0163 0.0106 Inf   1.529  0.4201
-        #> 
-        #> rating = 2:
-        #>  contrast            estimate     SE  df z.ratio p.value
-        #>  no cold - yes cold    0.1930 0.0879 Inf   2.195  0.1245
-        #>  no cold - no warm     0.3692 0.0956 Inf   3.861  0.0007
-        #>  no cold - yes warm    0.5168 0.0907 Inf   5.700  <.0001
-        #>  yes cold - no warm    0.1762 0.1120 Inf   1.567  0.3975
-        #>  yes cold - yes warm   0.3238 0.0825 Inf   3.927  0.0005
-        #>  no warm - yes warm    0.1476 0.0620 Inf   2.381  0.0808
-        #> 
-        #> rating = 3:
-        #>  contrast            estimate     SE  df z.ratio p.value
-        #>  no cold - yes cold   -0.2508 0.0808 Inf  -3.105  0.0103
-        #>  no cold - no warm    -0.3093 0.0924 Inf  -3.347  0.0045
-        #>  no cold - yes warm   -0.1119 0.0791 Inf  -1.415  0.4898
-        #>  yes cold - no warm   -0.0585 0.0533 Inf  -1.098  0.6909
-        #>  yes cold - yes warm   0.1389 0.1040 Inf   1.339  0.5381
-        #>  no warm - yes warm    0.1974 0.0801 Inf   2.465  0.0655
-        #> 
-        #> rating = 4:
-        #>  contrast            estimate     SE  df z.ratio p.value
-        #>  no cold - yes cold   -0.0722 0.0353 Inf  -2.048  0.1705
-        #>  no cold - no warm    -0.1769 0.0615 Inf  -2.876  0.0210
-        #>  no cold - yes warm   -0.3400 0.0858 Inf  -3.964  0.0004
-        #>  yes cold - no warm   -0.1047 0.0709 Inf  -1.476  0.4518
-        #>  yes cold - yes warm  -0.2678 0.0788 Inf  -3.399  0.0038
-        #>  no warm - yes warm   -0.1631 0.0710 Inf  -2.298  0.0985
-        #> 
-        #> rating = 5:
-        #>  contrast            estimate     SE  df z.ratio p.value
-        #>  no cold - yes cold   -0.0233 0.0140 Inf  -1.659  0.3455
-        #>  no cold - no warm    -0.0690 0.0346 Inf  -1.993  0.1906
-        #>  no cold - yes warm   -0.2671 0.0904 Inf  -2.954  0.0166
-        #>  yes cold - no warm   -0.0457 0.0353 Inf  -1.296  0.5656
-        #>  yes cold - yes warm  -0.2439 0.0835 Inf  -2.919  0.0184
-        #>  no warm - yes warm   -0.1982 0.0770 Inf  -2.572  0.0495
-        #> 
-        #> P value adjustment: tukey method for comparing a family of 4 estimates 
-        ```
-
-        -   This tests for statistical differences in probabilities
-        -   The probability of a [rating]{.var-text} of 5 is 2% lower when [contact = no]{.arg-text}, [temp = cold]{.arg-text} rather than [contact = yes]{.arg-text}, [temp = cold]{.arg-text}
-
-    -   Difference Between Ratings Probabilities
-
-        ``` r
-        emmeans(fm1, 
-                specs = ~ rating|contact+temp, 
-                mode = "prob") |> 
-          pairs()
-
-        #> contact = no, temp = cold:
-        #>  contrast           estimate     SE  df z.ratio p.value
-        #>  rating1 - rating2 -0.363860 0.1540 Inf  -2.362  0.1259
-        #>  rating1 - rating3  0.014499 0.1250 Inf   0.116  1.0000
-        #>  rating1 - rating4  0.183171 0.0901 Inf   2.032  0.2504
-        #>  rating1 - rating5  0.200140 0.0864 Inf   2.317  0.1395
-        #>  rating2 - rating3  0.378359 0.1290 Inf   2.925  0.0284
-        #>  rating2 - rating4  0.547031 0.0921 Inf   5.942  <.0001
-        #>  rating2 - rating5  0.563999 0.0883 Inf   6.385  <.0001
-        #>  rating3 - rating4  0.168672 0.0571 Inf   2.952  0.0262
-        #>  rating3 - rating5  0.185641 0.0613 Inf   3.027  0.0209
-        #>  rating4 - rating5  0.016968 0.0109 Inf   1.550  0.5295
-        #> 
-        #> contact = yes, temp = cold:
-        #>  contrast           estimate     SE  df z.ratio p.value
-        #>  rating1 - rating2 -0.324100 0.0866 Inf  -3.744  0.0017
-        #>  rating1 - rating3 -0.389514 0.0963 Inf  -4.044  0.0005
-        #>  rating1 - rating4 -0.042275 0.0585 Inf  -0.723  0.9513
-        #>  rating1 - rating5  0.023619 0.0371 Inf   0.637  0.9690
-        #>  rating2 - rating3 -0.065414 0.1590 Inf  -0.410  0.9941
-        #>  rating2 - rating4  0.281825 0.1180 Inf   2.391  0.1176
-        #>  rating2 - rating5  0.347719 0.0975 Inf   3.566  0.0033
-        #>  rating3 - rating4  0.347239 0.0869 Inf   3.997  0.0006
-        #>  rating3 - rating5  0.413133 0.0801 Inf   5.158  <.0001
-        #>  rating4 - rating5  0.065894 0.0367 Inf   1.797  0.3755
-        #> 
-        #> contact = no, temp = warm:
-        #>  contrast           estimate     SE  df z.ratio p.value
-        #>  rating1 - rating2 -0.180528 0.0670 Inf  -2.695  0.0546
-        #>  rating1 - rating3 -0.480688 0.0794 Inf  -6.051  <.0001
-        #>  rating1 - rating4 -0.179606 0.0729 Inf  -2.465  0.0987
-        #>  rating1 - rating5 -0.054739 0.0423 Inf  -1.293  0.6953
-        #>  rating2 - rating3 -0.300160 0.1210 Inf  -2.472  0.0971
-        #>  rating2 - rating4  0.000922 0.1230 Inf   0.008  1.0000
-        #>  rating2 - rating5  0.125789 0.0943 Inf   1.334  0.6700
-        #>  rating3 - rating4  0.301082 0.1230 Inf   2.454  0.1015
-        #>  rating3 - rating5  0.425949 0.0950 Inf   4.484  0.0001
-        #>  rating4 - rating5  0.124867 0.0668 Inf   1.871  0.3333
-        #> 
-        #> contact = yes, temp = warm:
-        #>  contrast           estimate     SE  df z.ratio p.value
-        #>  rating1 - rating2 -0.049193 0.0244 Inf  -2.013  0.2597
-        #>  rating1 - rating3 -0.299602 0.0768 Inf  -3.900  0.0009
-        #>  rating1 - rating4 -0.358988 0.0876 Inf  -4.096  0.0004
-        #>  rating1 - rating5 -0.269176 0.0925 Inf  -2.910  0.0298
-        #>  rating2 - rating3 -0.250409 0.0713 Inf  -3.514  0.0040
-        #>  rating2 - rating4 -0.309794 0.0982 Inf  -3.155  0.0139
-        #>  rating2 - rating5 -0.219983 0.1040 Inf  -2.105  0.2177
-        #>  rating3 - rating4 -0.059386 0.1420 Inf  -0.419  0.9936
-        #>  rating3 - rating5  0.030425 0.1490 Inf   0.205  0.9996
-        #>  rating4 - rating5  0.089811 0.1510 Inf   0.594  0.9760
-        #> 
-        #> P value adjustment: tukey method for comparing a family of 5 estimates
-        ```
-
-        -   When [contact = yes]{.arg-text}, [temp = warm]{.arg-text}, you're more likely to get a [rating]{.var-text} of 3 than a [rating]{.var-text} of 1 by 29.9%
-
-    -   Risk Ratios
-
-        -   Between Predictor Conditions
-
-            ``` r
-            probs_fm1 |> 
-              regrid("log") |> 
-              contrast(method = "pairwise") |> 
-              summary(type = "response",
-                      infer = TRUE,
-                      by = NULL)
-
-            #> contrast            rating   ratio      SE  df asymp.LCL asymp.UCL null z.ratio p.value
-            #> no cold / yes cold  1       3.8619  1.6700 Inf   0.99091    15.051    1   3.116  0.0536
-            #> no cold / no warm   1       9.9001  4.9800 Inf   2.04138    48.012    1   4.554  0.0002
-            #> no cold / yes warm  1      44.8737 33.3000 Inf   4.36498   461.319    1   5.120  <.0001
-            #> yes cold / no warm  1       2.5635  1.5900 Inf   0.36797    17.859    1   1.521  0.9837
-            #> yes cold / yes warm 1      11.6195  6.1100 Inf   2.23570    60.390    1   4.668  0.0001
-            #> no warm / yes warm  1       4.5327  2.1500 Inf   1.02598    20.025    1   3.191  0.0417
-            #> no cold / yes cold  2       1.5111  0.3120 Inf   0.79084     2.887    1   2.000  0.7527
-            #> no cold / no warm   2       2.8332  0.9840 Inf   0.95341     8.419    1   2.999  0.0781
-            #> no cold / yes warm  2      10.6066  5.4900 Inf   2.08990    53.830    1   4.560  0.0002
-            #> yes cold / no warm  2       1.8750  0.7920 Inf   0.49853     7.052    1   1.488  0.9878
-            #> yes cold / yes warm 2       7.0193  3.2500 Inf   1.63946    30.053    1   4.203  0.0008
-            #> no warm / yes warm  2       3.7437  1.5900 Inf   0.98486    14.231    1   3.101  0.0563
-            #> no cold / yes cold  3       0.4340  0.1350 Inf   0.16327     1.154    1  -2.678  0.1999
-            #> no cold / no warm   3       0.3834  0.1330 Inf   0.12895     1.140    1  -2.760  0.1596
-            #> no cold / yes warm  3       0.6321  0.2090 Inf   0.22417     1.782    1  -1.388  0.9956
-            #> yes cold / no warm  3       0.8833  0.1030 Inf   0.61289     1.273    1  -1.065  1.0000
-            #> yes cold / yes warm 3       1.4564  0.4270 Inf   0.58119     3.650    1   1.284  0.9987
-            #> no warm / yes warm  3       1.6488  0.3810 Inf   0.79853     3.404    1   2.163  0.6053
-            #> no cold / yes cold  4       0.2465  0.1110 Inf   0.05999     1.013    1  -3.109  0.0549
-            #> no cold / no warm   4       0.1178  0.0587 Inf   0.02465     0.563    1  -4.289  0.0005
-            #> no cold / yes warm  4       0.0650  0.0388 Inf   0.00997     0.423    1  -4.576  0.0001
-            #> yes cold / no warm  4       0.4779  0.2340 Inf   0.10264     2.225    1  -1.506  0.9858
-            #> yes cold / yes warm 4       0.2635  0.1070 Inf   0.07382     0.941    1  -3.287  0.0299
-            #> no warm / yes warm  4       0.5514  0.1500 Inf   0.23510     1.293    1  -2.190  0.5800
-            #> no cold / yes cold  5       0.2222  0.1050 Inf   0.05049     0.978    1  -3.184  0.0427
-            #> no cold / no warm   5       0.0879  0.0461 Inf   0.01699     0.455    1  -4.639  0.0001
-            #> no cold / yes warm  5       0.0243  0.0178 Inf   0.00245     0.241    1  -5.079  <.0001
-            #> yes cold / no warm  5       0.3957  0.2410 Inf   0.05849     2.677    1  -1.521  0.9837
-            #> yes cold / yes warm 5       0.1093  0.0540 Inf   0.02322     0.515    1  -4.482  0.0002
-            #> no warm / yes warm  5       0.2762  0.1160 Inf   0.07419     1.028    1  -3.070  0.0623
-            #> 
-            #> Confidence level used: 0.95 
-            #> Conf-level adjustment: sidak method for 30 estimates 
-            #> Intervals are back-transformed from the log scale 
-            #> P value adjustment: sidak method for 30 tests 
-            #> Tests are performed on the log scale 
-            ```
-
-            -   The code transforms the odds to the log scale, calculates pairwise differences, then transforms back to the probability scale.
-            -   The probability of a wine [rating]{.var-text} of 1 is around 45 times greater when [contact = no]{.arg-text}, [temp = cold]{.arg-text} than when [contact = yes]{.arg-text}, [temp = warm]{.arg-text}.
-                -   Note the huge standard errors and wide range between the upper and lower CIs
-            -   The probabiity of a wine rating of 2 is around 51% higher (1.5111 - 1.0000) when [contact = no]{.arg-text}, [temp = cold]{.arg-text} than when [contact = yes]{.arg-text}, [temp = cold]{.arg-text}.
-                -   Note that the CI contains 1 (where 1 indicates no statistical difference) which aligns with a p-value of 0.7527
-
-        -   Between Response Categories
-
-            ``` r
-            emmeans(
-              fm1,
-              specs = ~ rating | temp + contact,
-              mode = "prob"
-            ) |> 
-              regrid("log") |> 
-              contrast(method = "pairwise") |> 
-              summary(type = "response",
-                      infer = TRUE,
-                      by = NULL) |> 
-              dplyr::select(-SE, -df, -null, -z.ratio) |> 
-              dplyr::mutate(dplyr::across(dplyr::where(is.numeric),
-                                          ~ round(.x, 3)))
-            #>             contrast temp contact  ratio asymp.LCL asymp.UCL p.value
-            #> 1  rating1 / rating2 cold      no  0.362     0.069     1.917   0.870
-            #> 2  rating1 / rating3 cold      no  1.075     0.144     8.024   1.000
-            #> 3  rating1 / rating4 cold      no  8.755     0.639   120.017   0.263
-            #> 4  rating1 / rating5 cold      no 31.094     1.533   630.733   0.009
-            #> 5  rating2 / rating3 cold      no  2.968     0.757    11.637   0.341
-            #> 6  rating2 / rating4 cold      no 24.161     2.998   194.688   0.000
-            #> 7  rating2 / rating5 cold      no 85.807     6.895  1067.782   0.000
-            #> 8  rating3 / rating4 cold      no  8.141     1.739    38.125   0.000
-            #> 9  rating3 / rating5 cold      no 28.914     4.083   204.767   0.000
-            #> 10 rating4 / rating5 cold      no  3.551     0.666    18.925   0.447
-            #> 11 rating1 / rating2 warm      no  0.104     0.017     0.621   0.002
-            #> 12 rating1 / rating3 warm      no  0.042     0.005     0.379   0.000
-            #> 13 rating1 / rating4 warm      no  0.104     0.008     1.390   0.180
-            #> 14 rating1 / rating5 warm      no  0.276     0.016     4.647   0.998
-            #> 15 rating2 / rating3 warm      no  0.402     0.099     1.633   0.772
-            #> 16 rating2 / rating4 warm      no  1.005     0.141     7.176   1.000
-            #> 17 rating2 / rating5 warm      no  2.663     0.258    27.471   1.000
-            #> 18 rating3 / rating4 warm      no  2.502     0.628     9.973   0.736
-            #> 19 rating3 / rating5 warm      no  6.632     1.061    41.451   0.035
-            #> 20 rating4 / rating5 warm      no  2.651     0.511    13.760   0.903
-            #> 21 rating1 / rating2 cold     yes  0.142     0.024     0.835   0.015
-            #> 22 rating1 / rating3 cold     yes  0.121     0.015     0.996   0.049
-            #> 23 rating1 / rating4 cold     yes  0.559     0.042     7.451   1.000
-            #> 24 rating1 / rating5 cold     yes  1.789     0.108    29.688   1.000
-            #> 25 rating2 / rating3 cold     yes  0.852     0.240     3.022   1.000
-            #> 26 rating2 / rating4 cold     yes  3.941     0.556    27.913   0.623
-            #> 27 rating2 / rating5 cold     yes 12.619     1.259   126.494   0.016
-            #> 28 rating3 / rating4 cold     yes  4.624     1.035    20.659   0.039
-            #> 29 rating3 / rating5 cold     yes 14.805     2.182   100.461   0.000
-            #> 30 rating4 / rating5 cold     yes  3.202     0.610    16.819   0.620
-            #> 31 rating1 / rating2 warm     yes  0.086     0.014     0.526   0.001
-            #> 32 rating1 / rating3 warm     yes  0.015     0.002     0.149   0.000
-            #> 33 rating1 / rating4 warm     yes  0.013     0.001     0.199   0.000
-            #> 34 rating1 / rating5 warm     yes  0.017     0.001     0.333   0.000
-            #> 35 rating2 / rating3 warm     yes  0.177     0.041     0.764   0.005
-            #> 36 rating2 / rating4 warm     yes  0.148     0.021     1.063   0.070
-            #> 37 rating2 / rating5 warm     yes  0.197     0.021     1.846   0.542
-            #> 38 rating3 / rating4 warm     yes  0.837     0.212     3.298   1.000
-            #> 39 rating3 / rating5 warm     yes  1.111     0.209     5.897   1.000
-            #> 40 rating4 / rating5 warm     yes  1.328     0.276     6.396   1.000
-            ```
-
-            -   When [temp = cold]{.arg-text}, [contact = no]{.arg-text}, the probability of the wine receiving a 1 [rating]{.var-text} is 1.075 times higher than the probability of receiving a 3 [rating]{.var-text}.
-
-        -   Cumulative Probabilities
-
-            -   Risk Difference Between Conditions
-
-                ``` r
-                cum_probs |> pairs()
-                #> cut = 1|2:
-                #>  contrast            estimate     SE  df z.ratio p.value
-                #>  cold no - warm no     0.1859 0.0775 Inf   2.397  0.0776
-                #>  cold no - cold yes    0.1532 0.0698 Inf   2.194  0.1248
-                #>  cold no - warm yes    0.2022 0.0838 Inf   2.414  0.0745
-                #>  warm no - cold yes   -0.0327 0.0264 Inf  -1.237  0.6029
-                #>  warm no - warm yes    0.0163 0.0106 Inf   1.529  0.4201
-                #>  cold yes - warm yes   0.0489 0.0273 Inf   1.792  0.2772
-                #> 
-                #> cut = 2|3:
-                #>  contrast            estimate     SE  df z.ratio p.value
-                #>  cold no - warm no     0.5551 0.0914 Inf   6.071  <.0001
-                #>  cold no - cold yes    0.3462 0.1010 Inf   3.433  0.0033
-                #>  cold no - warm yes    0.7190 0.0885 Inf   8.128  <.0001
-                #>  warm no - cold yes   -0.2089 0.1330 Inf  -1.571  0.3955
-                #>  warm no - warm yes    0.1639 0.0682 Inf   2.404  0.0763
-                #>  cold yes - warm yes   0.3728 0.0924 Inf   4.034  0.0003
-                #> 
-                #> cut = 3|4:
-                #>  contrast            estimate     SE  df z.ratio p.value
-                #>  cold no - warm no     0.2459 0.0793 Inf   3.101  0.0104
-                #>  cold no - cold yes    0.0955 0.0447 Inf   2.135  0.1421
-                #>  cold no - warm yes    0.6071 0.0986 Inf   6.157  <.0001
-                #>  warm no - cold yes   -0.1504 0.1000 Inf  -1.500  0.4376
-                #>  warm no - warm yes    0.3613 0.1030 Inf   3.523  0.0024
-                #>  cold yes - warm yes   0.5116 0.0926 Inf   5.524  <.0001
-                #> 
-                #> cut = 4|5:
-                #>  contrast            estimate     SE  df z.ratio p.value
-                #>  cold no - warm no     0.0690 0.0346 Inf   1.993  0.1906
-                #>  cold no - cold yes    0.0233 0.0140 Inf   1.659  0.3455
-                #>  cold no - warm yes    0.2671 0.0904 Inf   2.954  0.0166
-                #>  warm no - cold yes   -0.0457 0.0353 Inf  -1.296  0.5656
-                #>  warm no - warm yes    0.1982 0.0770 Inf   2.572  0.0495
-                #>  cold yes - warm yes   0.2439 0.0835 Inf   2.919  0.0184
-                #> 
-                #> P value adjustment: tukey method for comparing a family of 4 estimates 
-                ```
-
-                -   The cumulative probability of having a [rating]{.var-text} of 2 or smaller ([cut = 2\|3]{.arg-text}) is 56% higher for conditions [temp = cold]{.arg-text}, [contact = no]{.arg-text} than for [temp = warm]{.arg-text}, [contact = no]{.arg-text}. This difference is statistically significant.
-
-            -   Risk Difference Between Response Thresholds
-
-                ``` r
-                emmeans(
-                  fm1,
-                  specs = ~ cut | temp + contact,
-                  mode = "cum.prob"
-                ) |> 
-                  pairs(infer = TRUE) |> 
-                  dplyr::as_data_frame() |> 
-                  dplyr::select(-SE, -df, -null, -z.ratio) |> 
-                  dplyr::mutate(dplyr::across(dplyr::where(is.numeric),
-                                              ~ round(.x, 3)))
-
-                #> # A tibble: 24 × 7
-                #> contrast  temp  contact estimate asymp.LCL asymp.UCL p.value
-                #> <fct>     <fct> <fct>      <dbl>     <dbl>     <dbl>   <dbl>
-                #>   1 1|2 - 2|3 cold  no        -0.571    -0.794    -0.348   0    
-                #> 2 1|2 - 3|4 cold  no        -0.763    -0.97     -0.556   0    
-                #> 3 1|2 - 4|5 cold  no        -0.787    -1.00     -0.572   0    
-                #> 4 2|3 - 3|4 cold  no        -0.192    -0.356    -0.028   0.014
-                #> 5 2|3 - 4|5 cold  no        -0.216    -0.403    -0.029   0.016
-                #> 6 3|4 - 4|5 cold  no        -0.024    -0.059     0.012   0.318
-                #> 7 1|2 - 2|3 warm  no        -0.201    -0.387    -0.016   0.027
-                #> 8 1|2 - 3|4 warm  no        -0.703    -0.917    -0.489   0    
-                #> 9 1|2 - 4|5 warm  no        -0.903    -1        -0.807   0    
-                #> 10 2|3 - 3|4 warm  no        -0.502    -0.694    -0.309   0    
-                #> 11 2|3 - 4|5 warm  no        -0.702    -0.89     -0.515   0    
-                #> 12 3|4 - 4|5 warm  no        -0.2      -0.374    -0.027   0.016
-                #> 13 1|2 - 2|3 cold  yes       -0.378    -0.605    -0.15    0    
-                #> 14 1|2 - 3|4 cold  yes       -0.821    -0.958    -0.683   0    
-                #> 15 1|2 - 4|5 cold  yes       -0.917    -0.998    -0.835   0    
-                #> 16 2|3 - 3|4 cold  yes       -0.443    -0.647    -0.239   0    
-                #> 17 2|3 - 4|5 cold  yes       -0.539    -0.778    -0.299   0    
-                #> 18 3|4 - 4|5 cold  yes       -0.096    -0.205     0.014   0.11 
-                #> 19 1|2 - 2|3 warm  yes       -0.054    -0.122     0.015   0.182
-                #> 20 1|2 - 3|4 warm  yes       -0.358    -0.595    -0.121   0.001
-                #> 21 1|2 - 4|5 warm  yes       -0.722    -0.953    -0.49    0    
-                #> 22 2|3 - 3|4 warm  yes       -0.304    -0.505    -0.104   0.001
-                #> 23 2|3 - 4|5 warm  yes       -0.668    -0.885    -0.451   0    
-                #> 24 3|4 - 4|5 warm  yes       -0.364    -0.586    -0.141   0 
-                ```
-
-                -   For conditions [temp = cold]{.arg-text}, [contact = no]{.arg-text}, the bitterness rating stabilizes at the 3rd [ratings]{.var-text} threshold since it's cumulative probability is already so high that moving to the 4th [ratings]{.var-text} threshold results in a non-statistically significant diffference ([3\|4 - 4\|5]{.arg-text}, p-value = 0.318)
-
-            -   Risk Ratios between Conditions
-
-                ``` r
-                cum_probs |> 
-                  regrid("log") |> 
-                  contrast(method = "pairwise") |> 
-                  summary(type = "response",
-                          infer = TRUE,
-                          by = NULL) |> 
-                  dplyr::select(-SE, -df, -null, -z.ratio) |> 
-                  dplyr::mutate(dplyr::across(dplyr::where(is.numeric),
-                                              ~ round(.x, 3)))
-                #>               contrast cut  ratio asymp.LCL asymp.UCL p.value
-                #> 1    cold no / warm no 1|2  9.900     2.110    46.444   0.000
-                #> 2   cold no / cold yes 1|2  3.862     1.020    14.627   0.043
-                #> 3   cold no / warm yes 1|2 44.874     4.584   439.258   0.000
-                #> 4   warm no / cold yes 1|2  0.390     0.058     2.609   0.963
-                #> 5   warm no / warm yes 1|2  4.533     1.059    19.409   0.033
-                #> 6  cold yes / warm yes 1|2 11.620     2.315    58.333   0.000
-                #> 7    cold no / warm no 2|3  3.497     1.229     9.955   0.006
-                #> 8   cold no / cold yes 2|3  1.803     0.930     3.497   0.141
-                #> 9   cold no / warm yes 2|3 13.310     2.574    68.822   0.000
-                #> 10  warm no / cold yes 2|3  0.516     0.132     2.010   0.969
-                #> 11  warm no / warm yes 2|3  3.806     1.024    14.148   0.042
-                #> 12 cold yes / warm yes 2|3  7.382     1.787    30.503   0.000
-                #> 13   cold no / warm no 3|4  1.340     0.950     1.888   0.193
-                #> 14  cold no / cold yes 3|4  1.109     0.946     1.301   0.676
-                #> 15  cold no / warm yes 3|4  2.674     1.191     6.004   0.004
-                #> 16  warm no / cold yes 3|4  0.828     0.551     1.244   0.982
-                #> 17  warm no / warm yes 3|4  1.996     0.944     4.220   0.104
-                #> 18 cold yes / warm yes 3|4  2.411     1.128     5.155   0.009
-                #> 19   cold no / warm no 4|5  1.075     0.957     1.206   0.750
-                #> 20  cold no / cold yes 4|5  1.024     0.979     1.071   0.926
-                #> 21  cold no / warm yes 4|5  1.368     0.932     2.007   0.253
-                #> 22  warm no / cold yes 4|5  0.953     0.848     1.071   0.996
-                #> 23  warm no / warm yes 4|5  1.273     0.912     1.776   0.471
-                #> 24 cold yes / warm yes 4|5  1.336     0.932     1.915   0.280
-                ```
-
-                -   Wine with the condition [temp = cold]{.arg-text}, [contact = no]{.arg-text} is roughtly 3.5 times more likely to receive a bitterness [rating]{.var-text} of 2 or less than a wine with the conditions [temp = warm]{.arg-text}, [contact = no]{.arg-text}. This difference is statistically significant (p-value = 0.006)
-
-            -   Risk Ratios Between Response Thresholds
-
-                ``` r
-                emmeans(
-                  fm1,
-                  specs = ~ cut | temp + contact,
-                  mode = "cum.prob"
-                ) |> 
-                  regrid("log") |> 
-                  contrast(method = "pairwise") |> 
-                  summary(type = "response",
-                          infer = TRUE,
-                          by = NULL) |> 
-                  dplyr::select(-SE, -df, -null, -z.ratio) |> 
-                  dplyr::mutate(dplyr::across(dplyr::where(is.numeric),
-                                              ~ round(.x, 3)))
-                #>     contrast temp contact ratio asymp.LCL asymp.UCL p.value
-                #> 1  1|2 / 2|3 cold      no 0.266     0.083     0.854   0.012
-                #> 2  1|2 / 3|4 cold      no 0.213     0.062     0.739   0.003
-                #> 3  1|2 / 4|5 cold      no 0.208     0.059     0.730   0.003
-                #> 4  2|3 / 3|4 cold      no 0.802     0.618     1.041   0.200
-                #> 5  2|3 / 4|5 cold      no 0.783     0.586     1.046   0.202
-                #> 6  3|4 / 4|5 cold      no 0.976     0.934     1.020   0.903
-                #> 7  1|2 / 2|3 warm      no 0.094     0.020     0.441   0.000
-                #> 8  1|2 / 3|4 warm      no 0.029     0.005     0.184   0.000
-                #> 9  1|2 / 4|5 warm      no 0.023     0.003     0.154   0.000
-                #> 10 2|3 / 3|4 warm      no 0.307     0.122     0.776   0.002
-                #> 11 2|3 / 4|5 warm      no 0.240     0.084     0.690   0.001
-                #> 12 3|4 / 4|5 warm      no 0.783     0.581     1.056   0.253
-                #> 13 1|2 / 2|3 cold     yes 0.124     0.028     0.546   0.000
-                #> 14 1|2 / 3|4 cold     yes 0.061     0.012     0.323   0.000
-                #> 15 1|2 / 4|5 cold     yes 0.055     0.010     0.301   0.000
-                #> 16 2|3 / 3|4 cold     yes 0.493     0.267     0.911   0.010
-                #> 17 2|3 / 4|5 cold     yes 0.444     0.224     0.884   0.007
-                #> 18 3|4 / 4|5 cold     yes 0.901     0.774     1.050   0.591
-                #> 19 1|2 / 2|3 warm     yes 0.079     0.016     0.389   0.000
-                #> 20 1|2 / 3|4 warm     yes 0.013     0.002     0.097   0.000
-                #> 21 1|2 / 4|5 warm     yes 0.006     0.001     0.060   0.000
-                #> 22 2|3 / 3|4 warm     yes 0.161     0.050     0.520   0.000
-                #> 23 2|3 / 4|5 warm     yes 0.080     0.019     0.336   0.000
-                #> 24 3|4 / 4|5 warm     yes 0.499     0.258     0.968   0.030
-                ```
-
-                -   The bitterness [rating]{.var-text} for wine with the condition [temp = cold]{.arg-text}, [contact = no]{.arg-text} stabilizes at the second [ratings]{.var-text} threshold since we no longer see significant differences after that point (([2\|3 - 3\|4]{.arg-text}, p-value = 0.20)
-
-    -   Visualize the probabilites
-
-        -   Temperature vs Rating\
-            ![](_resources/Regression,_Ordinal.resources/po-ex1-probs-1.png){.lightbox width="432"}
-
-            ``` r
-            library(ggplot2)
-            theme_set(ggeffects::theme_ggeffects())
-
-            emmip(fm1,
-                  temp ~ rating,
-                  mode = "prob",
-                  dodge = 0.3,
-                  CIs = TRUE) +
-              theme(legend.position = "top") +
-              scale_y_continuous(labels = scales::percent, limits = c(-0.1, 1)) +
-              ylab("Predicted Probabilities")
-            ```
-
-            -   Visualizing the uncertainty allows us to see ratings with overlap (likely no difference) and no overlap (likely a difference)
-
-        -   Temperature and Contact vs Rating\
-            ![](_resources/Regression,_Ordinal.resources/po-ex1-probs-2.png){.lightbox width="432"}
-
-            ``` r
-            theme_set(ggeffects::theme_ggeffects())
-
-            emmip(fm1,
-                  temp + contact ~ rating,
-                  mode = "prob",
-                  dodge = 0.3,
-                  CIs = TRUE) +
-              theme(legend.position = "top") +
-              scale_y_continuous(labels = scales::percent, limits = c(-0.1, 1)) +
-              ylab("Predicted Probabilities")
-            ```
-
-        -   Cumulative Probabilities\
-            ![](_resources/Regression,_Ordinal.resources/po-ex1-vis-cumprob-1.png){.lightbox width="432"}
-
-            ``` r
-            theme_set(ggeffects::theme_ggeffects())
-
-            emmip(
-              fm1,
-              temp + contact ~ cut,
-              mode = "cum.prob",
-              dodge = 0.3,
-              CIs = TRUE
-            ) +
-              theme(legend.position = "top") +
-              scale_y_continuous(labels = scales::percent) +
-              ylab("cumulative Probabilities")
-            ```
-
-            -   "Levels of Cut" are the rating thresholds
-
-        -   Exceedance Probabilities
-
-    -   Test for interaction
-
-        ``` r
-        fm1_inter <-
-          clm(rating ~ contact * temp, 
-              data = wine, 
-              link = "logit")
-
-        #drop1(fm1_inter, test = "Chisq") accomplishes the same thing as anova
-        anova(fm1, fm1_inter)
-        #> Likelihood ratio tests of cumulative link models:
-        #>  
-        #>           formula:                link: threshold:
-        #> fm1       rating ~ contact + temp logit flexible  
-        #> fm1_inter rating ~ contact * temp logit flexible  
-        #> 
-        #>           no.par    AIC  logLik LR.stat df Pr(>Chisq)
-        #> fm1            6 184.98 -86.492                      
-        #> fm1_inter      7 186.83 -86.416  0.1514  1     0.6972
-        ```
-
-        -   No interaction which doesn't totally surprise me given the EDA plot (See [EDA](regression-ordinal.qmd#sec-reg-ord-eda){style="color: green"} \>\> Dot Plots), but I did think it'd be closer.
+    -   [Data and Model]{.underline}
+
+    ::: panel-tabset
+    ## Data
+
+    Notes from
+
+    -   Video: [Ordinal Regression Demystified = Proportional Odds = Ordered Logit = Cumulative Link (Part 1)](https://www.youtube.com/watch?v=l0jji3yQ7is) by yuzaR
+    -   Video: [Ordinal Regression Part 2: Cumulative and Exceedance Probabilities](https://www.youtube.com/watch?v=9ZJiHCPNxQE&t=613s) by yuzaR
+
+    ``` r
+    data(wine, package = "ordinal")
+    glimpse(as_tibble(wine))
+    #> Rows: 72
+    #> Columns: 6
+    #> $ response <dbl> 36, 48, 47, 67, 77, 60, 83, 90, 17, 22, 14, 50, 30, 51, 90, 7…
+    #> $ rating   <ord> 2, 3, 3, 4, 4, 4, 5, 5, 1, 2, 1, 3, 2, 3, 5, 4, 2, 3, 3, 2, 5…
+    #> $ temp     <fct> cold, cold, cold, cold, warm, warm, warm, warm, cold, cold, c…
+    #> $ contact  <fct> no, no, yes, yes, no, no, yes, yes, no, no, yes, yes, no, no,…
+    #> $ bottle   <fct> 1, 2, 3, 4, 5, 6, 7, 8, 1, 2, 3, 4, 5, 6, 7, 8, 1, 2, 3, 4, 5…
+    #> $ judge    <fct> 1, 1, 1, 1, 1, 1, 1, 1, 2, 2, 2, 2, 2, 2, 2, 2, 3, 3, 3, 3, 3…
+    ```
+
+    -   Temperature and contact between juice and skins can be controlled when crushing grapes during wine production
+    -   Other variables
+        -   [response]{.var-text}: alternative outcome; wine bitterness rating on a 0-100 scale
+        -   Random Effects
+            -   [bottle]{.var-text} with 8 levels
+            -   [judge]{.var-text} with 9 levels
+
+    ## Model
+
+    ``` r
+    fm1 <- 
+      ordinal::clm(rating ~ contact + temp, 
+                   data = wine)
+
+    summary(fm1)
+    #> formula: rating ~ contact + temp
+    #> data: wine
+    #> 
+    #> link threshold nobs logLik  AIC    niter max.grad  cond.H
+    #> logit flexible 72  -86.49  184.98  6(0)  4.01e-12  2.7e+01
+    #> 
+    #> Coefficients:
+    #>            Estimate  Std.Error  z value  Pr(>|z|)
+    #> contactyes 1.5278    0.4766     3.205    0.00135 **
+    #> tempwarm   2.5031    0.5287     4.735    2.19e-06 ***
+    #> ---
+    #> Signif. codes: 0 ‘***’ 0.001 ‘**’ 0.01 ‘*’ 0.05 ‘.’ 0.1 ‘ ’ 1
+    #> 
+    #> Threshold coefficients:
+    #>     Estimate Std.Error z value
+    #> 1|2 -1.3444  0.5171    -2.600
+    #> 2|3  1.2508  0.4379     2.857
+    #> 3|4  3.4669  0.5978     5.800
+    #> 4|5  5.0064  0.7309     6.850
+    #> 
+    #> confint(fm1)
+    #>            2.5 %     97.5 %
+    #> tempwarm   1.5097627 3.595225
+    #> contactyes 0.6157925 2.492404
+    ```
+
+    -   Model: $\mbox{logit}(P(Y_i \le j)) = \theta_j − \beta_1(\mbox{temp}_i ) − \beta_2(\mbox{contact}_i)$
+    -   Response is wine [rating]{.var-text} (1 to 5 = most [bitter]{.var-text})
+        -   **The response variable should be an ordered factor class**
+            -   In this example, both explanatory variables were factor variables.
+    -   [cond.H]{.arg-text} - Located in top row of GOF metrics. The condition number of the Hessian is a measure of how identifiable the model is.
+        -   Values larger than [1e4]{.arg-text} indicate that the model may be ill defined
+    -   Regression Coefficients
+        -   [temp]{.var-text}: $\beta_1(\mbox{warm} − \mbox{cold}) = 2.50$
+            -   The reference level is [cold]{.var-text}, and this is the effect of moving from [cold]{.var-text} to [warm]{.var-text}
+        -   [contact]{.var-text}: $\beta_2(\mbox{yes} − \mbox{no}) = 1.53$
+            -   The odds ratio of [bitterness]{.var-text} being rated in category $j$ or above ($\mbox{OR}(Y ≥ j)$) is $e^{\beta_2(\mbox{yes − no})} = e^{1.53} = 4.61$.
+                -   Note: this is $\mbox{Pr}(Y \ge j)$ which is why we're using the positive $\beta$
+            -   The reference level is [no]{.var-text}, and this is the effect of moving from [no]{.var-text} to [yes]{.var-text}
+        -   Interpretation:
+            -   [contact]{.var-text} and [warm temperature]{.var-text} both lead to higher probabilities of observations in the high categories
+            -   Holding contact at its reference level (no), this says that having warm wine instead of a cold wine increases the log odds of the wine tasting more bitter by 2.50 times.
+            -   The odds of the [rating]{.var-text} being higher are $4.61$ times greater when [contact = yes]{.var-text} than when [contact = no]{.var-text}.
+
+    ## Thresholds
+
+    See [Cumulative Link Model \>\> Latent Variable Concept](regression-ordinal.qmd#sec-reg-ord-clm){style="color: green"} for details on Thresholds
+
+    ``` r
+    emmeans(fm1, ~ cut|contact+temp, mode = "linear.predictor")
+    #> contact = no, temp = cold:
+    #>  cut emmean    SE  df asymp.LCL asymp.UCL
+    #>  1|2 -1.344 0.517 Inf   -2.3579    -0.331
+    #>  2|3  1.251 0.438 Inf    0.3926     2.109
+    #>  3|4  3.467 0.598 Inf    2.2953     4.638
+    #>  4|5  5.006 0.731 Inf    3.5739     6.439
+    #> 
+    #> contact = yes, temp = cold:
+    #>  cut emmean    SE  df asymp.LCL asymp.UCL
+    #>  1|2 -2.872 0.587 Inf   -4.0232    -1.721
+    #>  2|3 -0.277 0.407 Inf   -1.0740     0.520
+    #>  3|4  1.939 0.488 Inf    0.9820     2.896
+    #>  4|5  3.479 0.597 Inf    2.3077     4.650
+    #> 
+    #> contact = no, temp = warm:
+    #>  cut emmean    SE  df asymp.LCL asymp.UCL
+    #>  1|2 -3.847 0.645 Inf   -5.1117    -2.583
+    #>  2|3 -1.252 0.460 Inf   -2.1540    -0.351
+    #>  3|4  0.964 0.434 Inf    0.1123     1.815
+    #>  4|5  2.503 0.540 Inf    1.4441     3.562
+    #> 
+    #> contact = yes, temp = warm:
+    #>  cut emmean    SE  df asymp.LCL asymp.UCL
+    #>  1|2 -5.375 0.768 Inf   -6.8805    -3.870
+    #>  2|3 -2.780 0.531 Inf   -3.8200    -1.740
+    #>  3|4 -0.564 0.408 Inf   -1.3629     0.235
+    #>  4|5  0.976 0.459 Inf    0.0752     1.876
+    #> 
+    #> Results are given on the logit (not the response) scale. 
+    #> Confidence level used: 0.95 
+    ```
+
+    -   The thresholds from `summary(fm1)` (aka intercepts) are $\{\theta_j\} = \{−1.34, 1.25, 3.47, 5.01\}$
+        -   Often the thresholds are not of primary interest, but they are an integral part of the model.
+        -   It is not relevant to test whether the thresholds are equal to zero, so no p-values are provided for this test.
+    -   Using [{emmeans}]{style="color: #990000"}, we see these are the [ratings]{.var-text} thresholds for when [contact = no]{.arg-text}, [temp = cold]{.arg-text} (the reference categories)
+
+    ## Interaction?
+
+    Use ANOVA to test for an interaction
+
+    ``` r
+    fm1_inter <-
+      clm(rating ~ contact * temp, 
+          data = wine, 
+          link = "logit")
+
+    # drop1(fm1_inter, test = "Chisq") accomplishes the same thing as anova
+
+    anova(fm1, fm1_inter)
+    #> Likelihood ratio tests of cumulative link models:
+    #>  
+    #>           formula:                link: threshold:
+    #> fm1       rating ~ contact + temp logit flexible  
+    #> fm1_inter rating ~ contact * temp logit flexible  
+    #> 
+    #>           no.par    AIC  logLik LR.stat df Pr(>Chisq)
+    #> fm1            6 184.98 -86.492                      
+    #> fm1_inter      7 186.83 -86.416  0.1514  1     0.6972
+    ```
+
+    -   No interaction which doesn't totally surprise me given the EDA plot (See [EDA](regression-ordinal.qmd#sec-reg-ord-eda){style="color: green"} \>\> Dot Plots), but I did think it'd be closer.\
+    :::
+
+    -   [Get Probabilities]{.underline}
+
+    ::: panel-tabset
+    ## Predicted Probabilities
+
+    ``` r
+    probs_fm1 <- 
+      emmeans(fm1, 
+              specs = ~ contact+temp|rating, 
+              mode = "prob")
+    #> rating = 1:
+    #>  contact temp    prob      SE  df asymp.LCL asymp.UCL
+    #>  no      cold 0.20679 0.08480 Inf   0.04055    0.3730
+    #>  yes     cold 0.05355 0.02980 Inf  -0.00479    0.1119
+    #>  no      warm 0.02089 0.01320 Inf  -0.00497    0.0467
+    #>  yes     warm 0.00461 0.00352 Inf  -0.00230    0.0115
+    #> 
+    #> rating = 2:
+    #>  contact temp    prob      SE  df asymp.LCL asymp.UCL
+    #>  no      cold 0.57065 0.08680 Inf   0.40045    0.7409
+    #>  yes     cold 0.37765 0.08850 Inf   0.20416    0.5511
+    #>  no      warm 0.20142 0.07230 Inf   0.05965    0.3432
+    #>  yes     warm 0.05380 0.02670 Inf   0.00150    0.1061
+    #> 
+    #> rating = 3:
+    #>  contact temp    prob      SE  df asymp.LCL asymp.UCL
+    #>  no      cold 0.19229 0.06390 Inf   0.06708    0.3175
+    #>  yes     cold 0.44306 0.07940 Inf   0.28744    0.5987
+    #>  no      warm 0.50158 0.07500 Inf   0.35461    0.6485
+    #>  yes     warm 0.30421 0.07810 Inf   0.15122    0.4572
+    #> 
+    #> rating = 4:
+    #>  contact temp    prob      SE  df asymp.LCL asymp.UCL
+    #>  no      cold 0.02362 0.01380 Inf  -0.00343    0.0507
+    #>  yes     cold 0.09582 0.04260 Inf   0.01237    0.1793
+    #>  no      warm 0.20049 0.06760 Inf   0.06798    0.3330
+    #>  yes     warm 0.36360 0.08670 Inf   0.19364    0.5336
+    #> 
+    #> rating = 5:
+    #>  contact temp    prob      SE  df asymp.LCL asymp.UCL
+    #>  no      cold 0.00665 0.00483 Inf  -0.00281    0.0161
+    #>  yes     cold 0.02993 0.01730 Inf  -0.00407    0.0639
+    #>  no      warm 0.07563 0.03780 Inf   0.00158    0.1497
+    #>  yes     warm 0.27378 0.09130 Inf   0.09479    0.4528
+    #> 
+    #> Confidence level used: 0.95 
+    ```
+
+    -   The slope estimates indicate that we should se higher probabilities for higher ratings when [contact = yes]{.arg-text}, [temp = warm]{.arg-text} (bottom rows in each [rating]{.var-text}), and that is indeed what we see.
+    -   When a wine is produced at a warm [temperature]{.var-text} and \[contact\]\[temperature\] with grape skins, there is a 27% chance that the wine will \[rate\]\[temperature\] 5 on the bitterness scale.
+
+    ## Cumulative Probabilities
+
+    The chance of achieving a rating *at or below* a certain rating (i.e. the sum of probabilities at and below a certain rating)
+
+    ``` r
+    cum_probs <- 
+      emmeans(
+        fm1,
+        specs = ~ temp + contact | cut,
+        mode = "cum.prob"
+      )
+
+    cum_probs
+    #> cut = 1|2:
+    #>   temp contact cumprob      SE  df asymp.LCL asymp.UCL
+    #> cold no      0.20679 0.08480 Inf   0.04055    0.3730
+    #> warm no      0.02089 0.01320 Inf  -0.00497    0.0467
+    #> cold yes     0.05355 0.02980 Inf  -0.00479    0.1119
+    #> warm yes     0.00461 0.00352 Inf  -0.00230    0.0115
+    #> 
+    #> cut = 2|3:
+    #>   temp contact cumprob      SE  df asymp.LCL asymp.UCL
+    #> cold no      0.77744 0.07580 Inf   0.62894    0.9259
+    #> warm no      0.22230 0.07950 Inf   0.06642    0.3782
+    #> cold yes     0.43119 0.09970 Inf   0.23572    0.6267
+    #> warm yes     0.05841 0.02920 Inf   0.00122    0.1156
+    #> 
+    #> cut = 3|4:
+    #>   temp contact cumprob      SE  df asymp.LCL asymp.UCL
+    #> cold no      0.96973 0.01750 Inf   0.93534    1.0041
+    #> warm no      0.72388 0.08680 Inf   0.55368    0.8941
+    #> cold yes     0.87425 0.05370 Inf   0.76904    0.9795
+    #> warm yes     0.36262 0.09420 Inf   0.17797    0.5473
+    #> 
+    #> cut = 4|5:
+    #>   temp contact cumprob      SE  df asymp.LCL asymp.UCL
+    #> cold no      0.99335 0.00483 Inf   0.98389    1.0028
+    #> warm no      0.92437 0.03780 Inf   0.85033    0.9984
+    #> cold yes     0.97007 0.01730 Inf   0.93608    1.0041
+    #> warm yes     0.72622 0.09130 Inf   0.54722    0.9052
+    #> 
+    #> Confidence level used: 0.95
+    ```
+
+    -   [cut = 2\|3]{.arg-text} when [temp = cold]{.arg-text}, [contact = no]{.arg-text} says the probability of getting a [rating]{.var-text} of 2 or below under those conditions is 77.7%
+    -   [cut]{.arg-text} in the [rating]{.var-text} threshold
+
+    ## Exceedance Probabilities
+
+    That chance of achieving a rating *above* a certain rating (i.e. the sum of probabilities above a certain rating)
+
+    ``` r
+    emmeans(fm1,
+            specs = ~ temp + contact | cut,
+            mode = "exc.prob")
+    #> cut = 1|2:
+    #>   temp contact exc.prob      SE  df asymp.LCL asymp.UCL
+    #> cold no       0.79321 0.08480 Inf   0.62697    0.9595
+    #> warm no       0.97911 0.01320 Inf   0.95326    1.0050
+    #> cold yes      0.94645 0.02980 Inf   0.88812    1.0048
+    #> warm yes      0.99539 0.00352 Inf   0.98849    1.0023
+    #> 
+    #> cut = 2|3:
+    #>   temp contact exc.prob      SE  df asymp.LCL asymp.UCL
+    #> cold no       0.22256 0.07580 Inf   0.07406    0.3711
+    #> warm no       0.77770 0.07950 Inf   0.62181    0.9336
+    #> cold yes      0.56881 0.09970 Inf   0.37334    0.7643
+    #> warm yes      0.94159 0.02920 Inf   0.88440    0.9988
+    #> 
+    #> cut = 3|4:
+    #>   temp contact exc.prob      SE  df asymp.LCL asymp.UCL
+    #> cold no       0.03027 0.01750 Inf  -0.00412    0.0647
+    #> warm no       0.27612 0.08680 Inf   0.10593    0.4463
+    #> cold yes      0.12575 0.05370 Inf   0.02053    0.2310
+    #> warm yes      0.63738 0.09420 Inf   0.45274    0.8220
+    #> 
+    #> cut = 4|5:
+    #>   temp contact exc.prob      SE  df asymp.LCL asymp.UCL
+    #> cold no       0.00665 0.00483 Inf  -0.00281    0.0161
+    #> warm no       0.07563 0.03780 Inf   0.00158    0.1497
+    #> cold yes      0.02993 0.01730 Inf  -0.00407    0.0639
+    #> warm yes      0.27378 0.09130 Inf   0.09479    0.4528
+    #> 
+    #> Confidence level used: 0.95
+    ```
+
+    -   [cut = 2\|3]{.arg-text} when [temp = cold]{.arg-text}, [contact = no]{.arg-text} says the probability of getting a [rating]{.var-text} higher than 2 (i.e. 3, 4, or 5) under those conditions is 22.2%
+    -   [cut]{.arg-text} in the [rating]{.var-text} threshold
+    :::
+
+    -   [Risk Differences using the different types of probabilities]{.underline}
+
+    ::: panel-tabset
+    ## Predicted
+
+    ###### Between Predictor Conditions
+
+    ``` r
+    pairs(probs_fm1)
+    #> rating = 1:
+    #>  contrast            estimate     SE  df z.ratio p.value
+    #>  no cold - yes cold    0.1532 0.0698 Inf   2.194  0.1248
+    #>  no cold - no warm     0.1859 0.0775 Inf   2.397  0.0776
+    #>  no cold - yes warm    0.2022 0.0838 Inf   2.414  0.0745
+    #>  yes cold - no warm    0.0327 0.0264 Inf   1.237  0.6029
+    #>  yes cold - yes warm   0.0489 0.0273 Inf   1.792  0.2772
+    #>  no warm - yes warm    0.0163 0.0106 Inf   1.529  0.4201
+    #> 
+    #> rating = 2:
+    #>  contrast            estimate     SE  df z.ratio p.value
+    #>  no cold - yes cold    0.1930 0.0879 Inf   2.195  0.1245
+    #>  no cold - no warm     0.3692 0.0956 Inf   3.861  0.0007
+    #>  no cold - yes warm    0.5168 0.0907 Inf   5.700  <.0001
+    #>  yes cold - no warm    0.1762 0.1120 Inf   1.567  0.3975
+    #>  yes cold - yes warm   0.3238 0.0825 Inf   3.927  0.0005
+    #>  no warm - yes warm    0.1476 0.0620 Inf   2.381  0.0808
+    #> 
+    #> rating = 3:
+    #>  contrast            estimate     SE  df z.ratio p.value
+    #>  no cold - yes cold   -0.2508 0.0808 Inf  -3.105  0.0103
+    #>  no cold - no warm    -0.3093 0.0924 Inf  -3.347  0.0045
+    #>  no cold - yes warm   -0.1119 0.0791 Inf  -1.415  0.4898
+    #>  yes cold - no warm   -0.0585 0.0533 Inf  -1.098  0.6909
+    #>  yes cold - yes warm   0.1389 0.1040 Inf   1.339  0.5381
+    #>  no warm - yes warm    0.1974 0.0801 Inf   2.465  0.0655
+    #> 
+    #> rating = 4:
+    #>  contrast            estimate     SE  df z.ratio p.value
+    #>  no cold - yes cold   -0.0722 0.0353 Inf  -2.048  0.1705
+    #>  no cold - no warm    -0.1769 0.0615 Inf  -2.876  0.0210
+    #>  no cold - yes warm   -0.3400 0.0858 Inf  -3.964  0.0004
+    #>  yes cold - no warm   -0.1047 0.0709 Inf  -1.476  0.4518
+    #>  yes cold - yes warm  -0.2678 0.0788 Inf  -3.399  0.0038
+    #>  no warm - yes warm   -0.1631 0.0710 Inf  -2.298  0.0985
+    #> 
+    #> rating = 5:
+    #>  contrast            estimate     SE  df z.ratio p.value
+    #>  no cold - yes cold   -0.0233 0.0140 Inf  -1.659  0.3455
+    #>  no cold - no warm    -0.0690 0.0346 Inf  -1.993  0.1906
+    #>  no cold - yes warm   -0.2671 0.0904 Inf  -2.954  0.0166
+    #>  yes cold - no warm   -0.0457 0.0353 Inf  -1.296  0.5656
+    #>  yes cold - yes warm  -0.2439 0.0835 Inf  -2.919  0.0184
+    #>  no warm - yes warm   -0.1982 0.0770 Inf  -2.572  0.0495
+    #> 
+    #> P value adjustment: tukey method for comparing a family of 4 estimates 
+    ```
+
+    -   This tests for statistical differences in probabilities
+    -   The probability of a [rating]{.var-text} of 5 is 2% lower when [contact = no]{.arg-text}, [temp = cold]{.arg-text} rather than [contact = yes]{.arg-text}, [temp = cold]{.arg-text}
+
+    ###### Between Response Categories
+
+    ``` r
+    emmeans(fm1, 
+            specs = ~ rating|contact+temp, 
+            mode = "prob") |> 
+      pairs()
+    #> contact = no, temp = cold:
+    #>  contrast           estimate     SE  df z.ratio p.value
+    #>  rating1 - rating2 -0.363860 0.1540 Inf  -2.362  0.1259
+    #>  rating1 - rating3  0.014499 0.1250 Inf   0.116  1.0000
+    #>  rating1 - rating4  0.183171 0.0901 Inf   2.032  0.2504
+    #>  rating1 - rating5  0.200140 0.0864 Inf   2.317  0.1395
+    #>  rating2 - rating3  0.378359 0.1290 Inf   2.925  0.0284
+    #>  rating2 - rating4  0.547031 0.0921 Inf   5.942  <.0001
+    #>  rating2 - rating5  0.563999 0.0883 Inf   6.385  <.0001
+    #>  rating3 - rating4  0.168672 0.0571 Inf   2.952  0.0262
+    #>  rating3 - rating5  0.185641 0.0613 Inf   3.027  0.0209
+    #>  rating4 - rating5  0.016968 0.0109 Inf   1.550  0.5295
+    #> 
+    #> contact = yes, temp = cold:
+    #>  contrast           estimate     SE  df z.ratio p.value
+    #>  rating1 - rating2 -0.324100 0.0866 Inf  -3.744  0.0017
+    #>  rating1 - rating3 -0.389514 0.0963 Inf  -4.044  0.0005
+    #>  rating1 - rating4 -0.042275 0.0585 Inf  -0.723  0.9513
+    #>  rating1 - rating5  0.023619 0.0371 Inf   0.637  0.9690
+    #>  rating2 - rating3 -0.065414 0.1590 Inf  -0.410  0.9941
+    #>  rating2 - rating4  0.281825 0.1180 Inf   2.391  0.1176
+    #>  rating2 - rating5  0.347719 0.0975 Inf   3.566  0.0033
+    #>  rating3 - rating4  0.347239 0.0869 Inf   3.997  0.0006
+    #>  rating3 - rating5  0.413133 0.0801 Inf   5.158  <.0001
+    #>  rating4 - rating5  0.065894 0.0367 Inf   1.797  0.3755
+    #> 
+    #> contact = no, temp = warm:
+    #>  contrast           estimate     SE  df z.ratio p.value
+    #>  rating1 - rating2 -0.180528 0.0670 Inf  -2.695  0.0546
+    #>  rating1 - rating3 -0.480688 0.0794 Inf  -6.051  <.0001
+    #>  rating1 - rating4 -0.179606 0.0729 Inf  -2.465  0.0987
+    #>  rating1 - rating5 -0.054739 0.0423 Inf  -1.293  0.6953
+    #>  rating2 - rating3 -0.300160 0.1210 Inf  -2.472  0.0971
+    #>  rating2 - rating4  0.000922 0.1230 Inf   0.008  1.0000
+    #>  rating2 - rating5  0.125789 0.0943 Inf   1.334  0.6700
+    #>  rating3 - rating4  0.301082 0.1230 Inf   2.454  0.1015
+    #>  rating3 - rating5  0.425949 0.0950 Inf   4.484  0.0001
+    #>  rating4 - rating5  0.124867 0.0668 Inf   1.871  0.3333
+    #> 
+    #> contact = yes, temp = warm:
+    #>  contrast           estimate     SE  df z.ratio p.value
+    #>  rating1 - rating2 -0.049193 0.0244 Inf  -2.013  0.2597
+    #>  rating1 - rating3 -0.299602 0.0768 Inf  -3.900  0.0009
+    #>  rating1 - rating4 -0.358988 0.0876 Inf  -4.096  0.0004
+    #>  rating1 - rating5 -0.269176 0.0925 Inf  -2.910  0.0298
+    #>  rating2 - rating3 -0.250409 0.0713 Inf  -3.514  0.0040
+    #>  rating2 - rating4 -0.309794 0.0982 Inf  -3.155  0.0139
+    #>  rating2 - rating5 -0.219983 0.1040 Inf  -2.105  0.2177
+    #>  rating3 - rating4 -0.059386 0.1420 Inf  -0.419  0.9936
+    #>  rating3 - rating5  0.030425 0.1490 Inf   0.205  0.9996
+    #>  rating4 - rating5  0.089811 0.1510 Inf   0.594  0.9760
+    #> 
+    #> P value adjustment: tukey method for comparing a family of 5 estimates
+    ```
+
+    -   When [contact = yes]{.arg-text}, [temp = warm]{.arg-text}, you're more likely to get a [rating]{.var-text} of 3 than a [rating]{.var-text} of 1 by 29.9%
+
+    ## Cumulative
+
+    ###### Between Predictor Conditions
+
+    ``` r
+    cum_probs |> pairs()
+    #> cut = 1|2:
+    #>  contrast            estimate     SE  df z.ratio p.value
+    #>  cold no - warm no     0.1859 0.0775 Inf   2.397  0.0776
+    #>  cold no - cold yes    0.1532 0.0698 Inf   2.194  0.1248
+    #>  cold no - warm yes    0.2022 0.0838 Inf   2.414  0.0745
+    #>  warm no - cold yes   -0.0327 0.0264 Inf  -1.237  0.6029
+    #>  warm no - warm yes    0.0163 0.0106 Inf   1.529  0.4201
+    #>  cold yes - warm yes   0.0489 0.0273 Inf   1.792  0.2772
+    #> 
+    #> cut = 2|3:
+    #>  contrast            estimate     SE  df z.ratio p.value
+    #>  cold no - warm no     0.5551 0.0914 Inf   6.071  <.0001
+    #>  cold no - cold yes    0.3462 0.1010 Inf   3.433  0.0033
+    #>  cold no - warm yes    0.7190 0.0885 Inf   8.128  <.0001
+    #>  warm no - cold yes   -0.2089 0.1330 Inf  -1.571  0.3955
+    #>  warm no - warm yes    0.1639 0.0682 Inf   2.404  0.0763
+    #>  cold yes - warm yes   0.3728 0.0924 Inf   4.034  0.0003
+    #> 
+    #> cut = 3|4:
+    #>  contrast            estimate     SE  df z.ratio p.value
+    #>  cold no - warm no     0.2459 0.0793 Inf   3.101  0.0104
+    #>  cold no - cold yes    0.0955 0.0447 Inf   2.135  0.1421
+    #>  cold no - warm yes    0.6071 0.0986 Inf   6.157  <.0001
+    #>  warm no - cold yes   -0.1504 0.1000 Inf  -1.500  0.4376
+    #>  warm no - warm yes    0.3613 0.1030 Inf   3.523  0.0024
+    #>  cold yes - warm yes   0.5116 0.0926 Inf   5.524  <.0001
+    #> 
+    #> cut = 4|5:
+    #>  contrast            estimate     SE  df z.ratio p.value
+    #>  cold no - warm no     0.0690 0.0346 Inf   1.993  0.1906
+    #>  cold no - cold yes    0.0233 0.0140 Inf   1.659  0.3455
+    #>  cold no - warm yes    0.2671 0.0904 Inf   2.954  0.0166
+    #>  warm no - cold yes   -0.0457 0.0353 Inf  -1.296  0.5656
+    #>  warm no - warm yes    0.1982 0.0770 Inf   2.572  0.0495
+    #>  cold yes - warm yes   0.2439 0.0835 Inf   2.919  0.0184
+    #> 
+    #> P value adjustment: tukey method for comparing a family of 4 estimates 
+    ```
+
+    -   The cumulative probability of having a [rating]{.var-text} of 2 or smaller ([cut = 2\|3]{.arg-text}) is 56% higher for conditions [temp = cold]{.arg-text}, [contact = no]{.arg-text} than for [temp = warm]{.arg-text}, [contact = no]{.arg-text}. This difference is statistically significant.
+
+    ###### Between Response Thresholds
+
+    ``` r
+    emmeans(
+      fm1,
+      specs = ~ cut | temp + contact,
+      mode = "cum.prob"
+    ) |> 
+      pairs(infer = TRUE) |> 
+      dplyr::as_data_frame() |> 
+      dplyr::select(-SE, -df, -null, -z.ratio) |> 
+      dplyr::mutate(dplyr::across(dplyr::where(is.numeric),
+                                  ~ round(.x, 3)))
+    #> # A tibble: 24 × 7
+    #> contrast  temp  contact estimate asymp.LCL asymp.UCL p.value
+    #> <fct>     <fct> <fct>      <dbl>     <dbl>     <dbl>   <dbl>
+    #>   1 1|2 - 2|3 cold  no        -0.571    -0.794    -0.348   0    
+    #> 2 1|2 - 3|4 cold  no        -0.763    -0.97     -0.556   0    
+    #> 3 1|2 - 4|5 cold  no        -0.787    -1.00     -0.572   0    
+    #> 4 2|3 - 3|4 cold  no        -0.192    -0.356    -0.028   0.014
+    #> 5 2|3 - 4|5 cold  no        -0.216    -0.403    -0.029   0.016
+    #> 6 3|4 - 4|5 cold  no        -0.024    -0.059     0.012   0.318
+    #> 7 1|2 - 2|3 warm  no        -0.201    -0.387    -0.016   0.027
+    #> 8 1|2 - 3|4 warm  no        -0.703    -0.917    -0.489   0    
+    #> 9 1|2 - 4|5 warm  no        -0.903    -1        -0.807   0    
+    #> 10 2|3 - 3|4 warm  no        -0.502    -0.694    -0.309   0    
+    #> 11 2|3 - 4|5 warm  no        -0.702    -0.89     -0.515   0    
+    #> 12 3|4 - 4|5 warm  no        -0.2      -0.374    -0.027   0.016
+    #> 13 1|2 - 2|3 cold  yes       -0.378    -0.605    -0.15    0    
+    #> 14 1|2 - 3|4 cold  yes       -0.821    -0.958    -0.683   0    
+    #> 15 1|2 - 4|5 cold  yes       -0.917    -0.998    -0.835   0    
+    #> 16 2|3 - 3|4 cold  yes       -0.443    -0.647    -0.239   0    
+    #> 17 2|3 - 4|5 cold  yes       -0.539    -0.778    -0.299   0    
+    #> 18 3|4 - 4|5 cold  yes       -0.096    -0.205     0.014   0.11 
+    #> 19 1|2 - 2|3 warm  yes       -0.054    -0.122     0.015   0.182
+    #> 20 1|2 - 3|4 warm  yes       -0.358    -0.595    -0.121   0.001
+    #> 21 1|2 - 4|5 warm  yes       -0.722    -0.953    -0.49    0    
+    #> 22 2|3 - 3|4 warm  yes       -0.304    -0.505    -0.104   0.001
+    #> 23 2|3 - 4|5 warm  yes       -0.668    -0.885    -0.451   0    
+    #> 24 3|4 - 4|5 warm  yes       -0.364    -0.586    -0.141   0 
+    ```
+
+    -   For conditions [temp = cold]{.arg-text}, [contact = no]{.arg-text}, the bitterness rating stabilizes at the 3rd [ratings]{.var-text} threshold since it's cumulative probability is already so high that moving to the 4th [ratings]{.var-text} threshold results in a non-statistically significant diffference ([3\|4 - 4\|5]{.arg-text}, p-value = 0.318)
+
+    ## Exceedance
+
+    ###### Between Predictor Conditions
+
+    ``` r
+    exc_probs |> pairs(infer = TRUE)
+
+    #> cut = 1|2:
+    #>          contrast    estimate    SE  df asymp.LCL asymp.UCL z.ratio p.value
+    #> cold no - warm no    -0.1859 0.0775 Inf   -0.3851  0.013314  -2.397  0.0776
+    #> cold no - cold yes   -0.1532 0.0698 Inf   -0.3327  0.026196  -2.194  0.1248
+    #> cold no - warm yes   -0.2022 0.0838 Inf   -0.4174  0.012995  -2.414  0.0745
+    #> warm no - cold yes    0.0327 0.0264 Inf   -0.0351  0.100459   1.237  0.6029
+    #> warm no - warm yes   -0.0163 0.0106 Inf   -0.0436  0.011075  -1.529  0.4201
+    #> cold yes - warm yes  -0.0489 0.0273 Inf   -0.1191  0.021227  -1.792  0.2772
+    #> 
+    #> cut = 2|3:
+    #>            contrast estimate     SE  df asymp.LCL asymp.UCL z.ratio p.value
+    #> cold no - warm no    -0.5551 0.0914 Inf   -0.7900 -0.320235  -6.071  <.0001
+    #> cold no - cold yes   -0.3462 0.1010 Inf   -0.6054 -0.087126  -3.433  0.0033
+    #> cold no - warm yes   -0.7190 0.0885 Inf   -0.9463 -0.491762  -8.128  <.0001
+    #> warm no - cold yes    0.2089 0.1330 Inf   -0.1328  0.550570   1.571  0.3955
+    #> warm no - warm yes   -0.1639 0.0682 Inf   -0.3390  0.011257  -2.404  0.0763
+    #> cold yes - warm yes  -0.3728 0.0924 Inf   -0.6102 -0.135367  -4.034  0.0003
+    #> 
+    #> cut = 3|4:
+    #>            contrast estimate     SE  df asymp.LCL asymp.UCL z.ratio p.value
+    #> cold no - warm no    -0.2459 0.0793 Inf   -0.4495 -0.042192  -3.101  0.0104
+    #> cold no - cold yes   -0.0955 0.0447 Inf   -0.2104  0.019419  -2.135  0.1421
+    #> cold no - warm yes   -0.6071 0.0986 Inf   -0.8604 -0.353801  -6.157  <.0001
+    #> warm no - cold yes    0.1504 0.1000 Inf   -0.1072  0.407962   1.500  0.4376
+    #> warm no - warm yes   -0.3613 0.1030 Inf   -0.6247 -0.097816  -3.523  0.0024
+    #> cold yes - warm yes  -0.5116 0.0926 Inf   -0.7496 -0.273685  -5.524  <.0001
+    #> 
+    #> cut = 4|5:
+    #>            contrast estimate     SE  df asymp.LCL asymp.UCL z.ratio p.value
+    #> cold no - warm no    -0.0690 0.0346 Inf   -0.1579  0.019943  -1.993  0.1906
+    #> cold no - cold yes   -0.0233 0.0140 Inf   -0.0593  0.012762  -1.659  0.3455
+    #> cold no - warm yes   -0.2671 0.0904 Inf   -0.4994 -0.034822  -2.954  0.0166
+    #> warm no - cold yes    0.0457 0.0353 Inf   -0.0449  0.136306   1.296  0.5656
+    #> warm no - warm yes   -0.1982 0.0770 Inf   -0.3961 -0.000263  -2.572  0.0495
+    #> cold yes - warm yes  -0.2439 0.0835 Inf   -0.4584 -0.029271  -2.919  0.0184
+    #> 
+    #> Confidence level used: 0.95 
+    #> Conf-level adjustment: tukey method for comparing a family of 4 estimates 
+    #> P value adjustment: tukey method for comparing a family of 4 estimates 
+    ```
+
+    -   The exceedance probability of having a [rating]{.var-text} of larger than 2 ([cut = 2\|3]{.arg-text}) is 56% higher for conditions [temp = warm]{.arg-text}, [contact = no]{.arg-text} than for [temp = cold]{.arg-text}, [contact = no]{.arg-text}. This difference is statistically significant.
+    -   It seems to be the additive inverse (i.e. $-1 \cdot a = -a$) of the risk difference using cumulative probabilities.
+
+    ###### Between Response Thresholds
+
+    ``` r
+    emmeans(
+      fm1,
+      specs = ~ cut | temp + contact,
+      mode = "exc.prob"
+    ) |> 
+      pairs(infer = TRUE) |> 
+      dplyr::as_data_frame() |> 
+      dplyr::select(-SE, -df, -z.ratio) |> 
+      dplyr::mutate(dplyr::across(dplyr::where(is.numeric),
+                                  ~ round(.x, 3)))
+    #> # A tibble: 24 × 7
+    #> contrast  temp  contact estimate asymp.LCL asymp.UCL p.value
+    #> <fct>     <fct> <fct>      <dbl>     <dbl>     <dbl>   <dbl>
+    #>  1 1|2 - 2|3 cold  no         0.571     0.348     0.794   0    
+    #>  2 1|2 - 3|4 cold  no         0.763     0.556     0.97    0    
+    #>  3 1|2 - 4|5 cold  no         0.787     0.572     1.00    0    
+    #>  4 2|3 - 3|4 cold  no         0.192     0.028     0.356   0.014
+    #>  5 2|3 - 4|5 cold  no         0.216     0.029     0.403   0.016
+    #>  6 3|4 - 4|5 cold  no         0.024    -0.012     0.059   0.318
+    #>  7 1|2 - 2|3 warm  no         0.201     0.016     0.387   0.027
+    #>  8 1|2 - 3|4 warm  no         0.703     0.489     0.917   0    
+    #>  9 1|2 - 4|5 warm  no         0.903     0.807     1       0    
+    #> 10 2|3 - 3|4 warm  no         0.502     0.309     0.694   0    
+    #> 11 2|3 - 4|5 warm  no         0.702     0.515     0.89    0    
+    #> 12 3|4 - 4|5 warm  no         0.2       0.027     0.374   0.016
+    #> 13 1|2 - 2|3 cold  yes        0.378     0.15      0.605   0    
+    #> 14 1|2 - 3|4 cold  yes        0.821     0.683     0.958   0    
+    #> 15 1|2 - 4|5 cold  yes        0.917     0.835     0.998   0    
+    #> 16 2|3 - 3|4 cold  yes        0.443     0.239     0.647   0    
+    #> 17 2|3 - 4|5 cold  yes        0.539     0.299     0.778   0    
+    #> 18 3|4 - 4|5 cold  yes        0.096    -0.014     0.205   0.11 
+    #> 19 1|2 - 2|3 warm  yes        0.054    -0.015     0.122   0.182
+    #> 20 1|2 - 3|4 warm  yes        0.358     0.121     0.595   0.001
+    #> 21 1|2 - 4|5 warm  yes        0.722     0.49      0.953   0    
+    #> 22 2|3 - 3|4 warm  yes        0.304     0.104     0.505   0.001
+    #> 23 2|3 - 4|5 warm  yes        0.668     0.451     0.885   0   
+    #> 24 3|4 - 4|5 warm  yes        0.364     0.141     0.586   0 
+    ```
+
+    -   words
+    :::
+
+    -   [Risk Ratios using the different types of probabilities]{.underline}
+
+    ::: panel-tabset
+    ## Predicted
+
+    ###### Between Predictor Conditions
+
+    ``` r
+    probs_fm1 |> 
+      regrid("log") |> 
+      contrast(method = "pairwise") |> 
+      summary(type = "response",
+              infer = TRUE,
+              by = NULL)
+    #> contrast            rating   ratio      SE  df asymp.LCL asymp.UCL null z.ratio p.value
+    #> no cold / yes cold  1       3.8619  1.6700 Inf   0.99091    15.051    1   3.116  0.0536
+    #> no cold / no warm   1       9.9001  4.9800 Inf   2.04138    48.012    1   4.554  0.0002
+    #> no cold / yes warm  1      44.8737 33.3000 Inf   4.36498   461.319    1   5.120  <.0001
+    #> yes cold / no warm  1       2.5635  1.5900 Inf   0.36797    17.859    1   1.521  0.9837
+    #> yes cold / yes warm 1      11.6195  6.1100 Inf   2.23570    60.390    1   4.668  0.0001
+    #> no warm / yes warm  1       4.5327  2.1500 Inf   1.02598    20.025    1   3.191  0.0417
+    #> no cold / yes cold  2       1.5111  0.3120 Inf   0.79084     2.887    1   2.000  0.7527
+    #> no cold / no warm   2       2.8332  0.9840 Inf   0.95341     8.419    1   2.999  0.0781
+    #> no cold / yes warm  2      10.6066  5.4900 Inf   2.08990    53.830    1   4.560  0.0002
+    #> yes cold / no warm  2       1.8750  0.7920 Inf   0.49853     7.052    1   1.488  0.9878
+    #> yes cold / yes warm 2       7.0193  3.2500 Inf   1.63946    30.053    1   4.203  0.0008
+    #> no warm / yes warm  2       3.7437  1.5900 Inf   0.98486    14.231    1   3.101  0.0563
+    #> no cold / yes cold  3       0.4340  0.1350 Inf   0.16327     1.154    1  -2.678  0.1999
+    #> no cold / no warm   3       0.3834  0.1330 Inf   0.12895     1.140    1  -2.760  0.1596
+    #> no cold / yes warm  3       0.6321  0.2090 Inf   0.22417     1.782    1  -1.388  0.9956
+    #> yes cold / no warm  3       0.8833  0.1030 Inf   0.61289     1.273    1  -1.065  1.0000
+    #> yes cold / yes warm 3       1.4564  0.4270 Inf   0.58119     3.650    1   1.284  0.9987
+    #> no warm / yes warm  3       1.6488  0.3810 Inf   0.79853     3.404    1   2.163  0.6053
+    #> no cold / yes cold  4       0.2465  0.1110 Inf   0.05999     1.013    1  -3.109  0.0549
+    #> no cold / no warm   4       0.1178  0.0587 Inf   0.02465     0.563    1  -4.289  0.0005
+    #> no cold / yes warm  4       0.0650  0.0388 Inf   0.00997     0.423    1  -4.576  0.0001
+    #> yes cold / no warm  4       0.4779  0.2340 Inf   0.10264     2.225    1  -1.506  0.9858
+    #> yes cold / yes warm 4       0.2635  0.1070 Inf   0.07382     0.941    1  -3.287  0.0299
+    #> no warm / yes warm  4       0.5514  0.1500 Inf   0.23510     1.293    1  -2.190  0.5800
+    #> no cold / yes cold  5       0.2222  0.1050 Inf   0.05049     0.978    1  -3.184  0.0427
+    #> no cold / no warm   5       0.0879  0.0461 Inf   0.01699     0.455    1  -4.639  0.0001
+    #> no cold / yes warm  5       0.0243  0.0178 Inf   0.00245     0.241    1  -5.079  <.0001
+    #> yes cold / no warm  5       0.3957  0.2410 Inf   0.05849     2.677    1  -1.521  0.9837
+    #> yes cold / yes warm 5       0.1093  0.0540 Inf   0.02322     0.515    1  -4.482  0.0002
+    #> no warm / yes warm  5       0.2762  0.1160 Inf   0.07419     1.028    1  -3.070  0.0623
+    #> 
+    #> Confidence level used: 0.95 
+    #> Conf-level adjustment: sidak method for 30 estimates 
+    #> Intervals are back-transformed from the log scale 
+    #> P value adjustment: sidak method for 30 tests 
+    #> Tests are performed on the log scale 
+    ```
+
+    -   The code transforms the odds to the log scale, calculates pairwise differences, then transforms back to the probability scale.
+    -   The probability of a wine [rating]{.var-text} of 1 is around 45 times greater when [contact = no]{.arg-text}, [temp = cold]{.arg-text} than when [contact = yes]{.arg-text}, [temp = warm]{.arg-text}.
+        -   Note the huge standard errors and wide range between the upper and lower CIs
+    -   The probabiity of a wine rating of 2 is around 51% higher (1.5111 - 1.0000) when [contact = no]{.arg-text}, [temp = cold]{.arg-text} than when [contact = yes]{.arg-text}, [temp = cold]{.arg-text}.
+        -   Note that the CI contains 1 (where 1 indicates no statistical difference) which aligns with a p-value of 0.7527
+
+    ###### Between Response Categories
+
+    ``` r
+    emmeans(
+      fm1,
+      specs = ~ rating | temp + contact,
+      mode = "prob"
+    ) |> 
+      regrid("log") |> 
+      contrast(method = "pairwise") |> 
+      summary(type = "response",
+              infer = TRUE,
+              by = NULL) |> 
+      dplyr::select(-SE, -df, -null, -z.ratio) |> 
+      dplyr::mutate(dplyr::across(dplyr::where(is.numeric),
+                                  ~ round(.x, 3)))
+    #>             contrast temp contact  ratio asymp.LCL asymp.UCL p.value
+    #> 1  rating1 / rating2 cold      no  0.362     0.069     1.917   0.870
+    #> 2  rating1 / rating3 cold      no  1.075     0.144     8.024   1.000
+    #> 3  rating1 / rating4 cold      no  8.755     0.639   120.017   0.263
+    #> 4  rating1 / rating5 cold      no 31.094     1.533   630.733   0.009
+    #> 5  rating2 / rating3 cold      no  2.968     0.757    11.637   0.341
+    #> 6  rating2 / rating4 cold      no 24.161     2.998   194.688   0.000
+    #> 7  rating2 / rating5 cold      no 85.807     6.895  1067.782   0.000
+    #> 8  rating3 / rating4 cold      no  8.141     1.739    38.125   0.000
+    #> 9  rating3 / rating5 cold      no 28.914     4.083   204.767   0.000
+    #> 10 rating4 / rating5 cold      no  3.551     0.666    18.925   0.447
+    #> 11 rating1 / rating2 warm      no  0.104     0.017     0.621   0.002
+    #> 12 rating1 / rating3 warm      no  0.042     0.005     0.379   0.000
+    #> 13 rating1 / rating4 warm      no  0.104     0.008     1.390   0.180
+    #> 14 rating1 / rating5 warm      no  0.276     0.016     4.647   0.998
+    #> 15 rating2 / rating3 warm      no  0.402     0.099     1.633   0.772
+    #> 16 rating2 / rating4 warm      no  1.005     0.141     7.176   1.000
+    #> 17 rating2 / rating5 warm      no  2.663     0.258    27.471   1.000
+    #> 18 rating3 / rating4 warm      no  2.502     0.628     9.973   0.736
+    #> 19 rating3 / rating5 warm      no  6.632     1.061    41.451   0.035
+    #> 20 rating4 / rating5 warm      no  2.651     0.511    13.760   0.903
+    #> 21 rating1 / rating2 cold     yes  0.142     0.024     0.835   0.015
+    #> 22 rating1 / rating3 cold     yes  0.121     0.015     0.996   0.049
+    #> 23 rating1 / rating4 cold     yes  0.559     0.042     7.451   1.000
+    #> 24 rating1 / rating5 cold     yes  1.789     0.108    29.688   1.000
+    #> 25 rating2 / rating3 cold     yes  0.852     0.240     3.022   1.000
+    #> 26 rating2 / rating4 cold     yes  3.941     0.556    27.913   0.623
+    #> 27 rating2 / rating5 cold     yes 12.619     1.259   126.494   0.016
+    #> 28 rating3 / rating4 cold     yes  4.624     1.035    20.659   0.039
+    #> 29 rating3 / rating5 cold     yes 14.805     2.182   100.461   0.000
+    #> 30 rating4 / rating5 cold     yes  3.202     0.610    16.819   0.620
+    #> 31 rating1 / rating2 warm     yes  0.086     0.014     0.526   0.001
+    #> 32 rating1 / rating3 warm     yes  0.015     0.002     0.149   0.000
+    #> 33 rating1 / rating4 warm     yes  0.013     0.001     0.199   0.000
+    #> 34 rating1 / rating5 warm     yes  0.017     0.001     0.333   0.000
+    #> 35 rating2 / rating3 warm     yes  0.177     0.041     0.764   0.005
+    #> 36 rating2 / rating4 warm     yes  0.148     0.021     1.063   0.070
+    #> 37 rating2 / rating5 warm     yes  0.197     0.021     1.846   0.542
+    #> 38 rating3 / rating4 warm     yes  0.837     0.212     3.298   1.000
+    #> 39 rating3 / rating5 warm     yes  1.111     0.209     5.897   1.000
+    #> 40 rating4 / rating5 warm     yes  1.328     0.276     6.396   1.000
+    ```
+
+    -   When [temp = cold]{.arg-text}, [contact = no]{.arg-text}, the probability of the wine receiving a 1 [rating]{.var-text} is 1.075 times higher than the probability of receiving a 3 [rating]{.var-text}.
+
+    ## Cumulative
+
+    ###### Between Predictor Conditions
+
+    ``` r
+    cum_probs |> 
+      regrid("log") |> 
+      contrast(method = "pairwise") |> 
+      summary(type = "response",
+              infer = TRUE,
+              by = NULL) |> 
+      dplyr::select(-SE, -df, -null, -z.ratio) |> 
+      dplyr::mutate(dplyr::across(dplyr::where(is.numeric),
+                                  ~ round(.x, 3)))
+    #>               contrast cut  ratio asymp.LCL asymp.UCL p.value
+    #> 1    cold no / warm no 1|2  9.900     2.110    46.444   0.000
+    #> 2   cold no / cold yes 1|2  3.862     1.020    14.627   0.043
+    #> 3   cold no / warm yes 1|2 44.874     4.584   439.258   0.000
+    #> 4   warm no / cold yes 1|2  0.390     0.058     2.609   0.963
+    #> 5   warm no / warm yes 1|2  4.533     1.059    19.409   0.033
+    #> 6  cold yes / warm yes 1|2 11.620     2.315    58.333   0.000
+    #> 7    cold no / warm no 2|3  3.497     1.229     9.955   0.006
+    #> 8   cold no / cold yes 2|3  1.803     0.930     3.497   0.141
+    #> 9   cold no / warm yes 2|3 13.310     2.574    68.822   0.000
+    #> 10  warm no / cold yes 2|3  0.516     0.132     2.010   0.969
+    #> 11  warm no / warm yes 2|3  3.806     1.024    14.148   0.042
+    #> 12 cold yes / warm yes 2|3  7.382     1.787    30.503   0.000
+    #> 13   cold no / warm no 3|4  1.340     0.950     1.888   0.193
+    #> 14  cold no / cold yes 3|4  1.109     0.946     1.301   0.676
+    #> 15  cold no / warm yes 3|4  2.674     1.191     6.004   0.004
+    #> 16  warm no / cold yes 3|4  0.828     0.551     1.244   0.982
+    #> 17  warm no / warm yes 3|4  1.996     0.944     4.220   0.104
+    #> 18 cold yes / warm yes 3|4  2.411     1.128     5.155   0.009
+    #> 19   cold no / warm no 4|5  1.075     0.957     1.206   0.750
+    #> 20  cold no / cold yes 4|5  1.024     0.979     1.071   0.926
+    #> 21  cold no / warm yes 4|5  1.368     0.932     2.007   0.253
+    #> 22  warm no / cold yes 4|5  0.953     0.848     1.071   0.996
+    #> 23  warm no / warm yes 4|5  1.273     0.912     1.776   0.471
+    #> 24 cold yes / warm yes 4|5  1.336     0.932     1.915   0.280
+    ```
+
+    -   Wine with the condition [temp = cold]{.arg-text}, [contact = no]{.arg-text} is roughtly 3.5 times more likely to receive a bitterness [rating]{.var-text} of 2 or less than a wine with the conditions [temp = warm]{.arg-text}, [contact = no]{.arg-text}. This difference is statistically significant (p-value = 0.006)
+
+    ###### Between Response Thresholds
+
+    ``` r
+    emmeans(
+      fm1,
+      specs = ~ cut | temp + contact,
+      mode = "cum.prob"
+    ) |> 
+      regrid("log") |> 
+      contrast(method = "pairwise") |> 
+      summary(type = "response",
+              infer = TRUE,
+              by = NULL) |> 
+      dplyr::select(-SE, -df, -null, -z.ratio) |> 
+      dplyr::mutate(dplyr::across(dplyr::where(is.numeric),
+                                  ~ round(.x, 3)))
+    #>     contrast temp contact ratio asymp.LCL asymp.UCL p.value
+    #> 1  1|2 / 2|3 cold      no 0.266     0.083     0.854   0.012
+    #> 2  1|2 / 3|4 cold      no 0.213     0.062     0.739   0.003
+    #> 3  1|2 / 4|5 cold      no 0.208     0.059     0.730   0.003
+    #> 4  2|3 / 3|4 cold      no 0.802     0.618     1.041   0.200
+    #> 5  2|3 / 4|5 cold      no 0.783     0.586     1.046   0.202
+    #> 6  3|4 / 4|5 cold      no 0.976     0.934     1.020   0.903
+    #> 7  1|2 / 2|3 warm      no 0.094     0.020     0.441   0.000
+    #> 8  1|2 / 3|4 warm      no 0.029     0.005     0.184   0.000
+    #> 9  1|2 / 4|5 warm      no 0.023     0.003     0.154   0.000
+    #> 10 2|3 / 3|4 warm      no 0.307     0.122     0.776   0.002
+    #> 11 2|3 / 4|5 warm      no 0.240     0.084     0.690   0.001
+    #> 12 3|4 / 4|5 warm      no 0.783     0.581     1.056   0.253
+    #> 13 1|2 / 2|3 cold     yes 0.124     0.028     0.546   0.000
+    #> 14 1|2 / 3|4 cold     yes 0.061     0.012     0.323   0.000
+    #> 15 1|2 / 4|5 cold     yes 0.055     0.010     0.301   0.000
+    #> 16 2|3 / 3|4 cold     yes 0.493     0.267     0.911   0.010
+    #> 17 2|3 / 4|5 cold     yes 0.444     0.224     0.884   0.007
+    #> 18 3|4 / 4|5 cold     yes 0.901     0.774     1.050   0.591
+    #> 19 1|2 / 2|3 warm     yes 0.079     0.016     0.389   0.000
+    #> 20 1|2 / 3|4 warm     yes 0.013     0.002     0.097   0.000
+    #> 21 1|2 / 4|5 warm     yes 0.006     0.001     0.060   0.000
+    #> 22 2|3 / 3|4 warm     yes 0.161     0.050     0.520   0.000
+    #> 23 2|3 / 4|5 warm     yes 0.080     0.019     0.336   0.000
+    #> 24 3|4 / 4|5 warm     yes 0.499     0.258     0.968   0.030
+    ```
+
+    -   The bitterness [rating]{.var-text} for wine with the condition [temp = cold]{.arg-text}, [contact = no]{.arg-text} stabilizes at the second [ratings]{.var-text} threshold since we no longer see significant differences after that point (([2\|3 - 3\|4]{.arg-text}, p-value = 0.20)
+
+    ## Exceedance
+
+    ###### Between Predictor Conditions
+
+    ``` r
+    exc_probs |> 
+      regrid("log") |> 
+      contrast(method = "revpairwise") |> 
+      summary(type = "response",
+              infer = TRUE,
+              by = NULL) |> 
+      dplyr::select(-SE, -df, -null, -z.ratio) |> 
+      dplyr::mutate(dplyr::across(dplyr::where(is.numeric),
+                                  ~ round(.x, 3))) 
+    #>               contrast cut  ratio asymp.LCL asymp.UCL p.value
+    #> 1    warm no / cold no 1|2  1.234     0.910     1.675   0.565
+    #> 2   cold yes / cold no 1|2  1.193     0.904     1.575   0.712
+    #> 3   cold yes / warm no 1|2  0.967     0.887     1.053   0.998
+    #> 4   warm yes / cold no 1|2  1.255     0.907     1.737   0.541
+    #> 5   warm yes / warm no 1|2  1.017     0.983     1.051   0.965
+    #> 6  warm yes / cold yes 1|2  1.052     0.962     1.150   0.871
+    #> 7    warm no / cold no 2|3  3.494     1.292     9.449   0.003
+    #> 8   cold yes / cold no 2|3  2.556     0.954     6.850   0.080
+    #> 9   cold yes / warm no 2|3  0.731     0.383     1.397   0.971
+    #> 10  warm yes / cold no 2|3  4.231     1.443    12.406   0.001
+    #> 11  warm yes / warm no 2|3  1.211     0.921     1.592   0.543
+    #> 12 warm yes / cold yes 2|3  1.655     0.995     2.754   0.055
+    #> 13   warm no / cold no 3|4  9.122     1.978    42.070   0.000
+    #> 14  cold yes / cold no 3|4  4.154     1.032    16.729   0.040
+    #> 15  cold yes / warm no 3|4  0.455     0.092     2.249   0.965
+    #> 16  warm yes / cold no 3|4 21.057     3.126   141.828   0.000
+    #> 17  warm yes / warm no 3|4  2.308     0.932     5.717   0.105
+    #> 18 warm yes / cold yes 3|4  5.069     1.459    17.608   0.002
+    #> 19   warm no / cold no 4|5 11.372     2.275    56.848   0.000
+    #> 20  cold yes / cold no 4|5  4.500     1.055    19.199   0.034
+    #> 21  cold yes / warm no 4|5  0.396     0.061     2.572   0.963
+    #> 22  warm yes / cold no 4|5 41.168     4.349   389.707   0.000
+    #> 23  warm yes / warm no 4|5  3.620     1.000    13.111   0.050
+    #> 24 warm yes / cold yes 4|5  9.148     2.007    41.693   0.000  
+    ```
+
+    -   `contrast(method = "revpairwise")`... something about being comfortable about interpreting ratios above 1.
+
+    ###### Between Response Thresholds
+
+    ``` r
+    emmeans(
+      fm1,
+      specs = ~ cut | temp + contact,
+      mode = "exc.prob"
+    ) |> 
+      regrid("log") |> 
+      contrast(method = "pairwise") |> 
+      summary(type = "response",
+              infer = TRUE,
+              by = NULL) |> 
+      dplyr::select(-SE, -df, -null, -z.ratio) |> 
+      dplyr::mutate(dplyr::across(dplyr::where(is.numeric),
+                                  ~ round(.x, 3)))
+    #>     contrast temp contact   ratio asymp.LCL asymp.UCL p.value
+    #> 1  1|2 / 2|3 cold      no   3.564     1.371     9.264   0.001
+    #> 2  1|2 / 3|4 cold      no  26.205     4.787   143.443   0.000
+    #> 3  1|2 / 4|5 cold      no 119.272    13.836  1028.180   0.000
+    #> 4  2|3 / 3|4 cold      no   7.353     2.153    25.109   0.000
+    #> 5  2|3 / 4|5 cold      no  33.466     5.948   188.298   0.000
+    #> 6  3|4 / 4|5 cold      no   4.551     1.311    15.807   0.004
+    #> 7  1|2 / 2|3 warm      no   1.259     0.941     1.684   0.305
+    #> 8  1|2 / 3|4 warm      no   3.546     1.367     9.196   0.001
+    #> 9  1|2 / 4|5 warm      no  12.947     2.813    59.588   0.000
+    #> 10 2|3 / 3|4 warm      no   2.817     1.243     6.383   0.002
+    #> 11 2|3 / 4|5 warm      no  10.283     2.445    43.244   0.000
+    #> 12 3|4 / 4|5 warm      no   3.651     1.167    11.420   0.012
+    #> 13 1|2 / 2|3 cold     yes   1.664     1.013     2.734   0.039
+    #> 14 1|2 / 3|4 cold     yes   7.527     2.078    27.256   0.000
+    #> 15 1|2 / 4|5 cold     yes  31.625     5.415   184.702   0.000
+    #> 16 2|3 / 3|4 cold     yes   4.523     1.549    13.208   0.000
+    #> 17 2|3 / 4|5 cold     yes  19.006     3.799    95.101   0.000
+    #> 18 3|4 / 4|5 cold     yes   4.202     1.259    14.026   0.006
+    #> 19 1|2 / 2|3 warm     yes   1.057     0.969     1.154   0.715
+    #> 20 1|2 / 3|4 warm     yes   1.562     0.998     2.445   0.053
+    #> 21 1|2 / 4|5 warm     yes   3.636     1.310    10.092   0.002
+    #> 22 2|3 / 3|4 warm     yes   1.477     0.993     2.198   0.060
+    #> 23 2|3 / 4|5 warm     yes   3.439     1.276     9.267   0.003
+    #> 24 3|4 / 4|5 warm     yes   2.328     0.990     5.475   0.056    
+    ```
+
+    -   words
+    :::
+
+    -   [Visualizations]{.underline}
+
+    ::: panel-tabset
+    ## Model Summary
+
+    ###### Effects and Thresholds
+
+    ![](_resources/Regression,_Ordinal.resources/po-ex1-errorbars-1.png){.lightbox width="382"}
+
+    <Details>
+
+    <Summary>Code</Summary>
+
+    ``` r
+    tidy(fm1, 
+         conf.int = TRUE, 
+         conf.type = "Wald") %>%
+      ggplot(aes(y = term, x = estimate)) +
+      geom_point(size = 2) +
+      geom_linerange(size = 1, 
+                     aes(xmin = conf.low, xmax = conf.high))
+    ```
+
+    </Details>
+
+    -   Effect sizes are logits and thresholds are also on the log scale.
+
+    ###### Exponentiate and Summarize
+
+    ![](_resources/Regression,_Ordinal.resources/po-ex1-ortbl.png){.lightbox width="220"}
+
+    <Details>
+
+    <Summary>Code</Summary>
+
+    ``` r
+    gtsummary::tbl_regression(fm1, 
+                              exponentiate = TRUE,
+                              intercept = TRUE)
+    ```
+
+    </Details>
+
+    -   Not sure the PO model threshold CIs weren't calculated.
+
+    ## Probabilities
+
+    Visualizing the uncertainty allows us to see ratings with overlap (likely no difference) and no overlap (likely a difference)
+
+    ###### Predicted Probabilities
+
+    ![](_resources/Regression,_Ordinal.resources/po-ex1-probs-2.png){.lightbox width="432"}
+
+    <Details>
+
+    <Summary>Code</Summary>
+
+    ``` r
+    theme_set(ggeffects::theme_ggeffects())
+    emmip(fm1,
+          temp + contact ~ rating,
+          mode = "prob",
+          dodge = 0.3,
+          CIs = TRUE) +
+      theme(legend.position = "top") +
+      scale_y_continuous(labels = scales::percent, limits = c(-0.1, 1)) +
+      ylab("Predicted Probabilities")
+    ```
+
+    </Details>
+
+    -   Temperature and Contact vs Rating
+
+    ###### Cumulative Probabilities
+
+    ![](_resources/Regression,_Ordinal.resources/po-ex1-vis-cumprob-1.png){.lightbox width="432"}
+
+    <Details>
+
+    <Summary>Code</Summary>
+
+    ``` r
+    theme_set(ggeffects::theme_ggeffects())
+    emmip(
+      fm1,
+      temp + contact ~ cut,
+      mode = "cum.prob",
+      dodge = 0.3,
+      CIs = TRUE
+    ) +
+      theme(legend.position = "top") +
+      scale_y_continuous(labels = scales::percent) +
+      ylab("cumulative Probabilities")
+    ```
+
+    </Details>
+
+    -   "Levels of Cut" are the rating thresholds
+
+    ###### Exceedance Probabilities
+
+    ![](_resources/Regression,_Ordinal.resources/po-ex1-vis-exc-prob-1.png){.lightbox width="432"}
+
+    <Details>
+
+    <Summary>Code</Summary>
+
+    ``` r
+    theme_set(ggeffects::theme_ggeffects())
+    emmip(
+      fm1,
+      temp + contact ~ cut,
+      mode = "exc.prob",
+      dodge = 0.3,
+      CIs = TRUE
+    ) +
+      theme(legend.position = "top") +
+      scale_y_continuous(labels = scales::percent) +
+      ylab("cumulative Probabilities")
+    ```
+
+    </Details>
+    :::
 
 -   [Example 2]{.ribbon-highlight}: Weighted Complimentary Log-Log Link, Comparing Links
 
