@@ -155,6 +155,31 @@
                     expect_lte(result, 1)
                 })
                 ```
+-   Two-Layer Strategy
+    -   Notes from [Testing your Plumber APIs from R](https://jakubsobolewski.com/blog/plumber-api/) ([coded example](https://github.com/jakubsob/r-tests-gallery/tree/main/plumber))
+    -   Separates business logic from API contracts, and maintains fast feedback loops while providing robust coverage of both business logic and API contracts.
+    -   Benefit: It keeps your feedback loop short and ensures each layer of your application can be tested independently.
+    -   Business Logic Testing:
+        -   Wrap business logic in functions or objects that can be tested without starting an API server. This gains you the ability to verify core functionality instantly.
+        -   Test your core functions independently using standard {testthat} unit tests. These should run fast and cover edge cases, error conditions, and various input scenarios without any HTTP overhead.
+    -   API Contract Testing:
+        -   Focuses on verifying the *shapes of responses* rather than their specific content. Tests should validate what defines the contract of your API.
+            -   Your API contract defines the structure of responses: which fields are present, their data types, and the overall format. The actual values within those fields are typically determined by your business logic, which should be tested separately.
+        -   Test the HTTP interface to ensure endpoints respond correctly, return proper status codes, and maintain expected response structures. These tests verify serialization, deserialization, and API-specific concerns
+        -   Structure your API tests using the **Arrange-Act-Assert (AAA) pattern**
+            -   [Arrange]{.underline}: Start your API in a background process, prepare your test data, and set up any required authentication or configuration. This phase handles all the setup work needed for your test scenario. *If your API is stateless, start the API before all tests to save time on repeated startup.*
+            -   [Act]{.underline}: Make the HTTP request to your API endpoint using [{httr2}]{style="color: #990000"}. This step should focus solely on executing the action you want to test.
+                -   When your API testing requires validation of concurrent request handling or high-performance scenarios, [{nanonext}]{style="color: #990000"} can serve as a powerful alternative to [{httr2}]{style="color: #990000"}. It’s particularly suitable for testing scenarios involving multiple simultaneous requests.
+            -   [Assert]{.underline}: Verify the response meets your expectations. Check status codes, response headers, and the structure of returned data. Focus on contract validation rather than business logic verification.
+        -   Adopt a `test-api-<endpoint>.R` file naming pattern to enable testing individual endpoints in isolation.
+        -   Pitfalls
+            -   Don’t duplicate business logic tests in your API tests. Focus API tests on concerns specific to the HTTP interface.
+            -   Avoid testing implementation details through the API. Your API tests should remain stable even when internal implementation changes, as long as the external behavior remains consistent.
+            -   Don’t make tests dependent on external services unless absolutely necessary. Use mocks or test doubles for external dependencies to ensure your tests remain fast and reliable.
+    -   Use Helper Functions
+        -   It will help you to maintain clean, readable tests and avoid code duplication
+        -   These helper functions can encapsulate common request patterns, authentication setup, and response parsing logic.
+        -   When API request patterns change, you only need to update the helper functions rather than modifying every individual test.
 
 ## [{httr2}]{style="color: #990000"} {#sec-apis-httr2 .unnumbered}
 
@@ -250,11 +275,13 @@
 
 ## [{plumber}]{style="color: #990000"} {#sec-apis-plumb .unnumbered}
 
--   Serves R objects as an API
--   3 Main Components: Function Definition, Request Type, API Endpoint
+-   Serves R objects as an API. 3 Main Components: Function Definition, Request Type, API Endpoint
 -   Misc
+    -   Packages
+        -   [{]{style="color: #990000"}[plumber](https://www.rplumber.io/){style="color: #990000"}[}]{style="color: #990000"}
+        -   [{]{style="color: #990000"}[valve](https://github.com/josiahParry/valve){style="color: #990000"}[}]{style="color: #990000"} - Auto-scales plumber APIs concurrently using Rust libraries Axum, Tokio, and Deadpool ([“fearless concurrency.”](https://blog.rust-lang.org/2015/04/10/Fearless-Concurrency.html))--- similar to how gunicorn auto-scales fastapi and Flask apps
+        -   [{]{style="color: #990000"}[faucet](https://github.com/ixpantia/faucet){style="color: #990000"}[}]{style="color: #990000"} ([video](https://www.youtube.com/watch?v=1uXFe2fUYSA))- The most feature complete Shiny Application and Plumber API deployment platform. faucet features load balancing, routing, logging, replication, and more all in one place; unifying your workflow for deploying R based applications.
     -   Adding \`host = "0.0.0.0" to `run_pr()` opens the API to external traffic
-    -   [{valve}]{style="color: #990000"} - Auto-scales plumber APIs concurrently using Rust libraries Axum, Tokio, and Deadpool --- similar to how gunicorn auto-scales fastapi and Flask apps
 -   Cloud options for serving Plumber APIs
     -   Install everything on an Amazon EC2 instance
 
@@ -321,7 +348,7 @@
 
             ``` r
             #* @post /make-prediction
-            make_predicition <- function(req) {
+            make_prediction <- function(req) {
                 user_info <- req$body
                 df_user <- clean_data(user_info) # sourced helper function
                 result <- predict(model, data = df_user)
@@ -365,7 +392,7 @@
         model <- read_rds("trained_model.rds")
 
         #* @post /make-prediction
-        make_predicition <- function(req) {
+        make_prediction <- function(req) {
             user_info <- req$body
             df_user <- clean_data(user_info) # sourced helper function
             result <- predict(model, data = df_user)
