@@ -175,10 +175,11 @@
 ## DuckLake {#sec-db-lakes-dklk .unnumbered}
 
 -   Notes from
+    -   [Dipping my toes into the ducklake: Exploring gene expression data with R and python](https://tomsing1.github.io/blog/posts/ducklake/)
     -   [Introducing DuckLake: Lakehouse Architecture Reimagined for the Modern Era](https://endjin.com/blog/2025/06/introducing-ducklake-lakehouse-architecture-reimagined-modern-era#data-inlining-solving-the-small-change-problem)
     -   [DuckLake in Practice: Hands-On Tutorial and Core Features](https://endjin.com/blog/2025/06/ducklake-practice-hands-on-tutorial-core-features)
 -   Resources
-    -   [Intro](https://duckdb.org/2025/05/27/ducklake) (with examples), [Docs](https://duckdb.org/docs/stable/core_extensions/ducklake.html)
+    -   [Docs](https://duckdb.org/docs/stable/core_extensions/ducklake.html), [Intro](https://duckdb.org/2025/05/27/ducklake) (with examples)
     -   [Catalog Database Options and Usage](https://ducklake.select/docs/stable/duckdb/usage/choosing_a_catalog_database)
         -   If you would like to perform *local data warehousing with a single client,* use [DuckDB]{.underline} as the catalog database.
         -   If you would like to perform *local data warehousing using multiple local clients*, use [SQLite]{.underline} as the catalog database.
@@ -201,31 +202,46 @@
 ### R {#sec-db-lakes-dklk-r .unnumbered}
 
 -   Requires [{duckdb}]{style="color: #990000"} \> version 1.3.1
--   Operations ([source](https://tomsing1.github.io/blog/posts/ducklake/))
-    -   words
+-   [Example]{.ribbon-highlight}: Basic Workflow
+    -   Local Set-Up
 
         ``` r
-        db_file <- file.path(tempdir(), "metadata.ducklake")
-        work_dir <- file.path(tempdir(), "lake_data_files")
+        db_file <- file.path(tempdir(), "metadata.ducklake") # <1>
+        work_dir <- file.path(tempdir(), "lake_data_files") # <2>
 
         con <- dbConnect(duckdb())
         db_path <- glue_sql('{paste0("ducklake:", db_file)}', .con = con)
 
         setup_dlake_cmd <- glue::glue_sql("
           INSTALL ducklake;
-          ATTACH 'ducklake:{db_file}' AS my_ducklake (DATA_PATH {work_dir});
-          USE my_ducklake;
+          ATTACH 'ducklake:{db_file}' AS my_ducklake (DATA_PATH {work_dir}); # <3>
+          USE my_ducklake; # <4>
         ", .con = con)
 
         DBI::dbExecute(con, setup_dlake_cmd)
+        ```
 
+        1.  [db_file]{.var-text} is the location of the metadata database
+        2.  [work_dir]{.var-text} is the location of the data you're working with that are stored in parquet files.
+        3.  [my_ducklake]{.var-text} is the name of the lakehouse
+        4.  `USE` sets [my_ducklak]{.var-text}e as the default lakehouse
+
+    -   Create a Table
+
+        ``` r
         dbWriteTable(
           conn = con, 
           name = "stats",
           value = dplyr::filter(stats, contrast %in% c("two_months", "four_months"))
         )
         dbWriteTable(con, "exprs", exprs)
+        ```
 
+        -   words
+
+    -   Do Work
+
+        ``` r
         "
         SELECT contrast, COUNT(symbol) FROM my_ducklake.stats GROUP BY contrast;
         "
@@ -240,7 +256,13 @@
         #>   <chr>     <chr>       <chr>  <chr>        <dbl> <dbl> <dbl>    <dbl>     <dbl>
         #> 1 Wang_2018 two_months  Cd34   ENSMUSG0000…  1.10 0.935  1.26 2.21e-14  2.23e-10
         #> 2 Wang_2018 four_months Cd34   ENSMUSG0000…  1.99 1.81   2.18 6.75e-20  7.51e-17
+        ```
 
+        -   words
+
+    -   View Files
+
+        ``` r
         "
         FROM ducklake_table_info('my_ducklake')
         "
@@ -313,130 +335,128 @@
     -   `ATTACH` has the paths for the data files and the metadata files
     -   `USE` sets this db as the default
 
--   Basic Operations
+-   Create Schema and Tables
 
-    -   Create Schema and Tables
-
-        ``` python
-        duckdb.sql("""
-            CREATE SCHEMA IF NOT EXISTS retail_sales;
-            USE retail_sales;
-            """)
-
-        duckdb.sql("""
-            CREATE TABLE IF NOT EXISTS customer (
-                customer_id INTEGER NOT NULL,
-                first_name VARCHAR NOT NULL,
-                last_name VARCHAR NOT NULL,
-                date_joined DATE NOT NULL
-            );
-            """)
-        duckdb.sql("""
-            CREATE TABLE IF NOT EXISTS orders (
-                order_id INTEGER NOT NULL,
-                customer_id INTEGER NOT NULL,
-                order_date DATE NOT NULL,
-                product_id INTEGER NOT NULL,
-                product_name VARCHAR NOT NULL,
-                amount DECIMAL(10, 2) NOT NULL
-            );
-            """)
-        ```
-
-    -   Insert
-
-        ``` python
-        duckdb.sql("""
-            INSERT INTO customer (customer_id, first_name, last_name, date_joined) VALUES
-            (1, 'Jane', 'Dunbar', '2023-01-11'),
-            (2, 'Jimmy', 'Smith', '2024-08-26'),
-            (3, 'Alice', 'Johnston', '2023-05-05');
+    ``` python
+    duckdb.sql("""
+        CREATE SCHEMA IF NOT EXISTS retail_sales;
+        USE retail_sales;
         """)
-        duckdb.sql("""
-            INSERT INTO orders (order_id, customer_id, product_id, product_name, order_date, amount) VALUES
-            (1, 1, 101, 'Widget A', '2023-01-15', 19.50),
-            (2, 1, 102, 'Widget B', '2023-01-20', 29.99),
-            (3, 3, 103, 'Widget A', '2023-02-10', 19.50);
+
+    duckdb.sql("""
+        CREATE TABLE IF NOT EXISTS customer (
+            customer_id INTEGER NOT NULL,
+            first_name VARCHAR NOT NULL,
+            last_name VARCHAR NOT NULL,
+            date_joined DATE NOT NULL
+        );
         """)
-        ```
+    duckdb.sql("""
+        CREATE TABLE IF NOT EXISTS orders (
+            order_id INTEGER NOT NULL,
+            customer_id INTEGER NOT NULL,
+            order_date DATE NOT NULL,
+            product_id INTEGER NOT NULL,
+            product_name VARCHAR NOT NULL,
+            amount DECIMAL(10, 2) NOT NULL
+        );
+        """)
+    ```
 
-    -   Check file structure
+-   Insert
 
-        ``` python
-        duckdb.sql(f"""
-            FROM glob('{ducklake_files}/*');
-            """)
+    ``` python
+    duckdb.sql("""
+        INSERT INTO customer (customer_id, first_name, last_name, date_joined) VALUES
+        (1, 'Jane', 'Dunbar', '2023-01-11'),
+        (2, 'Jimmy', 'Smith', '2024-08-26'),
+        (3, 'Alice', 'Johnston', '2023-05-05');
+    """)
+    duckdb.sql("""
+        INSERT INTO orders (order_id, customer_id, product_id, product_name, order_date, amount) VALUES
+        (1, 1, 101, 'Widget A', '2023-01-15', 19.50),
+        (2, 1, 102, 'Widget B', '2023-01-20', 29.99),
+        (3, 3, 103, 'Widget A', '2023-02-10', 19.50);
+    """)
+    ```
 
-        #> ┌────────────────────────────────────────────────────────────────────────────────────┐
-        #> │                                        file                                        │
-        #> │                                      varchar                                       │
-        #> ├────────────────────────────────────────────────────────────────────────────────────┤
-        #> │ ../ducklake_basic/data_files/ducklake-01978495-e183-7763-bf40-d9a85988eed9.parquet │
-        #> └────────────────────────────────────────────────────────────────────────────────────┘
-        ```
+-   Check file structure
 
-        -   Flat file structure with UUID-based naming which is quite different from hierarchical folder structures used by other lakehouse formats
+    ``` python
+    duckdb.sql(f"""
+        FROM glob('{ducklake_files}/*');
+        """)
 
-    -   Fetch a parquet file and read it
+    #> ┌────────────────────────────────────────────────────────────────────────────────────┐
+    #> │                                        file                                        │
+    #> │                                      varchar                                       │
+    #> ├────────────────────────────────────────────────────────────────────────────────────┤
+    #> │ ../ducklake_basic/data_files/ducklake-01978495-e183-7763-bf40-d9a85988eed9.parquet │
+    #> └────────────────────────────────────────────────────────────────────────────────────┘
+    ```
 
-        ``` python
-        # Extract the parquet file name
-        parquet_file = duckdb.sql(f"""
-            SELECT file FROM glob('{ducklake_files}/*.parquet') LIMIT 1;
-            """).fetchone()[0]
+    -   Flat file structure with UUID-based naming which is quite different from hierarchical folder structures used by other lakehouse formats
 
-        # Inspect the file contents
-        duckdb.sql(f"""
-            SELECT * FROM read_parquet('{parquet_file}');
-            """)
-        #> ┌─────────────┬────────────┬───────────┬─────────────┐
-        #> │ customer_id │ first_name │ last_name │ date_joined │
-        #> │    int32    │  varchar   │  varchar  │    date     │
-        #> ├─────────────┼────────────┼───────────┼─────────────┤
-        #> │           1 │ Jane       │ Dunbar    │ 2023-01-11  │
-        #> │           2 │ Jimmy      │ Smith     │ 2024-08-26  │
-        #> │           3 │ Alice      │ Johnston  │ 2023-05-05  │
-        #> └─────────────┴────────────┴───────────┴─────────────┘
-        ```
+-   Fetch a parquet file and read it
 
-    -   View snapshot
+    ``` python
+    # Extract the parquet file name
+    parquet_file = duckdb.sql(f"""
+        SELECT file FROM glob('{ducklake_files}/*.parquet') LIMIT 1;
+        """).fetchone()[0]
 
-        ``` python
-        duckdb.sql("""
-            SELECT * FROM ducklake_snapshots('ducklake_basic_db');
-            """)
-        #> ┌─────────────┬────────────────────────────┬────────────────┬─────────────────────────────────────────────────────────────────────────┐
-        #> │ snapshot_id │       snapshot_time        │ schema_version │                                 changes                                 │
-        #> │    int64    │  timestamp with time zone  │     int64      │                         map(varchar, varchar[])                         │
-        #> ├─────────────┼────────────────────────────┼────────────────┼─────────────────────────────────────────────────────────────────────────┤
-        #> │           0 │ 2025-06-18 19:48:24.41+00  │              0 │ {schemas_created=[main]}                                                │
-        #> │           1 │ 2025-06-18 19:48:24.489+00 │              1 │ {schemas_created=[retail_sales]}                                        │
-        #> │           2 │ 2025-06-18 19:48:24.533+00 │              2 │ {tables_created=[retail_sales.customer]}                                │
-        #> │           3 │ 2025-06-18 19:48:24.554+00 │              2 │ {tables_inserted_into=[2]}                                              │
-        #> └─────────────┴────────────────────────────┴────────────────┴─────────────────────────────────────────────────────────────────────────┘
-        ```
+    # Inspect the file contents
+    duckdb.sql(f"""
+        SELECT * FROM read_parquet('{parquet_file}');
+        """)
+    #> ┌─────────────┬────────────┬───────────┬─────────────┐
+    #> │ customer_id │ first_name │ last_name │ date_joined │
+    #> │    int32    │  varchar   │  varchar  │    date     │
+    #> ├─────────────┼────────────┼───────────┼─────────────┤
+    #> │           1 │ Jane       │ Dunbar    │ 2023-01-11  │
+    #> │           2 │ Jimmy      │ Smith     │ 2024-08-26  │
+    #> │           3 │ Alice      │ Johnston  │ 2023-05-05  │
+    #> └─────────────┴────────────┴───────────┴─────────────┘
+    ```
 
-        -   Every operation in DuckLake creates a snapshot — a point-in-time view of the database state
+-   View snapshot
 
-        -   Interpretation
+    ``` python
+    duckdb.sql("""
+        SELECT * FROM ducklake_snapshots('ducklake_basic_db');
+        """)
+    #> ┌─────────────┬────────────────────────────┬────────────────┬─────────────────────────────────────────────────────────────────────────┐
+    #> │ snapshot_id │       snapshot_time        │ schema_version │                                 changes                                 │
+    #> │    int64    │  timestamp with time zone  │     int64      │                         map(varchar, varchar[])                         │
+    #> ├─────────────┼────────────────────────────┼────────────────┼─────────────────────────────────────────────────────────────────────────┤
+    #> │           0 │ 2025-06-18 19:48:24.41+00  │              0 │ {schemas_created=[main]}                                                │
+    #> │           1 │ 2025-06-18 19:48:24.489+00 │              1 │ {schemas_created=[retail_sales]}                                        │
+    #> │           2 │ 2025-06-18 19:48:24.533+00 │              2 │ {tables_created=[retail_sales.customer]}                                │
+    #> │           3 │ 2025-06-18 19:48:24.554+00 │              2 │ {tables_inserted_into=[2]}                                              │
+    #> └─────────────┴────────────────────────────┴────────────────┴─────────────────────────────────────────────────────────────────────────┘
+    ```
 
-            -   Snapshot 0: Default `main` schema created
-            -   Snapshot 1: Our `retail_sales` schema created
-            -   Snapshot 2: Customer table created
-            -   Snapshot 3: Data inserted into the table
+    -   Every operation in DuckLake creates a snapshot — a point-in-time view of the database state
 
-    -   Update and Delete
+    -   Interpretation
 
-        ``` python
-        duckdb.sql("""
-            UPDATE customer SET first_name = 'Alice', last_name = 'Fraser' WHERE customer_id = 3;
-            """)
-        duckdb.sql("""
-            DELETE FROM customer WHERE customer_id = 2;
-            """)
-        ```
+        -   Snapshot 0: Default `main` schema created
+        -   Snapshot 1: Our `retail_sales` schema created
+        -   Snapshot 2: Customer table created
+        -   Snapshot 3: Data inserted into the table
 
-        -   DuckLake creates separate "delete files" that reference the original data files and specify which rows should be considered deleted. This approach allows for efficient deletes without rewriting large data files.
+-   Update and Delete
+
+    ``` python
+    duckdb.sql("""
+        UPDATE customer SET first_name = 'Alice', last_name = 'Fraser' WHERE customer_id = 3;
+        """)
+    duckdb.sql("""
+        DELETE FROM customer WHERE customer_id = 2;
+        """)
+    ```
+
+    -   DuckLake creates separate "delete files" that reference the original data files and specify which rows should be considered deleted. This approach allows for efficient deletes without rewriting large data files.
 
 -   Time Travel
 
