@@ -315,7 +315,7 @@
 
 -   Basic Operations
 
-    -   Create Schema and Table
+    -   Create Schema and Tables
 
         ``` python
         duckdb.sql("""
@@ -331,6 +331,16 @@
                 date_joined DATE NOT NULL
             );
             """)
+        duckdb.sql("""
+            CREATE TABLE IF NOT EXISTS orders (
+                order_id INTEGER NOT NULL,
+                customer_id INTEGER NOT NULL,
+                order_date DATE NOT NULL,
+                product_id INTEGER NOT NULL,
+                product_name VARCHAR NOT NULL,
+                amount DECIMAL(10, 2) NOT NULL
+            );
+            """)
         ```
 
     -   Insert
@@ -341,6 +351,12 @@
             (1, 'Jane', 'Dunbar', '2023-01-11'),
             (2, 'Jimmy', 'Smith', '2024-08-26'),
             (3, 'Alice', 'Johnston', '2023-05-05');
+        """)
+        duckdb.sql("""
+            INSERT INTO orders (order_id, customer_id, product_id, product_name, order_date, amount) VALUES
+            (1, 1, 101, 'Widget A', '2023-01-15', 19.50),
+            (2, 1, 102, 'Widget B', '2023-01-20', 29.99),
+            (3, 3, 103, 'Widget A', '2023-02-10', 19.50);
         """)
         ```
 
@@ -440,3 +456,39 @@
 
     1.  Query data as it was prior to the latest action
     2.  Query data as it was prior to the 2 latest actions
+
+-   Multitable Transaction
+
+    ``` python
+    duckdb.sql("""
+        BEGIN TRANSACTION;
+        INSERT INTO customer (customer_id, first_name, last_name, date_joined) VALUES
+        (4, 'Bob', 'Brown', '2023-03-01');
+        INSERT INTO orders (order_id, customer_id, product_id, product_name, order_date, amount) VALUES
+        (4, 4, 104, 'Widget B', '2023-03-05', 29.99),
+        (5, 4, 105, 'Widget C', '2023-02-15', 59.99),
+        (6, 4, 106, 'Widget A', '2023-01-25', 19.50);
+        COMMIT;
+    """)
+    ```
+
+    -   This entire operation — adding a customer and three orders — appears as a single snapshot in our change history.
+
+    -   If any part of the transaction had failed, the entire operation would have been rolled back, ensuring data consistency.
+
+    -   Multi-table transactions ensure your data maintains integrity across related tables, something that's challenging or impossible with table-level formats.
+
+-   View Changes Due to Latest Transaction
+
+    ``` python
+    duckdb.sql(f"""
+        SELECT * FROM ducklake_table_changes('ducklake_basic_db', 'retail_sales', 'customer', {max_snapshot_id}, {max_snapshot_id})
+        ORDER BY snapshot_id;
+        """)
+    #> ┌─────────────┬───────┬─────────────┬─────────────┬────────────┬───────────┬─────────────┬─────────┐
+    #> │ snapshot_id │ rowid │ change_type │ customer_id │ first_name │ last_name │ date_joined │  email  │
+    #> │    int64    │ int64 │   varchar   │    int32    │  varchar   │  varchar  │    date     │ varchar │
+    #> ├─────────────┼───────┼─────────────┼─────────────┼────────────┼───────────┼─────────────┼─────────┤
+    #> │           9 │     6 │ insert      │           4 │ Bob        │ Brown     │ 2023-03-01  │ NULL    │
+    #> └─────────────┴───────┴─────────────┴─────────────┴────────────┴───────────┴─────────────┴─────────┘
+    ```
