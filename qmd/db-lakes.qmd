@@ -222,7 +222,7 @@
         ```
 
         1.  [db_file]{.var-text} is the location of the metadata database
-        2.  [work_dir]{.var-text} is the location of the data you're working with that are stored in parquet files.
+        2.  [work_dir]{.var-text} is the location of the data you're working with that are stored in parquet files. [db_file]{.var-text} and [work_dir]{.var-text} could also be URLs to a cloud location on AWS S3 or within a Google Cloud bucket instead, etc.
         3.  [my_ducklake]{.var-text} is the name of the lakehouse
         4.  `USE` sets [my_ducklak]{.var-text}e as the default lakehouse
 
@@ -232,19 +232,27 @@
         dbWriteTable(
           conn = con, 
           name = "stats",
-          value = dplyr::filter(stats, contrast %in% c("two_months", "four_months"))
+          value = dplyr::filter(stats, 
+                                contrast %in% c("two_months", "four_months"))
         )
-        dbWriteTable(con, "exprs", exprs)
+        dbWriteTable(con, 
+                     "exprs", 
+                     exprs)
         ```
 
-        -   words
+        -   stats and exprs are two datasets in memory
+        -   You can also read parquet files into duckdb
+            -   `arrow::read_parquet and arrow::to_duckdb` (See [Databases, DuckDB \>\> Arrow](db-duckdb.qmd#sec-db-duckdb-arrow){style="color: green"} \>\> Example: (using SQL Query; method 2)
+            -   DuckDB SQL: **`FROM`**`read_parquet('/Users/ercbk/Documents/R/Data/foursquare-spaces/*.parquet')` (See [Databases, DuckDB \>\> SQL](db-duckdb.qmd#sec-db-duckdb-sql){style="color: green"} \>\> Example 1 and [dbplyr](db-duckdb.qmd#sec-db-duckdb-dbplyr){style="color: green"} \>\> Example 1)
+            -   `duckplyr::read_parquet_duckdb` (See [Databases, DuckDB \>\> duckplyr \>\> Operations](db-duckdb.qmd#sec-db-duckdb-duckplyr-ops){style="color: green"})
 
     -   Do Work
 
         ``` r
+        query_sym <- "
+          SELECT contrast, COUNT(symbol) FROM my_ducklake.stats GROUP BY       contrast;
         "
-        SELECT contrast, COUNT(symbol) FROM my_ducklake.stats GROUP BY contrast;
-        "
+        df_fsq <- DBI::dbGetQuery(conn, query_sym)
 
         lazy_df <- 
           tbl(con, "stats") |>
@@ -258,18 +266,28 @@
         #> 2 Wang_2018 four_months Cd34   ENSMUSG0000…  1.99 1.81   2.18 6.75e-20  7.51e-17
         ```
 
-        -   words
+        -   Show two ways of querying data: DBI and dbplyr
 
-    -   View Files
+    -   View Data Files
 
         ``` r
-        "
+        query_files <- "
         FROM ducklake_table_info('my_ducklake')
         "
+        DBI::dbGetQuery(query_files)
+
         fs::dir_info(file.path(work_dir, "main", "stats")) |>
           dplyr::mutate(filename = basename(path)) |>
           dplyr::select(filename, size)
+        #> # A tibble: 1 × 2
+        #>   filename                                                     size
+        #>   <chr>                                                 <fs::bytes>
+        #> 1 ducklake-019804b9-2259-7bf9-b53c-2ab7be53e198.parquet       1.42M
+        ```
 
+    -   Add data to a table
+
+        ``` r
         dbAppendTable(
           conn = con, 
           name = "stats",
@@ -280,9 +298,24 @@
           dplyr::mutate(filename = basename(path)) |>
           dplyr::select(filename, size)
 
+        #>  # A tibble: 2 × 2
+        #>    filename                                                     size
+        #>    <chr>                                                 <fs::bytes>
+        #>  1 ducklake-019804b9-2259-7bf9-b53c-2ab7be53e198.parquet       1.42M
+        #>  2 ducklake-019804b9-236f-71fa-ad7a-81f6e9a6f01d.parquet       1.44M
+        ```
+
+        -   After appending the data to the [stats]{.var-text} table, we can see that an additional parquet file was created.
+
+    -   Detach and Disconnect
+
+        ``` r
         dbExecute(conn = con, "USE memory; DETACH my_ducklake;")
         dbDisconnect(con)
         ```
+
+        -   Closing a connection does not release the locks held on the database files as the file handles are held by the main DuckDB instance, so you should DETACH before closing the connection
+        -   Detaching from a default database isn't possible, so `USE memory` is required first
 
 ### Python {#sec-db-lakes-dklk-py .unnumbered}
 
