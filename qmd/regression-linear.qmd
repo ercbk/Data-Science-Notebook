@@ -12,11 +12,25 @@
 -   A model is said to be hierarchical if it contains all the lesser degree terms in the hierarchy
 
     -   Example
-        -   hierarchical: y = x + x2 + x3 + x4
-        -   not hierarchical: y = x + x4
-        -   hierarchical: y = x1 + x2 + x1x2
-        -   not hierarchical: y = x1 + x1x2
+        -   hierarchical: y = x + x^2^ + x^3^ + x^4^
+        -   not hierarchical: y = x + x^4^
+        -   hierarchical: y = x~1~ + x~2~ + x~1~x~2~
+        -   not hierarchical: y = x~1~ + x~1~x~2~
     -   It is expected that all polynomial models should have this property because only hierarchical models are invariant under linear transformation.
+
+-   Specifying Nonlinear terms
+
+    -   Use `poly(x, 2)` if:
+
+        -   You want orthogonal contrasts (e.g., for ANOVA-style inference).
+        -   Your predictor is an ordered factor (e.g., "Low", "Medium", "High").
+        -   You care about hypothesis testing (e.g., "Is there a significant quadratic trend?").
+
+    -   Use `x + I(x^2)` if:
+
+        -   Your predictor is numeric and you want a traditional polynomial regression.
+        -   You don’t care about orthogonality.
+        -   Interpretation of raw coefficients is needed.
 
 -   `RcppArmadillo::fastLmPure` Not sure what this does but it's rcpp so maybe faster than lm for big data.
 
@@ -115,6 +129,7 @@
 
 -   Misc
 
+    -   In statistical modeling (like ANOVA or linear regression), categorical variables (factors) need to be "coded" numerically so that they can be included in the model. This coding is done via contrast matrices. Different contrast schemes allow you to test different types of hypotheses about the differences between factor levels.
     -   Notes from [Centering in Moderation Analysis: A Guide](https://blog.msbstats.info/posts/2024-01-21-centering-101/#sum-to-zero-contrasts)
     -   Resource
         -   [Not Another Post Hoc Paper: A New Look at Contrast Analysis and Planned Comparisons](https://journals.sagepub.com/doi/full/10.1177/25152459241293110)
@@ -249,7 +264,6 @@
         ```
 
         -   $Q$ is continuous while $A$ is a two-level factor variable.
-
         -   The main effect for $Q$ is called the Grand Average Slope.
 
 -   [Deviation Contrasts]{.underline}
@@ -288,6 +302,86 @@
         #>         3 
         #> -6.833333
         ```
+
+-   [Polynomial Contrasts]{.underline}
+
+    -   Contructed to look for specific patterns in the means of the groups that correspond to polynomial functions.
+
+    -   Useful when you suspect a non-linear (polynomial) relationship between an **ordinal factor** (e.g., ordered levels like "Low," "Medium," "High") and the response variable in linear model
+
+    -   The contrasts are constructed such that they are *orthogonal* (uncorrelated), meaning each polynomial term (linear, quadratic, cubic, etc.) provides independent information.
+
+    -   For a factor with k levels, `contr.poly(k)` generates (k-1) orthogonal polynomial contrasts (linear, quadratic, cubic, etc.).
+
+    -   `stats::contr.poly(n, scores = NULL, contrasts = TRUE)`
+
+        -   `n`: The number of levels in your factor.
+        -   `scores`: (Optional) A numeric vector of scores associated with each level. If `NULL` (the default), `contr.poly` assumes equally spaced levels (1, 2, ..., n). If your levels are not equally spaced (e.g., 10mg, 20mg, 50mg), you should provide the actual scores.
+        -   `contrasts`: A logical value indicating whether contrasts should be computed (default is `TRUE`). If `FALSE`, a square matrix is returned.
+
+    -   [Example]{.ribbon-highlight}: View contrasts
+
+        ``` r
+        ordered_factor <- ordered(c("Low", "Medium", "High"))
+        contrasts(ordered_factor) <- contr.poly(3)
+        ordered_factor
+        #>                .L         .Q
+        #>  Low    -7.071068e-01   0.4082483
+        #>  Medium -7.850462e-17  -0.8164966
+        #>  High    7.071068e-01   0.4082483
+        #>  Levels: High < Low < Medium
+        ```
+
+        -   [.L]{.arg-text} = Linear contrast
+        -   [.Q]{.arg-text} = Quadratic contrast
+
+    -   [Example]{.ribbon-highlight}: Test for nonlinear relationship
+
+        -   Data and Model
+
+            ``` r
+            set.seed(123)  # For reproducibility
+
+            # Simulate data with a quadratic trend
+            n <- 30
+            dosage <- ordered(rep(c("Low", "Medium", "High"), each = n/3),
+                              levels = c("Low", "Medium", "High"))
+            response_ms <- c(
+              rnorm(n/3, mean = 200, sd = 20),   # Low dose
+              rnorm(n/3, mean = 180, sd = 15),    # Medium dose
+              rnorm(n/3, mean = 210, sd = 25)     # High dose (U-shaped trend)
+            )
+
+            dat <- data.frame(dosage, response_ms)
+            dat <- data.frame(dosage, response_ms)
+            contrasts(dat$dosage) <- contr.poly(nlevels(dat$dosage))  # 3 levels → Linear (.L) & Quadratic (.Q)
+            mod <- lm(response_ms ~ dosage, data = dat)
+            summary(mod)
+            #>             Estimate Std. Error t value Pr(>|t|)    
+            #> (Intercept)  200.617      3.043  65.930  < 2e-16 ***
+            #> dosage.L       6.436      5.270   1.221    0.233    
+            #> dosage.Q      25.411      5.270   4.821 4.92e-05 ***
+            ```
+
+            -   [dosage.Q]{.var-text} (Quadratic, p = 1.19e-05): Strong quadratic trend
+            -   So you probably want include `poly(dosage, 2)` in your model
+
+        -   Show Trend\
+            ![](_resources/Regression-Linear.resources/contrast-poly-ex1-1.png){.lightbox width="432"}
+
+            ``` r
+            ggplot(dat, aes(x = dosage, y = response_ms)) +
+              geom_boxplot() +
+              stat_summary(fun = mean, 
+                           geom = "line", 
+                           aes(group = 1), 
+                           color = "red") +
+              labs(title = "Quadratic Trend in Response Time by Dosage",
+                   x = "Dosage Level", y = "Response Time (ms)") +
+              theme_notebook()
+            ```
+
+            -   U-shaped effect: Medium dose has the lowest response time.
 
 ## Model Selection {#sec-reg-lin-modsel .unnumbered}
 
