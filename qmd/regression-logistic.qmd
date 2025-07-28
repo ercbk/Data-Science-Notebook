@@ -546,6 +546,7 @@
 -   Assumes a binomial distribution for a binary outcome but, unlike logistic regression, uses a log link function which automatically gives more interpretable risk ratios as effects.
 -   Also see
     -   [Experiments, Analysis \>\> Risk](experiments-analysis.qmd#sec-exp-anal-risk){style="color: green"}
+    -   [Starting Values](regression-logistic.qmd#sec-reg-log-stval){style="color: green"}
 -   Notes from
     -   Introduction to Regression Methods for Public Health Using R, [Ch. 6.21](https://www.bookdown.org/rwnahhas/RMPH/blr-log-binomial.html#blr-log-binomial)
         -   Brief introduction with a basic [{logbin}]{style="color: #990000"} example.
@@ -554,6 +555,10 @@
     -   `glm(..., family = binomial(link = "log"))`
         -   Requires you to pick starting values
         -   Employs step-halving to bring estimates back into the parameter space if the deviance becomes infinite or any fitted values are outside (0, 1) at any iteration. (logbin vignette)
+            -   If a full Fisher scoring step of IRLS (glm fitting method) will lead to either an infinite deviance or predicted values that are invalid for the model being fitted, then the increment in parameter estimates is repeatedly halved until the updated estimates no longer exhibit these features. (glm2 vignette)
+    -   [{]{style="color: #990000"}[glm2](https://cran.r-project.org/web/packages/glm2/index.html){style="color: #990000"}[}]{style="color: #990000"} ([Vignette](https://journal.r-project.org/articles/RJ-2011-012/)) - Fits models with a modified default fitting method that provides greater stability for models that may fail to converge using glm
+        -   Sometimes the method (step-halving) that glm uses when it fails to converge doesn't get activated. This package uses that method at the start.
+        -   Could still require starting values.
     -   [{]{style="color: #990000"}[logbin](https://cran.r-project.org/web/packages/logbin/index.html){style="color: #990000"}[}]{style="color: #990000"} ([Vignette](https://www.jstatsoft.org/article/view/v086i09)) - Methods for fitting log-link GLMs and GAMs to binomial data, including EM-type algorithms with more stable convergence properties than standard methods.
         -   Don't have to mess with starting values
         -   Has a variety of methods to aid in convergence and restricting the parameter space so as to keep the predicted probabilities between 0 and 1
@@ -561,9 +566,17 @@
             -   CEM can be computationally intensive for larger datasets or more complex specifications (e.g. splines).
             -   Recommended to try using the parameter expanded EM algorithm ([method = "em"]{.arg-text}) and SQUAREM acceleration scheme ([acclerate = "squarem"]{.arg-text}) to speed up convergence .
         -   Other methods and acceleration schemes are available
+        -   Fits B-splines via `logbin.smooth`
+        -   Due to the way in which the covariate space is defined in the CEM algorithm, models that include terms that are functionally dependent on one another — such as interactions and polynomials — may give unexpected results. (i.e. **interactions and `poly` is not supported**)
+            -   2-way interactions between factors can be included by calculating a new factor term that has levels corresponding to all possible combinations of the factor levels
+            -   e.g. `heart$AgeSev <- 10 * heart$AgeGroup + heart$Severity`
+            -   In this example [AgeGroup]{.var-text} and [Severity]{.var-text} are each 3-level categorical variables coded as numerics
+            -   Not sure why they multiplied the [AgeGroup]{.var-text} variable by 10.
+            -   Don't think marginal effects are possible using this method. If indeed not, then this is not a satisfactory solution. Use glm or glm2.
+        -   Categorical covariates should always be entered directly as factors rather than dummy variables.
 -   Papers
     -   [Particle swarm optimization with Applications to Maximum Likelihood Estimation and Penalized Negative Binomial Regression](https://arxiv.org/abs/2405.12386)
-        -   Uses Partical Swarm optimization via [{{]{style="color: goldenrod"}[pyswarm](https://pyswarms.readthedocs.io/en/latest/){style="color: goldenrod"}[}}]{style="color: goldenrod"} to fit various mixture models and also Log-Binomial
+        -   Uses Partical Swarm optimization via [{]{style="color: goldenrod"}[pyswarm](https://pyswarms.readthedocs.io/en/latest/){style="color: goldenrod"}[}]{style="color: goldenrod"} to fit various mixture models and also Log-Binomial
         -   Successfully converges where other optimization methods fail. May also be more efficient in some cases.
 -   With logistic regression, the left-hand side is the log of the odds, whereas in log-binomial regression it is the log of the probability ($p$).
 -   Exponentiating a regression coefficient in log-binomial regression results in a Risk Ratio (RR) or Prevalence Ratio (PR).
@@ -575,13 +588,81 @@
 
 -   "For some reason, econometricians have never really taken on the benefits of the generalized linear modelling framework. So you are more likely to see an econometrician use a probit model than a logistic regression, for example. Probit models tended to go out of fashion in statistics after the GLM revolution prompted by [Nelder and Wedderburn (1972)](http://dx.doi.org/10.2307%2F2344614)." ([Hyndman](https://robjhyndman.com/hyndsight/statistics-vs-econometrics/))
 -   Very similar to Logistic\
-    ![](./_resources/Regression,_Logistic.resources/probit_logit.svg)
+    ![](./_resources/Regression,_Logistic.resources/probit_logit.svg){width="382"}
 -   Where probit and logistic curves differ\
-    ![](./_resources/Regression,_Logistic.resources/probit_minus_logit.svg)
+    ![](./_resources/Regression,_Logistic.resources/probit_minus_logit.svg){width="382"}
 -   link function: Φ-1(p) where Φ is the standard normal CDF:\
     ![](./_resources/Regression,_Logistic.resources/probit_link2.svg)
 -   The probability prediction, p:\
     ![](./_resources/Regression,_Logistic.resources/probit_regression.svg)
+
+## Starting Values {#sec-reg-log-stval .unnumbered}
+
+-   GLM models that use non-standard link functions (e.g. Binomial w/log link, Poisson w/identitly link) sometimes require starting values in order to converge
+-   `glm` has a [start]{.arg-text} argument that allows you to pass a vector of starting values
+    -   The values should be in the same order as the coefficients in the model (i.e. intercept is first, etc.)
+-   [Number of Starting Values]{.underline}
+    -   In a typical model, it should equal the number of coefficients + the intercept
+    -   You can fit the model and then count the coefficients: `names(coef(mod))`
+    -   Example: `survived ~ passengerClass * age_cats`
+        -   Where [survived]{.var-text} is a binary variable, [passengerClass]{.var-text} is a factor variable with 3 levels, [age_cats]{.var-text} is a factor variable with 3 levels.
+        -   Number of Starting Values (Total of 9)
+            -   Intercept: 1 parameter
+
+            -   passengerClass: 2 parameters (3 levels - 1 reference level)
+
+            -   age_cats: 2 parameters (3 levels - 1 reference level)
+
+            -   Interaction (passengerClass:age_cats): 4 parameters (2 × 2 from the non-reference levels)
+-   [Options]{.underline}
+    -   Guidelines
+
+        -   Values should be reasonable for your given link function
+            -   e.g. With a log link, the values should be reasonable on the log scale
+
+        <!-- -->
+
+        -   Avoid extreme values that could cause numerical issues
+
+    -   Use zeros
+
+        -   e.g. `start = rep(0, 9)`
+
+    -   Use estimates from the standard link model
+
+        -   [Example]{.ribbon-highlight}:
+
+            ``` r
+            # Fit logit model first
+            logit_model <- 
+              glm(survived ~ passengerClass * age_cats, 
+                  data = d, 
+                  family = binomial("logit"))
+            start_values <- coef(logit_model)
+
+            # Then use these as starting values for log model
+            log_model <- 
+              glm(survived ~ passengerClass * age_cats, 
+                  data = d,
+                  family = binomial("log"), 
+                  start = start_values)
+            ```
+
+    -   Data-informed values
+
+        -   [Example]{.ribbon-highlight}
+
+            ``` r
+            # Use overall survival rate
+            intercept_start <- log(mean(d$survived))
+
+            # Use small values for other parameters
+            start_values <- c(intercept_start, rep(0, 8))
+            ```
+
+    -   Slight perturbation around 0
+
+        -   e.g. `start = rnorm(9, mean = 0, sd = 0.1)`
 
 ## Visualization {#sec-reg-log-viz .unnumbered}
 
