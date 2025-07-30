@@ -544,6 +544,9 @@
 ## Log Binomial {#sec-reg-log-logbin .unnumbered}
 
 -   Assumes a binomial distribution for a binary outcome but, unlike logistic regression, uses a log link function which automatically gives more interpretable risk ratios as effects.
+
+### Misc {#sec-reg-log-logbin-misc .unnumbered}
+
 -   Also see
     -   [Experiments, Analysis \>\> Risk](experiments-analysis.qmd#sec-exp-anal-risk){style="color: green"}
     -   [Starting Values](regression-logistic.qmd#sec-reg-log-stval){style="color: green"}
@@ -584,6 +587,153 @@
     -   Convergence issues for extreme data (i.e. rare events which have low prevalence)
     -   Predicted probabilities \> 1 which is nonsensical
 
+### Examples {#sec-reg-log-logbin-ex .unnumbered}
+
+-   [Example]{.ribbon-highlight}: Simple Model using a Polynomial and a Spline
+
+    ::: panel-tabset
+    ## Data and Models
+
+    ``` r
+    pacman::p_load(
+      dplyr,
+      ggplot2,
+      logbin,
+      emmeans,
+      marginaleffects,
+      gtsummary,
+      sjPlot
+    )
+
+    theme_set(theme_notebook())
+
+    d <- carData::TitanicSurvival |> filter(!is.na(age))
+
+    m_poly <- 
+      glm(survived ~ poly(age, 3),
+          data = d,
+          family = binomial(link = "log"))
+
+    m_spl_bin <- 
+      logbin.smooth(
+        survived ~ B(age, knot.range = 0:3),
+        data = d
+      )
+    ```
+
+    -   Both are similar fitting models. [{logbin}]{style="color: #990000"} can't fit a polynomial, but it can fit a B-spline.
+    -   The polynomial model converges just fine, so no need for starting values or [{glm2}]{style="color: #990000"}
+
+    ## emmeans
+
+    ``` r
+    m_poly <- 
+      glm(survived ~ poly(age, 3),
+          data = d,
+          family = binomial(link = "log"))
+
+    emmeans(
+      m_poly,
+      pairwise ~ age,
+      type = "response",
+      at = list(age = c(quantile(d$age, 
+                                 probs = c(0.05, 0.50, 0.95)))),
+      weights = "prop",
+      infer = TRUE
+    )
+    # $emmeans
+    # age  prob     SE  df asymp.LCL asymp.UCL null z.ratio p.value
+    # 5   0.558 0.0399 Inf     0.485     0.642    1  -8.154  <.0001
+    # 28  0.378 0.0181 Inf     0.344     0.415    1 -20.350  <.0001
+    # 57  0.412 0.0410 Inf     0.339     0.501    1  -8.914  <.0001
+    # 
+    # Confidence level used: 0.95 
+    # Intervals are back-transformed from the log scale 
+    # Tests are performed on the log scale 
+    # 
+    # $contrasts
+    # contrast      ratio    SE  df asymp.LCL asymp.UCL null z.ratio p.value
+    # age5 / age28  1.476 0.124 Inf     1.212       1.8    1   4.632  <.0001
+    # age5 / age57  1.354 0.165 Inf     1.018       1.8    1   2.489  0.0343
+    # age28 / age57 0.917 0.104 Inf     0.703       1.2    1  -0.757  0.7293
+    # 
+    # Confidence level used: 0.95 
+    # Conf-level adjustment: tukey method for comparing a family of 3 estimates 
+    # Intervals are back-transformed from the log scale 
+    # P value adjustment: tukey method for comparing a family of 3 estimates 
+    # Tests are performed on the log scale 
+    ```
+
+    -   [{emmeans}]{style="color: #990000"} doesn't support a logbin.smooth model
+    -   emmeans are the (equally weighted) marginal means and the contrasts are the risk ratios
+
+    ## marginaleffects
+
+    ``` r
+    avg_comparisons(m_poly) # <1>
+    #>  Estimate Std. Error     z Pr(>|z|)   S    2.5 %    97.5 %
+    #>   -0.0028    0.00105 -2.66  0.00783 7.0 -0.00486 -0.000736
+    #> 
+    #> Term: age
+    #> Type:  response 
+    #> Comparison: +1
+
+    avg_predictions(m_poly, variables = list(age = c(5, 28, 57))) # <2>
+    #> age Estimate Std. Error    z Pr(>|z|)     S 2.5 % 97.5 %
+    #>   5    0.558     0.0399 14.0   <0.001 144.9 0.480  0.636
+    #>  28    0.378     0.0181 20.9   <0.001 320.3 0.343  0.413
+    #>  57    0.412     0.0410 10.1   <0.001  76.6 0.332  0.492
+
+    slopes(m_poly, variables = "age", newdata = datagrid(age = c(5, 28, 57))) # <3>
+    #> age Estimate Std. Error      z Pr(>|z|)    S    2.5 %   97.5 %
+    #>   5 -0.02563    0.00670 -3.824   <0.001 12.9 -0.03877 -0.01250
+    #>  28  0.00120    0.00175  0.682    0.495  1.0 -0.00224  0.00463
+    #>  57 -0.00472    0.00454 -1.039    0.299  1.7 -0.01362  0.00418
+    #> 
+    #> Term: age
+    #> Type:  response 
+    #> Comparison: dY/dX
+
+    # 1 risk ratio
+    avg_comparisons(m_poly, 
+                    comparison = "ratioavg",
+                    variables = list(age = c(5, 28))
+    )
+    #> Estimate Std. Error    z Pr(>|z|)     S 2.5 % 97.5 %
+    #>    0.678     0.0569 11.9   <0.001 106.1 0.566  0.789
+    #> 
+    #> Term: age
+    #> Type:  response 
+    #> Comparison: mean(28) / mean(5)
+
+    # all risk ratios
+    avg_predictions(m_poly, 
+                    variables = list(age = c(5, 28, 57)), 
+                    hypothesis = ratio ~ revpairwise)
+    #> Hypothesis Estimate Std. Error     z Pr(>|z|)     S 2.5 % 97.5 %
+    #> (5) / (28)     1.476      0.124 11.90   <0.001 106.1 1.233   1.72
+    #> (5) / (57)     1.354      0.165  8.21   <0.001  52.1 1.031   1.68
+    #> (28) / (57)    0.917      0.104  8.79   <0.001  59.2 0.713   1.12
+    ```
+
+    1.  The average effect of increasing the [age]{.var-text} by 1 unit on the predicted probability of [survival]{.var-text}.
+    2.  These are the marginal means. The median age, 28, has a survival probability of 37.8% on average.
+    3.  These are the simple slopes. At age = 5, the slope is negative which indicates that an increase in age is associated with an decrease in the probability of survival. This changes by age 28 when a slightly positive slope indicates increasing age increases the probability of survival. For ages 28 and 57, the slopes are near zero which indicates a weak assoication with survival. The high p-values suggest this association could be null.
+
+    ## Visualize
+
+    ``` r
+    plot_predictions(m_poly, condition = "age")
+    # plot_comparisons(m_poly, 
+    #                  comparison = "ratioavg",
+    #                  variables = list(age = c(5, 28)),
+    #                  condition = "age"
+    # )
+    ```
+
+    -   Thoughts
+    :::
+
 ## Probit {#sec-reg-log-probit .unnumbered}
 
 -   "For some reason, econometricians have never really taken on the benefits of the generalized linear modelling framework. So you are more likely to see an econometrician use a probit model than a logistic regression, for example. Probit models tended to go out of fashion in statistics after the GLM revolution prompted by [Nelder and Wedderburn (1972)](http://dx.doi.org/10.2307%2F2344614)." ([Hyndman](https://robjhyndman.com/hyndsight/statistics-vs-econometrics/))
@@ -608,28 +758,17 @@
         -   Where [survived]{.var-text} is a binary variable, [passengerClass]{.var-text} is a factor variable with 3 levels, [age_cats]{.var-text} is a factor variable with 3 levels.
         -   Number of Starting Values (Total of 9)
             -   Intercept: 1 parameter
-
             -   passengerClass: 2 parameters (3 levels - 1 reference level)
-
             -   age_cats: 2 parameters (3 levels - 1 reference level)
-
             -   Interaction (passengerClass:age_cats): 4 parameters (2 × 2 from the non-reference levels)
 -   [Options]{.underline}
     -   Guidelines
-
         -   Values should be reasonable for your given link function
             -   e.g. With a log link, the values should be reasonable on the log scale
-
-        <!-- -->
-
         -   Avoid extreme values that could cause numerical issues
-
     -   Use zeros
-
         -   e.g. `start = rep(0, 9)`
-
     -   Use estimates from the standard link model
-
         -   [Example]{.ribbon-highlight}:
 
             ``` r
@@ -647,9 +786,7 @@
                   family = binomial("log"), 
                   start = start_values)
             ```
-
     -   Data-informed values
-
         -   [Example]{.ribbon-highlight}
 
             ``` r
@@ -659,9 +796,7 @@
             # Use small values for other parameters
             start_values <- c(intercept_start, rep(0, 8))
             ```
-
     -   Slight perturbation around 0
-
         -   e.g. `start = rnorm(9, mean = 0, sd = 0.1)`
 
 ## Visualization {#sec-reg-log-viz .unnumbered}
