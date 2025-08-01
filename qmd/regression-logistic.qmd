@@ -744,6 +744,9 @@
 
 -   [Example 2]{.ribbon-highlight}: Interactions
 
+    ::: panel-tabset
+    ## Data and Models
+
     ``` r
     pacman::p_load(
       dplyr,
@@ -780,16 +783,11 @@
           family = binomial(link = "log"),
           control = glm.control(maxit = 200),
           start = c(log(0.5), rep(0, 11)))
-    #> 26: glm.fit2: algorithm did not converge. Try increasing the maximum iterations
-    #> default:maxit = 25
-    #> 
-    #> 44: glm.fit2: algorithm stopped at boundary value
-    #> This indicates that one or more parameter estimates hit a boundary during optimization. In your case, using a log link with binomial family, this likely means some linear predictors became very large (approaching infinity) or hit computational limits.
-    #> summary(m_spl_inter) shows the largest magnitude of an effect is only 1.99, so no extreme parameter estimates likely indicates no separation has occurred. A stable solution was found and the effect estimates should be reliable.
-    #> 
-    #> 45: glm.fit2: fitted probabilities numerically 0 or 1 occurred
+
     range(fitted(m_spl_int))
     #> [1] 0.04274709 1.00000000
+    range(fitted(m_bin_int))
+    #> [1] 0.1897812 0.9999998
     sum(fitted(m_spl_int) == 1)
     #> [1] 0
     sum(round(fitted(m_spl_int), 3) == 1.000)
@@ -797,13 +795,19 @@
     which(round(fitted(m_spl_int), 3) == 1)
     #> Hamalainen, Master. Viljo 
     #> 385 
-    #> Only one observation has a combination of passenger class and age that your model predicts with near-certainty for survival (or non-survival) (which triggered the warning)
-    #> Model seems fine
+    ```
 
+    -   The model with the spline interaction didn't converge at first. So, I increased the iterations (default [maxit]{.arg-text} is 25).
+    -   The converged models had two warnings:
+        -   "algorithm stopped at boundary value" which indicates that one or more parameter estimates hit a boundary during optimization.
+            -   This likely means some estimates became very large (approaching infinity) or hit computational limits. `summary(m_bin_inter)` and `summary(m_spl_inter)` showed out of both models the largest magnitude of an effect is only 1.99. No extreme parameter estimates likely indicates no separation has occurred. A stable solution was found and the effect estimates should be reliable.
+        -   "fitted probabilities numerically 0 or 1 occurred"
+            -   Only one observation in the spline interaction model has a combination of passenger class and age that the model predicts with near-certainty for survival (or non-survival) (which triggered the warning)
+    -   Both models seems fine
 
     ## emmeans
-    # risk ratios
-    # p-values for marginal means use a z-ratio and are compared to 1 for some reason which seems nonsensical
+
+    ``` r
     emmeans(
       m_bin_int, 
       pairwise ~ passengerClass | age_cats,
@@ -905,95 +909,84 @@
     #>  age5 / age57   4.20 2.880 Inf     0.842     20.95    1   2.092  0.0914
     #> age28 / age57   2.35 1.660 Inf     0.447     12.34    1   1.206  0.4497
 
+    ```
+
+    -   Marginal means in the first section and risk ratios in the second section.
+    -   For the [m_bin_int]{.var-text}, we nterestingly see a 1.0 probability average for a second class passenger less than 10 yrs old. This model didn't have any 1.0 predicitons, but it turns it out it did have 22 99% predictions. Guessing there's some rounding. ([m_spl_int]{.var-text} only had 3.)
+    -   The marginal means of both models are *not* close to agreement, but the order of probabilities (i.e. largest to smallest) agrees.
+    -   For [m_bin_int]{.var-text}, a 28 yr old in second class has 41.5% chance of survival on average.
+        -   Reminder: emmeans p-values for marginal means don't make sense in this case, since the null is 1.
+    -   For [m_spl_int]{.var-text}, a 28 yr old in 3rd Class was 2.35 times (or 135%) more likely to survive than a 57 yr old in 3rd Class
+
     ## marginaleffects
+    
+    ###### Marginal Means and Risk Ratios
 
-    ###### Marginal Means
-
+    ``` r
     # marginal means by moderator
-    avg_predictions(m_bin_int, by = c("age_cats", "passengerClass"))
-    #> age_cats passengerClass Estimate Std. Error       z Pr(>|z|)     S 2.5 % 97.5 %
-    #> <10                 1st    0.750   0.216506    3.46   <0.001  10.9 0.326  1.174
-    #> <10                 2nd    1.000   0.000117 8522.99   <0.001   Inf 1.000  1.000
-    #> <10                 3rd    0.446   0.066431    6.72   <0.001  35.7 0.316  0.577
-    #> 10-30               1st    0.729   0.048187   15.14   <0.001 169.5 0.635  0.824
-    #> 10-30               2nd    0.418   0.042607    9.81   <0.001  73.0 0.334  0.501
-    #> 10-30               3rd    0.260   0.024985   10.40   <0.001  81.7 0.211  0.309
-    #> >30                 1st    0.595   0.035155   16.92   <0.001 211.0 0.526  0.664
-    #> >30                 2nd    0.352   0.046620    7.56   <0.001  44.5 0.261  0.444
-    #> >30                 3rd    0.190   0.033502    5.66   <0.001  26.0 0.124  0.255
-    #> 
-    #> Type:  response 
-
-    # marginal means by moderator
+    mm_bin_int <-
+      avg_predictions(m_bin_int, by = c("age_cats", "passengerClass"))
     mm_spl_int <- 
       avg_predictions(m_spl_int, 
                       variables = list(age = c(5, 28, 57)),
                       by = c("age", "passengerClass")) |> 
       arrange(passengerClass)
-    mm_spl_int
-    #> age passengerClass Estimate Std. Error     z Pr(>|z|)     S   2.5 % 97.5 %
-    #>  5             1st    0.820     0.1499  5.47  < 0.001  24.4  0.5260  1.114
-    #> 28             1st    0.726     0.0402 18.05  < 0.001 239.4  0.6469  0.804
-    #> 57             1st    0.507     0.0508  9.97  < 0.001  75.4  0.4074  0.607
-    #>  5             2nd    0.817     0.0350 23.34  < 0.001 397.9  0.7485  0.886
-    #> 28             2nd    0.415     0.0366 11.34  < 0.001  96.7  0.3432  0.487
-    #> 57             2nd    0.220     0.0788  2.79  0.00529   7.6  0.0653  0.374
-    #>  5             3rd    0.420     0.0548  7.67  < 0.001  45.8  0.3128  0.527
-    #> 28             3rd    0.235     0.0244  9.62  < 0.001  70.4  0.1871  0.283
-    #> 57             3rd    0.100     0.0675  1.48  0.13827   2.9 -0.0322  0.232
-    #> 
-    #> Type:  response 
-
-
-
-    ###### Risk Ratios
-
+    
     # risk ratios by moderator
     avg_comparisons(m_bin_int, 
                     variables = list(passengerClass = "revpairwise"), 
                     by = "age_cats", 
                     comparison = "ratioavg") |> 
       arrange(age_cats)
-    #>              Contrast age_cats Estimate Std. Error    z Pr(>|z|)    S 2.5 % 97.5 %
-    #> mean(1st) / mean(2nd)    <10       0.75      0.217 3.46  < 0.001 10.9 0.326   1.17
-    #> mean(1st) / mean(3rd)    <10       1.68      0.546 3.08  0.00208  8.9 0.611   2.75
-    #> mean(2nd) / mean(3rd)    <10       2.24      0.333 6.72  < 0.001 35.7 1.587   2.89
-    #> mean(1st) / mean(2nd)    10-30     1.75      0.212 8.23  < 0.001 52.3 1.330   2.16
-    #> mean(1st) / mean(3rd)    10-30     2.81      0.328 8.57  < 0.001 56.4 2.166   3.45
-    #> mean(2nd) / mean(3rd)    10-30     1.61      0.226 7.13  < 0.001 39.9 1.167   2.05
-    #> mean(1st) / mean(2nd)    >30       1.69      0.245 6.90  < 0.001 37.5 1.209   2.17
-    #> mean(1st) / mean(3rd)    >30       3.13      0.584 5.37  < 0.001 23.6 1.991   4.28
-    #> mean(2nd) / mean(3rd)    >30       1.86      0.410 4.53  < 0.001 17.4 1.054   2.66
-    #> 
-    #> Term: passengerClass
-    #> Type:  response 
-
+    
     mm_spl_int |> 
       hypotheses(ratio ~ pairwise | passengerClass)
-    #> passengerClass  Hypothesis Estimate Std. Error    z Pr(>|z|)    S  2.5 % 97.5 %
-    #>            1st (b1) / (b2)     1.13      0.214 5.29  < 0.001 22.9  0.711   1.55
-    #>            1st (b1) / (b3)     1.62      0.343 4.71  < 0.001 18.6  0.944   2.29
-    #>            1st (b2) / (b3)     1.43      0.169 8.45  < 0.001 55.0  1.099   1.76
-    #>            2nd (b4) / (b5)     1.97      0.199 9.90  < 0.001 74.4  1.580   2.36
-    #>            2nd (b4) / (b6)     3.72      0.452 8.23  < 0.001 52.2  2.833   4.60
-    #>            2nd (b5) / (b6)     1.89      0.268 7.05  < 0.001 39.0  1.363   2.41
-    #>            3rd (b7) / (b8)     1.79      0.637 2.81  0.00503  7.6  0.539   3.04
-    #>            3rd (b7) / (b9)     4.20      2.878 1.46  0.14457  2.8 -1.442   9.84
-    #>            3rd (b8) / (b9)     2.35      1.769 1.33  0.18439  2.4 -1.119   5.82
+    ```
 
+    -   The marginal means and risk ratios match the emmeans output, so I didn't repeat it here
 
     ###### Risk Differences
 
-    # On average, moving from 2nd to 1st class is associated with a decrease of 23.9% in probability of survival. This difference is significant.
+    ``` r
     avg_comparisons(m_bin_int, variables = "passengerClass")
     #>  Contrast Estimate Std. Error      z Pr(>|z|)    S  2.5 % 97.5 %
     #> 2nd - 1st   -0.239     0.0440  -5.43   <0.001 24.1 -0.325 -0.152
     #> 3rd - 1st   -0.430     0.0384 -11.19   <0.001 94.1 -0.505 -0.354
     #> 
     #> Term: passengerClass
-    #> Type:  response 
-
+    #> Type:  response
+    
+    # By moderator
+    avg_comparisons(m_bin_int, 
+                    variables = list(passengerClass = "revpairwise"), 
+                    by = "age_cats")
+    
+    #>   Contrast age_cats Estimate Std. Error     z Pr(>|z|)    S   2.5 % 97.5 %
+    #>  1st - 2nd    <10     -0.250     0.2165 -1.15  0.24821  2.0 -0.6743  0.174
+    #>  1st - 3rd    <10      0.304     0.2265  1.34  0.18010  2.5 -0.1403  0.747
+    #>  2nd - 3rd    <10      0.554     0.0664  8.33  < 0.001 53.5  0.4234  0.684
+    #>  1st - 2nd    10-30    0.312     0.0643  4.84  < 0.001 19.6  0.1854  0.438
+    #>  1st - 3rd    10-30    0.470     0.0543  8.65  < 0.001 57.5  0.3633  0.576
+    #>  2nd - 3rd    10-30    0.158     0.0494  3.20  0.00136  9.5  0.0614  0.255
+    #>  1st - 2nd    >30      0.242     0.0584  4.15  < 0.001 14.9  0.1280  0.357
+    #>  1st - 3rd    >30      0.405     0.0486  8.34  < 0.001 53.6  0.3099  0.500
+    #>  2nd - 3rd    >30      0.163     0.0574  2.83  0.00462  7.8  0.0501  0.275
+    #> 
+    #> Term: passengerClass
+    #> Type:  response  
     ```
+    
+    -   On average, moving from 2nd to 1st class is associated with a decrease of 23.9% in probability of survival. This difference is significant.
+    -   On average, moving from 1st to 2nd class is associated with a decrease of 25% in probability of survival when the passenger is younger that 10 yrs old. This difference is *not* significant.
+    
+    ## Visualization
+
+    ``` r
+    # other code
+    ```
+
+    -   Thoughts
+    :::
 
 ## Probit {#sec-reg-log-probit .unnumbered}
 
