@@ -744,7 +744,7 @@
 
 -   [Example 2]{.ribbon-highlight}: Interactions
 
-    ::: panel-tabset
+    ::::: panel-tabset
     ## Data and Models
 
     ``` r
@@ -1100,14 +1100,155 @@
         -   e.g. [age 5]{.var-text} and [1st class]{.var-text} is [b1]{.arg-text}, [age 28]{.var-text} in [1st class]{.var-text} is [b4]{.arg-text}, etc.
     -   A [28 year old]{.var-text} person in [1st class]{.var-text} is 1.118 times (11.8%) more likely to [survive]{.var-text} than a [57 year old]{.var-text} person in [1st class]{.var-text}.
 
-    ## Visualization
+    ## Model Checking
+
+    ###### Diagnostics
+
+    ::: {layout-ncol="2"}
+    ![Binned Age](_resources/Regression,_Logistic.resources/logbin-ex2-spl-check-1.png){.lightbox group="logbin-ex2-check" width="632"}
+
+    ![Splined Age](_resources/Regression,_Logistic.resources/logbin-ex2-spl-check-1.png){.lightbox group="logbin-ex2-check" width="632"}
+    :::
 
     ``` r
-    # other code
+    performance::check_model(m_bin_int)
+    performance::check_model(m_spl_int)
     ```
 
-    -   Thoughts
+    -   Both models have very high VIF scores for their interactions and main effects. We're reminded in the subtitle that high VIF scores can inflate our standard errors.
+    -   This is expected in the continuous:categorical interaction, so we'll need to center the numeric variable to hopefully get rid of the collinearity between the interaction and the main effects.
+    -   For categorical:categorical interaction, the high VIF is likely caused by an extreme imbalance in the 2x2 cell counts.
+    -   That one observation with a fitted value of one (see Data and Model tab) is identified as an influential value
+
+    ###### Re-bin and Center
+
+    ``` r
+    summarytools::ctable(d$passengerClass, 
+                         d$age_cats)
+
+    #>  ---------------- ---------- ------------ ------------- ------------- ---------------
+    #>    age_cats          <10         10-30           >30           Total
+    #>  passengerClass                                                                    
+    #>  1st               4 ( 1.4%)    85 (29.9%)   195 (68.7%)    284 (100.0%)
+    #>  2nd              22 ( 8.4%)   134 (51.3%)   105 (40.2%)    261 (100.0%)
+    #>  3rd              56 (11.2%)   308 (61.5%)   137 (27.3%)    501 (100.0%)
+    #>  Total            82 ( 7.8%)   527 (50.4%)   437 (41.8%)   1046 (100.0%)
+    #>  ---------------- ---------- ------------ ------------- ------------- ---------------
+
+    # rebin
+    d_bal <- 
+      d |> 
+      mutate(age_cats = case_when(
+                          age < 25 ~ "<25",
+                          between(age, 25, 35) ~ "25-35",
+                          age > 35 ~ ">35"),
+             age_cats = factor(age_cats, levels = c("<25", "25-35", ">35")))    
+
+    summarytools::ctable(d_bal$passengerClass, 
+                         d_bal$age_cats)
+
+    #> ---------------- ---------- ------------- ------------- ------------- ---------------
+    #>   age_cats           <25         25-35           >35           Total
+    #> passengerClass                                                                     
+    #> 1st               53 (18.7%)    65 (22.9%)   166 (58.5%)    284 (100.0%)
+    #> 2nd               94 (36.0%)    95 (36.4%)    72 (27.6%)    261 (100.0%)
+    #> 3rd              262 (52.3%)   155 (30.9%)    84 (16.8%)    501 (100.0%)
+    #> Total            409 (39.1%)   315 (30.1%)   322 (30.8%)   1046 (100.0%)
+    #> ---------------- ---------- ------------- ------------- ------------- ---------------
+
+    # center and rm infl pt
+    d_cent <- 
+      d |> 
+      slice(-385) |> 
+      mutate(age_cent = as.numeric(scale(age, scale = FALSE)))
+    ```
+
+    -   The cells in the \<10 column have low counts. We could collapse the \<10 category with the 10-30 category, but most of the 10-30 cells already have at least 50% of the counts. Therefore collapsing may not be optimal
+    -   Instead, the outer bins are given observations from the inner bin.
+
+    ###### Refit
+
+    ::: {layout-ncol="2"}
+    ![Balanced](_resources/Regression,_Logistic.resources/logbin-ex2-modchk-bal-1.png){.lightbox group="logbin-ex2-refit-1" width="632"}
+
+    ![Centered](_resources/Regression,_Logistic.resources/logbin-ex2-modchk-cent-1.png){.lightbox group="logbin-ex2-refit-1" width="632"}
     :::
+
+    ``` r
+    m_bin_int_bal <- 
+      glm(survived ~ passengerClass * age_cats,
+          data = d_bal2,
+          family = binomial(link = "log"))
+
+    m_spl_int_cent <- 
+      glm(survived ~ passengerClass * splines::ns(age_cent, df = 3),
+          data = d_cent,
+          family = binomial(link = "log"),
+          control = glm.control(maxit = 200),
+          start = c(log(0.5), rep(0, 11)))
+
+    summary(m_bin_int_bal)
+    #>                                 Estimate Std. Error z value Pr(>|z|)    
+    #> (Intercept)                     -0.23262    0.07030  -3.309 0.000936 ***
+    #> passengerClass2nd               -0.28532    0.11027  -2.587 0.009671 ** 
+    #> passengerClass3rd               -0.96627    0.11740  -8.231  < 2e-16 ***
+    #> age_cats25-35                   -0.09162    0.10408  -0.880 0.378739    
+    #> age_cats>35                     -0.35758    0.09893  -3.614 0.000301 ***
+    #> passengerClass2nd:age_cats25-35 -0.33340    0.18588  -1.794 0.072881 .  
+    #> passengerClass3rd:age_cats25-35 -0.08935    0.19714  -0.453 0.650385    
+    #> passengerClass2nd:age_cats>35   -0.31010    0.22039  -1.407 0.159407    
+    #> passengerClass3rd:age_cats>35   -0.30939    0.28922  -1.070 0.284726    
+    #> ---
+    #> 
+    #> Null deviance: 1414.6  on 1045  degrees of freedom
+    #> Residual deviance: 1269.5  on 1037  degrees of freedom
+    #> AIC: 1287.5
+
+    summary(m_spl_int_cent)
+    #>                                                  Estimate Std. Error z value Pr(>|z|)  
+    #> (Intercept)                                       -0.1912     0.2606  -0.733   0.4633  
+    #> passengerClass2nd                                  0.2231     0.2607   0.856   0.3921  
+    #> passengerClass3rd                                 -0.5068     0.3229  -1.569   0.1165  
+    #> splines::ns(age_cent, df = 3)1                    -0.3164     0.2179  -1.452   0.1464  
+    #> splines::ns(age_cent, df = 3)2                    -0.6137     0.5887  -1.043   0.2971  
+    #> splines::ns(age_cent, df = 3)3                    -0.7903     0.3922  -2.015   0.0439 *
+    #> passengerClass2nd:splines::ns(age_cent, df = 3)1  -0.2732     0.4751  -0.575   0.5653  
+    #> passengerClass3rd:splines::ns(age_cent, df = 3)1  -0.3454     0.5510  -0.627   0.5307  
+    #> passengerClass2nd:splines::ns(age_cent, df = 3)2  -2.0218     0.8822  -2.292   0.0219 *
+    #> passengerClass3rd:splines::ns(age_cent, df = 3)2  -1.9240     1.3772  -1.397   0.1624  
+    #> passengerClass2nd:splines::ns(age_cent, df = 3)3  -1.3304     1.2511  -1.063   0.2876  
+    #> passengerClass3rd:splines::ns(age_cent, df = 3)3  -1.6697     2.1582  -0.774   0.4391  
+    #> ---
+    #> Null deviance: 1412.8  on 1044  degrees of freedom
+    #> Residual deviance: 1239.2  on 1033  degrees of freedom
+    #> AIC: 1263.2
+
+    performance::compare_performance(m_bin_int_bal, m_spl_int_cent) 
+    #> Name           | Model |  AIC (weights) | AICc (weights) |  BIC (weights) | Nagelkerke's R2 |  RMSE | Sigma | Log_loss
+    #> ----------------------------------------------------------------------------------------------------------------------
+    #> m_bin_int_bal  |   glm | 1287.5 (<.001) | 1287.7 (<.001) | 1332.1 (0.009) |           0.175 | 0.457 | 1.000 |    0.607
+    #> m_spl_int_cent |   glm | 1263.2 (>.999) | 1263.5 (>.999) | 1322.6 (0.991) |           0.206 | 0.451 | 1.000 |    0.593
+    #> 
+    #> Name           | Score_log | Score_spherical |   PCP
+    #> ----------------------------------------------------
+    #> m_bin_int_bal  |  -247.482 |           0.004 | 0.582
+    #> m_spl_int_cent |      -Inf |       9.764e-04 | 0.592
+    ```
+
+    -   The spline model seems to have a slightly better AICc and R^2^ but slightly worse BIC. Pretty much no difference.
+    -   In the model summries, there's very little difference (i.e. in the ten-thousandths decimal place) in the estimates or standaard errors.
+    -   For the centered age model, the marginal means, slopes, and their contrasts are the same. Only thing you need to do for any table or visualization is back-transform the centered values back to the orginal ages (add mean to value).
+
+    ## Visualization
+
+    ###### Tables
+
+    ``` r
+    # words
+    ```
+
+    -   words
+    :::::
 
 ## Probit {#sec-reg-log-probit .unnumbered}
 
