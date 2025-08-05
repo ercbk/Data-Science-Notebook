@@ -759,10 +759,7 @@
     )
 
     theme_set(theme_notebook())
-
     notebook_colors <- unname(swatches::read_ase(here::here("palettes/Forest Floor.ase")))
-    options(ggplot2.discrete.fill = notebook_colors)
-    options(ggplot2.discrete.colour = notebook_colors)
 
     d <- d |> 
       mutate(age_cats = case_when(
@@ -1099,6 +1096,43 @@
     -   The "[b]{.arg-text}" labels for the [age]{.var-text} values are annoying, but I couldn't figure out how to get rid of them and still get the desired output. See "by moderator" [age]{.var-text} values in the section above it for a mapping of the [b]{.arg-text} labels the [age]{.var-text} label
         -   e.g. [age 5]{.var-text} and [1st class]{.var-text} is [b1]{.arg-text}, [age 28]{.var-text} in [1st class]{.var-text} is [b4]{.arg-text}, etc.
     -   A [28 year old]{.var-text} person in [1st class]{.var-text} is 1.118 times (11.8%) more likely to [survive]{.var-text} than a [57 year old]{.var-text} person in [1st class]{.var-text}.
+    -   Other (using refit models)
+        -   Average slope of age for each passenger class:
+
+            ``` r
+            slopes(m_spl_int_cent, variables = "age_cent", by = "passengerClass")
+            #>  passengerClass Estimate Std. Error    z Pr(>|z|)    S    2.5 %   97.5 %
+            #>             1st -0.00689    0.00186 -3.7   <0.001 12.2 -0.01053 -0.00324
+            #>             2nd -0.00988    0.00210 -4.7   <0.001 18.5 -0.01400 -0.00576
+            #>             3rd -0.00617    0.00176 -3.5   <0.001 11.1 -0.00963 -0.00271
+            #> 
+            #> Term: age_cent
+            #> Type:  response 
+            #> Comparison: dY/dX
+            ```
+
+        -   Difference in age slope when moving from 2nd to 1st passenger class and 3rd to 1st passenger class
+
+            ``` r
+            slopes(m_spl_int_cent, variables = "passengerClass", by = "age_cent")
+
+            #>   Contrast age_cent Estimate Std. Error      z Pr(>|z|)   S  2.5 %  97.5 %
+            #>  2nd - 1st    -29.7    0.198      0.215  0.920  0.35759 1.5 -0.224  0.6205
+            #>  3rd - 1st    -29.7   -0.328      0.235 -1.394  0.16322 2.6 -0.789  0.1331
+            #>  2nd - 1st    -29.5    0.190      0.213  0.894  0.37154 1.4 -0.227  0.6080
+            #>  3rd - 1st    -29.5   -0.331      0.232 -1.423  0.15469 2.7 -0.787  0.1248
+            #>  2nd - 1st    -29.5    0.186      0.212  0.880  0.37872 1.4 -0.229  0.6017
+            #> --- 186 rows omitted. See ?print.marginaleffects --- 
+            #>  3rd - 1st     44.1   -0.359      0.139 -2.589  0.00963 6.7 -0.631 -0.0873
+            #>  2nd - 1st     46.1   -0.293      0.162 -1.809  0.07050 3.8 -0.611  0.0245
+            #>  3rd - 1st     46.1   -0.353      0.144 -2.441  0.01463 6.1 -0.636 -0.0695
+            #>  2nd - 1st     50.1   -0.289      0.172 -1.681  0.09269 3.4 -0.625  0.0478
+            #>  3rd - 1st     50.1   -0.339      0.155 -2.186  0.02883 5.1 -0.643 -0.0350
+            #> Term: passengerClass
+            #> Type:  response 
+            ```
+
+            -   This is the data for `plot_slopes(m_spl_int_cent, variables = "passengerClass", condition = "age_cent")`
 
     ## Model Checking
 
@@ -1283,6 +1317,9 @@
     </Details>
 
     -   In the Splined Age model, the X-axis labels show the centered [age]{.var-text} values. There doesn't seem to be an argument in the `plot` function that allows you to change them. Since the output of `plot` is a list of ggplot objects, it's not a simple fix, so I didn't bother with it.
+    -   I didn't calculate the average marginal mean for passenger class or age (for the refit or original models), so I can't compare the model charts with the estimates.
+    -   Binned Age Model: Passenger Class doesn't have any overlap between classes so these should be significant. There seeems to mild overlap with \>35 bin and the 25 to 35 bin. Overall the trend is that survival gets worse for older people in "higher" classes.
+    -   Splined Age Model: Passenger Class doesn't have any overlap between classes so these should be significant. The smooth for age agrees with previous model in that the older the passenger, the lower the chance of survival.
 
     ###### Marginal Means By Moderator
 
@@ -1330,7 +1367,44 @@
 
     </Details>
 
-    -   For the spline model (continuous:categorical), a few of the point estimates have sizable uncertainty (SEs) associated with them. This is likely due to the collinearity that's still present between the interaction and main effects terms (high VIFs).
+    -   For the spline model (continuous:categorical), a few of the point estimates have sizable uncertainty (SEs) associated with them. Since these are point estimates, there are probably few events for those ages in those passenger classes or it could be due to the collinearity that's still present between the interaction and main effects terms (high VIFs).
+    -   Quite a bit of overlap when the passenger class marginal means are broken down by age. The one group that sticks out in both models is the \<25 age passengers in 2nd class. Both models' charts indicate significance (much larger in the spline model) between this group and other ages in the same passenger class.
+    -   Alternatively, [{marginaleffects}]{style="color: #990000"} has plotting functions which output [{ggplot2}]{style="color: #990000"} objects:
+        -   Binned Age: `plot_predictions(m_bin_int_bal, by = c("passengerClass", "age_cats"))`
+        -   Splined Age: `plot_predictions(m_spl_int_cent, condition = c("age_cent", "passengerClass"))`
+            -   Order of variables matters. Putting [age_cent]{.var-text} first gets you the smooth on the X-axis.
+
+    ###### Slopes by Moderator
+
+    ![](_resources/Regression,_Logistic.resources/logbin-ex2-vis-me-slopes-1.png){.lightbox width="532"}
+
+    <Details>
+
+    <Summary>Code</Summary>
+
+    ``` r
+    xtick_labels <- as.character(round(mean(d_cent$age) + c(-20, 0, 20, 40)), 0)
+    plot_slopes(m_spl_int_cent, 
+                variables = "age_cent", 
+                condition = c("age_cent", "passengerClass")) +
+      scale_x_continuous(breaks = c(-20, 0, 20, 40), 
+                         labels = xtick_labels) +
+      scale_color_manual(values = c("1st" = notebook_colors[[2]], 
+                                    "2nd" = notebook_colors[[6]],
+                                    "3rd" = notebook_colors[[7]])) +
+      labs(x = "Age",
+           title = "Change in Survival Probability by Age and Passenger Class",
+           color = "Passenger Class",
+           fill = "Passenger Class") +
+      theme(legend.position = "bottom")
+    ```
+
+    </Details>
+
+    -   [variables]{.arg-text} is the variable whose slope will be on the Y-axis
+    -   [conditon]{.arg-text} is a vector or list of variables you want to stratify by
+        -   The first variable listed will be on the X-axis, so you could, untraditionally have slope and x-axis variable be different.
+        -   The second variable is a group by variable
     :::::::
 
 ## Probit {#sec-reg-log-probit .unnumbered}
