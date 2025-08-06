@@ -744,7 +744,7 @@
 
 -   [Example 2]{.ribbon-highlight}: Interactions
 
-    ::::::: panel-tabset
+    :::::::: panel-tabset
     ## Data and Models
 
     ``` r
@@ -1202,12 +1202,12 @@
     -   [Age]{.var-text} was centered
         -   Tried removing the influential observation, but there wasn't much of difference in terms of performance.
 
-    ###### Refit
+    ###### Refit and Check
 
     ::: {layout-ncol="2"}
-    ![Balanced](_resources/Regression,_Logistic.resources/logbin-ex2-modchk-bal-1.png){.lightbox group="logbin-ex2-refit-1" width="632"}
+    ![Binned Age, Balanced](_resources/Regression,_Logistic.resources/logbin-ex2-modchk-bal-1.png){.lightbox group="logbin-ex2-refit-1" width="632"}
 
-    ![Centered](_resources/Regression,_Logistic.resources/logbin-ex2-modchk-cent-1.png){.lightbox group="logbin-ex2-refit-1" width="632"}
+    ![Splined Age, Centered](_resources/Regression,_Logistic.resources/logbin-ex2-modchk-cent-1.png){.lightbox group="logbin-ex2-refit-1" width="632"}
     :::
 
     ``` r
@@ -1258,9 +1258,43 @@
     #> Null deviance: 1414.6  on 1045  degrees of freedom
     #> Residual deviance: 1239.5  on 1034  degrees of freedom
     #> AIC: 1263.5
+    ```
 
-    performance::check_model(m_bin_int_bal)
-    performance::check_model(m_spl_int_cent)
+    -   (Not shown) [For the centered age model, the marginal means, slopes, and their contrasts are the same. The only thing you need to do for any table or visualization is back-transform the centered values back to the orginal ages (add mean to age value).]{.underline}
+    -   For rebinned model, everything looks great. Rebalancing cured everything
+    -   For the centered model, unfortunately, there was little effect. VIF scores are still high and four extreme residuals remain.
+        -   Tried using `poly` thinking the orthogonal contrasts might help, but the result was pretty much the same.
+    -   In neither model's summary do we see extreme coefficients or standard errors, so the models should be fairly reliable for interpretation.
+    -   In the binned model summary, the significant effects have switched from the interaction variables to the main effects.
+    -   In the spline model summary, the coefficients are very close to the previous model. The standard errors are pretty high, so we only see a couple estimates that are barely significant.
+    -   Residual Deviance favors the spline model.
+
+    ###### Score
+
+    ::: {layout-ncol="2"}
+    ![Binned Age, Balanced](_resources/Regression,_Logistic.resources/logbin-ex2-bin-auc-1.png){.lightbox group="logbin-ex2-auc-1" width="432"}
+
+    ![Splined Age, Centered](_resources/Regression,_Logistic.resources/logbin-ex2-spl-auc-1.png){.lightbox group="logbin-ex2-auc-1" width="432"}
+    :::
+
+    ``` r
+    pROC::roc(
+      survived ~ fitted.values(m_bin_int_bal),
+      data = d,
+      plot = TRUE,
+      legacy.axes = TRUE,
+      print.auc = TRUE,
+      ci = TRUE
+    )
+    pROC::roc(
+      survived ~ fitted.values(m_spl_int_cent),
+      data = d,
+      plot = TRUE,
+      legacy.axes = TRUE,
+      print.auc = TRUE,
+      ci = TRUE
+    )
+
     performance::compare_performance(m_bin_int_bal, m_spl_int_cent) 
     #> Name           | Model |  AIC (weights) | AICc (weights) |  BIC (weights) | Nagelkerke's R2 |  RMSE | Sigma | Log_loss
     #> ----------------------------------------------------------------------------------------------------------------------
@@ -1273,14 +1307,8 @@
     #> m_spl_int_cent |      -Inf |       9.752e-04 | 0.592
     ```
 
-    -   (Not shown) [For the centered age model, the marginal means, slopes, and their contrasts are the same. The only thing you need to do for any table or visualization is back-transform the centered values back to the orginal ages (add mean to age value).]{.underline}
-    -   For rebinned model, everything looks great. Rebalancing cured everything
-    -   For the centered model, unfortunately, there was little effect. VIF scores are still high and four extreme residuals remain.
-        -   Tried using `poly` thinking the orthogonal contrasts might help, but the result was pretty much the same.
-    -   In neither model's summary do we see extreme coefficients or standard errors, so the models should be fairly reliable for interpretation.
-    -   In the binned model summary, the significant effects have switched from the interaction variables to the main effects.
-    -   In the spline model summary, the coefficients are very close to the previous model. The standard errors are pretty high, so we only see a couple estimates that are barely significant.
-    -   Technically you can't compared Residual Deviance scores since I removed an observationThe spline model seems to have a slightly better AICc and R^2^.
+    -   The spline model has a better point estimate of the AUC, but is within the CI of the binned model.
+    -   The spline model has a slightly better AICc and R^2^.
 
     ## Visualization
 
@@ -1406,7 +1434,15 @@
 
     </Details>
 
-    -   words
+    -   The `plot_*` functions in [{marginaleffects}]{style="color: #990000"} output a ggplot object which allows you to perform theming and other styling options. It *does not* allow you style the points, line, ribbon, etc. which happen in the `geom` (some stuff can be done using ggplot options). So the choices are either hack the `plot_*` object or overwrite the geoms by repeating them. I chose the later.
+        1.  Save the `plot_*` object to memory (i.e. `moose <- plot_*`)
+        2.  Examine the object and look for the [layers]{.arg-text} list element.
+        3.  Within each [layer]{.arg-text},
+            -   the [constructor]{.arg-text} element will show you the type of geom
+            -   the [mapping]{.arg-text} element will give you the variables in the mapping (ie. `aes`)
+        4.  Repeat the necessary geoms with their mappings in your code, and add the desired styling arguments.
+            -   In this case, I repeated `geom_line` and `geom_ribbon`. By adding the [color]{.arg-text} and [fill]{.arg-text} arguments, I'm able to use `scale_color_manual` and `scale_fill_manual` to style of the line and ribbon.
+    -   Both risk ratios depend on age. As age of the passenger increases, the probability of survival for 1st class passengers increasingly surpasses those passengers of the same age in classes 2 and 3.
 
     ###### Slopes by Moderator
 
@@ -1439,7 +1475,8 @@
     -   [conditon]{.arg-text} is a vector or list of variables you want to stratify by
         -   The first variable listed will be on the X-axis, so you could, untraditionally have slope and x-axis variable be different.
         -   The second variable is a group by variable
-    :::::::
+    -   There seems to be some significant differences in slope under age 20 where an increase in age of passengers in class 2 and probably class 3 can have a negative effect on the probability of survival. Then, at about age 20 or 25, the differences in slopes converge until the slopes of all classes are almost 0.
+    ::::::::
 
 ## Probit {#sec-reg-log-probit .unnumbered}
 
