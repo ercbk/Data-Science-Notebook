@@ -30,6 +30,7 @@
             -   `comparisons` - Family of functions that can compute and plot *relationships between two or more predictions*. This allows users to report many of the most common quantities of interest in statistical analyses: **contrasts, differences, risk ratios, odds ratios, lift, or even arbitrary user-defined functions of two predictions.**
             -   `slopes` - Family of functions that can compute and plot partial derivatives of the outcome equation. In the econometrics tradition, researchers typically call these slopes “**marginal effects**,” where the term “marginal” refers to a “small change.” Analysts can easily evaluate these derivatives at different points in the predictor space, they can aggregate unit-level estimates to produce global summaries, and they conduct hypothesis tests to compare different slopes
                 -   Slopes are defined as derivatives, that is, in terms of an infinitesimal change in X, they **can only be constructed for continuous numeric predictors.**
+                -   `avg_slopes` - Calculates the *average marginal effect* (AME) by plugging each row of the original data into the model, generating predictions and instantaneous slopes for each row, and then averaging the [estimate]{.arg-text} column
             -   `inferences` - Bootstrap, Conformal, and Simulation-Based Inference
                 -   Apply this function to a marginaleffects object to change the inferential method used to compute uncertainty estimates.
             -   `plot_*`
@@ -49,6 +50,8 @@
         -   Includes options for correlated interacting variables and specifying variable reliability.
         -   Two-way interactions can include continuous, binary, or ordinal variables.
     -   [{]{style="color: #990000"}[simpr.interaction](https://cran.r-project.org/web/packages/simpr.interaction/index.html){style="color: #990000"}[}]{style="color: #990000"} - Analytically calculate parameters for simulating of moderated multiple regression, based on the correlations among the predictors and outcome and the reliability of predictors.
+-   Resources
+    -   [Marginalia: A guide to figuring out what the heck marginal effects, marginal slopes, average marginal effects, marginal effects at the mean, and all these other marginal things are by Heiss](https://www.andrewheiss.com/blog/2022/05/20/marginalia/)
 -   R Syntax
     -   Operators (Equivalent Models)
         -   Colon (`:`) - `lm(y ~ x1 + x2 + x1:x2, data = df)`
@@ -671,7 +674,7 @@
     ::: panel-tabset
     ## Set-Up
 
-    words
+    How do linguistic toxicity patterns (captured by PCA components) interact with message characteristics like length and punctuation to identify spam? And more importantly, how can we interpret these relationships meaningfully?
 
     ``` r
     pacman::p_load(
@@ -693,7 +696,13 @@
       )
     ```
 
-    -   Scaling the predictors first since our prior will have a mean of 0
+    -   [is_spam]{.var-text} - Our outcome variable; a binary classification indicating spam or legitimate communication.
+    -   [pc_aggression]{.var-text} & [pc_incoherence]{.var-text} - Principal components that were extracted from Google’s Perspective API toxicity scores capturing sophisticated linguistic patterns:
+        -   [pc_aggression]{.var-text}: threatening, toxic, and insulting language patterns.
+        -   [pc_incoherence]{.var-text}: inflammatory, incoherent, or unsubstantial messages.
+    -   [word_count]{.var-text} - The total number of words per message (includes squared term to capture non-linear relationships).
+    -   [exclamation_count]{.var-text} - The number of exclamation points, a simple but telling spam feature.
+    -   Standardizing the predictors first since our prior will have a mean of 0
 
     ## Model
 
@@ -723,11 +732,11 @@
     2.  Setting [class = b]{.arg-text} says all slopes will have the same prior
     3.  Formula syntax specifies a specific combination subset of all 2-way interactions
 
-    ## Main Effects
+    ## Marginal Effects
 
     ``` r
-    main_effects <- avg_slopes(spam_model, type = "response")
-    main_effects
+    marginal_effects <- avg_slopes(spam_model, type = "response")
+    marginal_effects
     #>                Term Estimate   2.5 %  97.5 %
     #>   exclamation_count   0.0246  0.0104  0.0387
     #>   pc_aggression      -0.0410 -0.0565 -0.0256
@@ -737,7 +746,7 @@
     #> Type:  response 
     #> Comparison: dY/dX
 
-    bayestestR::ci(main_effects, method = "HDI")
+    bayestestR::ci(marginal_effects, method = "HDI")
     #> Highest Density Interval
     #> 
     #> term              | contrast |        95% HDI
@@ -748,7 +757,8 @@
     #> word_count        |    dY/dX | [ 0.06,  0.10]
     ```
 
-    -   Computes the average marginal effects which tell us how much each feature changes the probability of spam classification, averaged across all observations
+    -   Computes the average marginal effects which tells us how much each feature changes the probability of spam classification, averaged across all observations
+        -   On average, a 1 sd increase in [word_count]{.var-text} results in an increase of 0.0803 percentage points of the probability of being [spam]{.var-text}.
     -   By default, [{marginaleffects}]{style="color: #990000"} credible intervals in bayesian models are built as equal-tailed intervals (ETI). This can be changed to a highest density interval (HDI) by setting a global option:
         -   `options("marginaleffects_posterior_interval" = "eti")`
         -   `options("marginaleffects_posterior_interval" = "hdi")`
@@ -756,7 +766,7 @@
     ## Interaction Effects
 
     ``` r
-    # Interaction 1 # <1>
+    # Interaction 1 
     incoherence_by_wordcount <- avg_slopes(
         spam_model,
         variables = "pc_incoherence",
@@ -766,8 +776,14 @@
         ),
         type      = "response"
     )
+    #> Estimate 2.5 % 97.5 %
+    #>   -0.193 -0.21 -0.175
+    #> 
+    #> Term: pc_incoherence
+    #> Type:  response 
+    #> Comparison: dY/dX
 
-    # Interaction 2 # <2>
+    # Interaction 2 
     incoherence_by_exclamation <- avg_slopes(
         spam_model,
         variables = "pc_incoherence",
@@ -778,7 +794,7 @@
         type      = "response"
     )
 
-    # Interaction 3 # <3>
+    # Interaction 3 
     aggression_by_exclamation <- avg_slopes(
         spam_model,
         variables = "pc_aggression",
@@ -789,7 +805,7 @@
         type      = "response"
     )
 
-    # Interaction 4 # <4>
+    # Interaction 4 
     aggression_by_wordcount <- avg_slopes(
         spam_model,
         variables = "pc_aggression",
@@ -801,12 +817,14 @@
     )
     ```
 
-    1.  How [incoherence's]{.var-text} effect changes with [word count]{.var-text}.
-    2.  How [incoherence's]{.var-text} effect changes with [exclamation count]{.var-text}.
-    3.  How [aggression's]{.var-text} effect changes with [exclamation count]{.var-text}.
-    4.  How [aggression's]{.var-text} effect changes with [word count]{.var-text}.
+    -   [type = "response"]{.arg-text}- Computes posterior draws of the expected value using the `brms::posterior_epred`function
+        -   Outputs a distribution of means which shows the amount of uncertainty around the mean
+    -   The first interaction is an estimate of how [incoherence's]{.var-text} effect changes with [word count]{.var-text}. The slope of incoherence is averaged across the specified quantiles of wordcount.
+    -   On average, the probability of [spam]{.var-text} decreases by 0.193 percentage points when [incoherence]{.var-text} increases by 1 standard deviation (standardized predictors) after taking [word count]{.var-text} into account.
 
     ## Visualize
+
+    ![](_resources/Regression,_Interactions.resources/log-contcat-ex1-inter-post-1.png){.lightbox width="582"}
 
     ``` r
     # Extract draws as rvars for each interaction
@@ -827,22 +845,21 @@
 
     draws_df |> 
       ggplot(aes(y = interaction,
-                 xdist = rvar,
-                 fill = after_stat(abs(x) < 0.05))) +
-      stat_slab(           
+                 xdist = rvar)) +
+      stat_slabinterval(           
         colour    = "black",
-        linewidth = .5      
+        linewidth = .5,
+        fill = "skyblue"
       ) +
-      geom_vline(xintercept = c(-0.05, 0.05), linetype = "dashed") +
-      scale_fill_manual(values = c("skyblue","gray80")) +
       labs(x   = "Effect on Spam Probability (%)",
-           y   = "Interaction",
-           fill = "Within ROPE") +
+           y   = "Interaction") +
       geom_vline(xintercept = 0, colour = "black", linewidth = .5) +
-      theme_minimal(base_size = 20)
+      theme_notebook()
     ```
 
-    -   words\
+    -   [rvar]{.arg-text} is a random variable datatype. (See [Bayes, Inference \>\> Misc](bayes-inference.qmd#sec-bayes-inf-misc){style="color: green"})
+        -   Basicially just an array datatype that is built to work with other packages.
+    -   Distribution of means for each interaction is visualized. The point of the interval for each distribution shows the median by default.\
     :::
 
 ### Binary:Continuous {#sec-reg-inter-logreg-bincont .unnumbered}
