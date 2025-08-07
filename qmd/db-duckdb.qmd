@@ -992,39 +992,151 @@
 -   [GSheets]{.underline}
     -   [Repo](https://github.com/evidence-dev/duckdb_gsheets)
     -   Extension for reading and writing Google Sheets with SQL
--   [Geospatial]{.underline}
-    -   Create a table with spatial data filtered by a bounding box ([source](https://pmassicotte.github.io/r-spatial-cookbook/chapters/filtering/01_filtering.html#filtering-spatial-data-with-duckdb))
+
+## Geospatial {#sec-db-duckdb-geo .unnumbered}
+
+-   Create a table with spatial data filtered by a bounding box ([source](https://pmassicotte.github.io/r-spatial-cookbook/chapters/filtering/01_filtering.html#filtering-spatial-data-with-duckdb))
+
+    ``` r
+    pacman::p_load(
+      dplyr,
+      DBI,
+      sf,
+      duckdb
+    )
+
+    # Connect to DuckDB
+    conn <- dbConnect(duckdb())
+
+    # Install and load the spatial extension
+    dbSendQuery(conn, "INSTALL spatial;")
+    dbSendQuery(conn, "LOAD spatial;")
+
+    # Create a table with spatial data filtered by a bounding box
+    dbSendQuery(
+      conn,
+      "
+      CREATE
+      OR REPLACE TABLE t AS
+      SELECT
+       *,
+       ST_asWKB(geom) AS geometry
+      FROM
+       ST_Read('/vsis3/spatial-playground/gmw_v3.fgb', spatial_filter_box = {'min_x' : - 30, 'min_y' : 0, 'max_x' : - 50, 'max_y' : 45});
+      "
+    )
+
+    # Read the filtered data from DuckDB
+    read_sf(conn, 
+            query = "SELECT * FROM t", 
+            geometry_column = "geometry")
+
+    # Read the filtered data with an additional computed area column
+    read_sf(
+      conn,
+      query = "SELECT *, ST_Area(geom) as area1 FROM t",
+      geometry_column = "geometry"
+    ) |>
+      mutate(area2 = st_area(geometry), .after = area1)
+    ```
+
+-   Using the geoarrow extension
+
+    -   Notes from
+
+        -   Scaling the r-spatial ecosystem ([Slides](https://dewey.dunnington.ca/slides/rspatial2025/#/driving-spatial-databases-duckdb), [Video](https://www.youtube.com/watch?v=tjNEoIYr_ag))
+
+    -   Set-Up
 
         ``` r
-        # Connect to DuckDB
-        conn <- dbConnect(duckdb())
+        library(duckdb)
+        library(geoarrow)
 
-        # Install and load the spatial extension
-        dbSendQuery(conn, "INSTALL spatial;")
-        dbSendQuery(conn, "LOAD spatial;")
+        con <- dbConnect(duckdb::duckdb())
+        dbExecute(con, "LOAD spatial")
+        dbExecute(con, "CALL register_geoarrow_extensions()")
+        ```
 
-        # Create a table with spatial data filtered by a bounding box
-        dbSendQuery(
-          conn,
-          "
-          CREATE
-          OR REPLACE TABLE t AS
-          SELECT
-           *,
-           ST_asWKB(geom) AS geometry
-          FROM
-           ST_Read('/vsis3/spatial-playground/gmw_v3.fgb', spatial_filter_box = {'min_x' : - 30, 'min_y' : 0, 'max_x' : - 50, 'max_y' : 45});
-          "
+        -   The geoarrow extension makes sure the metadata is transferred back and forth between arrrow and duckdb
+
+    -   Create a table
+
+        ``` r
+        bounds_lonlat <- st_bbox(
+          c(xmin = -64.6418, 
+            xmax = -64.2868, 
+            ymin = 44.8473, 
+            ymax = 45.0151),
+          crs = st_crs("OGC:CRS84")
         )
 
-        # Read the filtered data from DuckDB
-        read_sf(conn, query = "SELECT * FROM t", geometry_column = "geometry")
+        # Read the CRS of the source
+        elevation_crs <- st_layers("data/ns-water_elevation.fgb")$crs[[1]]
 
-        # Read the filtered data with an additional computed area column
-        read_sf(
-          conn,
-          query = "SELECT *, ST_Area(geom) as area1 FROM t",
-          geometry_column = "geometry"
-        ) |>
-          mutate(area2 = st_area(geometry), .after = area1)
+        # Transform the bounds to the CRS of the source
+        bounds_poly <- bounds_lonlat |>
+          st_transform(elevation_crs) |>
+          st_as_sfc()
+
+        # create lake table
+        # filter lake region geometry using the bounding box
+        dbExecute(
+          con,
+          glue::glue("
+           CREATE TABLE lakes AS
+           SELECT * FROM 'data/ns-water_water-poly.fgb'
+           WHERE ST_Intersects(geom, ST_GeomFromText('{bounds_poly |> st_as_text()}'))
+          ")
+        )
+
+        # create elevation table
+        dbExecute(con, 
+                  "CREATE TABLE elevation AS SELECT * FROM 'data/ns-water_elevation.fgb'")
+        ```
+
+    -   Find average elevations of lakes using a spatial join
+
+        ``` r
+        dbGetQuery(con, "
+          SELECT objectid, AVG(ST_Z(elevation.geom)) FROM lakes
+          LEFT JOIN elevation ON ST_Intersects(lakes.geom, elevation.geom)
+          GROUP BY objectid
+        ")
+        #>      OBJECTID avg(st_z(elevation.geom))
+        #> 1       22630                 208.36000
+        #> 2       10909                 197.13625
+        #> 3        8803                 195.68459
+        #> 4       23875                 187.48333
+        #> 5       20268                 207.87059
+        #> 6       83574                 181.70000
+        #> 7         790                 186.53571
+        #> 8       18139                 144.80909
+        #> 9       44854                 177.73333
+        #> 10      13524                 195.97667
+        #> 11      50440                 195.82500
+        #> 12      57320                 198.13333
+        #> 13      51145                 184.31429
+        ```
+
+    -   Reading data into R
+
+        ``` r
+        library(dbplyr)
+        library(geoarrow)
+
+        tbl(con, sql("SELECT geom FROM lakes LIMIT 5")) |>
+          arrow::to_arrow() |>
+          st_as_sf()
+        #> Simple feature collection with 5 features and 0 fields
+        #> Geometry type: MULTIPOLYGON
+        #> Dimension:     XYZ
+        #> Bounding box:  xmin: 369038.9 ymin: 4965937 xmax: 371900.8 ymax: 4968380
+        #> z_range:       zmin: 204.4 zmax: 221.4
+        #> CRS:           NA
+        #>                             geom
+        #> 1 MULTIPOLYGON Z (((370253.3 ...
+        #> 2 MULTIPOLYGON Z (((370253.3 ...
+        #> 3 MULTIPOLYGON Z (((371068.9 ...
+        #> 4 MULTIPOLYGON Z (((371136.9 ...
+        #> 5 MULTIPOLYGON Z (((371900.7 ...
         ```

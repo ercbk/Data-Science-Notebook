@@ -47,6 +47,78 @@
     -   Temporal Data: Combining data from the same source over different time periods (e.g., monitoring deforestation over years).
 -   [**Spatial Functional Data**]{style="color: #009499"} - Data comprising curves or functions that are recorded at each spatial location.
 
+## Descriptive {#sec-geo-anal-desc .unnumbered}
+
+-   Average elevation for areas ([source](https://dewey.dunnington.ca/slides/rspatial2025/#/sf-for-bigger-data-st_join))
+
+    ``` r
+    pacman::p_load(
+      sf,
+      dplyr,
+      purrr,
+      geo
+    )
+
+    # Read the CRS of the source
+    elevation_crs <- st_layers("data/ns-water_elevation.fgb")$crs[[1]]
+
+    # Transform the bounds to the CRS of the source
+    bounds_poly <- bounds_lonlat |>
+      st_transform(elevation_crs) |>
+      st_as_sfc()
+
+    # Read just the data you need
+    elevation <- st_read(
+      "data/ns-water_elevation.fgb",
+      wkt_filter = st_as_text(bounds_poly)
+    )
+
+    lakes <- read_sf("data/ns-water_water-poly.fgb")
+    # filter lakes and convert crs
+    lakes <- lakes |>
+      filter(st_intersects(lakes, 
+                           bounds_poly[[1]], 
+                           sparse = FALSE)) |>
+      st_transform(elevation_crs)
+
+    ######### methods for calculating mean elevation #########
+
+    # 1.
+    # long way
+    # lakes$mean_elev <- lakes$geometry |>
+    #   map_dbl(~{
+    #     elev_is_relevant <- st_intersects(elevation, .x, sparse = FALSE)
+    #     mean(elevation$ZVALUE[elev_is_relevant])
+    #   })
+
+    # 2.
+    lakes |>
+      mutate(row_id = row_number()) |>
+      st_join(elevation, join = st_intersects) |>
+      group_by(row_id) |>
+      summarise(mean_elev = mean(ZVALUE.y))
+
+    # 3.
+    index <- geos_strtree(elevation)
+    lakes$geometry |>
+      as_geos_geometry() |>
+      map_dbl(~{
+        elevation_candidates <- 
+          elevation[geos_strtree_query(index, .x)[[1]]]
+
+        elevations <- 
+          elevation_candidates[geos_prepared_intersects(elevation_candidates, .x)]
+
+        mean(geos_z(elevations))
+        })
+    ```
+
+    -   Finds the average elevation for some lakes
+    -   The "long way" takes about about 223 sec
+    -   The sf join way takes about 10 sec
+    -   The geos way takes about 2.5 sec
+        -   `geos_strtree` creates a spatial index which speeds things up
+
 ## Proximity Analysis {#sec-geo-anal-proxanal .unnumbered}
 
 -   [Example]{.ribbon-highlight}: Basic Workflow

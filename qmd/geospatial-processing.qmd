@@ -170,31 +170,77 @@
 
     -   [wkt]{.arg-text} is the column that holds WKT encoded geometries
 
--   Read only data within a bounding box ([source](https://pmassicotte.github.io/r-spatial-cookbook/filtering.html#filtering-spatial-data-with-a-bounding-box))
+-   Read only data within a bounding box
 
-    ``` r
-    # URL to the wind turbine database
-    url <- "/vsizip//vsicurl/https://ftp.cartes.canada.ca/pub/nrcan_rncan/Wind-energy_Energie-eolienne/wind_turbines_database/wind_turbine_database_en.gdb.zip"
+    -   Filtering during read can be much faster than "read then filter" if the file has a spatial index
 
-    # List layers in the dataset
-    st_layers(url)
+    -   From a URL ([source](https://pmassicotte.github.io/r-spatial-cookbook/filtering.html#filtering-spatial-data-with-a-bounding-box))
 
-    # Read and transform the area of interest
-    area_bdd <- read_sf(fs::path("data", "area.geojson")) |>
-      st_transform(crs = st_crs(pts))
+        ``` r
+        # URL to the wind turbine database
+        url <- "/vsizip//vsicurl/https://ftp.cartes.canada.ca/pub/nrcan_rncan/Wind-energy_Energie-eolienne/wind_turbines_database/wind_turbine_database_en.gdb.zip"
 
-    # Convert the area geometry to WKT
-    wkt_bdd <- area_bdd |>
-      st_geometry() |>
-      st_as_text()
+        # List layers in the dataset
+        st_layers(url)
 
-    # Read the filtered dataset using the bounding box
-    dat_bdd <- read_sf(url, wkt_filter = wkt_bdd)
-    ```
+        # Read and transform the area of interest
+        area_bdd <- read_sf(fs::path("data", "area.geojson")) |>
+          st_transform(crs = st_crs(pts))
 
-    -   Also see [Databases, DuckDB \>\> Extensions](db-duckdb.html#sec-db-duckdb-ext){style="color: green"} \>\> Geospatial for an example of filter by bounding box through a DuckDB query
+        # Convert the area geometry to WKT
+        wkt_bdd <- area_bdd |>
+          st_geometry() |>
+          st_as_text()
+
+        # Read the filtered dataset using the bounding box
+        dat_bdd <- read_sf(url, wkt_filter = wkt_bdd)
+        ```
+
+        -   Also see [Databases, DuckDB \>\> Extensions](db-duckdb.html#sec-db-duckdb-ext){style="color: green"} \>\> Geospatial for an example of filter by bounding box through a DuckDB query
+
+    -   From a file ([source](https://dewey.dunnington.ca/slides/rspatial2025/#/sf-for-bigger-data-filter-on-read))
+
+        ``` r
+        bounds_lonlat <- st_bbox(
+          c(xmin = -64.6418, 
+            xmax = -64.2868, 
+            ymin = 44.8473, 
+            ymax = 45.0151),
+          crs = st_crs("OGC:CRS84")
+        )
+
+        # Read the CRS of the source
+        elevation_crs <- st_layers("data/ns-water_elevation.fgb")$crs[[1]]
+
+        # Transform the bounds to the CRS of the source
+        bounds_poly <- bounds_lonlat |>
+          st_transform(elevation_crs) |>
+          st_as_sfc()
+
+        # Read just the data you need
+        elevation <- st_read(
+          "data/ns-water_elevation.fgb",
+          wkt_filter = st_as_text(bounds_poly)
+        )
+        ```
 
 ## Big Data {#sec-geo-proc-bd .unnumbered}
+
+-   Misc
+
+    -   If your computation takes in the 30 sec to a few minutes range, then use duckdb and its spatial extensions (See [Databases, DuckDB \>\> Geospatial](db-duckdb.qmd#sec-db-duckdb-geo){style="color: green"})
+    -   If your compution take closer to 10 to 20 minutes or more, then use Apache Sedona (See package in [Misc](geospatial-processing.qmd#sec-geo-proc-misc){style="color: green"})
+        -   Sedona can do parallelized joins.
+    -   geoparquet (vector) and COGS (raster) allow users to only download what they need and not the entire set of files.
+
+-   Fast read
+
+    ``` r
+    library(vapour)
+    library(geos)
+    elevation <- vapour_read_geometry("data/ns-water_elevation.fgb") |>
+      geos_read_wkb(crs = st_crs(lakes))
+    ```
 
 -   Use a SQL query to reduce the data read into memory ([source](https://pmassicotte.github.io/r-spatial-cookbook/chapters/filtering/01_filtering.html#refining-the-filter-with-a-user-defined-sql-query))
 
