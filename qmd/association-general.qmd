@@ -490,7 +490,80 @@
     -   Decreases MSE for $\xi$ typically around 0.4 or above and improves accuracy of bootstrap CIs
     -   For small values of $\xi$, the increase in variance slightly outweighed the bias reduction
 
--   [Example]{.ribbon-highlight}: Biased-Corrected $\xi$
+-   Bias correction for "roon-n cosistency" ([Paper](https://arxiv.org/abs/2508.09040), [Code](https://github.com/chenleihaomars/Simulation-for-ACbc/tree/main))
+
+    -   $\xi$ "includes a bias term that may vanish at a rate slower than root-n, preventing root-n consistency in general. In this article, we propose a bias correction approach that overcomes this limitation, yielding an NN-based estimator that is both root-n consistent and asymptotically normal."
+
+    -   The results of the simulation study shows "that as the dimension or correlation increases, the performance of \[bias-corrected version\] clearly dominates that of \[original\]. For small dimensions or correlation, the two (original and bias-corrected) correlation estimators have more comparable performance."
+
+-   [Example]{.ribbon-highlight}: Bias-Corrected $\xi$ for "root-n consistency"
+
+    <Details>
+
+    <Summary>Code</Summary>
+
+    ``` r
+    make_quad_formula <- function(d) {
+      # main + interactions: .^2
+      # squares: I(Xj^2)
+      # No intercept
+      sq_terms <- paste0("I(X", 1:d, "^2)", collapse = " + ")
+      as.formula(paste("~ 0 + .^2 +", sq_terms))
+    }
+
+    # nearest-neighbor based full-sample estimator of L
+    compute_Lhat <- function(X, Y, full_formula, lambda) {
+      n <- nrow(X); d <- ncol(X)
+
+      # 1) 1-NN on X (exclude self)
+      nn_idx <- FNN::get.knn(as.matrix(X), k = 2)$nn.index[, 2]
+
+      # 2) Design matrix (add intercept)
+      Xdf <- as.data.frame(X); names(Xdf) <- paste0("X", 1:d)
+      Z   <- model.matrix(full_formula, data = Xdf)
+      Z   <- cbind(1, Z)
+
+      # 3) Precompute cross-products and factorization
+      XtX <- crossprod(Z)
+      A <- XtX + diag(n * lambda, ncol(Z)) 
+      R   <- chol(A)  # A = R'R 
+
+      total <- 0
+      for (j in seq_len(n)) {
+        zresp <- as.integer(Y >= Y[j])    # length n
+        XtY   <- crossprod(Z, zresp)      # length p
+        # Solve (R'R) beta = XtY
+        beta  <- backsolve(R, forwardsolve(t(R), XtY))
+        G     <- as.vector(Z %*% beta)
+        v     <- G * G[nn_idx] - G^2
+        total <- total + (sum(v) - v[j])  # drop i=j
+      }
+
+      Lhat <- total / (n * (n - 1))
+      return(Lhat)
+    }
+
+    # original statistic
+    T_n_orig <- FOCI::codec(Y, X)
+
+    # full-sample Lhat, then bias-correct
+    n <- c(300,600,900) 
+    lambda <- n^(-0.85)
+    d   = c(6, 8, 10)
+    fml <- make_quad_formula(d)
+    Lhat <- compute_Lhat(X, Y, fml, lambda)
+    T_n_bc <- T_n_orig - 6 * Lhat
+    ```
+
+    -   For [n]{.arg-text}, you just need 1 value, but I just decided to include the values that were tested in the experiment
+    -   [lambda]{.arg-text} is the ridge penalty parameter
+    -   [d]{.arg-text} has the polynomial orders that are used to make polynomial equations that is required to compute [Lhat]{.arg-text}
+        -   I'm guessing [d]{.arg-text} is some kind of assumption made about the shape of relationship between X and Y(???)
+        -   Need to read the paper more thoroughly to figure what this is and why it's needed.
+
+    </Details>
+
+-   [Example]{.ribbon-highlight}: Biased-Corrected $\xi$ for small n
 
     ``` r
     library(XICOR)
