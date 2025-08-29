@@ -1629,8 +1629,15 @@
         -   Low and high quantiles for churn counts are calculated (typical calc of CIs for the proportions of binary variables)
             -   Used to add context of whether these are high proportions, low proportions, etc.
 
--   [Theseus Plot: Binary Outcome (proportion) vs Categorical (2 categories) vs Categorical\
-    ]{.underline}![](_resources/EDA.resources/catpred-catout-theseus-1.png){.lightbox width="432"}
+-   [Theseus Plot: Binary Outcome (proportion) vs Categorical (2 categories) vs Categorical]{.underline}
+
+    -   [{]{style="color: #990000"}[TheseusPlot](https://cran.r-project.org/web/packages/TheseusPlot/index.html){style="color: #990000"}[}]{style="color: #990000"} - Calculates the contributions of the subgroups to a change in proportion
+        -   Uses a method that "replaces subgroup data from one group with that of another step by step, recalculating the overall metric at each stage to quantify subgroup contributions."
+
+    ::: panel-tabset
+    ## Data
+
+    ![](_resources/EDA.resources/catpred-catout-theseus-1.png){.lightbox group="theseus-ex1" width="432"}
 
     ``` r
     pacman::p_load(dplyr,
@@ -1667,46 +1674,23 @@
       summarise(on_time_rate = mean(on_time)) |> 
       pull(on_time_rate)
     #> [1] 0.4672835
+    ```
 
+    -   We want to analyze the decrease in the average number of [on-time]{.var-text} flights from [November]{.var-text} to [December]{.var-text}.
+    -   About 64% of flights in [November]{.var-text} were [on-time]{.var-text} compared to around 47% in [December]{.var-text} so there does seem to be a substantial difference.
 
+    ## Theseus Plot
+
+    ![](_resources/EDA.resources/catpred-catout-theseus-orig.png){.lightbox group="theseus-ex1" width="432"}
+
+    ``` r
     ship <- 
       create_ship(data_Nov, 
                   data_Dec, 
                   y = on_time, 
-                  labels = c("November", "December"))
-
-    thes_obj <- 
-      ship$plot(origin) +
-      scale_fill_manual(values = notebook_colors[c(5,6)]) +
-      guides(fill = "none") +
-      theme_notebook()
-
-    thes_bld <- ggplot_build(thes_obj)
-
-    find_rect_layers <- function(layer) {
-      cols <- names(layer)
-      log_flipped <- cols == "flipped_aes"
-      log_fill <- cols == "fill"
-      if (any(log_flipped) == FALSE & any(log_fill) == TRUE) {
-        rect_layer <- TRUE
-      } else {
-        rect_layer <- FALSE
-      }
-      return(rect_layer)
-    }
-
-    ls_log_rect <- purrr::map(thes_bld$data, \(x) find_rect_layers(x))
-    ind_rect <- which(ls_log_rect == TRUE)
-    cols_outer <- c(ind_rect[[1]], ind_rect[[length(ind_rect)]])
-    cols_water <- ind_rect[2:(length(ind_rect)-1)]
-
-
-    thes_obj$layers[[cols_outer[[1]]]]$aes_params$fill <- notebook_colors[[3]]
-    thes_obj$layers[[cols_outer[[2]]]]$aes_params$fill <- notebook_colors[[3]]
-
-    purrr::walk(cols_water, \(x) thes_obj$layers[[x]]$aes_params$fill <- notebook_colors[[2]])
-
-    thes_obj
+                  labels = c("November", "December"),
+                  text_size = 1.7)
+    ship$plot(origin)
 
     ship$table(origin)
     #> # A tibble: 3 × 8
@@ -1714,13 +1698,108 @@
     #>   <chr>    <dbl> <int> <int> <int> <int> <dbl> <dbl>
     #> 1 EWR    -0.0831  9603  9410  6251  3901 0.651 0.415
     #> 2 JFK    -0.0565  8645  8923  5702  4332 0.660 0.485
-    #> 3 LGA    -0.0358  8723  8687  5379  4393 0.617 0.506
-
-    ship$plot_flip(carrier)
-    ship$plot_flip(carrier, n = 5)
+    #> 3 LGA    -0.0358  8723  8687  5379  4393 0.617 0.506    
     ```
 
-    -   [TheseusPlot](https://cran.r-project.org/web/packages/TheseusPlot/index.html)
+    -   Each outer column shows the on-time proportions for the two given categories, [November]{.var-text} and [December]{.var-text}, of the [month]{.var-text} variable from the original dataset which was split into 2 datasets.
+    -   The inner grouped columns shows a representation of sample sizes of the third variable — in this case, flight [origin]{.var-text}. The left column is the sample size for that [origin]{.var-text} category in [November]{.var-text}, and the right column is the sample size for that [origin]{.var-text} category in [December]{.var-text}
+        -   Sample sizes do affect contribution size (i.e. larger sample size means larger proportion), so they're something to be mindful of.
+    -   The waterflow areas represent the contribution of the [origin]{.var-text} categories to the change in average [on-time]{.var-text} proportions of each [month]{.var-text}.
+    -   The table method gives us the sample sizes, contributions, and proportions.
+
+    ## Change Fill Color
+
+    ![](_resources/EDA.resources/catpred-catout-theseus-1.png){.lightbox group="theseus-ex1" width="432"}
+
+    Unfortunately, the author of this package didn't provide an argument to change the fill colors, so it must hacked.
+
+    Examining the ggplot2 object \>\> layers shows us that the plot is composed of a `geom_col` layer, `geom_rect` layers (created through `annotate`), and other text layers that we aren't concerned with.
+
+    The columns (red/blue) are in the center of the plot and annotated rectangles are on the outside (green) along with the waterfall plot (gray) connecting them.
+
+    First, we must programmatically identify these layers. Then, we can replace their fill color values with our own.
+
+    ``` r
+    thes_plot <- 
+      ship$plot(origin) +
+      scale_fill_manual(values = notebook_colors[c(5,6)]) + # <1>
+      guides(fill = "none") +
+      theme_notebook()
+
+    change_fill_color <- 
+      function(thes_obj, 
+               columns_color, 
+               waterfall_color) {
+      # convert plot layers to dataframes
+      thes_bld <- ggplot_build(thes_obj) # <2>
+
+      # from dfs, find geom_rect layers
+      find_rect_layers <- function(layer) {  # <3>
+        cols <- names(layer)
+        is_flipped <- cols == "flipped_aes"
+        is_fill <- cols == "fill"
+        if (any(is_flipped) == FALSE & any(is_fill) == TRUE) {
+          rect_layer <- TRUE
+        } else {
+          rect_layer <- FALSE
+        }
+        return(rect_layer)
+      }
+      ls_is_rect <- 
+        purrr::map(thes_bld$data, 
+                   \(x) find_rect_layers(x))
+
+      # indices for geom_rect
+      ind_rect <- which(ls_is_rect == TRUE)
+      # indices the outer columns and waterfall layers
+      cols_outer <- c(ind_rect[[1]], ind_rect[[length(ind_rect)]])
+      cols_waterfall <- ind_rect[2:(length(ind_rect)-1)]
+
+      # change fill color for outer columns # <4>
+      thes_obj$layers[[cols_outer[[1]]]]$aes_params$fill <- columns_color
+      thes_obj$layers[[cols_outer[[2]]]]$aes_params$fill <- columns_color
+      # change fill color for waterfall columns
+      purrr::walk(
+        cols_waterfall,
+        \(x) thes_obj$layers[[x]]$aes_params$fill <- waterfall_color
+      )
+
+      return(thes_obj)
+    }
+
+    thes_plot_new <- 
+      change_fill_color(thes_plot, 
+                        notebook_colors[[3]],
+                        notebook_colors[[2]])
+    thes_plot_new
+    ```
+
+    1.  The column colors (center) can be changed easily by using the traditional `scale_fill_manual` method
+    2.  `ggplot_build` outputs two elements: a list of data frames (one for each layer), and a panel object, which contain all information about axis limits, breaks etc. We're interested in the list of dataframes.
+    3.  The dataframes from `ggplot_build` contain geom arguments as column names. The `geom_col` and `geom_rect` layers both have a [fill]{.arg-text} argument, but the `geom_rect` does not have [flipped_aes]{.arg-text} argument(?).
+    4.  From the package, the author appends both `geom_rect` columns at the beginning and end of the list of layers in the ggplot2 object. This allows use to hardcode those indices. The watefall indices are the ones in-between. Using this knowledge, we can now change the [fill]{.arg-text} colors in the original ggplot2 object.
+
+    ## Flip and Collapse
+
+    ![](_resources/EDA.resources/catpred-catout-theseus-2.png){.lightbox group="theseus-ex1" width="432"}
+
+    ``` r
+    thes_plot_flip <- 
+      ship$plot_flip(carrier, n = 5) +
+      scale_fill_manual(values = notebook_colors[c(5,6)]) +
+      guides(fill = "none") +
+      theme_notebook()
+
+    thes_plot_flip_new <- 
+      change_fill_color(thes_plot_flip, 
+                        notebook_colors[[3]],
+                        notebook_colors[[2]])
+    thes_plot_flip_new
+    ```
+
+    -   When your third variable (analysis variable?) has many categories and/or categories with long names, it can be easier to view them on the Y-axis.
+    -   Most of the categories will likely have small contributions which can muddy the visual. You can collapse them into an "other" category using the [n]{.arg-text} argument to control how many top contributing categories you want displayed.
+    :::
 
 ## Interactions {#sec-eda-gen-inter .unnumbered}
 
