@@ -1629,6 +1629,99 @@
         -   Low and high quantiles for churn counts are calculated (typical calc of CIs for the proportions of binary variables)
             -   Used to add context of whether these are high proportions, low proportions, etc.
 
+-   [Theseus Plot: Binary Outcome (proportion) vs Categorical (2 categories) vs Categorical\
+    ]{.underline}![](_resources/EDA.resources/catpred-catout-theseus-1.png){.lightbox width="432"}
+
+    ``` r
+    pacman::p_load(dplyr,
+                   ggplot2,
+                   TheseusPlot,
+                   nycflights13)
+
+    data <- flights |> 
+      filter(!is.na(arr_delay)) |>
+      mutate(on_time = arr_delay <= 0) |>  # Arrived on time
+      left_join(airlines, by = "carrier") |>
+      mutate(carrier = name) |>  # Convert carrier abbreviations to full names
+      select(year, month, day, origin, dest, carrier, dep_delay, on_time)
+
+    data |> head()
+    #> # A tibble: 6 × 8
+    #>    year month   day origin dest  carrier                dep_delay on_time
+    #>   <int> <int> <int> <chr>  <chr> <chr>                      <dbl> <lgl>  
+    #> 1  2013     1     1 EWR    IAH   United Air Lines Inc.          2 FALSE  
+    #> 2  2013     1     1 LGA    IAH   United Air Lines Inc.          4 FALSE  
+    #> 3  2013     1     1 JFK    MIA   American Airlines Inc.         2 FALSE  
+    #> 4  2013     1     1 JFK    BQN   JetBlue Airways               -1 TRUE   
+    #> 5  2013     1     1 LGA    ATL   Delta Air Lines Inc.          -6 TRUE   
+    #> 6  2013     1     1 EWR    ORD   United Air Lines Inc.         -4 FALSE
+
+    data_Nov <- data |> filter(month == 11)
+    data_Dec <- data |> filter(month == 12)
+
+    data_Nov |> 
+      summarise(on_time_rate = mean(on_time)) |> 
+      pull(on_time_rate)
+    #> [1] 0.6426161
+    data_Dec |> 
+      summarise(on_time_rate = mean(on_time)) |> 
+      pull(on_time_rate)
+    #> [1] 0.4672835
+
+
+    ship <- 
+      create_ship(data_Nov, 
+                  data_Dec, 
+                  y = on_time, 
+                  labels = c("November", "December"))
+
+    thes_obj <- 
+      ship$plot(origin) +
+      scale_fill_manual(values = notebook_colors[c(5,6)]) +
+      guides(fill = "none") +
+      theme_notebook()
+
+    thes_bld <- ggplot_build(thes_obj)
+
+    find_rect_layers <- function(layer) {
+      cols <- names(layer)
+      log_flipped <- cols == "flipped_aes"
+      log_fill <- cols == "fill"
+      if (any(log_flipped) == FALSE & any(log_fill) == TRUE) {
+        rect_layer <- TRUE
+      } else {
+        rect_layer <- FALSE
+      }
+      return(rect_layer)
+    }
+
+    ls_log_rect <- purrr::map(thes_bld$data, \(x) find_rect_layers(x))
+    ind_rect <- which(ls_log_rect == TRUE)
+    cols_outer <- c(ind_rect[[1]], ind_rect[[length(ind_rect)]])
+    cols_water <- ind_rect[2:(length(ind_rect)-1)]
+
+
+    thes_obj$layers[[cols_outer[[1]]]]$aes_params$fill <- notebook_colors[[3]]
+    thes_obj$layers[[cols_outer[[2]]]]$aes_params$fill <- notebook_colors[[3]]
+
+    purrr::walk(cols_water, \(x) thes_obj$layers[[x]]$aes_params$fill <- notebook_colors[[2]])
+
+    thes_obj
+
+    ship$table(origin)
+    #> # A tibble: 3 × 8
+    #>   origin contrib    n1    n2    x1    x2 rate1 rate2
+    #>   <chr>    <dbl> <int> <int> <int> <int> <dbl> <dbl>
+    #> 1 EWR    -0.0831  9603  9410  6251  3901 0.651 0.415
+    #> 2 JFK    -0.0565  8645  8923  5702  4332 0.660 0.485
+    #> 3 LGA    -0.0358  8723  8687  5379  4393 0.617 0.506
+
+    ship$plot_flip(carrier)
+    ship$plot_flip(carrier, n = 5)
+    ```
+
+    -   [TheseusPlot](https://cran.r-project.org/web/packages/TheseusPlot/index.html)
+
 ## Interactions {#sec-eda-gen-inter .unnumbered}
 
 ### Misc {#sec-eda-gen-inter-misc .unnumbered}
