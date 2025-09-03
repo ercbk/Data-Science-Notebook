@@ -5,6 +5,215 @@
 ::: {.callout-tip collapse="true"}
 ## Packages
 
+-   [{]{style="color: #990000"}[strata](https://asenetcky.github.io/strata/){style="color: #990000"}[}]{style="color: #990000"} - Simple project automation framework
+    -   Supports [{renv}]{style="color: #990000"}, [{cronR}]{style="color: #990000"}, and [{taskscheduleR}]{style="color: #990000"}
+    -   Simple and consistent built-in logging
+    -   Manage code execution in `.toml` files
+    -   Quick build options for rapid prototyping
+-   [{]{style="color: #990000"}[collateral](https://collateral.jamesgoldie.dev/){style="color: #990000"}[}]{style="color: #990000"} - Captures side effects like errors to prevent them from stopping execution. Once your analysis is done, you can see a tidy view of the groups that failed, the ones that returned a results, and the ones that threw warnings, messages or other output as they ran.
+:::
+
+-   Tools
+    -   [Weights and Biases](https://wandb.ai/site) - Experiment tracking
+-   Resources
+    -   [Applied HPC with R](https://book-hpc.ggvy.cl/)
+
+## Terms {#sec-mlops-terms .unnumbered}
+
+-   [**Asynchronous**]{style="color: #009499"} - Tasks run independently, and you don’t have to wait for them to finish.
+    -   i.e. in a separate process (e.g. R process) which self-contained and only has access to data present there.
+-   [**Promise**]{style="color: #009499"} (or [**Future**]{style="color: #009499"})- Represents a *future value* or the result of an asynchronous operation. It’s a way to handle tasks that take time to complete (e.g., fetching data, running computations, or executing code in parallel) without blocking the main program.
+    -   i.e. an IOU/placeholder for a result that isn't ready yet.
+    -   Useful to:
+        -   Avoid blocking: Instead of waiting for each task to finish, you can start all tasks at once and collect results later.
+        -   Handle dependencies: If one task depends on the result of another, promises let you chain them together.
+        -   Improve efficiency: By running tasks in parallel and managing their results asynchronously, you can make better use of resources.
+-   [**SSH Reverse Tunneling**]{style="color: #009499"} - Allows you to securely access a computer or server that’s behind a firewall or not directly reachable from the internet.
+    -   Provides a convenient way to launch remote daemons without requiring the remote machine to be able to access the host. Often firewall configurations or security policies may prevent opening a port to accept outside connections.
+
+## Concepts {#sec-mlops-concepts .unnumbered}
+
+-   Notes from
+    -   [Deep Dive into Multithreading, Multiprocessing, and Asyncio](https://towardsdatascience.com/deep-dive-into-multithreading-multiprocessing-and-asyncio-94fdbe0c91f0)
+-   **Concurrency** - Managing multiple tasks at the same time, not necessarily simultaneously. Tasks may take turns, creating the illusion of multitasking.\
+    ![](_resources/MLOps.resources/concepts-concurrency-1.webp){.lightbox width="5322"}
+-   **Thread** - A thread is the smallest unit of execution within a process. A process acts as a “container” for threads, and multiple threads can be created and destroyed over the process’s lifetime.\
+    ![](_resources/MLOps.resources/concepts-threads-1.webp){.lightbox width="432"}
+    -   Every process has at least one thread — the main thread — but it can also create additional threads.
+    -   Threads share memory and resources within the same process, enabling efficient communication.
+-   **Preemptive Context Switching** - When a thread is waiting, the OS switches to another thread automatically. During a context switch, the OS pauses the current task, saves its state and loads the state of the next task to be executed. This rapid switching creates the illusion of simultaneous execution on a single CPU core.
+    -   For processes, context switching is more resource-intensive because the OS must save and load separate memory spaces.
+    -   For threads, switching is faster because threads share the same memory within a process. 
+-   **Multithreading** - Allows a process to execute multiple threads concurrently, with threads sharing the same memory and resources.\
+    ![](_resources/MLOps.resources/concepts-multithreading-1.webp){.lightbox width="732"}
+-   **Global Interpreter Lock (GIL)** - A lock that allows only one thread to hold control of the Python interpreter at any time, meaning only one thread can execute Python bytecode at once.
+    -   Introduced to simplify memory management in Python as many internal operations, such as object creation, are not thread safe by default.
+    -   Without a GIL, multiple threads trying to access the shared resources will require complex locks or synchronisation mechanisms to prevent race conditions and data corruption.
+    -   For multithreaded I/O-bound programs, the GIL is less problematic as threads release the GIL when waiting for I/O operations.
+    -   For multithreaded CPU-bound operations, the GIL becomes a significant bottleneck. Multiple threads competing for the GIL must take turns executing Python bytecode.
+        -   Multiprocessing is recommended for CPU-bound tasks
+-   **Multiprocessing** - Enables a system to run multiple processes in parallel, each with its own memory, GIL, and resources. Within each process, there may be one or more threads
+-   **Async/Await** - Unlike threads or processes, async uses a single thread to handle multiple tasks.\
+    ![](_resources/MLOps.resources/concepts-async-flow-chart-1.webp){.lightbox width="432"}
+    -   Differences from Multithreading
+        -   Multithreading relies on the OS to switch between threads when one thread is waiting (*preemptive context switching*).
+        -   Async/Await uses a single thread and depends on tasks to “cooperate” by pausing when they need to wait (**cooperative multitasking**).
+    -   Components
+        -   **Coroutines:** These are functions defined with an async function. They are the core of async and represent tasks that can be paused and resumed later.
+        -   **Event loop:** It manages the execution of tasks.
+        -   **Tasks:** Wrappers around coroutines. When you want a coroutine to actually start running, you turn it into a task
+        -   **await**: Pauses execution of a coroutine, giving control back to the event loop.
+
+## Parallelization/Distributed
+
+-   [{]{style="color: #990000"}[future](https://future.futureverse.org/){style="color: #990000"}[}]{style="color: #990000"}
+    -   Use `plan(multisession)` for paralleliztion on local machine
+
+        -   Replaced `plan(multiprocess)` in 2020
+
+    -   If you are on Linux or macOS, and are 100% sure that your code and all its dependencies is fork-safe and not working through RStudio, then you can also use `plan(multicore)`
+
+    -   [Example]{.ribbon-highlight}: [{]{style="color: #990000"}[furrr](https://furrr.futureverse.org/){style="color: #990000"}[}]{style="color: #990000"}
+
+        ``` r
+        plan(multisession, workers = 2)
+        future_map(c("hello", "world"), ~.x)
+        ```
+
+    -   Making a cluster out of SSH connected machines ([Thread](https://mastodon.social/@rmflight/112051925958441474))
+
+        -   Basic
+
+            ``` r
+            pacman::p_load(parallely, future, furrr)
+            nodes = c("host1", "host2")
+            plan(cluster, workers = nodes)
+            future_map(...)
+            ```
+
+        -   With [{renv}]{style="color: #990000"}
+
+            ``` r
+            pacman::p_load(parallely, future, furrr)
+            nodes = c("host1", "host2")
+            plan(cluster, workers = nodes, rscript_libs = .libPaths())
+            future_map(...)
+            ```
+
+            \`\`\`
+-   [{]{style="color: #990000"}[future.mirai](https://future.mirai.futureverse.org/){style="color: #990000"}[}]{style="color: #990000"} - Interface with futureverse with mirai backend
+    -   [Example]{.ribbon-highlight}
+
+        ``` r
+        library(future.mirai)
+        library(furrr)
+        library(selenider)
+
+        plan(mirai_multisession, workers = 2)
+
+        moo <- function() {
+          s("*") |>
+            elem_text()
+        }
+
+        scrape <- function(x) {
+          print(x)
+          session <- selenider_session()
+          open_url("https://r-project.org")
+          txt <- moo()
+          close_session()
+          return(txt)
+        }
+
+        future_map(c(1:10), scrape)
+        ```
+
+        -   Works like future/furrr by being able to find functions and packages outside the function environment.
+-   [{]{style="color: #990000"}[mirai](https://mirai.r-lib.org/){style="color: #990000"}[}]{style="color: #990000"} - Modern networking and concurrency, built on nanonext and NNG (Nanomsg Next Gen), ensures reliable and efficient scheduling over fast inter-process communications or TCP/IP secured by TLS. Distributed computing can launch remote resources via SSH or cluster managers.
+    -   See [{future.mirai}]{style="color: #990000"} for the best of both worlds
+
+    -   Daemons are persistent background processes for receiving mirai requests
+
+    -   Options
+
+        -   `x[.flat]` collects and flattens map results to a vector, checking that they are of the same type to avoid coercion. Note: errors if an ‘errorValue’ has been returned or results are of differing type.
+
+        -   `x[.progress]` collects map results whilst showing a progress bar with completion percentage and ETA, or else a simple text progress indicator. Note: if the map operation completes too quickly then the progress bar may not show at all.
+
+        -   `x[.stop]` collects map results applying early stopping, which stops at the first failure and cancels remaining operations. Note: operations already in progress continue to completion, although their results are not collected.
+
+        -   The options above may be combined in the manner of:\
+            `x[.stop, .progress]` which applies early stopping together with a progress indicator.
+
+    -   Comparison to [{future}]{style="color: #990000"} ([source](https://rstudio.github.io/promises/articles/promises_04_futures.html))
+
+        -   Explicit vs Automatic Dependency Management:
+
+            -   The *future* package tries hard to automatically infer what variables and packages you need from the main R package, and makes those available to the child process.
+            -   *mirai* doesn’t try to do this for you; you need to pass in whatever data you need explicitly, and make package-namespaced calls explicitly inside of your inner code.
+
+        -   Response Time
+
+            -   *mirai* is very fast; it’s much faster than future at starting up and has less per-task overhead. mirai creates event-driven promises. This makes mirai ideal where response times and latency are critical.
+            -   Promises using *future* time-poll every 0.1 seconds.
+
+        -   Support for Various Backends
+
+            -   *future* is designed to be a general API supporting many types of distributed computing backends, and potentially offers more options.
+            -   *mirai* on the other hand is its own system, whilst it does support both local and distributed execution.
+
+        -   Promise Managment
+
+            -   *mirai* is inherently queued, meaning it readily accepts more tasks than workers. This means you don’t need an equivalent of `future_promise`.
+            -   With *future* you need to manage cases where futures launch other futures (“evaluation topologies”) upfront, whereas with mirai they will just work.
+
+        -   Task Cancellation: *mirai* supports task cancellation and the ability to interrupt ongoing tasks on the worker.
+
+    -   [Example]{.ribbon-highlight}:
+
+        ``` r
+        library(mirai)
+
+        moo <- function() {
+          s("*") |>
+            elem_text()
+        }
+
+        scrape <- function(moo, x) {
+          library(selenider)
+          print(x)
+          session <- selenider_session()
+
+          open_url("https://r-project.org")
+
+          moo()
+        }
+
+        daemons(2)
+        mirai_map(c(1:10), scrape, .args = list(moo = moo))[]
+        daemons(0)
+        ```
+
+        -   `library(selenider)` must be called inside of `scrape` for `selenider_session` to be found
+            -   I think you could have a `load_packages` function and a `load_functions` function with the necessary packages and functions you need inside the main function. Then add `load_packages` and `load_functions` to [.arg]{.arg-text}
+        -   `moo` will not be found unless it's included in [.args]{.arg-text}
+        -   [x]{.arg-text} is the input for `c(1:10)`. The input for the vector doesn't have to be the first argument. I think it just has to be one not included in [.args]{.arg-text}
+
+    -   [Example]{.ribbon-highlight}: with [{]{style="color: #990000"}[purrr](https://purrr.tidyverse.org/){style="color: #990000"}[}]{style="color: #990000"}
+
+        ``` r
+        parallelly::availableCores() 
+        daemons(6) # starts 6 processes
+
+        mtcars |> 
+          purrr::map_dbl(sum, .parallel = TRUE) 
+        #> mpg cyl disp hp drat wt qsec 
+        #> 642.900 198.000 7383.100 4694.000 115.090 102.952 571.160 
+        #> vs am gear carb 
+        #> 14.000 13.000 118.000 90.000
+
+        daemons(0) # terminates processes
+        ```
 -   [{]{style="color: #990000"}[purrr](https://purrr.tidyverse.org/){style="color: #990000"}[}]{style="color: #990000"}
     -   Uses [{mirai}]{style="color: #990000"} for parallelization, so `daemons` and `in_parallel` needed
 
@@ -88,209 +297,6 @@
         ```
 
         -   The nested function is an argument in the outer function that's passed to `map`
--   [strata](https://asenetcky.github.io/strata/){style="color: #990000"}[}]{style="color: #990000"} - Simple project automation framework
-    -   Supports [{renv}]{style="color: #990000"}, [{cronR}]{style="color: #990000"}, and [{taskscheduleR}]{style="color: #990000"}
-    -   Simple and consistent built-in logging
-    -   Manage code execution in `.toml` files
-    -   Quick build options for rapid prototyping
--   [{]{style="color: #990000"}[future](https://future.futureverse.org/){style="color: #990000"}[}]{style="color: #990000"}
-    -   Use `plan(multisession)` for paralleliztion on local machine
-
-        -   Replaced `plan(multiprocess)` in 2020
-
-    -   If you are on Linux or macOS, and are 100% sure that your code and all its dependencies is fork-safe and not working through RStudio, then you can also use `plan(multicore)`
-
-    -   [Example]{.ribbon-highlight}: [{]{style="color: #990000"}[furrr](https://furrr.futureverse.org/){style="color: #990000"}[}]{style="color: #990000"}
-
-        ``` r
-        plan(multisession, workers = 2)
-        future_map(c("hello", "world"), ~.x)
-        ```
-
-    -   Making a cluster out of SSH connected machines ([Thread](https://mastodon.social/@rmflight/112051925958441474))
-
-        -   Basic
-
-            ``` r
-            pacman::p_load(parallely, future, furrr)
-            nodes = c("host1", "host2")
-            plan(cluster, workers = nodes)
-            future_map(...)
-            ```
-
-        -   With [{renv}]{style="color: #990000"}
-
-            ``` r
-            pacman::p_load(parallely, future, furrr)
-            nodes = c("host1", "host2")
-            plan(cluster, workers = nodes, rscript_libs = .libPaths())
-            future_map(...)
-            ```
--   [{]{style="color: #990000"}[mirai](https://mirai.r-lib.org/){style="color: #990000"}[}]{style="color: #990000"} - Modern networking and concurrency, built on nanonext and NNG (Nanomsg Next Gen), ensures reliable and efficient scheduling over fast inter-process communications or TCP/IP secured by TLS. Distributed computing can launch remote resources via SSH or cluster managers.
-    -   See [{future.mirai}]{style="color: #990000"} for the best of both worlds
-
-    -   Daemons are persistent background processes for receiving mirai requests
-
-    -   Options
-
-        -   `x[.flat]` collects and flattens map results to a vector, checking that they are of the same type to avoid coercion. Note: errors if an ‘errorValue’ has been returned or results are of differing type.
-
-        -   `x[.progress]` collects map results whilst showing a progress bar with completion percentage and ETA, or else a simple text progress indicator. Note: if the map operation completes too quickly then the progress bar may not show at all.
-
-        -   `x[.stop]` collects map results applying early stopping, which stops at the first failure and cancels remaining operations. Note: operations already in progress continue to completion, although their results are not collected.
-
-        -   The options above may be combined in the manner of:\
-            `x[.stop, .progress]` which applies early stopping together with a progress indicator.
-
-    -   Comparison to [{future}]{style="color: #990000"} ([source](https://rstudio.github.io/promises/articles/promises_04_futures.html))
-
-        -   Explicit vs Automatic Dependency Management:
-
-            -   The *future* package tries hard to automatically infer what variables and packages you need from the main R package, and makes those available to the child process.
-            -   *mirai* doesn’t try to do this for you; you need to pass in whatever data you need explicitly, and make package-namespaced calls explicitly inside of your inner code.
-
-        -   Response Time
-
-            -   *mirai* is very fast; it’s much faster than future at starting up and has less per-task overhead. mirai creates event-driven promises. This makes mirai ideal where response times and latency are critical.
-            -   Promises using *future* time-poll every 0.1 seconds.
-
-        -   Support for Various Backends
-
-            -   *future* is designed to be a general API supporting many types of distributed computing backends, and potentially offers more options.
-            -   *mirai* on the other hand is its own system, whilst it does support both local and distributed execution.
-
-        -   Promise Managment
-
-            -   *mirai* is inherently queued, meaning it readily accepts more tasks than workers. This means you don’t need an equivalent of `future_promise`.
-            -   With *future* you need to manage cases where futures launch other futures (“evaluation topologies”) upfront, whereas with mirai they will just work.
-
-        -   Task Cancellation: *mirai* supports task cancellation and the ability to interrupt ongoing tasks on the worker.
-
-    -   [Example]{.ribbon-highlight}:
-
-        ``` r
-        library(mirai)
-
-        moo <- function() {
-          s("*") |>
-            elem_text()
-        }
-
-        scrape <- function(moo, x) {
-          library(selenider)
-          print(x)
-          session <- selenider_session()
-
-          open_url("https://r-project.org")
-
-          moo()
-        }
-
-        daemons(2)
-        mirai_map(c(1:10), scrape, .args = list(moo = moo))[]
-        daemons(0)
-        ```
-
-        -   `library(selenider)` must be called inside of `scrape` for `selenider_session` to be found
-            -   I think you could have a `load_packages` function and a `load_functions` function with the necessary packages and functions you need inside the main function. Then add `load_packages` and `load_functions` to [.arg]{.arg-text}
-        -   `moo` will not be found unless it's included in [.args]{.arg-text}
-        -   [x]{.arg-text} is the input for `c(1:10)`. The input for the vector doesn't have to be the first argument. I think it just has to be one not included in [.args]{.arg-text}
-
-    -   [Example]{.ribbon-highlight}: with [{]{style="color: #990000"}[purrr](https://purrr.tidyverse.org/){style="color: #990000"}[}]{style="color: #990000"}
-
-        ``` r
-        parallelly::availableCores()
-        daemons(6) # starts 6 processes
-
-        mtcars |> purrr::map_dbl(sum, .parallel = TRUE)
-        #>      mpg      cyl     disp       hp     drat       wt     qsec 
-        #>  642.900  198.000 7383.100 4694.000  115.090  102.952  571.160 
-        #>       vs       am     gear     carb 
-        #>   14.000   13.000  118.000   90.000 
-
-        daemons(0) # terminates processes
-        ```
--   [{]{style="color: #990000"}[future.mirai](https://future.mirai.futureverse.org/){style="color: #990000"}[}]{style="color: #990000"} - Interface with futureverse with mirai backend
-    -   [Example]{.ribbon-highlight}
-
-        ``` r
-        library(future.mirai)
-        library(furrr)
-        library(selenider)
-
-        plan(mirai_multisession, workers = 2)
-
-        moo <- function() {
-          s("*") |>
-            elem_text()
-        }
-
-        scrape <- function(x) {
-          print(x)
-          session <- selenider_session()
-          open_url("https://r-project.org")
-          txt <- moo()
-          close_session()
-          return(txt)
-        }
-
-        future_map(c(1:10), scrape)
-        ```
-
-        -   Works like future/furrr by being able to find functions and packages outside the function environment.
--   [{]{style="color: #990000"}[collateral](https://collateral.jamesgoldie.dev/){style="color: #990000"}[}]{style="color: #990000"} - Captures side effects like errors to prevent them from stopping execution. Once your analysis is done, you can see a tidy view of the groups that failed, the ones that returned a results, and the ones that threw warnings, messages or other output as they ran.
-:::
-
--   Tools
-    -   [Weights and Biases](https://wandb.ai/site) - Experiment tracking
--   Resources
-    -   [Applied HPC with R](https://book-hpc.ggvy.cl/)
-
-## Terms {#sec-mlops-terms .unnumbered}
-
--   [**Asynchronous**]{style="color: #009499"} - Tasks run independently, and you don’t have to wait for them to finish.
-    -   i.e. in a separate process (e.g. R process) which self-contained and only has access to data present there.
--   [**Promise**]{style="color: #009499"} (or [**Future**]{style="color: #009499"})- Represents a *future value* or the result of an asynchronous operation. It’s a way to handle tasks that take time to complete (e.g., fetching data, running computations, or executing code in parallel) without blocking the main program.
-    -   i.e. an IOU/placeholder for a result that isn't ready yet.
-    -   Useful to:
-        -   Avoid blocking: Instead of waiting for each task to finish, you can start all tasks at once and collect results later.
-        -   Handle dependencies: If one task depends on the result of another, promises let you chain them together.
-        -   Improve efficiency: By running tasks in parallel and managing their results asynchronously, you can make better use of resources.
--   [**SSH Reverse Tunneling**]{style="color: #009499"} - Allows you to securely access a computer or server that’s behind a firewall or not directly reachable from the internet.
-    -   Provides a convenient way to launch remote daemons without requiring the remote machine to be able to access the host. Often firewall configurations or security policies may prevent opening a port to accept outside connections.
-
-## Concepts {#sec-mlops-concepts .unnumbered}
-
--   Notes from
-    -   [Deep Dive into Multithreading, Multiprocessing, and Asyncio](https://towardsdatascience.com/deep-dive-into-multithreading-multiprocessing-and-asyncio-94fdbe0c91f0)
--   **Concurrency** - Managing multiple tasks at the same time, not necessarily simultaneously. Tasks may take turns, creating the illusion of multitasking.\
-    ![](_resources/MLOps.resources/concepts-concurrency-1.webp){.lightbox width="5322"}
--   **Thread** - A thread is the smallest unit of execution within a process. A process acts as a “container” for threads, and multiple threads can be created and destroyed over the process’s lifetime.\
-    ![](_resources/MLOps.resources/concepts-threads-1.webp){.lightbox width="432"}
-    -   Every process has at least one thread — the main thread — but it can also create additional threads.
-    -   Threads share memory and resources within the same process, enabling efficient communication.
--   **Preemptive Context Switching** - When a thread is waiting, the OS switches to another thread automatically. During a context switch, the OS pauses the current task, saves its state and loads the state of the next task to be executed. This rapid switching creates the illusion of simultaneous execution on a single CPU core.
-    -   For processes, context switching is more resource-intensive because the OS must save and load separate memory spaces.
-    -   For threads, switching is faster because threads share the same memory within a process. 
--   **Multithreading** - Allows a process to execute multiple threads concurrently, with threads sharing the same memory and resources.\
-    ![](_resources/MLOps.resources/concepts-multithreading-1.webp){.lightbox width="732"}
--   **Global Interpreter Lock (GIL)** - A lock that allows only one thread to hold control of the Python interpreter at any time, meaning only one thread can execute Python bytecode at once.
-    -   Introduced to simplify memory management in Python as many internal operations, such as object creation, are not thread safe by default.
-    -   Without a GIL, multiple threads trying to access the shared resources will require complex locks or synchronisation mechanisms to prevent race conditions and data corruption.
-    -   For multithreaded I/O-bound programs, the GIL is less problematic as threads release the GIL when waiting for I/O operations.
-    -   For multithreaded CPU-bound operations, the GIL becomes a significant bottleneck. Multiple threads competing for the GIL must take turns executing Python bytecode.
-        -   Multiprocessing is recommended for CPU-bound tasks
--   **Multiprocessing** - Enables a system to run multiple processes in parallel, each with its own memory, GIL, and resources. Within each process, there may be one or more threads
--   **Async/Await** - Unlike threads or processes, async uses a single thread to handle multiple tasks.\
-    ![](_resources/MLOps.resources/concepts-async-flow-chart-1.webp){.lightbox width="432"}
-    -   Differences from Multithreading
-        -   Multithreading relies on the OS to switch between threads when one thread is waiting (*preemptive context switching*).
-        -   Async/Await uses a single thread and depends on tasks to “cooperate” by pausing when they need to wait (**cooperative multitasking**).
-    -   Components
-        -   **Coroutines:** These are functions defined with an async function. They are the core of async and represent tasks that can be paused and resumed later.
-        -   **Event loop:** It manages the execution of tasks.
-        -   **Tasks:** Wrappers around coroutines. When you want a coroutine to actually start running, you turn it into a task
-        -   **await**: Pauses execution of a coroutine, giving control back to the event loop.
 
 ## MLflow {#sec-mlops-mlflow .unnumbered}
 
