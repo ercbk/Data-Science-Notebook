@@ -5,6 +5,7 @@
 ::: {.callout-tip collapse="true"}
 ## Packages
 
+-   [{]{style="color: goldenrod"}[beautifulsoup](https://www.crummy.com/software/BeautifulSoup/bs4/doc/){style="color: goldenrod"}[}]{style="color: goldenrod"} - Like the rvest for python. Scrapes static html pages
 -   [{]{style="color: #990000"}[chromote](https://rstudio.github.io/chromote/){style="color: #990000"}[}]{style="color: #990000"} - Headless Chrome Web Browser Interface
 -   [{]{style="color: #990000"}[polite](https://dmi3kno.github.io/polite/){style="color: #990000"}[}]{style="color: #990000"} ([article](https://joshfangmeier.netlify.app/posts/2020-11-28_politely-scraping-health-insurance-data/)) - Uses three principles of polite webscraping: *seeking permission, taking slowly and never asking twice*.
     -   Specifically, it manages the http session, declares the user agent string and checks the site policies, and uses rate-limiting and response caching to minimize the impact on the webserver.
@@ -85,7 +86,7 @@
 -   [{]{style="color: #990000"}[rselenium](https://docs.ropensci.org/RSelenium/){style="color: #990000"}[}]{style="color: #990000"}
 -   [{]{style="color: #990000"}[rvest](https://rvest.tidyverse.org/){style="color: #990000"}[}]{style="color: #990000"}
 -   [{]{style="color: #990000"}[selenider](https://ashbythorpe.github.io/selenider/){style="color: #990000"}[}]{style="color: #990000"} - Wrapper functions around [{chromote}]{style="color: #990000"} and [{selenium}]{style="color: #990000"} functions that utilize lazy element finding and automatic waiting to make scraping code more reliable
--   [{]{style="color: #990000"}[selenium](https://ashbythorpe.github.io/selenium-r/){style="color: #990000"}[}]{style="color: #990000"}
+-   [{]{style="color: #990000"}[selenium](https://ashbythorpe.github.io/selenium-r/){style="color: #990000"}[}]{style="color: #990000"}, [{]{style="color: goldenrod"}[selenium](https://www.selenium.dev/documentation/){style="color: goldenrod"}[}]{style="color: goldenrod"}
 -   [{]{style="color: #990000"}[shadowr](https://github.com/ricilandolt/shadowr){style="color: #990000"}[}]{style="color: #990000"} - For shadow DOMs
 -   [{]{style="color: #990000"}[ralger](https://feddelegrand7.github.io/ralger/){style="color: #990000"}[}]{style="color: #990000"} - Contains convenient wrapper functions for extracting and tidying objects scraped from easily scraped sites (e.g. html tables, links, titles, etc.)
 :::
@@ -590,6 +591,161 @@
         ``` r
         football_df <- rvest::html_table(all_tables[[3]], header = TRUE)
         ```
+
+## BeautifulSoup {#sec-scrap-bsoup .unnumbered}
+
+-   Notes from
+
+    -   [The Beginner’s Guide to Web Scraping in Python: From Zero to Web Data Hero](https://www.spsanderson.com/steveondata/posts/2025-09-03/)
+
+-   Common Operations
+
+    | Method | Syntax | What It Finds | Example |
+    |------------------|------------------|------------------|------------------|
+    | **By Tag** | `soup.find("tag")` | First element with that tag | `soup.find("title")` |
+    | **By ID** | `soup.find("tag", id="id-name")` | Element with specific ID | `soup.find("h1", id="main-title")` |
+    | **By Class** | `soup.find("tag", class_="class-name")` | Element with specific CSS class | `soup.find("p", class_="intro")` |
+    | **CSS Selectors** | `soup.select_one("css-selector")` | First element matching CSS selector | `soup.select_one(".footer a")` |
+    | **Find All** | `soup.find_all("tag")` | ALL elements with that tag | `soup.find_all("li", class_="item")` |
+
+-   [Example]{.ribbon-highlight}: Scrape titles and paragraphs
+
+    ::: panel-tabset
+    ## Basic Steps
+
+    ``` python
+    import requests
+    from bs4 import BeautifulSoup
+
+    url = "https://example.com"
+    response = requests.get(url) # <1>
+
+    if response.status_code == 200: # <2>
+        print("✓ Successfully fetched the page!")
+        print(f"Content length: {len(response.text)} characters")
+    else:
+        print(f"✗ Failed to fetch page. Status code: {response.status_code}")
+
+    soup = BeautifulSoup(response.text, 'html.parser') # <3>
+
+    title = soup.find('title').get_text() # <4>
+    print(f"Page title: {title}")
+
+    paragraphs = soup.find_all('p')
+    print(f"Found {len(paragraphs)} paragraph(s):")
+
+    for i, p in enumerate(paragraphs, 1):
+        print(f"  {i}. {p.get_text().strip()}")
+    ```
+
+    1.  Send HTTP request to get web page
+    2.  Check if request was successful
+    3.  Parse HTML with BeautifulSoup
+    4.  Extract titles and paragraphs
+
+    ## With Proper Error Handling
+
+    ``` python
+    import requests
+    from bs4 import BeautifulSoup
+    import time
+    import random
+
+    def robust_scrape(url, max_retries=3, delay_range=(1, 3)):
+        """
+        A robust scraping function with error handling
+
+        Args:
+            url (str): Website URL to scrape
+            max_retries (int): How many times to retry if something fails
+            delay_range (tuple): Random delay between requests (min, max seconds)
+
+        Returns:
+            BeautifulSoup object or None if failed
+        """
+        # Headers to look like a real browser
+        headers = {
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
+        }
+
+        for attempt in range(max_retries):
+            try:
+                # Random delay to seem human-like
+                delay = random.uniform(*delay_range)
+                time.sleep(delay)
+
+                # Make the request
+                response = requests.get(url, headers=headers, timeout=10)
+                response.raise_for_status()  # Raises error for bad status codes
+
+                # Parse and return
+                soup = BeautifulSoup(response.text, 'html.parser')
+                return soup
+
+            except requests.exceptions.Timeout:
+                print(f"Attempt {attempt + 1}: Request timed out")
+            except requests.exceptions.RequestException as e:
+                print(f"Attempt {attempt + 1}: Request error: {e}")
+
+            if attempt < max_retries - 1:
+                wait_time = 2 ** attempt  # Wait longer each time (1s, 2s, 4s)
+                print(f"Waiting {wait_time} seconds before retry...")
+                time.sleep(wait_time)
+
+        print("All retry attempts failed")
+        return None
+
+    # Usage example
+    soup = robust_scrape("https://example.com")
+
+    if soup:
+        title = soup.find('title').get_text()
+        print(f"Successfully scraped: {title}")
+    else:
+        print("Scraping failed after all retries")
+    ```
+    :::
+
+## Selenium {#sec-scrap-selpy .unnumbered}
+
+-   Notes from
+
+    -   [The Beginner’s Guide to Web Scraping in Python: From Zero to Web Data Hero](https://www.spsanderson.com/steveondata/posts/2025-09-03/)
+
+-   [Example]{.ribbon-highlight}: Scrape Titles and Paragraphs
+
+    ``` python
+    from selenium import webdriver
+    from selenium.webdriver.common.by import By
+    from selenium.webdriver.chrome.options import Options
+
+    # Setup Chrome to run in the background (headless)
+    chrome_options = Options()
+    chrome_options.add_argument("--headless")  # Run without opening browser window
+
+    # Create WebDriver instance
+    driver = webdriver.Chrome(options=chrome_options)
+
+    try:
+        # Navigate to webpage
+        driver.get("https://example.com")
+
+        # Wait for page to load (implicit wait)
+        driver.implicitly_wait(10)
+
+        # Find elements
+        title = driver.find_element(By.TAG_NAME, "h1").text
+        print(f"Page title: {title}")
+
+        # Find multiple elements
+        paragraphs = driver.find_elements(By.TAG_NAME, "p")
+        for p in paragraphs:
+            print(f"Paragraph: {p.text}")
+
+    finally:
+        # Always close the browser
+        driver.quit()
+    ```
 
 ## Other Stuff {#sec-scrap-ostuff .unnumbered}
 
