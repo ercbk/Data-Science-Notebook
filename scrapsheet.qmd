@@ -59,9 +59,192 @@ title: "Scrapsheet"
         6.  Calculate CI variant on the distribution of averaged scores
     -   Questions
         -   How many bootstrap iterations?
--   Positron
-    -   Resources
-        -   2024 Posit conference [video](https://www.youtube.com/watch?v=8uRcB34Hhsw&ab_channel=PositPBC) (7 10-min talks?)
+-   Spatial ME
+    -   misc
+        -   glmmTMB uses functions of the distance between observations, and fitted variograms to model the spatial autocorrelation present
+    -   Data
+        -   Response was constructed from counts of ordinal answers to a 1970 census question about house value.
+            -   The response is left- and right-censored in the census source and has been treated as Gaussian.
+        -   The key covariate was created from a calibrated meteorological model showing the annual nitrogen oxides (NOX) level for a smaller number of model output zones (aka TASSIM).
+        -   The numbers of houses responding also varies by tract and model output zone.
+        -   There are several other covariates, some measured at the tract level, some by town only, where towns broadly correspond to the air pollution model output zones.
+    -   Uses a discrete location/id variable as the group variable (i.e. varying intercepts by location). NOX_ID is the location variable for the NOX modelled values.
+        -   lme4
+
+            ``` r
+            library(Matrix)
+            library(lme4)
+
+            form <- 
+              formula(log(median) ~ CRIM + ZN + INDUS + CHAS + 
+                      I((NOX*10)^2) + I(RM^2) + AGE + log(DIS) +
+                      log(RAD) + TAX + PTRATIO + I(BB/100) + 
+                      log(I(LSTAT/100)))
+
+            MLM <- 
+              lmer(update(form, . ~ . + (1 | NOX_ID)),
+                   data = boston_487, 
+                   REML = FALSE)
+
+            # random effects
+            boston_93$MLM_re <- ranef(MLM)[[1]][,1]
+            ```
+
+            -   Not sure why Matrix needs to be called
+
+        -   [hglm](https://cran.r-project.org/web/packages/hglm/index.html)
+
+            ``` r
+            library(hglm) |> suppressPackageStartupMessages()
+            suppressWarnings(HGLM_iid <- hglm(fixed = form,
+                                              random = ~1 | NOX_ID,
+                                              data = boston_487,
+                                              family = gaussian()))
+
+            # random effects
+            boston_93$HGLM_re <- unname(HGLM_iid$ranef)
+            ```
+
+        -   R2BayesX
+
+            ``` r
+            library(R2BayesX) |> suppressPackageStartupMessages()
+
+            BX_iid <- 
+              bayesx(update(form, . ~ . + sx(NOX_ID, bs = "re")),
+                     family = "gaussian", 
+                     data = boston_487,
+                     method = "MCMC", 
+                     iterations = 12000,
+                     burnin = 2000, 
+                     step = 2, 
+                     seed = 123)
+            ```
+
+        -   INLA
+
+            ``` r
+            library(INLA) |> suppressPackageStartupMessages()
+
+            INLA_iid <- 
+              inla(update(form, . ~ . + f(NOX_ID, model = "iid")),
+                   family = "gaussian", 
+                   data = boston_487)
+
+            # random effects
+            boston_93$INLA_re <- INLA_iid$summary.random$NOX_ID$mean
+            ```
+    -   Conditional Autoregressive (CAR) and Intrinsic CAR (ICAR) models in spatially structured random effects
+        -   Care is needed to match the indexing variable with the spatial weights
+
+        -   [hglm](https://cran.r-project.org/web/packages/hglm/index.html) (CAR)
+
+            ``` r
+            library(spatialreg)
+            W <- as(spdep::nb2listw(nb_q_93, style = "B"), "CsparseMatrix")
+
+            form <- 
+              formula(log(median) ~ CRIM + ZN + INDUS + CHAS + 
+                      I((NOX*10)^2) + I(RM^2) + AGE + log(DIS) +
+                      log(RAD) + TAX + PTRATIO + I(BB/100) + 
+                      log(I(LSTAT/100)))
+
+            suppressWarnings(
+              HGLM_car <- 
+                hglm(fixed = form,
+                     random = ~ 1 | NOX_ID,
+                     data = boston_487,
+                     family = gaussian(),
+                     rand.family = CAR(D = W))
+            )
+
+            # random effects
+            boston_93$HGLM_ss <- HGLM_car$ranef[,1]
+            ```
+
+        -   R2BayesX (ICAR)
+
+            ``` r
+            RBX_gra <- nb2gra(nb_q_93)
+            all.equal(row.names(RBX_gra), attr(nb_q_93, "region.id"))
+            # [1] TRUE
+
+            all.equal(unname(diag(RBX_gra)), spdep::card(nb_q_93))
+            # [1] TRUE
+
+            BX_mrf <- 
+              bayesx(update(form, . ~ . + sx(NOX_ID, 
+                                             bs = "mrf",
+                                             map = RBX_gra)), 
+                     family = "gaussian", 
+                     data = boston_487,
+                     method = "MCMC", 
+                     iterations = 12000,
+                     burnin = 2000, 
+                     step = 2, 
+                     seed = 123)
+
+            # random effects
+            boston_93$BX_ss <- BX_mrf$effects["sx(NOX_ID):mrf"][[1]]$Mean
+            ```
+
+        -   INLA (ICAR)
+
+            ``` r
+            ID2 <- as.integer(as.factor(boston_487$NOX_ID))
+
+            INLA_ss <- 
+              inla(update(form, . ~ . + f(ID2, 
+                                          model = "besag",
+                                          graph = W)),
+                   family = "gaussian", 
+                   data = boston_487)
+
+            # random effects
+            boston_93$INLA_ss <- INLA_ss$summary.random$ID2$mean
+            ```
+
+        -   INLA (Laroux)
+
+            ``` r
+            M <- Diagonal(nrow(W), rowSums(W)) - W
+            Cmatrix <- Diagonal(nrow(M), 1) -  M
+
+            INLA_lr <- 
+              inla(update(form, . ~ . + f(ID2, 
+                                          model = "generic1",
+                                          Cmatrix = Cmatrix)),
+                   family = "gaussian", 
+                   data = boston_487)
+
+            # random effects
+            boston_93$INLA_lr <- INLA_lr$summary.random$ID2$mean
+            ```
+
+        -   mcgv (ICAR)
+
+            ``` r
+            library(mgcv)
+            names(nb_q_93) <- attr(nb_q_93, "region.id")
+            boston_487$NOX_ID <- as.factor(boston_487$NOX_ID)
+
+            GAM_MRF <- 
+              gam(update(form, . ~ . + s(NOX_ID, 
+                                         bs = "mrf",
+                                         xt = list(nb = nb_q_93))),
+                  data = boston_487, 
+                  method = "REML")
+
+            # random effects
+            ssre <- predict(GAM_MRF, type = "terms", 
+                            se = FALSE)[, "s(NOX_ID)"]
+            all(sapply(tapply(ssre, list(boston_487$NOX_ID), c),
+                       function(x) length(unique(round(x, 8))) == 1))
+            # [1] TRUE
+
+            boston_93$GAM_ss <- aggregate(ssre, list(boston_487$NOX_ID), 
+                                          head, n=1)$x
+            ```
 
 ## Structural Equation Modeling (SEM)
 
