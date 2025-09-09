@@ -59,82 +59,109 @@ title: "Scrapsheet"
         6.  Calculate CI variant on the distribution of averaged scores
     -   Questions
         -   How many bootstrap iterations?
--   Spatial ME
-    -   misc
-        -   glmmTMB uses functions of the distance between observations, and fitted variograms to model the spatial autocorrelation present
-    -   Data
-        -   Response was constructed from counts of ordinal answers to a 1970 census question about house value.
-            -   The response is left- and right-censored in the census source and has been treated as Gaussian.
-        -   The key covariate was created from a calibrated meteorological model showing the annual nitrogen oxides (NOX) level for a smaller number of model output zones (aka TASSIM).
-        -   The numbers of houses responding also varies by tract and model output zone.
-        -   There are several other covariates, some measured at the tract level, some by town only, where towns broadly correspond to the air pollution model output zones.
-    -   Uses a discrete location/id variable as the group variable (i.e. varying intercepts by location). NOX_ID is the location variable for the NOX modelled values.
-        -   lme4
 
-            ``` r
-            library(Matrix)
-            library(lme4)
+## Spatial ME
 
-            form <- 
-              formula(log(median) ~ CRIM + ZN + INDUS + CHAS + 
-                      I((NOX*10)^2) + I(RM^2) + AGE + log(DIS) +
-                      log(RAD) + TAX + PTRATIO + I(BB/100) + 
-                      log(I(LSTAT/100)))
+-   misc
+    -   glmmTMB uses functions of the distance between observations, and fitted variograms to model the spatial autocorrelation present
+-   Data
+    -   Response was constructed from counts of ordinal answers to a 1970 census question about house value.
+        -   The response is left- and right-censored in the census source and has been treated as Gaussian.
+    -   The key covariate was created from a calibrated meteorological model showing the annual nitrogen oxides (NOX) level for a smaller number of model output zones (aka TASSIM).
+    -   The numbers of houses responding also varies by tract and model output zone.
+    -   There are several other covariates, some measured at the tract level, some by town only, where towns broadly correspond to the air pollution model output zones.
+-   Uses a discrete location/id variable as the group variable (i.e. varying intercepts by location). NOX_ID is the location variable for the NOX modelled values.
+    -   lme4
 
-            MLM <- 
-              lmer(update(form, . ~ . + (1 | NOX_ID)),
-                   data = boston_487, 
-                   REML = FALSE)
+        ``` r
+        library(Matrix)
+        library(lme4)
 
-            # random effects
-            boston_93$MLM_re <- ranef(MLM)[[1]][,1]
-            ```
+        form <- 
+          formula(log(median) ~ CRIM + ZN + INDUS + CHAS + 
+                  I((NOX*10)^2) + I(RM^2) + AGE + log(DIS) +
+                  log(RAD) + TAX + PTRATIO + I(BB/100) + 
+                  log(I(LSTAT/100)))
 
-            -   Not sure why Matrix needs to be called
+        MLM <- 
+          lmer(update(form, . ~ . + (1 | NOX_ID)),
+               data = boston_487, 
+               REML = FALSE)
 
-        -   [hglm](https://cran.r-project.org/web/packages/hglm/index.html)
+        # random effects
+        boston_93$MLM_re <- ranef(MLM)[[1]][,1]
+        ```
 
-            ``` r
-            library(hglm) |> suppressPackageStartupMessages()
-            suppressWarnings(HGLM_iid <- hglm(fixed = form,
-                                              random = ~1 | NOX_ID,
-                                              data = boston_487,
-                                              family = gaussian()))
+        -   Not sure why Matrix needs to be called
 
-            # random effects
-            boston_93$HGLM_re <- unname(HGLM_iid$ranef)
-            ```
+    -   [hglm](https://cran.r-project.org/web/packages/hglm/index.html)
 
-        -   R2BayesX
+        ``` r
+        library(hglm) |> suppressPackageStartupMessages()
+        suppressWarnings(HGLM_iid <- hglm(fixed = form,
+                                          random = ~1 | NOX_ID,
+                                          data = boston_487,
+                                          family = gaussian()))
 
-            ``` r
-            library(R2BayesX) |> suppressPackageStartupMessages()
+        # random effects
+        boston_93$HGLM_re <- unname(HGLM_iid$ranef)
+        ```
 
-            BX_iid <- 
-              bayesx(update(form, . ~ . + sx(NOX_ID, bs = "re")),
-                     family = "gaussian", 
-                     data = boston_487,
-                     method = "MCMC", 
-                     iterations = 12000,
-                     burnin = 2000, 
-                     step = 2, 
-                     seed = 123)
-            ```
+    -   R2BayesX
 
-        -   INLA
+        ``` r
+        library(R2BayesX) |> suppressPackageStartupMessages()
 
-            ``` r
-            library(INLA) |> suppressPackageStartupMessages()
+        BX_iid <- 
+          bayesx(update(form, . ~ . + sx(NOX_ID, bs = "re")),
+                 family = "gaussian", 
+                 data = boston_487,
+                 method = "MCMC", 
+                 iterations = 12000,
+                 burnin = 2000, 
+                 step = 2, 
+                 seed = 123)
+        ```
 
-            INLA_iid <- 
-              inla(update(form, . ~ . + f(NOX_ID, model = "iid")),
-                   family = "gaussian", 
-                   data = boston_487)
+    -   INLA
 
-            # random effects
-            boston_93$INLA_re <- INLA_iid$summary.random$NOX_ID$mean
-            ```
-    -   Conditional Autoregressive (CAR) and Intrinsic CAR (ICAR) models in spatially structured random effects
+        ``` r
+        library(INLA) |> suppressPackageStartupMessages()
+
+        INLA_iid <- 
+          inla(update(form, . ~ . + f(NOX_ID, model = "iid")),
+               family = "gaussian", 
+               data = boston_487)
+
+        # random effects
+        boston_93$INLA_re <- INLA_iid$summary.random$NOX_ID$mean
+        ```
+-   Simultaneous Autoregressive (SAR), Conditional Autoregressive (CAR), and Intrinsic CAR (ICAR) models use spatially structured random effects
+    -   SAR, CAR, ICAR, and Leroux models have the same overall model formula but different random effects formulas
+
+    -   Model Formula\
+        $$
+        \begin{align}
+        &Y = X \beta + Zu \\
+        &\text{where} \;\; u \sim\mathcal{N}(0, \sigma^2_u \; \Sigma)
+        \end{align}
+        $$
+
+        -   $\sigma^2_u \; \Sigma$ is the variance/covariance matrix of the random effects
+
+    -   Random Effects ($u$) Formulas
+
+        -   SAR: $\Sigma^{-1} = (I-\rho W)'\;(I-\rho W)$
+            -   $W$ is a non-singular spatial weights matrix
+            -   $\rho$ is a spatial correlation parameter
+        -   CAR: $\Sigma^{-1} = (I-\rho W)$
+            -   $W$ is a symmetric and strictly positive definite spatial weights matrix
+        -   ICAR: $\Sigma^-1 = M = \text{diag}(n_i) - W$
+            -   $W$ is a symmetric and strictly positive definite spatial weights matrix
+        -   Leroux: $\Sigma^{-1} = (I-\rho)I_n + \rho M)$
+
+    -   Examples
+
         -   Care is needed to match the indexing variable with the spatial weights
 
         -   [hglm](https://cran.r-project.org/web/packages/hglm/index.html) (CAR)
@@ -236,15 +263,23 @@ title: "Scrapsheet"
                   method = "REML")
 
             # random effects
-            ssre <- predict(GAM_MRF, type = "terms", 
-                            se = FALSE)[, "s(NOX_ID)"]
+            ssre <- 
+              predict(GAM_MRF, 
+                      type = "terms",
+                      se = FALSE)[, "s(NOX_ID)"]
+
             all(sapply(tapply(ssre, list(boston_487$NOX_ID), c),
                        function(x) length(unique(round(x, 8))) == 1))
             # [1] TRUE
 
+            # return the first value for each upper-level unit
             boston_93$GAM_ss <- aggregate(ssre, list(boston_487$NOX_ID), 
                                           head, n=1)$x
             ```
+
+            -   The upper-level random effects may be extracted by predicting terms
+
+            -   The values in all lower-level tracts belonging to the same upper-level air pollution model output zones are identical
 
 ## Structural Equation Modeling (SEM)
 
