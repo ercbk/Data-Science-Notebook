@@ -63,17 +63,79 @@ title: "Scrapsheet"
 ## Spatial ME
 
 -   todo
+
     -   Preprocessing
         -   extensive and intensive variables
         -   aggregating census tract geometry variables to the NOX model geometry (towns?)
     -   glmmTMB uses functions of the distance between observations, and fitted variograms to model the spatial autocorrelation present (haven't found an example using this package)
+
 -   Data
+
     -   Response was constructed from counts of ordinal answers to a 1970 census question about house value.
         -   The response is left- and right-censored in the census source and has been treated as Gaussian.
     -   The key covariate was created from a calibrated meteorological model showing the annual nitrogen oxides (NOX) level for a smaller number of model output zones (aka TASSIM).
     -   The numbers of houses responding also varies by tract and model output zone.
     -   There are several other covariates, some measured at the tract level, some by town only, where towns broadly correspond to the air pollution model output zones.
+
+-   Preprocessing
+
+    ``` r
+    library(sf)
+    library(spData)
+    boston_506 <- st_read(system.file("shapes/boston_tracts.gpkg",
+                          package = "spData")[1], quiet = TRUE)
+
+    nb_q <- spdep::poly2nb(boston_506)
+    lw_q <- spdep::nb2listw(nb_q, style = "W")
+
+
+
+    # If we examine the median house values, we find that those for censored values have been assigned as missing, and that 17 tracts are affected
+    table(boston_506$censored)
+    # 
+    #  left    no right 
+    #     2   489    15
+
+
+
+
+    # remove censored home values and create a new nb list and add weights
+    # this results in nodes w/o neighbors and 3 subgraphs
+    boston_506$CHAS <- as.factor(boston_506$CHAS)
+    boston_489 <- boston_506[!is.na(boston_506$median),]
+    nb_q_489 <- spdep::poly2nb(boston_489)
+    # Warning in spdep::poly2nb(boston_489): some observations have no neighbours;
+    # if this seems unexpected, try increasing the snap argument.
+    # Warning in spdep::poly2nb(boston_489): neighbour object has 3 sub-graphs;
+    # if this sub-graph count seems unexpected, try increasing the snap argument.
+    lw_q_489 <- spdep::nb2listw(nb_q_489, style = "W",
+                                zero.policy = TRUE)
+
+
+
+
+    # The NOX_ID variable specifies the upper-level aggregation, letting us aggregate the tracts to air pollution model output zones
+    agg_96 <- list(as.character(boston_506$NOX_ID))
+    boston_96 <- 
+      aggregate(boston_506[, "NOX_ID"], 
+                by = agg_96,
+                unique)
+
+    nb_q_96 <- spdep::poly2nb(boston_96)
+    lw_q_96 <- spdep::nb2listw(nb_q_96)
+
+    boston_96$NOX <- 
+      aggregate(boston_506$NOX, 
+                agg_96, 
+                mean)$x
+    boston_96$CHAS <-
+      aggregate(as.integer(boston_506$CHAS)-1, 
+                agg_96, 
+                max)$x
+    ```
+
 -   Uses a discrete location/id variable as the group variable (i.e. varying intercepts by location). NOX_ID is the location variable for the NOX modelled values.
+
     -   lme4
 
         ``` r
@@ -139,7 +201,9 @@ title: "Scrapsheet"
         # random effects
         boston_93$INLA_re <- INLA_iid$summary.random$NOX_ID$mean
         ```
+
 -   Simultaneous Autoregressive (SAR), Conditional Autoregressive (CAR), and Intrinsic CAR (ICAR) models use spatially structured random effects
+
     -   SAR, CAR, ICAR, and Leroux models have the same overall model formula but different random effects formulas
 
     -   Model Formula\
