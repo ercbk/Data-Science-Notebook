@@ -2,19 +2,28 @@
 
 ## Misc {#sec-kube-misc .unnumbered}
 
--   An open-source container orchestration platform
-    -   Automates the deployment, scaling, and management of containerized applications. It works by simplifying the containerized workloads based on demand, across a cluster of machines to ensure increased availability, scalability, and efficient resource use.
+-   An open-source container orchestration platform. Automates the deployment, scaling, and management of containerized applications. It works by simplifying the containerized workloads based on demand, across a cluster of machines to ensure increased availability, scalability, and efficient resource use.
 -   Docs
     -   [Components](https://kubernetes.io/docs/concepts/overview/components/)
 -   Resources
     -   [Kubernetes Roadmap](https://roadmap.sh/kubernetes) - Breakdown of the different areas needed to master k8 with descriptions and links to learning resources.
     -   Video: [Kubernetes Course - Full Beginners Tutorial](https://www.youtube.com/watch?v=d6WC5n9G_sM&ab_channel=freeCodeCamp.org) - 3hr tutorial by freecodecamp
--   [K9s](https://k9scli.io/) is a powerful CLI tool that makes managing your Kubernetes clusters easy
--   Datascience project components
+    -   [Microsoft's Kubernetes Learning Path](https://web.archive.org/web/20230815194156/https://azurecomcdn.azureedge.net/cvt-654ff0c11572f0043b19dd8da7fed50d177ba3060e149008310c11d8b38e15c1/mediahandler/files/resourcefiles/kubernetes-learning-path/Kubernetes%20Learning%20Path_Version%202.0.pdf/) course
+-   Tools
+    -   [K9s](https://k9scli.io/) - A powerful CLI tool that makes managing your Kubernetes clusters easy
+    -   [Packer](https://jmorano.moretrix.com/2022/04/using-ansible-to-finalize-hashicorp-packer-images/) - Tool for building identical machine images for multiple platforms. These can – for example – then be pushed to Azure Container Registry for use in Azure Kubernetes Service, or used on VMs in Azure.
+    -   [Ansible](https://www.redhat.com/en/ansible-collaborative)  - An open source IT automation engine that automates provisioning, configuration management, application deployment, orchestration, and many other IT processes.
+-   Project Components
     -   Your code (python/R/julia/matlab)
     -   A Dockerfile that packages up your code
     -   A configuration file (deployment.yaml, job.yaml) (sometimes someone else will do this for you)
--   Process
+-   Write process script for each of these steps
+    -   Run all the tests
+    -   Build the docker image
+    -   Check the image
+    -   Push the image to the registry
+    -   Deploy the new version of your code to the production cluster
+-   General Process
     -   Build your machine learning code.
     -   Package it up into a docker container and push that image into a registry.
     -   Using the configuration file, you tell the kubernetes cluster where to find that image and how to build your service out of it ("make two copies and give them lots of ram").
@@ -25,15 +34,10 @@
         -   Check that you are logging errors when they occur.
         -   Check how you handle unexpected inputs (a person with an age of 200, a car with no weight, etc)
         -   Test the container, pass expected input to the container, pass unexpected input, test if the container fails and protests loudly when the required environmental variables are not found.
-    -   Arrange what your API should look like: when you use {plumber}: what endpoint will be called, what port should be reached for, and what will the data look like? Make sure you write some tests for that! When you use {shiny}: what port does it live on, what are the memory and CPU requirements for your application. In all cases: what secrets must be supplied to the container?
+    -   Arrange what your API should look like:
+        -   When you use {plumber}: what endpoint will be called, what port should be reached for, and what will the data look like? Make sure you write some tests for that! When you use {shiny}: what port does it live on, what are the memory and CPU requirements for your application. In all cases: what secrets must be supplied to the container?
     -   Arrange where logs should go and how they should look. My favorite R logging package is [{logger}]{style="color: #990000"} and it can do many many forms of logging. If something goes wrong you want the logs to tell you what happened and where you should investigate.
     -   Use [{renv}]{style="color: #990000"} to install specific versions of r-packages, and to record that in a lockfile.
--   Write process script for each of these steps
-    -   Run all the tests
-    -   Build the docker image
-    -   Check the image
-    -   Push the image to the registry
-    -   Deploy the new version of your code to the production cluster
 -   Cost Benefits
     -   Autoscaling: Kubernetes consists of some open-source tools (like Horizontal Pod Autoscaler and Cluster Autoscale) that allow the users to dynamically adjust the number of containers to use which prevents the companies from overprovisioning, where they pay for resources that are not being used.
     -   Improved developer efficiency: This also improves the developer efficiency by streamlining deployments, rollbacks, and scaling allowing them to focus on building apps rather than managing cloud infrastructure.
@@ -44,3 +48,39 @@
 -   [**etcd**]{style="color: #009499"} - Consistent and highly-available key value store used as Kubernetes' backing store for all cluster data. [Docs](https://etcd.io/docs/)
     -   If your Kubernetes cluster uses etcd as its backing store, make sure you have a back up plan for those data.
 -   [**Time-to-Live (TTL)**]{style="color: #009499"} - Kubernetes mechanism for shutting down pods and gc - "Kubernetes v1.23 \[stable\] TTL-after-finished controller provides a TTL (time to live) mechanism to limit the lifetime of resource objects that have finished execution. TTL controller only handles Jobs." [Docs](https://kubernetes.io/docs/concepts/workloads/controllers/ttlafterfinished/)
+
+## Debugging {#sec-kube-debug .unnumbered}
+
+-   Notes from [Beyond the AKS Basics: Practical Tips for Your Kubernetes Journey](https://www.jumpingrivers.com/blog/beyond-azure-kubernetes-service-basics/)
+
+-   Resources
+
+    -   [Docs for debugging nodes](https://kubernetes.io/docs/tasks/debug/debug-cluster/kubectl-node-debug/)
+
+-   Experiences
+
+    -   "The reverse proxy (more specifically an Azure Application Gateway), sitting innocently in front of our VMs and the rest of our system had a default two-minute connection timeout. If allocating a job to a node took longer than that, the proxy would prematurely close the connection, resulting in the dreaded 504 error."
+        -   Underscores the importance of considering the entire system architecture when debugging and not just Kubernetes — e.g. load balancers, proxies, firewalls, and any other piece of infrastructure that might be interacting with your cluster.
+
+-   Spin up a temporary container based on your image and get a shell inside
+
+    ``` bash
+    kubectl run -it --image <your_image> <your_container_name> -- /bin/bash
+    ${AZURE_CONTAINER_REPOSITORY_NAME}.azurecr.io/${IMAGE_NAME} testme -- /bin/bash
+    ```
+
+    -   If a Kubernetes session refuses to start, then this might figure out what's happening
+
+-   Open shell inside a node
+
+    ``` bash
+    kubectl debug node/<your_node_name> -it --image=ubuntu
+    ```
+
+-   View logs filtered by service unit (your application), time range, and specific keywords
+
+    ``` bash
+    sudo journalctl -u $SERVICE_UNIT_NAME --since "$TIME_RANGE" -g "$SEARCH_TERM"
+    ```
+
+    -   Many “always-on” Linux-based applications rely on systemctl and journalctl which allows you to use them

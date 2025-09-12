@@ -586,22 +586,24 @@
 
 ## sf {#sec-geo-proc-sf .unnumbered}
 
--   [Misc]{.underline}
+### Misc {#sec-geo-proc-sf-misc .unnumbered}
 
-    -   [Docs](https://r-spatial.github.io/sf/)
-    -   Notes from [A Crash Course in Geographic Information Systems (GIS) using R](https://bookdown.org/michael_bcalles/gis-crash-course-in-r/)
-    -   GEOS and S2 are engines
-        -   Some arguments work with different versions
+-   [Docs](https://r-spatial.github.io/sf/)
+-   Notes from [A Crash Course in Geographic Information Systems (GIS) using R](https://bookdown.org/michael_bcalles/gis-crash-course-in-r/)
+-   GEOS and S2 are engines
+    -   Some arguments work with different versions
 
-        -   Check versions
+    -   Check versions
 
-            ``` r
-            sf_extSoftVersion()["GEOS"]
-            #>     GEOS 
-            #> "3.12.1"
-            packageVersion("s2")
-            #> [1] ‘1.1.7’
-            ```
+        ``` r
+        sf_extSoftVersion()["GEOS"]
+        #>     GEOS 
+        #> "3.12.1"
+        packageVersion("s2")
+        #> [1] ‘1.1.7’
+        ```
+
+### Measures {#sec-geo-proc-sf-meas .unnumbered}
 
 -   [Distances]{.underline}
 
@@ -680,6 +682,8 @@
             -   [nQuadSegs]{.arg-text} controls the number of segments used to approximate the circle. When set to 0, it returns a 2-point LINESTRING (center point and a point on the circle). This representation is more accurate (center + radius) and efficient than using a polygon. This setting is only available for GEOS \>= "3.9.0". In general, a higher value (e.g. default = 30) results in a smoother polygon.
         -   `st_cast`: Converts the 2-point LINESTRING to just a (center) point ([to = "POINT"]{.arg-text})
 
+### Transformations {#sec-geo-proc-sf-trans .unnumbered}
+
 -   [Buffer]{.underline}\
     ![](_resources/Geospatial,_Processing.resources/sf-buffer-1.png){.lightbox width="332"}
 
@@ -740,3 +744,69 @@
 
         plot(average_income_by_crash_buffer["average_income"])
         ```
+
+### Aggregations {#sec-geo-proc-sf-agg .unnumbered}
+
+-   AKA Conservative Region Aggregation or Regridding
+
+-   Considers the area of overlap of the source and target geometries, and uses that to weigh the source attribute values into the target value
+
+-   Notes from [Spatial Data Science, Ch. 5](https://r-spatial.org/book/05-Attributes.html#sec-extensiveintensive)
+
+-   Sub-Areas ($S_{ij}$) are the geometries of the original variable values (smaller than Target Areas).
+
+-   Target Areas ($T_{ij}$) are the new larger geometries that will be the support for the aggregated variable
+
+-   [Aggregating Extensive Variables]{.underline}
+
+    -   Formula\
+        $$
+        \begin{align}
+        &\hat Y_{j}(T_j)= \sum_{i=1}^p \frac{|A_{ij}|}{|S_i|} Y_i (S_i) \\
+        &\text{where} \;\; A_{ij} = T_j \cap S_i
+        \end{align}
+        $$
+    -   Process
+        1.  Calculate intersection area betweem the sub-area ($S_{i}$) and the target area ($T_{j}$) .
+        2.  Calculate the proportion of the intersected area ($A_{ij}$) to the sub-area ($S_{i}$)
+        3.  Multiply that proportion ($|A_{ij}|\;/\;|S_i|$) times the variable ($Y_i (S_i)$) to get the target subarea variable value.
+        4.  Repeat for $p$ sub-areas
+        5.  Sum all target subarea variable values to get the target area variable value ($\hat Y_{j}(T_j)$)
+
+-   [Aggregating Intensive Variables]{.underline}
+
+    -   The assumption is that the variable has a *constant* value over each sub-area ($S_i$), and therefore has that same value for the intersection with target area ($T_j$)
+    -   Formula\
+        $$
+        \begin{align}
+        &\hat Y_{j}(T_j)= \sum_{i=1}^p \frac{|A_{ij}|}{|T_i|} Y_i (S_i) \\
+        &\text{where} \;\; A_{ij} = T_j \cap S_i
+        \end{align}        
+        $$
+        -   The difference here is the weight is the proportion of the intersection $A_{ij}$ to the target area ($T_j$)
+
+-   [Example]{.ribbon-highlight}: Aggregating into Quadrants ([source](https://www.redhat.com/en/ansible-collaborative))\
+    ![](_resources/Geospatial,_Processing.resources/sf-agg-nc-1.png){.lightbox width="432"}
+
+    ``` r
+    library(sf)
+    nc <- read_sf(system.file("gpkg/nc.gpkg", package = "sf"))
+
+    # create quadrant indicators using two logicals
+    nc$lng <- st_coordinates(st_centroid(st_geometry(nc)))[,1] > -79
+    nc$lat <- st_coordinates(st_centroid(st_geometry(nc)))[,2] > 35.5
+
+    # sum variable by quadrant indicators
+    nc.grp <- aggregate(nc["SID74"], list(nc$lng, nc$lat), sum)
+
+    nc.grp["SID74"] |> 
+      st_transform('EPSG:32119') |>
+      plot(graticule = TRUE, axes = TRUE)
+    ```
+
+    -   [SID74]{.var-text} is a disease incidence (count) variable
+    -   Counties are grouped by their position (according to the quadrant in which the county centroid is with respect to ellipsoidal coordinate POINT(-79, 35.5)
+    -   sf has an internal `aggregate` function that unions all the counties into the quadrants and aggregates the variable accordingly.
+        -   It takes apart the geometry variable and builds it up again to get `st_union` to produce the correct result. It's essentially a few lines of nested base r code, but it's a bit nasty.
+        -   It also uses [by_feature = TRUE]{.arg-text} which is not the default and I'm not currently sure what that does. I think it causes `st_union` to act different in the `aggregate,` because the object was coerced into a sfc class
+        -   A simple `group_by` + `summarize(geom = st_union(geom))` (or using `mutate`, `group_split`, `group_map`, etc.) will NOT produce a matching result. (although it's close I think)
