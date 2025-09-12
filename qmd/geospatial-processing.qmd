@@ -16,61 +16,6 @@
         -   Article example had a \~68% match rate
     -   Embeddings (e.g. embed name variable + cosine similarity)
         -   Article example had a \~71% match rated
--   Beware statistical computations of tibbles/sf_tibbles with geometry columns
-    -   Could result in an expensive union operation over identical geometries and an R session crash
-
-        -   Example with 100K rows crashed R.
-
-    -   Notes from [thread](https://twitter.com/kyle_e_walker/status/1559568087942172673)
-
-    -   Option 1 (slower): Set [do_union = FALSE]{.arg-text} in `summarize`
-
-        ``` r
-        tx_income_groups <- 
-          get_acs(
-            geography = "tract",
-            table = "B19001",
-            state = "TX",
-            year = 2020,
-            geometry = TRUE
-          ) |> 
-          filter(variable != "B19001_001") |> 
-          mutate(bracket = case_when(
-            variable > "B19001_012" ~ "Above $100k",
-            TRUE ~ "Below $100k"
-          )) |> 
-          group_by(GEOID, bracket) |> 
-          summarize(n_households = sum(estimate, na.rm = TRUE),
-                    do_union = FALSE)
-        ```
-
-    -   Option 2 (faster): Perform calculation without geometries then join
-
-        ``` r
-        tx_tracts <- tracts("TX", cb = TRUE, year = 2020) |> 
-          select(GEOID)
-
-        tx_income_groups <- 
-          get_acs(
-            geography = "tract",
-            table = "B19001",
-            state = "TX",
-            year = 2020,
-            geometry = TRUE
-          ) |> 
-          filter(variable != "B19001_001") |> 
-          mutate(bracket = case_when(
-            variable > "B19001_012" ~ "Above $100k",
-            TRUE ~ "Below $100k"
-          )) |> 
-          group_by(GEOID, bracket) |> 
-          summarize(n_households = sum(estimate, na.rm = TRUE))
-
-        tx_income_groups <- tx_tracts |> 
-          left_join(tx_income_groups, by = "GEOID")
-        ```
-
-        -   [{tidycensus}]{style="color: #990000"} has an arg to bypass d/ling the geometries, [geometry = FALSE]{.arg-text} and a separate `tracts` function to get the census tract geometries
 
 ## File Types {#sec-geo-proc-filtyp .unnumbered}
 
@@ -588,7 +533,7 @@
 
 ### Misc {#sec-geo-proc-sf-misc .unnumbered}
 
--   [Docs](https://r-spatial.github.io/sf/)
+-   [Docs](https://r-spatial.github.io/sf/), [tidyverse methods for sf objects](https://r-spatial.github.io/sf/reference/tidyverse.html)
 -   Notes from [A Crash Course in Geographic Information Systems (GIS) using R](https://bookdown.org/michael_bcalles/gis-crash-course-in-r/)
 -   GEOS and S2 are engines
     -   Some arguments work with different versions
@@ -745,20 +690,19 @@
         plot(average_income_by_crash_buffer["average_income"])
         ```
 
-### Aggregations {#sec-geo-proc-sf-agg .unnumbered}
+## Aggregations {#sec-geo-proc-agg .unnumbered}
+
+### Misc {#sec-geo-proc-agg-misc .unnumbered}
 
 -   AKA Conservative Region Aggregation or Regridding
-
 -   Considers the area of overlap of the source and target geometries, and uses that to weigh the source attribute values into the target value
-
 -   Notes from [Spatial Data Science, Ch. 5](https://r-spatial.org/book/05-Attributes.html#sec-extensiveintensive)
 
+### Methods {#sec-geo-proc-agg-meth .unnumbered}
+
 -   Sub-Areas ($S_{ij}$) are the geometries of the original variable values (smaller than Target Areas).
-
 -   Target Areas ($T_{ij}$) are the new larger geometries that will be the support for the aggregated variable
-
 -   [Aggregating Extensive Variables]{.underline}
-
     -   Formula\
         $$
         \begin{align}
@@ -772,9 +716,7 @@
         3.  Multiply that proportion ($|A_{ij}|\;/\;|S_i|$) times the variable ($Y_i (S_i)$) to get the target subarea variable value.
         4.  Repeat for $p$ sub-areas
         5.  Sum all target subarea variable values to get the target area variable value ($\hat Y_{j}(T_j)$)
-
 -   [Aggregating Intensive Variables]{.underline}
-
     -   The assumption is that the variable has a *constant* value over each sub-area ($S_i$), and therefore has that same value for the intersection with target area ($T_j$)
     -   Formula\
         $$
@@ -785,11 +727,13 @@
         $$
         -   The difference here is the weight is the proportion of the intersection $A_{ij}$ to the target area ($T_j$)
 
--   [Example]{.ribbon-highlight}: Aggregating into Quadrants ([source](https://www.redhat.com/en/ansible-collaborative))\
+### Examples {#sec-geo-proc-agg-exs .unnumbered}
+
+-   [Example]{.ribbon-highlight}: Aggregate extensive variable into quadrants ([source](https://www.redhat.com/en/ansible-collaborative))\
     ![](_resources/Geospatial,_Processing.resources/sf-agg-nc-1.png){.lightbox width="432"}
 
     ``` r
-    library(sf)
+    library(dplyr); library(sf)
     nc <- read_sf(system.file("gpkg/nc.gpkg", package = "sf"))
 
     # create quadrant indicators using two logicals
@@ -797,16 +741,84 @@
     nc$lat <- st_coordinates(st_centroid(st_geometry(nc)))[,2] > 35.5
 
     # sum variable by quadrant indicators
-    nc.grp <- aggregate(nc["SID74"], list(nc$lng, nc$lat), sum)
+    nc.grp1 <- 
+      aggregate(nc["SID74"], 
+                list(nc$lng, nc$lat), 
+                sum) |> 
+      (\(d) d[order(d$SID74), ])()
+    # or
+    nc.grp2 <- nc |> 
+      group_by(lng, lat) |> 
+      summarize(SID74 = sum(SID74)) |> 
+      arrange(SID74)
 
-    nc.grp["SID74"] |> 
+    nc.grp1["SID74"] |> 
       st_transform('EPSG:32119') |>
       plot(graticule = TRUE, axes = TRUE)
     ```
 
     -   [SID74]{.var-text} is a disease incidence (count) variable
     -   Counties are grouped by their position (according to the quadrant in which the county centroid is with respect to ellipsoidal coordinate POINT(-79, 35.5)
-    -   sf has an internal `aggregate` function that unions all the counties into the quadrants and aggregates the variable accordingly.
-        -   It takes apart the geometry variable and builds it up again to get `st_union` to produce the correct result. It's essentially a few lines of nested base r code, but it's a bit nasty.
-        -   It also uses [by_feature = TRUE]{.arg-text} which is not the default and I'm not currently sure what that does. I think it causes `st_union` to act different in the `aggregate,` because the object was coerced into a sfc class
-        -   A simple `group_by` + `summarize(geom = st_union(geom))` (or using `mutate`, `group_split`, `group_map`, etc.) will NOT produce a matching result. (although it's close I think)
+    -   If you look at the sf docs for the sf tidyverse functions (See Misc) under the [do_union]{.arg-text} argument, it says, "Using `st_union` resolves internal boundaries, but in case of unioning points, this will likely change the order of the points."
+        -   Therefore, when you compare the output between `aggregate` and `group_by` + `summarize`, the first sets of the points in the geometry column cells will likely be different. That will be because the pairs of points in each polygon are listed in different orders and not because the resulting geometries are different.
+        -   In this example, I could not see any difference in the plotted objects whether the union was done via the base R way or the dplyr way.
+
+-   [Example]{.ribbon-highlight}: Large data may crash R when doing aggregations
+
+    -   Could result in an expensive union operation over identical geometries and a R session crash
+
+    -   Notes from [thread](https://twitter.com/kyle_e_walker/status/1559568087942172673) (Data with 100K rows crashed R.)
+
+    -   Option 1: Set [do_union = FALSE]{.arg-text} in `summarize`
+
+        ``` r
+        tx_income_groups <- 
+          get_acs(
+            geography = "tract",
+            table = "B19001",
+            state = "TX",
+            year = 2020,
+            geometry = TRUE
+          ) |> 
+          filter(variable != "B19001_001") |> 
+          mutate(bracket = case_when(
+            variable > "B19001_012" ~ "Above $100k",
+            TRUE ~ "Below $100k"
+          )) |> 
+          group_by(GEOID, bracket) |> 
+          summarize(n_households = sum(estimate, na.rm = TRUE),
+                    do_union = FALSE)
+        ```
+
+        -   If you just need the aggregated attribute values and not the geometry union.
+
+    -   Option 2: Perform calculation without geometries then join
+
+        ``` r
+        tx_income_groups <- 
+          get_acs(
+            geography = "tract",
+            table = "B19001",
+            state = "TX",
+            year = 2020,
+            geometry = FALSE
+          ) |> 
+          filter(variable != "B19001_001") |> 
+          mutate(bracket = case_when(
+            variable > "B19001_012" ~ "Above $100k",
+            TRUE ~ "Below $100k"
+          )) |> 
+          group_by(GEOID, bracket) |> 
+          summarize(n_households = sum(estimate, na.rm = TRUE))
+
+        tx_tracts <- 
+          tracts("TX", 
+                 cb = TRUE, 
+                 year = 2020) |> 
+          select(GEOID)
+        tx_income_groups <- 
+          tx_tracts |> 
+          left_join(tx_income_groups, by = "GEOID")
+        ```
+
+        -   [{tidycensus}]{style="color: #990000"} has an arg to bypass d/ling the geometries, [geometry = FALSE]{.arg-text} and a separate `tracts` function to get the census tract geometries
