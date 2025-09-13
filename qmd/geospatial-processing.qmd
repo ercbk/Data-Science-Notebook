@@ -56,8 +56,9 @@
     -   [Example]{.ribbon-highlight}: Counties in California
 
         ``` r
-        tbl <- tigris::counties(state = "CA") %>%
-            st_set_crs(4326)
+        tbl <- 
+          tigris::counties(state = "CA") %>%
+          st_set_crs(4326)
         ```
 
     -   [{]{style="color: #990000"}[tigris](https://github.com/walkerke/tigris){style="color: #990000"}[}]{style="color: #990000"} - US data
@@ -68,7 +69,7 @@
         us_states <- states(resolution = "20m", year = 2022, cb = TRUE)
 
         lower_48 <- us_states %>%
-          filter(!(NAME %in% c("Alaska", "Hawaii", "Puerto Rico")))
+          filter(!(NAME %in% c("Alaska", "Hawaii", "Puerto Rico")))
         ```
 
     -   [{]{style="color: #990000"}[rnaturalearth](https://github.com/ropensci/rnaturalearth){style="color: #990000"}[}]{style="color: #990000"} - World data
@@ -729,7 +730,7 @@
 
 ### Examples {#sec-geo-proc-agg-exs .unnumbered}
 
--   [Example]{.ribbon-highlight}: Aggregate extensive variable into quadrants ([source](https://www.redhat.com/en/ansible-collaborative))\
+-   [Example 1]{.ribbon-highlight}: Aggregate extensive variable into quadrants ([source](https://www.redhat.com/en/ansible-collaborative))\
     ![](_resources/Geospatial,_Processing.resources/sf-agg-nc-1.png){.lightbox width="432"}
 
     ``` r
@@ -742,9 +743,9 @@
 
     # sum variable by quadrant indicators
     nc.grp1 <- 
-      aggregate(nc["SID74"], 
-                list(nc$lng, nc$lat), 
-                sum) |> 
+      aggregate(x = nc["SID74"], 
+                by = list(nc$lng, nc$lat), 
+                FUN = sum) |> 
       (\(d) d[order(d$SID74), ])()
     # or
     nc.grp2 <- nc |> 
@@ -763,7 +764,87 @@
         -   Therefore, when you compare the output between `aggregate` and `group_by` + `summarize`, the first sets of the points in the geometry column cells will likely be different. That will be because the pairs of points in each polygon are listed in different orders and not because the resulting geometries are different.
         -   In this example, I could not see any difference in the plotted objects whether the union was done via the base R way or the dplyr way.
 
--   [Example]{.ribbon-highlight}: Large data may crash R when doing aggregations
+-   [Example 2]{.ribbon-highlight}: Aggregate multiple variables
+
+    ::: panel-tabset
+    ## Data
+    
+    This is the Boston housing dataset. [NOX]{.var-text} is nitrous oxide pollution measurement and [NOX_ID]{.var-text} is the ID variable for the area where the measurement took place. [CHAS]{.var-text} is an indicator of whether the tract is close to the Charlestown river.\
+    The variables are at the census tract level and the goal here is to aggregate them to the [NOX]{.var-text} measurement area using [NOX_ID]{.var-text}.
+    
+    ``` r
+    pacman::p_load(
+      dplyr,
+      sf,
+      spData
+    )
+
+    boston_506 <- 
+      sf::st_read(system.file("shapes/boston_tracts.gpkg",
+                              package = "spData")[1], 
+                  quiet = TRUE)
+
+    boston_506$CHAS <- as.factor(boston_506$CHAS) # just cleaning
+    ```
+    
+    -    The [{sf}]{style="color: #990000"} docs say that [{dplyr}]{style="color: #990000"} needs to be loaded, but if need be, I think you could just use dplyr::function syntax and be fine.
+    
+    ## Aggregation Options
+    
+    ``` r
+    ls_nox_ids <- list(as.character(boston_506$NOX_ID))
+    boston_96 <-  # <1>
+      aggregate(x =boston_506[, "NOX_ID"], 
+                by = ls_nox_ids,
+                FUN = unique)
+    boston_96$NOX <- 
+      aggregate(boston_506$NOX, 
+                ls_nox_ids, 
+                mean)$x
+    boston_96$CHAS <-
+      aggregate(as.integer(boston_506$CHAS)-1, # as.integer makes its values (1,2)
+                ls_nox_ids,
+                max)$x
+
+    # or
+
+    boston_96_2 <-  # <2> 
+      aggregate(boston_506[, "NOX"], 
+                ls_nox_ids, 
+                mean)
+    colnames(boston_96_2)[1] <- "NOX_ID"
+    boston_96_2$CHAS <-
+      aggregate(as.integer(boston_96_2$CHAS)-1, # as.integer makes its values (1,2)
+                ls_nox_ids,
+                max)$x
+
+    # or
+
+    boston_96_d <-  # <3>
+      boston_506 |> 
+      group_by(NOX_ID) |> 
+      summarize(NOX = mean(NOX),
+                CHAS = max(as.integer(CHAS) - 1))
+    ```
+
+    1.  Option 1: The first aggregate call is just to perform the union of the geometries . The next couple aggregate calls aggregate the variables and add them to the first one.
+
+    2.  Option 2: Union the geometries and aggregate one of the variables at the same time. aggregate automatically creates a generic grouping variable name which can be replaced with [NOX_ID]{.var-text} by `colnames`
+
+    3.  Option 3: Use sf's custom dplyr methods to do everyting in a few lines. You could probably get `aggregate` to handle multiple functions with a udf having conditionals, but I'm going to let that be for now.
+    
+    ## Neighbors Comparison
+    
+    words
+    
+    ``` r
+    # other code
+    ```
+    
+    -  Thoughts
+    :::
+
+-   [Example 4]{.ribbon-highlight}: Large data may crash R when doing aggregations
 
     -   Could result in an expensive union operation over identical geometries and a R session crash
 
