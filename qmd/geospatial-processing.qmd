@@ -764,13 +764,16 @@
         -   Therefore, when you compare the output between `aggregate` and `group_by` + `summarize`, the first sets of the points in the geometry column cells will likely be different. That will be because the pairs of points in each polygon are listed in different orders and not because the resulting geometries are different.
         -   In this example, I could not see any difference in the plotted objects whether the union was done via the base R way or the dplyr way.
 
--   [Example 2]{.ribbon-highlight}: Aggregate Multiple Intensive Variables ([source](https://r-spatial.org/book/16-SpatialRegression.html#boston-house-value-dataset))
+-   [Example 2]{.ribbon-highlight}: Aggregate Multiple Intensive Variables ([SDS Ch.16](https://r-spatial.org/book/16-SpatialRegression.html#boston-house-value-dataset))
 
     ::: panel-tabset
     ## Data
 
-    This is the Boston housing dataset. [NOX]{.var-text} is nitrous oxide pollution measurement and [NOX_ID]{.var-text} is the ID variable for the area where the measurement took place. [CHAS]{.var-text} is an indicator of whether the tract is close to the Charlestown river.\\\
+    This is the Boston housing dataset. [NOX]{.var-text} is nitrous oxide pollution measurement and [NOX_ID]{.var-text} is the ID variable for the area where the measurement took place. [CHAS]{.var-text} is an indicator of whether the tract is close to the Charlestown river.
+
     The variables are at the census tract level and the goal here is to aggregate them to the [NOX]{.var-text} measurement area using [NOX_ID]{.var-text}.
+
+    In this example I show a couple base R options and a dplyr option Continued in Example 3
 
     ``` r
     pacman::p_load(
@@ -794,7 +797,7 @@
     ``` r
     ls_nox_ids <- list(as.character(boston_506$NOX_ID))
     boston_96 <-  # <1>
-      aggregate(x =boston_506[, "NOX_ID"], 
+      aggregate(x = boston_506[, "NOX_ID"], 
                 by = ls_nox_ids,
                 FUN = unique)
     boston_96$NOX <- 
@@ -831,7 +834,7 @@
 
     2.  Option 2: Union the geometries and aggregate one of the variables at the same time. aggregate automatically creates a generic grouping variable name which can be replaced with [NOX_ID]{.var-text} by `colnames`
 
-    3.  Option 3: Use sf's custom dplyr methods to do everyting in a few lines. You could probably get `aggregate` to handle multiple functions with a udf having conditionals, but I'm going to let that be for now.
+    3.  Option 3: Use sf's custom dplyr methods to do everything in a few lines. You could probably get `aggregate` to handle multiple functions with a udf having conditionals, but I'm going to let that be for now.
 
     ## Sanity Check
 
@@ -842,6 +845,214 @@
     ```
 
     -   Thoughts
+    :::
+
+-   [Example 3]{.ribbon-highlight}: Aggregate Using Weighted Median and Mean ([SDS Ch.16](https://r-spatial.org/book/16-SpatialRegression.html#boston-house-value-dataset))
+
+    -   Also see [Regression, Spatial \>\> Econometric](regression-spatial.qmd#sec-reg-spat-econ){style="color: green"} and [Mixed Effects](regression-spatial.qmd#sec-reg-spat-me){style="color: green"} for examples of models using this processed data.
+
+    ::: panel-tabset
+    ## Data Details
+
+    -   Continuation from Example 2
+    -   Response was constructed from counts of ordinal answers to a 1970 census question about house value.
+        -   The response is left- and right-censored in the census source and has been treated as Gaussian.
+    -   The key covariate was created from a calibrated meteorological model showing the annual nitrogen oxides (NOX) level for a smaller number of model output zones (aka TASSIM).
+    -   The numbers of houses responding also varies by tract and model output zone.
+    -   There are several other covariates, some measured at the tract level, some by town only, where towns broadly correspond to the air pollution model output zones.
+
+    ``` r
+    pacman::p_load(
+      dplyr,
+      sf,
+      spData
+    )
+
+    boston_506 <- 
+      sf::st_read(system.file("shapes/boston_tracts.gpkg",
+                              package = "spData")[1], 
+                  quiet = TRUE)
+
+    table(boston_506$censored)
+    #> 
+    #>  left    no right 
+    #>     2   489    15
+    ```
+
+    -   Examining the median house values, we find that those for censored values have been assigned as missing, and that 17 tracts are affected
+
+    ## Sum Extensive Variables
+
+    These are explanatory count variables
+
+    ``` r
+    ######## Base R ########
+
+    nms <- names(boston_506)
+    ccounts <- 23:31
+
+    # aggregate home value cat counts over target geometries (extensive)
+    for (nm in nms[c(22, ccounts, 36)]) {
+      boston_96[[nm]] <- 
+        aggregate(boston_506[[nm]], 
+                  ls_nox_ids, 
+                  sum)$x
+    }
+
+    ######## dplyr ########
+
+    cols_to_sum <- names(boston_506)[c(22:31, 36)]
+    tib_boston_sums <- 
+      boston_506 |> 
+      group_by(NOX_ID) |> 
+      summarize(across(all_of(cols_to_sum), sum))    
+    ```
+
+    -   22: [units]{.var-text}: Number of single family houses
+    -   23-31:
+        -   [cu5k]{.var-text}: Count of [units]{.var-text} under USD 5,000
+        -   [c5_7_5]{.var-text}: Counts of [units]{.var-text} from USD 5,000 to 7,500
+        -   [C\*\_\*]{.var-text}: Other [unit]{.var-text} value interval counts
+        -   [co50k]{.var-text}: Count of [units]{.var-text} over USD 50,000
+    -   36: [POP]{.var-text}: Tract population
+
+    ## Weighted Median
+
+    Uses the (freshly aggregated) home value interval counts as weights and applies them to midpoints in order to get the weighted median home values which is the response variable
+
+    ``` r
+    ####### Base R #########
+
+    # midpoint values for the unit value interval classes, e.g. 3.5 is the midpoint of 0 and 5
+    br2 <- 
+      c(3.50, 6.25, 8.75, 12.5, 17.5, 22.5, 30, 42.5, 60) * 1000
+    counts <- as.data.frame(boston_96)[, nms[ccounts]]
+
+    calc_wt_median <- function(x) {
+      matrixStats::weightedMedian(x = br2, 
+                                  w = x,
+                                  interpolate = TRUE)
+    }
+
+    boston_96$median <- apply(counts, 1, calc_wt_median)    
+
+    is.na(boston_96$median) <- boston_96$median > 50000
+    summary(boston_96$median)
+    #>    Min. 1st Qu.  Median    Mean 3rd Qu.    Max.    NA's 
+    #>    9009   20417   23523   25263   30073   49496       2
+
+    ######## dplyr ########
+
+    cols_to_wt_med <- names(boston_506)[23:31]
+
+    tib_boston_median <- 
+      tib_boston_sums |> 
+      rowwise() |> 
+      mutate(median = matrixStats::weightedMedian(x = br2, 
+                                                  w = c_across(cols_to_wt_med),
+                                                  interpolate = TRUE)) |> 
+      ungroup() |> 
+      mutate(median = ifelse(median > 50000, NA, median))    
+    ```
+
+    -   [median]{.var-text}: Median home values per geometry (formerly census tract, now NOX measurement area (via NOX_ID))
+    -   [interpolate = TRUE]{.arg-text} says linear interpolation is used to get a consistent estimate of the weighted median.
+    -   In `apply`, [axis = 1]{.arg-text}, so this is a rowwise operation
+    -   There are two output zones with calculated weighted medians over the upper census question limit of \$50,000. Therefore, they are removed them, because they also are affected by not knowing the appropriate value to insert for the top class by value.
+        -   i.e. The censored values are removed as before
+
+    ## Weighted Mean
+
+    Calculate weighted mean over target geometries of intensive variables using census tract population values as observation-level weights inside those target geometries.
+
+    Typically you aggregate variables to the target geometries. Then apply target geometry populations as weights to get the weighted mean. The splitting on [NOX_ID]{.var-text} allows you use census tract populations as weights and calculate the weighted mean per target geometry.
+
+    ``` r
+    ####### Base R #########
+
+    POP <- boston_506$POP
+
+    calc_wt_mean <- function(x) {
+      matrixStats::weightedMean(x = x[,1], w = x[,2])
+    }
+
+    for (nm in nms[c(9:11, 14:19, 21, 33)]) {
+      s0 <- split(data.frame(boston_506[[nm]], 
+                             POP), 
+                  ls_nox_ids)
+      boston_96[[nm]] <- sapply(s0, calc_wt_mean)
+    }
+
+    boston_94 <- boston_96[!is.na(boston_96$median),]
+
+    ######## dplyr ########
+
+    cols_to_wt_mean <- names(boston_506)[c(9:11, 14:19, 21, 33)]
+
+    tib_boston_means <- 
+      as_tibble(boston_506) |> 
+      select(all_of(cols_to_wt_mean), NOX_ID, POP) |> 
+      group_by(NOX_ID) |> 
+      group_map(~ {
+        .x |> 
+          select(cols_to_wt_mean) |> 
+          purrr::map(\(col) matrixStats::weightedMean(x = col, w = .x$POP)) |> 
+          as_tibble()
+      }) |> 
+      purrr::list_rbind()    
+    ```
+
+    -   [CRIM]{.var-text}: Per capita crime
+    -   [ZN]{.var-text}: Proportions of residential land zoned for lots over 25000 sq. ft per town (constant for all Boston tracts)
+    -   [INDUS]{.var-text}: Proportions of non-retail business acres per town (constant for all Boston tracts)
+    -   [RM]{.var-text}: Average numbers of rooms per dwelling
+    -   [AGE]{.var-text}: Proportions of owner-occupied units built prior to 1940
+    -   [DIS]{.var-text}: Weighted distances to five Boston employment centers
+    -   [RAD]{.var-text}: Index of accessibility to radial highways per town (constant for all Boston tracts)
+    -   [TAX]{.var-text}: Full-value property-tax rate per USD 10,000 per town (constant for all Boston tracts)
+    -   [PTRATIO]{.var-text}: Pupil-teacher ratios per town (constant for all Boston tracts)
+    -   [BB]{.var-text}: Black population proportion
+    -   [POP]{.var-text}: Tract population
+
+    ## Census Tract Level
+
+    Mixed effects (at least the ones in this example) use variables at lower level of aggregation (census tract), and just group by (varying intercepts) by the higher level ([NOX_ID]{.var-text}).
+
+    While no aggregation is needed for the variables, the spatial process is still being modeled at the [NOX]{.var-text} measurement area level ([NOX_ID]{.var-text}). So, the neighbor list/spatial weights object will require unioned geometries at that higher level.
+
+    Neighbor graphs that contain subgraphs and nodes with no neighbors can create issues with the model fitting, so those observations (only 2) without neighbors are removed. (Subgraph issue is fixed automatically as well)
+
+    A lot of the models that use [Spatially Structured Random Effects](regression-spatial.qmd#sec-reg-spat-me-ssre){style="color: green"} need some extra manipulation of [{spdep}]{style="color: #990000"}'s neighbor list to get a spatial weights object into an acceptable format. Adding rownames to neighbor list is usually part of that operation.
+
+    ``` r
+    # get nox_id and its geometries
+    boston_94a <- aggregate(boston_489[,"NOX_ID"], 
+                            list(boston_489$NOX_ID), 
+                            unique)
+    nb_q_94a <- spdep::poly2nb(boston_94a)
+    #> Warning in spdep::poly2nb(boston_94a): some observations have no neighbours;
+    #> if this seems unexpected, try increasing the snap argument.
+    #> Warning in spdep::poly2nb(boston_94a): neighbour object has 2 sub-graphs;
+    #> if this sub-graph count seems unexpected, try increasing the snap argument.    
+
+    # find nox_ids with no neighbors
+    NOX_ID_no_neighs <-
+      boston_94a$NOX_ID[which(spdep::card(nb_q_94a) == 0)]
+
+    # remove nox_ids without neighbors
+    boston_487 <- boston_489[is.na(match(boston_489$NOX_ID,
+                                         NOX_ID_no_neighs)),]
+    # get new unioned geomtries and create nb list
+    boston_93 <- aggregate(boston_487[, "NOX_ID"],
+                           list(ids = boston_487$NOX_ID), 
+                           unique)
+    row.names(boston_93) <- as.character(boston_93$NOX_ID)
+    # clean, subgraphs have been fixed as well
+    nb_q_93 <- spdep::poly2nb(boston_93,
+                              row.names = unique(as.character(boston_93$NOX_ID)))    
+    ```
+
+    -   `card` gets the neighbor vectors for each [NOX_ID]{.var-text}
     :::
 
 -   [Example 4]{.ribbon-highlight}: Large data may crash R when doing aggregations
