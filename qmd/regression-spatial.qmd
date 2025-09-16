@@ -3,13 +3,14 @@
 ## Misc {#sec-reg-spat-misc .unnumbered}
 
 -   Packages
-    -   [{]{style="color: #990000"}[CARBayesST](https://cran.r-project.org/web/packages/CARBayesST/index.html){style="color: #990000"}[}]{style="color: #990000"} ([Vignette](https://www.jstatsoft.org/article/view/v084i09)) - Spatio-Temporal **Generalised Linear Mixed Models** for Areal Unit Data
+    -   [{]{style="color: #990000"}[CARBayesST](https://cran.r-project.org/web/packages/CARBayesST/index.html){style="color: #990000"}[}]{style="color: #990000"} ([Vignette](https://www.jstatsoft.org/article/view/v084i09)) - Spatio-Temporal **Generalized Linear Mixed Models** for Areal Unit Data
         -   Binomial, Gaussian, or Poisson available
     -   [{]{style="color: #990000"}[spatialreg](https://r-spatial.github.io/spatialreg/){style="color: #990000"}[}]{style="color: #990000"} - **OG**; Various methods of spatial **regression**, Bivand's package
         -   Spatial Autoregressive Combined (SAC) models combine both a Spatial Autoregression (SAR) model and a Spatial Error (SEM) model
     -   [{]{style="color: #990000"}[spatemR](https://cran.r-project.org/web/packages/spatemR/index.html){style="color: #990000"}[}]{style="color: #990000"} - **Generalized Spatial Autoregressive** Models for Mean and Variance
         -   Extends classical methods like **logistic** Spatial Autoregresive Models (SAR), **probit** Spatial Autoregresive Models (SAR), and **Poisson** Spatial Autoregresive Models (SAR),
         -   Built on top of [{gamlss}]{style="color: #990000"} so splines can be included.
+    -   [{]{style="color: #990000"}[sphet](https://cran.r-project.org/web/packages/sphet/){style="color: #990000"}[}]{style="color: #990000"} - Estimation of Spatial Autoregressive Models with and without **Heteroskedastic Innovations**
     -   [{]{style="color: #990000"}[spldv](https://cran.r-project.org/web/packages/spldv/index.html){style="color: #990000"}[}]{style="color: #990000"} - Estimates spatial autoregressive models for **binary dependent variables** using GMM estimators
         -   Computes average marginal effects for probit and logit models
 -   Papers
@@ -98,6 +99,12 @@
     $$
 
     -   Includes a spatial process to the response, covariates, and residuals (kitchen sink model)
+    -   Issue: The GNS is only weakly (or not?) identifiable
+        -   Analogous to Manski’s reflection problem on neighborhood effects: If people in the same group behave similar, this can be because
+            -   Imitating behavior of the group
+            -   Exogenous characteristics of the group influence the behaviour
+            -   Members of the same group are exposed to the same external circumstances. 
+        -   We just cannot separate those in observational data.
 
 -   **Combined Spatial Autocorrelation (SAC)**
 
@@ -132,24 +139,59 @@
 
 ### Impacts {#sec-reg-spat-econ-imp .unnumbered}
 
+-   Notes from
+    -   [SDS Ch.17.3](https://r-spatial.org/book/17-Econometrics.html#impacts)
+    -   [Geodata and Spatial Regression Ch.10](https://ruettenauer.github.io/Geodata_Spatial_Regression/07_impacts.html)
+-   A model will have either local direct, indirect, and total impacts or global direct, indirect, and total impacts.
 -   [Types]{.underline}
-    -   [**Direct impacts**]{style="color: #009499"} measure the effect of changing an explanatory variable in a specific location on the dependent variable in that same location. This is analogous to traditional regression coefficients but accounts for spatial **feedback effects**.
+    -   [**Direct impacts**]{style="color: #009499"} measure the effect of changing an explanatory variable in a specific location on the dependent variable in that same location. This is analogous to traditional regression coefficients but accounts for spatial **feedback effects** when lagged endogenous variables are present (i.e. lagged response).
+        -   Note that all variation in the impacts matrix comes from the variation in the spatial weights matrix which we've specified a priori.
+            -   i.e. it's sort of subjective since we choose the neighboring scheme, weighting method, and normalization method. $W$ is not directly estimated from the data.
+            -   I guess we could treat those choices as hyperparameters though.
+        -   For a GNM,\
+            $$
+            S_r(W) = ((I - \rho_{\text{lag}}W)^{-1}(I\beta_r + W\gamma_r)
+            $$
+            -   $S_r(W)$ (the partial derivative) expresses the **direct impacts** (effects) on its principal diagonal, and **indirect impacts** in off-diagonal elements.
+        -   For SAR,\
+            $$
+            S_r(W) = (I - \rho_{\text{lag}}W)^{-1}
+            $$
+        -   For SLX, SDEM,
+            -   $\beta_k$ is the average (local) direct impact (covariate coefficient) and $\gamma_k$ is the average (local) indirect impact (lagged covariate parameter)
     -   [**Indirect impacts**]{style="color: #009499"} (aka [**spillover effects**]{style="color: #009499"}) capture how changing an explanatory variable in one location affects the dependent variable in neighboring locations through spatial interdependencies. These effects propagate through the spatial weights matrix.
     -   [**Total impacts**]{style="color: #009499"} are simply the sum of direct and indirect impacts, representing the overall effect of changing a variable across the entire spatial system.
-    -   [**Global impacts**]{style="color: #009499"} provide system-wide average measures of direct, indirect, and total effects. They assume that the impact of a variable is *constant* across all spatial units in the model.
-        -   Seen as crucial for reporting results from fitting models including the spatially lagged response (SLM, SDM, SAC, GNM), and has been xtended to models with spatially lagged covariates (SLX, SDEM).
+    -   [**Global impacts**]{style="color: #009499"} provide system-wide average measures of direct, indirect, and total effects. Effects spread to all neighbors (i.e. includes higher order neighbors) but decrease with distance. Global spillover effects can be seen as a kind of diffusion process.
+        -   Seen as crucial for reporting results from fitting models including the spatially lagged response (**SLM**, **SDM**, **SAC**, **GNM**) which assume global dependence, and has been extended to models with spatially lagged covariates (SLX, SDEM).
+        -   Issue: These processes happen over time. In a cross-sectional framework, the global spillover effects are hard to interpret. Anselin (2003) proposes an interpretation as an equilibrium outcome, where the partial impact represents an estimate of how this long-run equilibrium would change due to a change in $x_k$.
+        -   [Example]{.ribbon-highlight}: A public railway is built (exogenous effect) and connects the business district to other key areas in the city
+            -   The new transit station drastically increases the desirability of District A. This surge in desirability leads to a sharp increase in demand for housing in District A.
+                -   Because housing supply is fixed in the short term (you can't instantly build new houses), this increased demand results in a significant increase in house prices in District A.
+            -   Potential homebuyers who were priced out of District A will now look for the next best alternative. District B, which is adjacent to District A and might have similar housing stock but without the direct train access, suddenly becomes a more attractive option by comparison. These buyers bring their increased willingness-to-pay with them.
+            -   This effect continues to higher order neighbors, but weakens the further the district is from a railway station.
     -   [**Local impacts**]{style="color: #009499"} allow these effects to *vary* across different locations. This is particularly relevant in weighted spatial regression and other spatially varying coefficient models, where the relationship between variables can differ across space due to local conditions, policies, or characteristics.
+        -   In Spatial Lag of X (**SLX**) model or the Spatial Durbin Error Model (**SDEM**), the influence of a change in an explanatory variable is restricted to a defined neighborhood of the initial location.
+            -   These models assume local dependence. The impact does not propagate endlessly throughout the system. This more contained spillover is referred to as a local impact.
+        -   Only direct neighbors – as defined in $W$ – contribute to local spillover effects. The coefficients only estimate how my direct neighbour’s $X$ values influence my own outcome $Y$.
+            -   There are no higher order neighbors involved (as long as we do not model them), nor are there any feedback loops due to interdependence.
         -   Local impacts may be reported for SDEM and SLX models, using a linear combination to calculate standard errors for the total impacts of each covariate (sums of coefficients on the covariates and their spatial lags)
-        -   In Spatial Lag of X (SLX) model or the Spatial Durbin Error Model (SDEM), the influence of a change in an explanatory variable is restricted to a defined neighborhood of the initial location.
-        -   The impact does not propagate endlessly throughout the system. This more contained spillover is referred to as a local impact.
+        -   [Example]{.ribbon-highlight}: The effect of environmental quality on house prices
+            -   The environmental quality in the focal unit itself but also in neighbouring units could influence the attractiveness of a district and its house prices.
+            -   Therefore, it seems reasonable to assume that we have local spillover effects: only the environmental quality in directly contiguous units (e.g. in walking distance) is relevant for estimating the house prices.
     -   [**Feedback Effects**]{style="color: #009499"} are where the initial change in a location influences neighboring locations, which in turn influence the original location back.
+        -   My $X$ influences my $Y$ directly, but my $Y$ then influences my neigbour’s $Y$, which then influences my $Y$ again (also also other neighbour’s $Y$s). Thus the influence of my $X$ on my $Y$ includes a spatial multiplier
 -   [Interpretation]{.underline}
     -   **Direct Impacts** represent the average change in the dependent variable at location $i$ from a one-unit change in the explanatory variable at location $i$.
+        -   An average effect of a unit change in $x_i$ on $y_i$
         -   [Example]{.ribbon-highlight}: If the direct impact of [police spending]{.var-text} (in \$1000s) is [0.15]{.arg-text} for [crime]{.var-text} reduction, then a \$1,000 increase in [police spending]{.var-text} in a [city]{.var-text} *reduces* [crime]{.var-text} in that same [city]{.var-text} by [0.15]{.arg-text} units on average.
     -   **Indirect Impacts** represent the average change in the dependent variable at location $i$ from a one-unit change in the explanatory variable at all other locations $j \ne i$.
+        -   How a change in $x_i$, on average, influences all neighboring units $y_j$ .
+        -   For global models: A change of $x_i$ in the focal units flows through the entire system of neighbors (direct neightbors, neighbors of neighbours, …) influencing ‘their ’ $y_j$. One can think of this as diffusion or a change in a long-term equilibrium.
+            -   [Example]{.ribbon-highlight}: If logNO2 increases by one unit, this increases the house price in the focal unit by 0.448 units. Overall, a one unit change in logNO2 increases the house prices in the entire neighborhood system (direct and higher order neighbours) by 0.754.
+            -   [Example]{.ribbon-highlight}: If the indirect impact is [0.08]{.arg-text}, then a $\$1,000$ increase in [police spending]{.var-text} in city $i$ r*educes* [crime]{.var-text} in all other cities by [0.08]{.arg-text} units on average through **spillover effects**.
         -   Remember it's the *average*. The effect on location $i$ from each other location will vary according to spatial relationships encoded in the spatial weights matrix.
         -   A change in city $j$ can affect city $i$ both directly (if they're neighbors) and indirectly through intermediate cities in the spatial network (i.e. the effect generated in other cities spilling over into a city).
-        -   [Example]{.ribbon-highlight}: If the indirect impact is [0.08]{.arg-text}, then a $\$1,000$ increase in [police spending]{.var-text} in city $i$ r*educes* [crime]{.var-text} in all other cities by [0.08]{.arg-text} units on average through **spillover effects**.
+        -   For SLX models, nothing is gained from computing the "impacts," as they equal the coefficients. Again, it’s the effects of direct neighbours only (i.e. a local indirect impact).
     -   **Total Impacts** represent the overall effect of a change in an explanatory variable across all locations in the study area. In essence, it captures the entire spatial multiplier effect
 
 ## Mixed Effects {#sec-reg-spat-me .unnumbered}
