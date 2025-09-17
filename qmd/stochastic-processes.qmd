@@ -453,12 +453,36 @@
     -   Notes from
         -   [An Introduction and Step-by-Step Guide to Monte Carlo Simulations](https://medium.com/@benjihuser/an-introduction-and-step-by-step-guide-to-monte-carlo-simulations-4706f675a02f)
             -   Examples (1-3 below) in this article look exactly like bootstrapping to me.
+        -   [Tidy simulation: Designing robust, reproducible, and scalable Monte Carlo simulations](https://arxiv.org/abs/2509.11741) ([Github](https://github.com/vankesteren/tidy_simulation))
     -   Packages
         -   [{]{style="color: #990000"}[switchboard](https://cran.r-project.org/web/packages/switchboard/index.html){style="color: #990000"}[}]{style="color: #990000"} - Visualizes an animation of the simulation via a simple dashboard
     -   The distribution you're randomly sample from affects the stability of the simulated distributions you end up with.
         -   If you're sampling from a source distribution with no variability, i.e. a constant value, then of course, you sampled distribution will completely stable with no variation.
         -   If you're sampling from a source distribution with extreme differences between values (e.g. 0s for most days, then a spike of 50 on a few days), then you can expect your sampled distribution to have a large spread (i.e. large variance).
     -   Bootstrapping uses the original, initial sample as the population from which to resample, whereas Monte Carlo simulation is based on setting up a data generation process (with known values of the parameters of a known distribution). Where Monte Carlo is used to test drive estimators, bootstrap methods can be used to estimate the variability of a statistic and the shape of its sampling distribution
+    -   Simulations are “in silico” experiments
+-   Questions
+    -   Aims: What is the research question?
+    -   Data-Generating Mechanism: How is the stochastic data generated?
+    -   Estimand & Method: Which method do we apply to the generated data?
+    -   Performance Measures: Which metric are we interested in comparing and presenting?
+-   Components
+    -   **Simulation Grid**: A tidy data frame indicating the settings for each iteration of a simulation.
+        -   Types of Variables: Data Generating and Analysis
+        -   Variables (aka Factors)
+            -   Discrete Values (e.g. sample size or the number of variables)
+            -   Continuous Values (e.g. as standardized effect size or proportion of variation (R^2^))
+            -   Categorical Values (e.g. distribution type or analysis method)
+                -   For efficiency, encode categoricals as a categorical type (factor (R), categorical, or enum) and not as a string or character
+        -   The iteration number should also be included in creating the simulation grid
+            -   Enables partial results computation: a methodologist can start with computing 5 iterations of the full design by filtering the grid on the iteration number column, or by taking the first 1% of rows.
+            -   Allows preliminary analyses to be done on a subset of the results table, supporting exploratory data analysis, with additional precision added later upon running and storing the remaining iterations.
+        -   Since each row in the simulation grid should represent a single simulation according to the tidy data principles, the full factorial design should be stacked $N$ times, where $N$ is the number of iterations. `expand_grid` functions can carry this out.
+        -   Many millions of rows are not uncommon in larger simulations, so storage of the grid in an efficient file format like parquet is recommended where packages with lazy exectuion (duckdb, polars) can be taken advantage of.
+        -   For large grids, it could make sense to retain only the data generation factors in the simulation grid and to relegate the analysis factors to the results table directly
+    -   **Generation Function**: Takes in parameters from the simulation grid and outputs a simulated dataset – ideally in a tidy format.
+    -   **Analysis Function**: Accepts a single dataset and additional parameters from the grid, runs a method on this dataset, and yields one or more outputs of interest.
+    -   **Results Table**: A tidy data frame with one row per simulation setting in the simulation grid, and one or more columns containing the outcomes of interest.
 -   General Process
     1.  Identify all input components of the process and how do they interact e.g., do they sum up or subtract?
         -   e.g. net benefit = variable benefit - variable cost 1 - variable cost 2
@@ -499,3 +523,31 @@
         -   Record the number of iterations (i.e. days) it took to reach that threshold.
         -   Repeat around 10K times to get a distribution of iteration (i.e. days) counts
         -   The mean/median of this distribution is your point forecast and quantiles are the CI
+-   [Example 4]{.ribbon-highlight}: Analyze the treatment effect in a RCT with a binary treatment and two measurement occasions: pre-treatment and post-treatment
+    -   Python
+
+    -   Simulation Grid
+
+        ``` python
+        import numpy as np
+        import polars as pl
+        import statsmodels.api as sm
+        from polarsgrid import expand_grid
+        from tqdm import tqdm
+
+
+        grid = expand_grid(
+            sample_size = list(np.arange(4, 20)),
+            effect_size = list(np.arange(0, 1.1, 0.1)),
+            outcome = ["post", "change"],
+            correction = [False, True],
+            iteration = list(range(500)),
+            _categorical = True,
+            _row_id = True,
+        )
+
+        grid = grid.with_columns(seed=np.random.randint(low=0, high=2**32 // 2, size=len(grid)))
+        grid.write_parquet("processed_data/grid.parquet")
+        ```
+
+        -   Results in 352000 individual simulations even for this small simulation with 500 repetitions and only four factors.
