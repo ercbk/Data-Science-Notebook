@@ -2791,6 +2791,7 @@ y_t = \hat \mu_{ts_t} + \hat \phi (y_{t-1} - \hat \mu_{(t-1)s_{t-1}}) + \epsilon
 <ul>
 <li>Examples (1-3 below) in this article look exactly like bootstrapping to me.</li>
 </ul></li>
+<li><a href="https://arxiv.org/abs/2509.11741">Tidy simulation: Designing robust, reproducible, and scalable Monte Carlo simulations</a> (<a href="https://github.com/vankesteren/tidy_simulation">Github</a>)</li>
 </ul></li>
 <li>Packages
 <ul>
@@ -2802,6 +2803,41 @@ y_t = \hat \mu_{ts_t} + \hat \phi (y_{t-1} - \hat \mu_{(t-1)s_{t-1}}) + \epsilon
 <li>If you’re sampling from a source distribution with extreme differences between values (e.g.&nbsp;0s for most days, then a spike of 50 on a few days), then you can expect your sampled distribution to have a large spread (i.e.&nbsp;large variance).</li>
 </ul></li>
 <li>Bootstrapping uses the original, initial sample as the population from which to resample, whereas Monte Carlo simulation is based on setting up a data generation process (with known values of the parameters of a known distribution). Where Monte Carlo is used to test drive estimators, bootstrap methods can be used to estimate the variability of a statistic and the shape of its sampling distribution</li>
+<li>Simulations are “in silico” experiments</li>
+</ul></li>
+<li>Questions
+<ul>
+<li>Aims: What is the research question?</li>
+<li>Data-Generating Mechanism: How is the stochastic data generated?</li>
+<li>Estimand &amp; Method: Which method do we apply to the generated data?</li>
+<li>Performance Measures: Which metric are we interested in comparing and presenting?</li>
+</ul></li>
+<li>Components
+<ul>
+<li><strong>Simulation Grid</strong>: A tidy data frame indicating the settings for each iteration of a simulation.
+<ul>
+<li>Types of Variables: Data Generating and Analysis</li>
+<li>Variables (aka Factors)
+<ul>
+<li>Discrete Values (e.g.&nbsp;sample size or the number of variables)</li>
+<li>Continuous Values (e.g.&nbsp;as standardized effect size or proportion of variation (R<sup>2</sup>))</li>
+<li>Categorical Values (e.g.&nbsp;distribution type or analysis method)
+<ul>
+<li>For efficiency, encode categoricals as a categorical type (factor (R), categorical, or enum) and not as a string or character</li>
+</ul></li>
+</ul></li>
+<li>The iteration number should also be included in creating the simulation grid
+<ul>
+<li>Enables partial results computation: a methodologist can start with computing 5 iterations of the full design by filtering the grid on the iteration number column, or by taking the first 1% of rows.</li>
+<li>Allows preliminary analyses to be done on a subset of the results table, supporting exploratory data analysis, with additional precision added later upon running and storing the remaining iterations.</li>
+</ul></li>
+<li>Since each row in the simulation grid should represent a single simulation according to the tidy data principles, the full factorial design should be stacked <span class="math inline">\(N\)</span> times, where <span class="math inline">\(N\)</span> is the number of iterations. <code>expand_grid</code> functions can carry this out.</li>
+<li>Many millions of rows are not uncommon in larger simulations, so storage of the grid in an efficient file format like parquet is recommended where packages with lazy exectuion (duckdb, polars) can be taken advantage of.</li>
+<li>For large grids, it could make sense to retain only the data generation factors in the simulation grid and to relegate the analysis factors to the results table directly</li>
+</ul></li>
+<li><strong>Generation Function</strong>: Takes in parameters from the simulation grid and outputs a simulated dataset – ideally in a tidy format.</li>
+<li><strong>Analysis Function</strong>: Accepts a single dataset and additional parameters from the grid, runs a method on this dataset, and yields one or more outputs of interest.</li>
+<li><strong>Results Table</strong>: A tidy data frame with one row per simulation setting in the simulation grid, and one or more columns containing the outcomes of interest.</li>
 </ul></li>
 <li>General Process
 <ol type="1">
@@ -2861,6 +2897,33 @@ y_t = \hat \mu_{ts_t} + \hat \phi (y_{t-1} - \hat \mu_{(t-1)s_{t-1}}) + \epsilon
 <li>Record the number of iterations (i.e.&nbsp;days) it took to reach that threshold.</li>
 <li>Repeat around 10K times to get a distribution of iteration (i.e.&nbsp;days) counts</li>
 <li>The mean/median of this distribution is your point forecast and quantiles are the CI</li>
+</ul></li>
+</ul></li>
+<li><span class="ribbon-highlight">Example 4</span>: Analyze the treatment effect in a RCT with a binary treatment and two measurement occasions: pre-treatment and post-treatment
+<ul>
+<li><p>Python</p></li>
+<li><p>Simulation Grid</p>
+<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb5"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb5-1"><a href="#cb5-1" aria-hidden="true" tabindex="-1"></a><span class="im">import</span> numpy <span class="im">as</span> np</span>
+<span id="cb5-2"><a href="#cb5-2" aria-hidden="true" tabindex="-1"></a><span class="im">import</span> polars <span class="im">as</span> pl</span>
+<span id="cb5-3"><a href="#cb5-3" aria-hidden="true" tabindex="-1"></a><span class="im">import</span> statsmodels.api <span class="im">as</span> sm</span>
+<span id="cb5-4"><a href="#cb5-4" aria-hidden="true" tabindex="-1"></a><span class="im">from</span> polarsgrid <span class="im">import</span> expand_grid</span>
+<span id="cb5-5"><a href="#cb5-5" aria-hidden="true" tabindex="-1"></a><span class="im">from</span> tqdm <span class="im">import</span> tqdm</span>
+<span id="cb5-6"><a href="#cb5-6" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb5-7"><a href="#cb5-7" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb5-8"><a href="#cb5-8" aria-hidden="true" tabindex="-1"></a>grid <span class="op">=</span> expand_grid(</span>
+<span id="cb5-9"><a href="#cb5-9" aria-hidden="true" tabindex="-1"></a>    sample_size <span class="op">=</span> <span class="bu">list</span>(np.arange(<span class="dv">4</span>, <span class="dv">20</span>)),</span>
+<span id="cb5-10"><a href="#cb5-10" aria-hidden="true" tabindex="-1"></a>    effect_size <span class="op">=</span> <span class="bu">list</span>(np.arange(<span class="dv">0</span>, <span class="fl">1.1</span>, <span class="fl">0.1</span>)),</span>
+<span id="cb5-11"><a href="#cb5-11" aria-hidden="true" tabindex="-1"></a>    outcome <span class="op">=</span> [<span class="st">"post"</span>, <span class="st">"change"</span>],</span>
+<span id="cb5-12"><a href="#cb5-12" aria-hidden="true" tabindex="-1"></a>    correction <span class="op">=</span> [<span class="va">False</span>, <span class="va">True</span>],</span>
+<span id="cb5-13"><a href="#cb5-13" aria-hidden="true" tabindex="-1"></a>    iteration <span class="op">=</span> <span class="bu">list</span>(<span class="bu">range</span>(<span class="dv">500</span>)),</span>
+<span id="cb5-14"><a href="#cb5-14" aria-hidden="true" tabindex="-1"></a>    _categorical <span class="op">=</span> <span class="va">True</span>,</span>
+<span id="cb5-15"><a href="#cb5-15" aria-hidden="true" tabindex="-1"></a>    _row_id <span class="op">=</span> <span class="va">True</span>,</span>
+<span id="cb5-16"><a href="#cb5-16" aria-hidden="true" tabindex="-1"></a>)</span>
+<span id="cb5-17"><a href="#cb5-17" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb5-18"><a href="#cb5-18" aria-hidden="true" tabindex="-1"></a>grid <span class="op">=</span> grid.with_columns(seed<span class="op">=</span>np.random.randint(low<span class="op">=</span><span class="dv">0</span>, high<span class="op">=</span><span class="dv">2</span><span class="op">**</span><span class="dv">32</span> <span class="op">//</span> <span class="dv">2</span>, size<span class="op">=</span><span class="bu">len</span>(grid)))</span>
+<span id="cb5-19"><a href="#cb5-19" aria-hidden="true" tabindex="-1"></a>grid.write_parquet(<span class="st">"processed_data/grid.parquet"</span>)</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
+<ul>
+<li>Results in 352000 individual simulations even for this small simulation with 500 repetitions and only four factors.</li>
 </ul></li>
 </ul></li>
 </ul>
