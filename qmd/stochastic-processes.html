@@ -2797,6 +2797,13 @@ y_t = \hat \mu_{ts_t} + \hat \phi (y_{t-1} - \hat \mu_{(t-1)s_{t-1}}) + \epsilon
 <ul>
 <li><span style="color: #990000">{</span><a href="https://cran.r-project.org/web/packages/switchboard/index.html" style="color: #990000">switchboard</a><span style="color: #990000">}</span> - Visualizes an animation of the simulation via a simple dashboard</li>
 </ul></li>
+<li>Papers
+<ul>
+<li><a href="https://arxiv.org/abs/1712.03198">Using simulation studies to evaluate statistical methods</a>
+<ul>
+<li>A tutorial that outlines the rationale for using simulation studies and offers detailed guidance for design, execution, analysis, reporting and presentation</li>
+</ul></li>
+</ul></li>
 <li>The distribution you’re randomly sample from affects the stability of the simulated distributions you end up with.
 <ul>
 <li>If you’re sampling from a source distribution with no variability, i.e.&nbsp;a constant value, then of course, you sampled distribution will completely stable with no variation.</li>
@@ -2835,8 +2842,22 @@ y_t = \hat \mu_{ts_t} + \hat \phi (y_{t-1} - \hat \mu_{(t-1)s_{t-1}}) + \epsilon
 <li>Many millions of rows are not uncommon in larger simulations, so storage of the grid in an efficient file format like parquet is recommended where packages with lazy exectuion (duckdb, polars) can be taken advantage of.</li>
 <li>For large grids, it could make sense to retain only the data generation factors in the simulation grid and to relegate the analysis factors to the results table directly</li>
 </ul></li>
-<li><strong>Generation Function</strong>: Takes in parameters from the simulation grid and outputs a simulated dataset – ideally in a tidy format.</li>
-<li><strong>Analysis Function</strong>: Accepts a single dataset and additional parameters from the grid, runs a method on this dataset, and yields one or more outputs of interest.</li>
+<li><strong>Generation Function</strong>: Takes in parameters from the simulation grid and outputs a simulated dataset – ideally in a tidy format.
+<ul>
+<li>The function is an explicit representation of the theoretical data-generating process. Typically produced using a random variable distribution function</li>
+<li>R: It’s built-in distribution functions, e.g.&nbsp;<code>rnorm</code></li>
+<li>Python: <code>numpy.random</code> and <code>scipy.stats</code></li>
+<li>Julia: The Distributions.jl package</li>
+<li>A random seed should be supplied either globablly or via the Simulation Grid</li>
+</ul></li>
+<li><strong>Analysis Function</strong>: Takes in a generated dataset (and any other output from the data generation function) along with arguments from the simulation grid, and produces the metrics or outcomes of interest which constitute a single row of the results table
+<ul>
+<li>Needs even more attention towards robustness, as errors in statistical models might be probabilistic and data-dependent</li>
+<li>It is in the probabilistic nature of Monte Carlo simulations that even if these edge-cases are very unlikely to happen in any single generated dataset, they are highly likely to happen in the simulation as a whole</li>
+<li>Must be intimately aware of the limitations of the methods under study so that the data-generating process matches the analysis method.</li>
+<li>There should be extensive integration testing of both the data generation function and the analysis function together, for different settings of the simulation factors.</li>
+<li>Issues such as non-convergence or problematic fit can still remain, and even be deemed acceptable by the methodologist; it can be included as one of the outcomes in the simulation</li>
+</ul></li>
 <li><strong>Results Table</strong>: A tidy data frame with one row per simulation setting in the simulation grid, and one or more columns containing the outcomes of interest.</li>
 </ul></li>
 <li>General Process
@@ -2901,30 +2922,161 @@ y_t = \hat \mu_{ts_t} + \hat \phi (y_{t-1} - \hat \mu_{(t-1)s_{t-1}}) + \epsilon
 </ul></li>
 <li><span class="ribbon-highlight">Example 4</span>: Analyze the treatment effect in a RCT with a binary treatment and two measurement occasions: pre-treatment and post-treatment
 <ul>
-<li><p>Python</p></li>
-<li><p>Simulation Grid</p>
+<li><p>Python</p>
+<div class="tabset-margin-container"></div><div class="panel-tabset">
+<ul class="nav nav-tabs" role="tablist"><li class="nav-item" role="presentation"><a class="nav-link active" id="tabset-1-1-tab" data-bs-toggle="tab" data-bs-target="#tabset-1-1" role="tab" aria-controls="tabset-1-1" aria-selected="true" href="" aria-current="page">Simulation Grid</a></li><li class="nav-item" role="presentation"><a class="nav-link" id="tabset-1-2-tab" data-bs-toggle="tab" data-bs-target="#tabset-1-2" role="tab" aria-controls="tabset-1-2" aria-selected="false" href="">Generation Function</a></li><li class="nav-item" role="presentation"><a class="nav-link" id="tabset-1-3-tab" data-bs-toggle="tab" data-bs-target="#tabset-1-3" role="tab" aria-controls="tabset-1-3" aria-selected="false" href="">Analysis Function</a></li><li class="nav-item" role="presentation"><a class="nav-link" id="tabset-1-4-tab" data-bs-toggle="tab" data-bs-target="#tabset-1-4" role="tab" aria-controls="tabset-1-4" aria-selected="false" href="">Results Parallel</a></li><li class="nav-item" role="presentation"><a class="nav-link" id="tabset-1-5-tab" data-bs-toggle="tab" data-bs-target="#tabset-1-5" role="tab" aria-controls="tabset-1-5" aria-selected="false" href="">Results Parallel Chunked</a></li></ul>
+<div class="tab-content">
+<div id="tabset-1-1" class="tab-pane active" role="tabpanel" aria-labelledby="tabset-1-1-tab">
 <div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb5"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb5-1"><a href="#cb5-1" aria-hidden="true" tabindex="-1"></a><span class="im">import</span> numpy <span class="im">as</span> np</span>
 <span id="cb5-2"><a href="#cb5-2" aria-hidden="true" tabindex="-1"></a><span class="im">import</span> polars <span class="im">as</span> pl</span>
 <span id="cb5-3"><a href="#cb5-3" aria-hidden="true" tabindex="-1"></a><span class="im">import</span> statsmodels.api <span class="im">as</span> sm</span>
 <span id="cb5-4"><a href="#cb5-4" aria-hidden="true" tabindex="-1"></a><span class="im">from</span> polarsgrid <span class="im">import</span> expand_grid</span>
 <span id="cb5-5"><a href="#cb5-5" aria-hidden="true" tabindex="-1"></a><span class="im">from</span> tqdm <span class="im">import</span> tqdm</span>
-<span id="cb5-6"><a href="#cb5-6" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb5-6"><a href="#cb5-6" aria-hidden="true" tabindex="-1"></a><span class="im">from</span> multiprocessing <span class="im">import</span> Pool</span>
 <span id="cb5-7"><a href="#cb5-7" aria-hidden="true" tabindex="-1"></a></span>
-<span id="cb5-8"><a href="#cb5-8" aria-hidden="true" tabindex="-1"></a>grid <span class="op">=</span> expand_grid(</span>
-<span id="cb5-9"><a href="#cb5-9" aria-hidden="true" tabindex="-1"></a>    sample_size <span class="op">=</span> <span class="bu">list</span>(np.arange(<span class="dv">4</span>, <span class="dv">20</span>)),</span>
-<span id="cb5-10"><a href="#cb5-10" aria-hidden="true" tabindex="-1"></a>    effect_size <span class="op">=</span> <span class="bu">list</span>(np.arange(<span class="dv">0</span>, <span class="fl">1.1</span>, <span class="fl">0.1</span>)),</span>
-<span id="cb5-11"><a href="#cb5-11" aria-hidden="true" tabindex="-1"></a>    outcome <span class="op">=</span> [<span class="st">"post"</span>, <span class="st">"change"</span>],</span>
-<span id="cb5-12"><a href="#cb5-12" aria-hidden="true" tabindex="-1"></a>    correction <span class="op">=</span> [<span class="va">False</span>, <span class="va">True</span>],</span>
-<span id="cb5-13"><a href="#cb5-13" aria-hidden="true" tabindex="-1"></a>    iteration <span class="op">=</span> <span class="bu">list</span>(<span class="bu">range</span>(<span class="dv">500</span>)),</span>
-<span id="cb5-14"><a href="#cb5-14" aria-hidden="true" tabindex="-1"></a>    _categorical <span class="op">=</span> <span class="va">True</span>,</span>
-<span id="cb5-15"><a href="#cb5-15" aria-hidden="true" tabindex="-1"></a>    _row_id <span class="op">=</span> <span class="va">True</span>,</span>
-<span id="cb5-16"><a href="#cb5-16" aria-hidden="true" tabindex="-1"></a>)</span>
-<span id="cb5-17"><a href="#cb5-17" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb5-8"><a href="#cb5-8" aria-hidden="true" tabindex="-1"></a><span class="co"># Component 1: the simulation grid</span></span>
+<span id="cb5-9"><a href="#cb5-9" aria-hidden="true" tabindex="-1"></a>grid <span class="op">=</span> expand_grid(</span>
+<span id="cb5-10"><a href="#cb5-10" aria-hidden="true" tabindex="-1"></a>    sample_size<span class="op">=</span><span class="bu">list</span>(np.arange(<span class="dv">4</span>, <span class="dv">20</span>)),</span>
+<span id="cb5-11"><a href="#cb5-11" aria-hidden="true" tabindex="-1"></a>    effect_size<span class="op">=</span><span class="bu">list</span>(np.arange(<span class="dv">0</span>, <span class="fl">1.1</span>, <span class="fl">0.1</span>)),</span>
+<span id="cb5-12"><a href="#cb5-12" aria-hidden="true" tabindex="-1"></a>    outcome<span class="op">=</span>[<span class="st">"post"</span>, <span class="st">"change"</span>],</span>
+<span id="cb5-13"><a href="#cb5-13" aria-hidden="true" tabindex="-1"></a>    correction<span class="op">=</span>[<span class="va">False</span>, <span class="va">True</span>],</span>
+<span id="cb5-14"><a href="#cb5-14" aria-hidden="true" tabindex="-1"></a>    iteration<span class="op">=</span><span class="bu">list</span>(<span class="bu">range</span>(<span class="dv">500</span>)),</span>
+<span id="cb5-15"><a href="#cb5-15" aria-hidden="true" tabindex="-1"></a>    _categorical<span class="op">=</span><span class="va">True</span>,</span>
+<span id="cb5-16"><a href="#cb5-16" aria-hidden="true" tabindex="-1"></a>    _row_id<span class="op">=</span><span class="va">True</span>,</span>
+<span id="cb5-17"><a href="#cb5-17" aria-hidden="true" tabindex="-1"></a>)</span>
 <span id="cb5-18"><a href="#cb5-18" aria-hidden="true" tabindex="-1"></a>grid <span class="op">=</span> grid.with_columns(seed<span class="op">=</span>np.random.randint(low<span class="op">=</span><span class="dv">0</span>, high<span class="op">=</span><span class="dv">2</span><span class="op">**</span><span class="dv">32</span> <span class="op">//</span> <span class="dv">2</span>, size<span class="op">=</span><span class="bu">len</span>(grid)))</span>
 <span id="cb5-19"><a href="#cb5-19" aria-hidden="true" tabindex="-1"></a>grid.write_parquet(<span class="st">"processed_data/grid.parquet"</span>)</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
 <ul>
 <li>Results in 352000 individual simulations even for this small simulation with 500 repetitions and only four factors.</li>
-</ul></li>
+</ul>
+</div>
+<div id="tabset-1-2" class="tab-pane" role="tabpanel" aria-labelledby="tabset-1-2-tab">
+<ul>
+<li><p>Base Function</p>
+<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb6"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb6-1"><a href="#cb6-1" aria-hidden="true" tabindex="-1"></a><span class="kw">def</span> generate_data(sample_size: <span class="bu">int</span>, effect_size: <span class="bu">float</span>, seed: <span class="bu">int</span>) <span class="op">-&gt;</span> pl.DataFrame:</span>
+<span id="cb6-2"><a href="#cb6-2" aria-hidden="true" tabindex="-1"></a>    np.random.seed(seed)</span>
+<span id="cb6-3"><a href="#cb6-3" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb6-4"><a href="#cb6-4" aria-hidden="true" tabindex="-1"></a>    <span class="co"># sample pre and post variables</span></span>
+<span id="cb6-5"><a href="#cb6-5" aria-hidden="true" tabindex="-1"></a>    treated <span class="op">=</span> np.arange(sample_size) <span class="op">&lt;</span> (sample_size <span class="op">//</span> <span class="dv">2</span>)</span>
+<span id="cb6-6"><a href="#cb6-6" aria-hidden="true" tabindex="-1"></a>    pre <span class="op">=</span> np.random.normal(<span class="dv">0</span>, <span class="dv">3</span>, sample_size)</span>
+<span id="cb6-7"><a href="#cb6-7" aria-hidden="true" tabindex="-1"></a>    post <span class="op">=</span> pre <span class="op">+</span> np.random.normal(<span class="dv">0</span>, <span class="fl">0.3</span>, sample_size)</span>
+<span id="cb6-8"><a href="#cb6-8" aria-hidden="true" tabindex="-1"></a>    post[treated] <span class="op">+=</span> effect_size</span>
+<span id="cb6-9"><a href="#cb6-9" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb6-10"><a href="#cb6-10" aria-hidden="true" tabindex="-1"></a>    <span class="co"># return a tidy dataframe</span></span>
+<span id="cb6-11"><a href="#cb6-11" aria-hidden="true" tabindex="-1"></a>    <span class="cf">return</span> pl.DataFrame(</span>
+<span id="cb6-12"><a href="#cb6-12" aria-hidden="true" tabindex="-1"></a>        {</span>
+<span id="cb6-13"><a href="#cb6-13" aria-hidden="true" tabindex="-1"></a>            <span class="st">"id"</span>: np.arange(sample_size),</span>
+<span id="cb6-14"><a href="#cb6-14" aria-hidden="true" tabindex="-1"></a>            <span class="st">"treated"</span>: treated,</span>
+<span id="cb6-15"><a href="#cb6-15" aria-hidden="true" tabindex="-1"></a>            <span class="st">"pre"</span>: pre,</span>
+<span id="cb6-16"><a href="#cb6-16" aria-hidden="true" tabindex="-1"></a>            <span class="st">"post"</span>: post,</span>
+<span id="cb6-17"><a href="#cb6-17" aria-hidden="true" tabindex="-1"></a>        }</span>
+<span id="cb6-18"><a href="#cb6-18" aria-hidden="true" tabindex="-1"></a>    )</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div></li>
+<li><p>If multiple DGPs need to be tested, then create subfunctions for each DGP and call them in a conditional</p>
+<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb7"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb7-1"><a href="#cb7-1" aria-hidden="true" tabindex="-1"></a><span class="kw">def</span> generate_data(process: <span class="bu">str</span>, sample_size: <span class="bu">int</span>, effect_size: <span class="bu">float</span>, seed: <span class="bu">int</span>):</span>
+<span id="cb7-2"><a href="#cb7-2" aria-hidden="true" tabindex="-1"></a>  <span class="cf">if</span> process <span class="op">==</span> <span class="st">"a"</span>:</span>
+<span id="cb7-3"><a href="#cb7-3" aria-hidden="true" tabindex="-1"></a>    <span class="cf">return</span> generate_a(sample_size, effect_size, seed)</span>
+<span id="cb7-4"><a href="#cb7-4" aria-hidden="true" tabindex="-1"></a>  <span class="cf">if</span> process <span class="op">==</span> <span class="st">"b"</span>:</span>
+<span id="cb7-5"><a href="#cb7-5" aria-hidden="true" tabindex="-1"></a>    <span class="cf">return</span> generate_b(sample_size, effect_size, seed)</span>
+<span id="cb7-6"><a href="#cb7-6" aria-hidden="true" tabindex="-1"></a>  <span class="cf">if</span> process <span class="op">==</span> <span class="st">"c"</span>:</span>
+<span id="cb7-7"><a href="#cb7-7" aria-hidden="true" tabindex="-1"></a>    <span class="cf">return</span> generate_c(sample_size, effect_size, seed)</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div></li>
+<li><p>Depending on the experiment, include argument tests and error handling</p>
+<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb8"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb8-1"><a href="#cb8-1" aria-hidden="true" tabindex="-1"></a><span class="kw">def</span> generate_data(num_groups: <span class="bu">int</span>, sample_size: <span class="bu">int</span>):</span>
+<span id="cb8-2"><a href="#cb8-2" aria-hidden="true" tabindex="-1"></a> <span class="cf">if</span> num_groups <span class="op">&gt;=</span> sample_size:</span>
+<span id="cb8-3"><a href="#cb8-3" aria-hidden="true" tabindex="-1"></a>  <span class="cf">raise</span> <span class="pp">ValueError</span>(<span class="st">"Sample size should be larger than groups."</span>)</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div></li>
+<li><p>Flexible outputs may be needed depending other required input format of the analysis function, e.g.&nbsp;tuple</p>
+<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb9"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb9-1"><a href="#cb9-1" aria-hidden="true" tabindex="-1"></a><span class="kw">def</span> generate_data(N: <span class="bu">int</span>, P: <span class="bu">int</span>, seed: <span class="bu">int</span>):</span>
+<span id="cb9-2"><a href="#cb9-2" aria-hidden="true" tabindex="-1"></a>  np.random.seed(seed)</span>
+<span id="cb9-3"><a href="#cb9-3" aria-hidden="true" tabindex="-1"></a>  X <span class="op">=</span> np.random.standard_normal((N, P))</span>
+<span id="cb9-4"><a href="#cb9-4" aria-hidden="true" tabindex="-1"></a>  b <span class="op">=</span> np.random.normal(<span class="dv">1</span>, <span class="dv">1</span>, P)</span>
+<span id="cb9-5"><a href="#cb9-5" aria-hidden="true" tabindex="-1"></a>  y <span class="op">=</span> X <span class="op">@</span> b <span class="op">+</span> np.random.normal(<span class="dv">0</span>, <span class="dv">1</span>, N)</span>
+<span id="cb9-6"><a href="#cb9-6" aria-hidden="true" tabindex="-1"></a>  <span class="cf">return</span> X, y, b</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div></li>
+</ul>
+</div>
+<div id="tabset-1-3" class="tab-pane" role="tabpanel" aria-labelledby="tabset-1-3-tab">
+<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb10"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb10-1"><a href="#cb10-1" aria-hidden="true" tabindex="-1"></a><span class="kw">def</span> analyze_data(</span>
+<span id="cb10-2"><a href="#cb10-2" aria-hidden="true" tabindex="-1"></a>    df: pl.DataFrame, outcome: <span class="bu">str</span>, correction: <span class="bu">bool</span></span>
+<span id="cb10-3"><a href="#cb10-3" aria-hidden="true" tabindex="-1"></a>) <span class="op">-&gt;</span> <span class="bu">tuple</span>[<span class="bu">float</span>, <span class="bu">float</span>, <span class="bu">bool</span>]:</span>
+<span id="cb10-4"><a href="#cb10-4" aria-hidden="true" tabindex="-1"></a>    <span class="co"># cast treated column to integer, needed for model fitting</span></span>
+<span id="cb10-5"><a href="#cb10-5" aria-hidden="true" tabindex="-1"></a>    df <span class="op">=</span> df.with_columns(pl.col.treated.cast(<span class="bu">int</span>))</span>
+<span id="cb10-6"><a href="#cb10-6" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb10-7"><a href="#cb10-7" aria-hidden="true" tabindex="-1"></a>    <span class="co"># select columns based on simulation factors</span></span>
+<span id="cb10-8"><a href="#cb10-8" aria-hidden="true" tabindex="-1"></a>    endog <span class="op">=</span> df[<span class="st">"post"</span>] <span class="op">-</span> df[<span class="st">"pre"</span>] <span class="cf">if</span> outcome <span class="op">==</span> <span class="st">"change"</span> <span class="cf">else</span> df[<span class="st">"post"</span>]</span>
+<span id="cb10-9"><a href="#cb10-9" aria-hidden="true" tabindex="-1"></a>    exog <span class="op">=</span> df.select([<span class="st">"treated"</span>, <span class="st">"pre"</span>]) <span class="cf">if</span> correction <span class="cf">else</span> df.select(<span class="st">"treated"</span>)</span>
+<span id="cb10-10"><a href="#cb10-10" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb10-11"><a href="#cb10-11" aria-hidden="true" tabindex="-1"></a>    <span class="co"># create and fit the model</span></span>
+<span id="cb10-12"><a href="#cb10-12" aria-hidden="true" tabindex="-1"></a>    mod <span class="op">=</span> sm.OLS(endog.to_numpy(), sm.add_constant(exog.to_numpy()))</span>
+<span id="cb10-13"><a href="#cb10-13" aria-hidden="true" tabindex="-1"></a>    res <span class="op">=</span> mod.fit()</span>
+<span id="cb10-14"><a href="#cb10-14" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb10-15"><a href="#cb10-15" aria-hidden="true" tabindex="-1"></a>    <span class="co"># return values of interest, including multicollinearity indicator</span></span>
+<span id="cb10-16"><a href="#cb10-16" aria-hidden="true" tabindex="-1"></a>    <span class="cf">return</span> res.params[<span class="dv">1</span>], res.pvalues[<span class="dv">1</span>], res.eigenvals[<span class="op">-</span><span class="dv">1</span>] <span class="op">&lt;</span> <span class="fl">1e-10</span></span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
+<ul>
+<li>The eigenvalues serve as an indicator for multicollinearity and can be used to explain the failure of the model for a certain generated dataset or group of parameters</li>
+</ul>
+</div>
+<div id="tabset-1-4" class="tab-pane" role="tabpanel" aria-labelledby="tabset-1-4-tab">
+<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb11"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb11-1"><a href="#cb11-1" aria-hidden="true" tabindex="-1"></a><span class="co"># Define a function which returns one row of the results table</span></span>
+<span id="cb11-2"><a href="#cb11-2" aria-hidden="true" tabindex="-1"></a><span class="kw">def</span> run_simulation(<span class="bu">id</span>: <span class="bu">int</span>, params: <span class="bu">dict</span>):</span>
+<span id="cb11-3"><a href="#cb11-3" aria-hidden="true" tabindex="-1"></a>    df <span class="op">=</span> generate_data(</span>
+<span id="cb11-4"><a href="#cb11-4" aria-hidden="true" tabindex="-1"></a>        sample_size<span class="op">=</span>params[<span class="st">"sample_size"</span>],</span>
+<span id="cb11-5"><a href="#cb11-5" aria-hidden="true" tabindex="-1"></a>        effect_size<span class="op">=</span>params[<span class="st">"effect_size"</span>],</span>
+<span id="cb11-6"><a href="#cb11-6" aria-hidden="true" tabindex="-1"></a>        seed<span class="op">=</span>params[<span class="st">"seed"</span>],</span>
+<span id="cb11-7"><a href="#cb11-7" aria-hidden="true" tabindex="-1"></a>    )</span>
+<span id="cb11-8"><a href="#cb11-8" aria-hidden="true" tabindex="-1"></a>    est, pval, singular <span class="op">=</span> analyze_data(</span>
+<span id="cb11-9"><a href="#cb11-9" aria-hidden="true" tabindex="-1"></a>        df<span class="op">=</span>df, outcome<span class="op">=</span>params[<span class="st">"outcome"</span>], correction<span class="op">=</span>params[<span class="st">"correction"</span>]</span>
+<span id="cb11-10"><a href="#cb11-10" aria-hidden="true" tabindex="-1"></a>    )</span>
+<span id="cb11-11"><a href="#cb11-11" aria-hidden="true" tabindex="-1"></a>    <span class="cf">return</span> (<span class="bu">id</span>, est, pval, singular)</span>
+<span id="cb11-12"><a href="#cb11-12" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb11-13"><a href="#cb11-13" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb11-14"><a href="#cb11-14" aria-hidden="true" tabindex="-1"></a><span class="cf">if</span> <span class="va">__name__</span> <span class="op">==</span> <span class="st">"__main__"</span>:</span>
+<span id="cb11-15"><a href="#cb11-15" aria-hidden="true" tabindex="-1"></a>    <span class="cf">with</span> Pool() <span class="im">as</span> p:</span>
+<span id="cb11-16"><a href="#cb11-16" aria-hidden="true" tabindex="-1"></a>        results_list <span class="op">=</span> p.starmap(</span>
+<span id="cb11-17"><a href="#cb11-17" aria-hidden="true" tabindex="-1"></a>            run_simulation,</span>
+<span id="cb11-18"><a href="#cb11-18" aria-hidden="true" tabindex="-1"></a>            tqdm(<span class="bu">enumerate</span>(grid.iter_rows(named<span class="op">=</span><span class="va">True</span>)), total<span class="op">=</span><span class="bu">len</span>(grid)),</span>
+<span id="cb11-19"><a href="#cb11-19" aria-hidden="true" tabindex="-1"></a>        )</span>
+<span id="cb11-20"><a href="#cb11-20" aria-hidden="true" tabindex="-1"></a>    df <span class="op">=</span> pl.DataFrame(</span>
+<span id="cb11-21"><a href="#cb11-21" aria-hidden="true" tabindex="-1"></a>        results_list,</span>
+<span id="cb11-22"><a href="#cb11-22" aria-hidden="true" tabindex="-1"></a>        schema<span class="op">=</span>{<span class="st">"row_id"</span>: <span class="bu">int</span>, <span class="st">"estimate"</span>: <span class="bu">float</span>, <span class="st">"pvalue"</span>: <span class="bu">float</span>, <span class="st">"singular"</span>: <span class="bu">bool</span>},</span>
+<span id="cb11-23"><a href="#cb11-23" aria-hidden="true" tabindex="-1"></a>        orient<span class="op">=</span><span class="st">"row"</span>,</span>
+<span id="cb11-24"><a href="#cb11-24" aria-hidden="true" tabindex="-1"></a>    )</span>
+<span id="cb11-25"><a href="#cb11-25" aria-hidden="true" tabindex="-1"></a>    df.write_parquet(<span class="st">"processed_data/results.parquet"</span>)</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
+</div>
+<div id="tabset-1-5" class="tab-pane" role="tabpanel" aria-labelledby="tabset-1-5-tab">
+<p>Run the simulation in a sliced way using multiprocessing and produce Component 4: the results table</p>
+<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb12"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb12-1"><a href="#cb12-1" aria-hidden="true" tabindex="-1"></a><span class="kw">def</span> run_simulation(slice_num: <span class="bu">int</span>, <span class="bu">slice</span>: pl.DataFrame):</span>
+<span id="cb12-2"><a href="#cb12-2" aria-hidden="true" tabindex="-1"></a>    results_list <span class="op">=</span> []</span>
+<span id="cb12-3"><a href="#cb12-3" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb12-4"><a href="#cb12-4" aria-hidden="true" tabindex="-1"></a>    <span class="co"># iterate over each row in the slice</span></span>
+<span id="cb12-5"><a href="#cb12-5" aria-hidden="true" tabindex="-1"></a>    <span class="cf">for</span> row <span class="kw">in</span> <span class="bu">slice</span>.iter_rows(named<span class="op">=</span><span class="va">True</span>):</span>
+<span id="cb12-6"><a href="#cb12-6" aria-hidden="true" tabindex="-1"></a>        df <span class="op">=</span> generate_data(</span>
+<span id="cb12-7"><a href="#cb12-7" aria-hidden="true" tabindex="-1"></a>            sample_size<span class="op">=</span>row[<span class="st">"sample_size"</span>],</span>
+<span id="cb12-8"><a href="#cb12-8" aria-hidden="true" tabindex="-1"></a>            effect_size<span class="op">=</span>row[<span class="st">"effect_size"</span>],</span>
+<span id="cb12-9"><a href="#cb12-9" aria-hidden="true" tabindex="-1"></a>            seed<span class="op">=</span>row[<span class="st">"seed"</span>],</span>
+<span id="cb12-10"><a href="#cb12-10" aria-hidden="true" tabindex="-1"></a>        )</span>
+<span id="cb12-11"><a href="#cb12-11" aria-hidden="true" tabindex="-1"></a>        est, pval, singular <span class="op">=</span> analyze_data(</span>
+<span id="cb12-12"><a href="#cb12-12" aria-hidden="true" tabindex="-1"></a>            df<span class="op">=</span>df, outcome<span class="op">=</span>row[<span class="st">"outcome"</span>], correction<span class="op">=</span>row[<span class="st">"correction"</span>]</span>
+<span id="cb12-13"><a href="#cb12-13" aria-hidden="true" tabindex="-1"></a>        )</span>
+<span id="cb12-14"><a href="#cb12-14" aria-hidden="true" tabindex="-1"></a>        results_list.append((est, pval, singular))</span>
+<span id="cb12-15"><a href="#cb12-15" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb12-16"><a href="#cb12-16" aria-hidden="true" tabindex="-1"></a>    <span class="co"># create a dataframe for the results</span></span>
+<span id="cb12-17"><a href="#cb12-17" aria-hidden="true" tabindex="-1"></a>    results_slice <span class="op">=</span> pl.DataFrame(</span>
+<span id="cb12-18"><a href="#cb12-18" aria-hidden="true" tabindex="-1"></a>        results_list,</span>
+<span id="cb12-19"><a href="#cb12-19" aria-hidden="true" tabindex="-1"></a>        schema<span class="op">=</span>{<span class="st">"estimate"</span>: <span class="bu">float</span>, <span class="st">"pvalue"</span>: <span class="bu">float</span>, <span class="st">"singular"</span>: <span class="bu">bool</span>},</span>
+<span id="cb12-20"><a href="#cb12-20" aria-hidden="true" tabindex="-1"></a>        orient<span class="op">=</span><span class="st">"row"</span>,</span>
+<span id="cb12-21"><a href="#cb12-21" aria-hidden="true" tabindex="-1"></a>    )</span>
+<span id="cb12-22"><a href="#cb12-22" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb12-23"><a href="#cb12-23" aria-hidden="true" tabindex="-1"></a>    <span class="co"># write the slice to disk in parquet file</span></span>
+<span id="cb12-24"><a href="#cb12-24" aria-hidden="true" tabindex="-1"></a>    results_slice.write_parquet(<span class="ss">f"processed_data/chunked_output/</span><span class="sc">{</span>slice_num<span class="sc">:06}</span><span class="ss">.parquet"</span>)</span>
+<span id="cb12-25"><a href="#cb12-25" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb12-26"><a href="#cb12-26" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb12-27"><a href="#cb12-27" aria-hidden="true" tabindex="-1"></a><span class="cf">if</span> <span class="va">__name__</span> <span class="op">==</span> <span class="st">"__main__"</span>:</span>
+<span id="cb12-28"><a href="#cb12-28" aria-hidden="true" tabindex="-1"></a>    <span class="cf">with</span> Pool() <span class="im">as</span> p:</span>
+<span id="cb12-29"><a href="#cb12-29" aria-hidden="true" tabindex="-1"></a>        p.starmap(</span>
+<span id="cb12-30"><a href="#cb12-30" aria-hidden="true" tabindex="-1"></a>            run_simulation,</span>
+<span id="cb12-31"><a href="#cb12-31" aria-hidden="true" tabindex="-1"></a>            tqdm(<span class="bu">enumerate</span>(grid.iter_slices(<span class="dv">10000</span>)), total<span class="op">=</span><span class="bu">len</span>(grid) <span class="op">//</span> <span class="dv">10000</span> <span class="op">+</span> <span class="dv">1</span>),</span>
+<span id="cb12-32"><a href="#cb12-32" aria-hidden="true" tabindex="-1"></a>        )</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
+</div>
+</div>
+</div></li>
 </ul></li>
 </ul>
 
