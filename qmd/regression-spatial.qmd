@@ -49,6 +49,9 @@
     | SAC | spatial autoregressive combined | `sacsarlm(..., Durbin=FALSE)` |
     | GNM | general nested | `sacsarlm(..., Durbin=TRUE)` |
 
+    -   `errorsarlm` has a [weights]{.arg-text} argument may be used to provide weights indicating the known degree of per-observation variability in the variance term (not spatial weights)
+    -   [method]{.arg-text} gives the method for calculating the log determinant term in the log likelihood function, and defaults to `"eigen"`, suitable for moderately sized datasets
+
 -   **Spatial Lag Model (SLM)** or **Spatial Autoregressive (SAR)**\
     $$
     y = \rho_{\text{lag}}Wy + X\beta + \epsilon
@@ -194,6 +197,90 @@
         -   A change in city $j$ can affect city $i$ both directly (if they're neighbors) and indirectly through intermediate cities in the spatial network (i.e. the effect generated in other cities spilling over into a city).
         -   For SLX models, nothing is gained from computing the "impacts," as they equal the coefficients. Again, it’s the effects of direct neighbours only (i.e. a local indirect impact).
     -   **Total Impacts** represent the overall effect of a change in an explanatory variable across all locations in the study area. In essence, it captures the entire spatial multiplier effect
+        -   [Example]{.ribbon-highlight}: Human Capital's impact on regional labor productivity
+            -   "A ceteris paribus increase in the level of human capital is found to have a significant and positive direct impact. But this positive direct impact is offset by a significant and negative indirect (spillover) impact leading to a total impact that is not significantly different from zero."
+
+### Diagnostics {#sec-reg-spat-econ-diag .unnumbered}
+
+-   Spatial Hausman Test
+    -   Notes from [Video: Spatial Regression in R 1: The four simplest models](https://youtu.be/b3HtV2Mhmvk?t=2146)
+    -   If the processes in the covariates and the response match, we should find little difference between the coefficients of a least squares and a SEM
+    -   Tests if there's correlation between an predictor variable and the error term (i.e. endogeneity)
+    -   Under the SEM model assumptions, OLS and SEM regression parameter estimates should be unbiased. This suggests that significant differences in regression parameter estimates will arise only from misspecification.
+    -   "For a given set of variables, a divergence between the coefficient estimates from SEM and OLS suggests that neither is yielding regression parameter estimates matching the underlying parameters of the DGP. This calls into question use of either OLS or SEM for that set of variables" Orignial Paper
+    -   I think this compares an OLS and a spatial errors model. If the null is rejected, then there is a signifiant spatial process and a spatial model should be fit. If the null is not rejected, then fit an OLS.
+    -   Rejecting the null (p-value \< 0.05) indicates neither OLS nor SEM is appropriate and there is a spatial process not sufficiently captured by the SEM model which only spatially models the residuals. In other words, try some other spatial regression models.
+
+### Examples {#sec-reg-spat-econ-ex .unnumbered}
+
+-   [Example]{.ribbon-highlight}: Boston Housing Values ([SDS Ch.17.2](https://r-spatial.org/book/17-Econometrics.html#boston-house-value-dataset-examples))
+
+-   SEM, SDEM
+
+    ``` r
+    library(spatialreg)
+
+    form <- 
+      formula(log(median) ~ CRIM + ZN + INDUS + CHAS + 
+              I((NOX*10)^2) + I(RM^2) + AGE + log(DIS) +
+              log(RAD) + TAX + PTRATIO + I(BB/100) + 
+              log(I(LSTAT/100)))
+
+    eigs_489 <- eigenw(lw_q_489)
+
+    sdem_489 <- 
+      errorsarlm(form, 
+                 data = boston_489,
+                 listw = lw_q_489, 
+                 Durbin = TRUE, 
+                 zero.policy = TRUE,
+                 control = list(pre_eig = eigs_489))
+    sem_489 <- 
+      errorsarlm(form, 
+                 data = boston_489,
+                 listw = lw_q_489, 
+                 zero.policy = TRUE,
+                 control = list(pre_eig = eigs_489))
+
+    cbind(data.frame(model=c("SEM", "SDEM")), 
+          rbind(broom::tidy(Hausman.test(SEM_489)), 
+                broom::tidy(Hausman.test(SDEM_489))))[,1:4]
+    #>    model statistic  p.value parameter
+    #>  1   SEM      52.0 2.83e-06        14
+    #>  2  SDEM      48.7 6.48e-03        27
+    ```
+
+    -   Uses the [boston_489]{.var-text} dataset which has no aggregation or unioned geometries — only has the censored values (codes as [NA]{.arg-text}) removed from [median]{.var-text} (response) (and [CHAS]{.var-text} coerced to a factor)
+        -   Therefore, this model is completely at the census tract level and not the higher ([NOX_ID]{.var-text}) level.
+    -   The spatial weights list, [lw_q_489]{.var-text}, is calculated directly from [boston_489]{.var-text}
+    -   Both Hausman test results are significant which suggests neither is appropriate, and that there is a spatial process not significantly being captured by these models.
+
+-   Aggregated Data Set
+
+    ``` r
+    eigs_94 <- eigenw(lw_q_94)
+
+    SDEM_94 <- 
+      errorsarlm(form, 
+                 data = boston_94, 
+                 listw = lw_q_94,
+                 Durbin = TRUE,
+                 control = list(pre_eig=eigs_94))
+    SEM_94 <- 
+      errorsarlm(form, 
+                 data = boston_94, 
+                 listw = lw_q_94,
+                 control = list(pre_eig = eigs_94))
+
+    cbind(data.frame(model=c("SEM", "SDEM")), 
+          rbind(broom::tidy(Hausman.test(SEM_94)), 
+                broom::tidy(Hausman.test(SDEM_94))))[, 1:4]
+    #   model statistic p.value parameter
+    # 1   SEM     15.66   0.335        14
+    # 2  SDEM      9.21   0.999        27
+    ```
+
+    -   The null is no longer rejected for both models which means that these models are adequately capturing the spatial process.
 
 ## Mixed Effects {#sec-reg-spat-me .unnumbered}
 
