@@ -29,7 +29,9 @@
 -   Workflow (LeSage (2014), [What Regional Scientists Need to Know about Spacial Econometrics](https://rrs.scholasticahq.com/article/8081-what-regional-scientists-need-to-know-about-spatial-econometrics))
     1.  Does your DGP indicate a local or global model (i.e. SDM or SDEM)?
         -   See [Models](regression-spatial.qmd#sec-reg-spat-econ-mod){style="color: green"} \>\> Nested Structure. SDM (middle column, global) and SDEM (right column, local)
-        -   LeSage doesn't like the SAC model (left column). See [Models](regression-spatial.qmd#sec-reg-spat-econ-mod){style="color: green"} \>\> SAC for details
+        -   SAC is also a global model but LeSage doesn't like the SAC model (left column).
+            -   See [Models](regression-spatial.qmd#sec-reg-spat-econ-mod){style="color: green"} \>\> SAC for details.
+            -   I'd need to check the paper, but I think his concerns might be assuaged with the second spatial weights argument ([listw2]{.arg-text}) in the model function
         -   See [Impacts](regression-spatial.qmd#sec-reg-spat-econ-imp){style="color: green"} \>\> Types for definitions of Local and Global
     2.  Use Likelihood Ratio Tests to select between models nested under whichever one you selected
 -   The spatial lag is usually taken as the mean of the values of the variable at neighboring observations for row-standardised spatial weights, or the sum for binary spatial weights.
@@ -71,12 +73,16 @@
     $$
 
     -   Includes a spatial process for the response
-    -   $y$ : A $n\times 1$ vector of observations on a response variable taken at each of $n$ locations
-    -   $\rho_{\text{lag}}$ : Scalar spatial parameter
-    -   $W$ : A $n\times n$ spatial weights matrix
-    -   $X$ : A $n\times k$ matrix of covariates usually including the intercept
-    -   $\beta$ : A $k\times 1$ vector of parameters
-    -   $\epsilon$ : A $n\times 1$ vector of iid *disturbances*
+    -   Lag of Y (endogenous interaction effects):
+        -   Possible space-time dependence (e.g. drug use spreads through space over time)
+        -   Values of Y are jointly determined with that of neighboring agents, or there are “spillover effects”
+    -   Terms
+        -   $y$ : A $n\times 1$ vector of observations on a response variable taken at each of $n$ locations
+        -   $\rho_{\text{lag}}$ : Scalar spatial parameter
+        -   $W$ : A $n\times n$ spatial weights matrix
+        -   $X$ : A $n\times k$ matrix of covariates usually including the intercept
+        -   $\beta$ : A $k\times 1$ vector of parameters
+        -   $\epsilon$ : A $n\times 1$ vector of iid *disturbances*
 
 -   **Spatial Error Model (SEM)**\
     $$
@@ -89,6 +95,7 @@
     -   Includes a spatial process for the residuals
     -   $u$ : A $n\;\times\;1$ spatially autocorrelated disturbance vector
     -   $\rho_{\text{err}}$ : A scalar spatial parameter.
+    -   Can be motivated by spatial heterogeneity (e.g., a spatially correlated fixed effect as in panel data models), an omitted variable with spatially distinct effects, others.
 
 -   **Spatial Durbin Model (SDM)**\
     $$
@@ -98,6 +105,7 @@
     -   Includes spatial processes for the response and covariates
     -   $WX$ : Is the spatially weighted, lagged covariates term
     -   $\gamma$ : A $k\;' \times 1$ vector of parameters where often $k' = k - 1$ when using row-standardized spatial weights and ommitting the spatially lagged intercept.
+    -   Can be motivated by assuming that there is a spatially correlated omitted variable (e.g. environmental amenities, highway accessibility, community social capital)
     -   The indirect spillover eﬀect produced by the SDM model is both local and global with no prior restrictions on the magnitudes of these eﬀects
     -   The exogenous regressor of one location casts an eﬀect on the dependent variable of the neighboring locations through *feedback loops*.
         -   The feedback loops are a result of the Durbin term due to which a location, say $i$ aﬀects aneighboring location, say $j$, which eventually has a consequence on $i, j = 1,2, \ldots , n$
@@ -137,8 +145,8 @@
     -   No spatial process for covariates
     -   AKA **Spatial AutoRegressive-AutoRegressive (SARAR), Kelejian-Prucha, Cliff-Ord**
     -   Issue: Using the same W matrix for lag and error terms can lead to identification problems.
-        -   Probably best to avoid these models.
-        -   HOWEVER, sometimes people mention a $\text{SARMA}(p,q)$, allowing for $p$ different $\rho_{\text{lag}} Wy$ W matrices, and $q$ different $\rho_{\text{err}} Wu$ terms likewise (normally W’s of different orders)
+        -   `sacsarlm` has a [listw2]{.arg-text} argument to pass a second spatial weights matrix
+            -   Bivand doesn't use it in his example though
 
 -   **Spatially Lagged X Model (SLX)**
 
@@ -147,6 +155,7 @@
     $$
 
     -   Only has a spatial process for the covariates
+    -   If explanatory variables of area i might affect its neighbor j
 
 -   **Error Durbin model (SDEM)**
 
@@ -365,6 +374,9 @@
 -   Examples
     -   [Example]{.ribbon-highlight}: Boston Housing Values ([SDS Ch. 16.2](https://r-spatial.org/book/16-SpatialRegression.html#sec-multilevel))
 
+        -   The lower level (census tract) dataset (no aggregation of variables) is used in these models
+        -   Since the [NOX]{.var-text} (air pollution) variable is measured at the higher geometry level ([NOX_ID]{.var-text}) and not the census tract level like the other covariates, the coefficient estimates for that variable are not useful, but looking at the random effects does provide some insight (See Visualization tab).
+
         ::: panel-tabset
         ## [{lme4}]{style="color: #990000"}
 
@@ -437,6 +449,25 @@
         # random effects
         boston_93$INLA_re <- INLA_iid$summary.random$NOX_ID$mean
         ```
+
+        ## Visualization
+
+        ![](_resources/Regression-Spatial.resources/mult-vi-ex1-re-tmap-1.png){.lightbox width="532"}
+
+        ``` r
+        library(tmap)
+
+        tm_shape(boston_93) +
+          tm_polygons(fill = c("MLM_re", "HGLM_re", "INLA_re", "BX_re"),
+              fill.legend = tm_legend("IID", frame=FALSE, item.r = 0),
+              fill.free = FALSE, lwd = 0.01,
+              fill.scale = tm_scale(midpoint = 0, values = "brewer.rd_yl_gn")) +
+          tm_facets_wrap(columns = 2, rows = 2) + 
+          tm_layout(panel.labels = c("lmer", "hglm", "inla", "bayesx"))                
+        ```
+
+        -   The air pollution model output zone level IID random effects are very similar across the four model fitting functions reported.
+        -   The central downtown zones have stronger negative random effect values, but strong positive values are also found in close proximity; suburban areas take values closer to zero.
         :::
 
 ### Spatially Structured Random Effects {#sec-reg-spat-me-ssre .unnumbered}
@@ -464,6 +495,7 @@
     -   [Example]{.ribbon-highlight}: Boston Housing Values ([SDS Ch. 16.2](https://r-spatial.org/book/16-SpatialRegression.html#sec-multilevel))
 
         -   The lower level (census tract) dataset (no aggregation of variables) is used in these models while the neighbor's list/spatial weights object used is created from a higher level geometry ([NOX_ID]{.var-text}) (i.e. the spatial relationship is modeled at the higher level)
+        -   Since the [NOX]{.var-text} (air pollution) variable is measured at the higher geometry level ([NOX_ID]{.var-text}) and not the census tract level like the other covariates, the coefficient estimates for that variable are not useful, but looking at the random effects does provide some insight (See Visualization tab).
         -   Care is needed to match the indexing variable with the spatial weights. The neighbor's list object ([nb_q_93]{.var-text}) needs to get manipulated in some way in all these models in order for the spatial weights object to be in a suitable format for the particular model to accept.
 
         ::: panel-tabset
@@ -591,4 +623,26 @@
 
         -   The upper-level random effects may be extracted by predicting terms
         -   The values in all lower-level tracts belonging to the same upper-level air pollution model output zones are identical
+
+        ## Visualization
+
+        ![](_resources/Regression-Spatial.resources/mult-ssre-ex1-re-tmap-1.png){.lightbox width="532"}
+
+        ``` r
+        library(tmap)
+
+        tm_shape(boston_93) +
+          tm_polygons(fill = c("HGLM_ss", "INLA_lr", "INLA_ss", "BX_ss", 
+                  "GAM_ss"),
+              fill.legend = tm_legend("SSRE", frame=FALSE, item.r = 0),
+              fill.free = FALSE, lwd = 0.1,
+              fill.scale = tm_scale(midpoint = 0, values = "brewer.rd_yl_gn")) +
+          tm_facets_wrap(columns = 3, rows = 2) + 
+          tm_layout(panel.labels = c("hglm CAR", "inla Leroux",
+                   "inla ICAR", "bayesx ICAR", "gam ICAR"))
+        ```
+
+        -   The spatially structured random effects are also very similar to each other
+            -   The SAR spatial smooth is perhaps a little smoother than the CAR smooths when considering the range of values taken by the random effect term.
+        -   The central downtown zones have stronger negative random effect values, but strong positive values are also found in close proximity; suburban areas take values closer to zero.
         :::
