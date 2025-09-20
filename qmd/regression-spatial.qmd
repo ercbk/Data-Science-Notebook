@@ -292,7 +292,10 @@
 
 -   [Example]{.ribbon-highlight}: Boston Housing Values ([SDS Ch.17.2](https://r-spatial.org/book/17-Econometrics.html#boston-house-value-dataset-examples))
 
--   SEM, SDEM
+    ::: panel-tabset
+    ## SDEM vs. SEM
+
+    ###### Census Tract
 
     ``` r
     library(spatialreg)
@@ -325,6 +328,15 @@
     #>    model statistic  p.value parameter
     #>  1   SEM      52.0 2.83e-06        14
     #>  2  SDEM      48.7 6.48e-03        27
+
+    LR.Sarlm(sdem_489, sem_489)
+    #>  Likelihood ratio for spatial linear models
+    #> 
+    #> data:  
+    #> Likelihood ratio = 74.408, df = 13, p-value = 1.227e-10
+    #> sample estimates:
+    #> Log likelihood of sdem_489  Log likelihood of sem_489 
+    #>                   310.6741                   273.4702 
     ```
 
     -   Uses the [boston_489]{.var-text} dataset which has no aggregation or unioned geometries — only has the censored values (coded as [NA]{.arg-text}) removed from [median]{.var-text} (response) (and [CHAS]{.var-text} coerced to a factor)
@@ -333,41 +345,153 @@
         -   The weights were row-standardized
         -   The neighbor list is contiguity-based and includes 3 subgraphs and an observation with no neighbors.
     -   Both Hausman test results are significant which suggests neither is appropriate, and that the spatial process not significantly being captured by only spatially modeling the residuals.
+    -   If we had to choose one of these models (certain it's a local dgp, don't buy Hausman, etc.), then the SDEM has a significantly larger log likelihood and would be the choice.
 
--   Aggregated Data Set
+    ###### Aggregated
 
     ``` r
     eigs_94 <- eigenw(lw_q_94)
 
-    SDEM_94 <- 
+    sdem_94 <- 
       errorsarlm(form, 
                  data = boston_94, 
                  listw = lw_q_94,
                  Durbin = TRUE,
                  control = list(pre_eig=eigs_94))
-    SEM_94 <- 
+    sem_94 <- 
       errorsarlm(form, 
                  data = boston_94, 
                  listw = lw_q_94,
                  control = list(pre_eig = eigs_94))
 
     cbind(data.frame(model=c("SEM", "SDEM")), 
-          rbind(broom::tidy(Hausman.test(SEM_94)), 
-                broom::tidy(Hausman.test(SDEM_94))))[, 1:4]
+          rbind(broom::tidy(Hausman.test(sem_94)), 
+                broom::tidy(Hausman.test(sdem_94))))[, 1:4]
     #   model statistic p.value parameter
     # 1   SEM     15.66   0.335        14
     # 2  SDEM      9.21   0.999        27
 
-    cbind(data.frame(model=c("SEM", "SDEM")),
-          rbind(broom::tidy(LR1.Sarlm(SEM_94)),
-                broom::tidy(LR1.Sarlm(SDEM_94))))[,c(1, 4:6)]
-    #   model statistic p.value parameter
-    # 1   SEM     2.593   0.107         1
-    # 2  SDEM     0.216   0.642         1
+    LR.Sarlm(sdem_94, sem_94)
+    #>  Likelihood ratio for spatial linear models
+    #> 
+    #> data:  
+    #> Likelihood ratio = 43.17, df = 13, p-value = 4.209e-05
+    #> sample estimates:
+    #> Log likelihood of SDEM_94  Log likelihood of SEM_94 
+    #>                  81.33336                  59.74851 
     ```
 
     -   The null is no longer rejected for both models which says the SEM and SDEM models aren't misspecified at the air pollution model output zone level ([NOX_ID]{.var-text})
     -   We could fit an OLS model at this geometry level and get unbiased coefficients, but the model wouldn't capture the spatial process which would bias the standard errors/p-values.
+    -   The SDEM has the significantly larger log likelihood than the SEM model and is the choice.
+
+    ## SDEM vs. SLX
+
+    ###### Census Tract
+
+    ``` r
+    slx_489 <- 
+      lmSLX(form, 
+            data = boston_489, 
+            listw = lw_q_489,
+            zero.policy = TRUE)
+
+    LR.Sarlm(sdem_489, slx_489)
+    #>  Likelihood ratio for spatial linear models
+    #> 
+    #> data:  
+    #> Likelihood ratio = -159.38, df = 1, p-value < 2.2e-16
+    #> sample estimates:
+    #>  Log likelihood of slx_489 Log likelihood of sdem_489 
+    #>                   230.9842                   310.6741     
+    ```
+
+    -   The SDEM has the significantly larger log likelihood than the SLX model and is the choice.
+
+    ###### Aggregated
+
+    ``` r
+    slx_94 <- 
+      lmSLX(form, 
+            data = boston_94, 
+            listw = lw_q_94,
+            zero.policy = TRUE)
+
+    LR.Sarlm(sdem_94, slx_94)
+    #>  Likelihood ratio for spatial linear models
+    #> 
+    #> data:  
+    #> Likelihood ratio = 0.21585, df = 1, p-value = 0.6422
+    #> sample estimates:
+    #> Log likelihood of sdem_94  Log likelihood of slx_94 
+    #>                  81.33336                  81.22543     
+    ```
+
+    -   There is no difference between the SDEM and SLX log likelihoods, so choosing the less complex model, SLX, model is the choice.
+
+    ## Weighted
+
+    ###### Census Tract
+
+    ``` r
+    slx_489w <- 
+      lmSLX(form, 
+            data = boston_489, 
+            listw = lw_q_489,
+            weights = units, 
+            zero.policy = TRUE)
+
+    sdem_489w <- 
+      errorsarlm(form, 
+                 data = boston_489,
+                 listw = lw_q_489, 
+                 Durbin = TRUE,
+                 weights = units, 
+                 zero.policy = TRUE,
+                 control = list(pre_eig = eigs_489))
+
+    LR.Sarlm(sdem_489w, slx_489w)
+    #>  Likelihood ratio for spatial linear models
+    #> 
+    #> data:  
+    #> Likelihood ratio = 136.31, df = 1, p-value < 2.2e-16
+    #> sample estimates:
+    #> Log likelihood of sdem_489w  Log likelihood of slx_489w 
+    #>                    379.0057                    310.8491 
+    ```
+
+    -   [units]{.var-text} is the counts of house units which is a variable in the dataset
+    -   The use of weights is justified, because tract-level counts of reported housing units underlying the weighted median values vary from 5 to 3,031, and air pollution model output zone (aggregated geometries) counts vary from 25 to 12,411.
+
+    ###### Aggregated
+
+    ``` r
+    slx_94w <- 
+      lmSLX(form, 
+            data = boston_94, 
+            listw = lw_q_94,
+            weights = units)
+
+    sdem_94w <- 
+      errorsarlm(form, 
+                 data = boston_94, 
+                 listw = lw_q_94,
+                 Durbin = TRUE, 
+                 weights = units,
+                 control = list(pre_eig = eigs_94))
+
+    LR.Sarlm(sdem_94, slx_94)
+    #>  Likelihood ratio for spatial linear models
+    #> 
+    #> data:  
+    #> Likelihood ratio = 0.21585, df = 1, p-value = 0.6422
+    #> sample estimates:
+    #> Log likelihood of sdem_94  Log likelihood of slx_94 
+    #>                  81.33336                  81.22543 
+    ```
+
+    -   Model choices for census tract and aggregated geometries ([NOX_ID]{.var-text}) remain the same even after weighting by [units]{.var-text}
+    :::
 
 ## Mixed Effects {#sec-reg-spat-me .unnumbered}
 
