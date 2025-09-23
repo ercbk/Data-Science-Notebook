@@ -55,7 +55,7 @@
 -   [[{spatialreg}]{.underline}]{style="color: #990000"} [Model Functions]{.underline}\
 
     | model | model name | maximum likelihood estimation function |
-    |------------------------|------------------------|------------------------|
+    |----|----|----|
     | SEM | spatial error | `errorsarlm(..., Durbin=FALSE)` |
     | SEM | spatial error | `spautolm(..., family="SAR")` |
     | SDEM | spatial Durbin error | `errorsarlm(..., Durbin=TRUE)` |
@@ -299,36 +299,114 @@
     -   Solution: See [{sphet}]{style="color: #990000"}
         -   I wonder if HC3 SEs or Conley SEs would work here
         -   Also supposedly the effect on SEs isn't overly strong. So, if you're p-value is really small, then you're probably okay.
--    [Rao's Score]{.underline} (AKA [Robust Lagrange Multiplier Test]{.underline})
+-   [Rao's Score]{.underline} (AKA [Robust Lagrange Multiplier Test]{.underline})
     -   The robust LM test for linear regression offers a good performance in distinguishing between SAR, SEM, and non-spatial OLS (`lm.RStests`)
-    -   There's also one for Durbin models (`SD.RStests`)
+        -   There's also one for Durbin models (`SD.RStests`)
     -   Potential Causes for Spatial Autocorrelation
         -   Interdependence, $\rho$ or $\rho_{\text{lag}}$ (aka lagged dependent variable)
         -   Clustering on unobservables, $\lambda$ or $\rho_{\text{err}}$ (aka error dependence)
         -   Spillovers in covariates, $\theta$ (aka lagged covariates)
-    -   For OLS models
+    -   Null Hypotheses
         -   H~0~: $\rho_{\text{lag}} = 0$\
             or\
             H~0~: $\rho_{\text{err}} = 0$
+        -   If p-value \< 0.5, then lags of the dependent variable should be included or errors should be spatially modelled (depending on the test's H~0~).
+        -   Should be similar for the Durbin tests --- p-value \< 0.05 means include the component that it's testing for, e.g. if SDM_adjRSWX has a p-value \< 0.05, then include lagged covariates.
     -   For OLS test formulas see [GSR 12.1.1](https://ruettenauer.github.io/Geodata_Spatial_Regression/08_comparison.html#lagrange-multiplier-test)
-    -   Available Tests for `lm.RStests`
-        -   "all" - Compute all tests
-        -   "RSerr” - Error dependence
-        -   “adjRSerr”  - Tests for error dependence in the possible presence of a missing lagged dependent variable
-        -   “RSlag” - Missing spatially lagged dependent variable
-        -   “adjRSlag” - Tests for missing spatially lagged dependent variable in the possible presence of error dependence
-        -   “SARMA” - Combination test, “RSerr” + “adjRSlag”
-    -   Available Tests for `SD.RStests`
-        -   "all" - Compute all tests
-        -   "SDM” - Computes all SDM tests which includes:
-            -   SDM_RSlag - Same as "RSlag"
-            -   SDM_adjRSlag - Same as "adjRSlag"
-            -   SDM_RSWX - Missing spatially lagged independent variable(s)
-            -   SDM_adjRSWX - Tests for missing spatially lagged dependent variable when there's possibly a missing lagged dependent variable
-            -   SDM_Joint - Combination test (RSlag + adjRSWX?)
-        -   “SDEM” - Computes all SDEM tests
-            -   Includes SDEM_RSerr, SDEM_RSWX, SDEM_Joint
-        -   spatially lagged dependent variable `lag` or the spatially lagged independent variable(s) `WX` should be included in the model, or both 
+    -   Available Tests for Linear Regression Rao Score: `lm.RStests`
+        -   ["all"]{.arg-text} - Compute all tests
+        -   ["RSerr”]{.arg-text} - Error dependence
+        -   [“adjRSerr”]{.arg-text} - Tests for error dependence in the possible presence of a missing lagged dependent variable
+        -   [“RSlag”]{.arg-text} - Missing spatially lagged dependent variable
+        -   [“adjRSlag”]{.arg-text} - Tests for missing spatially lagged dependent variable in the possible presence of error dependence
+        -   [“SARMA”]{.arg-text} - Combination test, [“RSerr”]{.arg-text} + [“adjRSlag”]{.arg-text}
+    -   Available Tests for Spatial Durbin Rao Score: `SD.RStests`
+        -   ["all"]{.arg-text} - Compute all tests
+        -   ["SDM”]{.arg-text} - Computes all SDM tests which include:
+            -   ["SDM_RSlag"]{.arg-text} - Same as ["RSlag"]{.arg-text}
+            -   ["SDM_adjRSlag"]{.arg-text} - Same as ["adjRSlag"]{.arg-text}
+            -   ["SDM_RSWX"]{.arg-text} - Missing spatially lagged independent variable(s)
+            -   ["SDM_adjRSWX"]{.arg-text} - Tests for missing spatially lagged dependent variable when there's possibly a missing lagged dependent variable
+            -   ["SDM_Joint"]{.arg-text} - Combination test (SDM_RSlag + SDM_adjRSWX or SDM_adjRSlag + SDM_RSWX)
+        -   [“SDEM”]{.arg-text} - Computes all SDEM tests which include:
+            -   ["SDEM_RSerr"]{.arg-text} - Same as ["RSerr"]{.arg-text}
+            -   ["SDEM_RSWX"]{.arg-text} - Same as ["SDM_RSlag"]{.arg-text}
+            -   ["SDEM_Joint"]{.arg-text} - Same as ["SDM_Joint"]{.arg-text}
+            -   No adjusted tests required because of orthogonality
+    -   Functions
+        -   A `lm` model and a spatial weights object are the inputs
+
+        -   Utilizing different options can have substantial effects on the test, such as:
+
+            -   Using a different weighting scheme, e.g. switching for row-standardized (["W"]{.arg-text}) to global standardized (["C"]{.arg-text})
+            -   Only lagging a subset of the covariates, e.g. [Durbin = \~ INC]{.arg-text}
+            -   Variable transformations, e.g. scaling
+
+        -   There will be warnings about using categorical variables in the Durbin tests, because the effects are not well-understood.
+
+        -   [Example]{.ribbon-highlight}:
+
+            ``` r
+            library(spatialreg); library(spdep)
+
+            # data, nb list, spatial weights
+            columbus <- 
+              sf::st_read(system.file("shapes/columbus.gpkg", 
+                                      package = "spData")[1])
+            col.gal.nb <- 
+              spdep::read.gal(system.file("weights/columbus.gal", 
+                                          package = "spData")[1])
+            col.listw <- nb2listw(col.gal.nb, style = "W")
+
+            # cleaning
+            columbus$fEW <- factor(columbus$EW)
+            columbus$fDISCBD <- ordered(cut(columbus$DISCBD, 
+                                            c(0, 1.5, 3, 4.5, 6)))
+
+            f <- formula(log(CRIME) ~ INC + HOVAL + fDISCBD + fEW)
+            lm_obj <- lm(f, data=columbus)
+
+            summary(lm.RStests(lm_obj,
+                               col.listw,
+                               test = "all"))
+            #>          statistic parameter p.value
+            #> RSerr     1.915043         1  0.1664
+            #> RSlag     1.827463         1  0.1764
+            #> adjRSerr  0.143411         1  0.7049
+            #> adjRSlag  0.055831         1  0.8132
+            #> SARMA     1.970874         2  0.3733
+
+            summary(SD.RStests(lm_obj, 
+                               col.listw, 
+                               test = "SDM"))
+            #>              statistic parameter p.value
+            #> SDM_RSlag       1.8275         1  0.1764
+            #> SDM_adjRSlag    1.9150         1  0.1664
+            #> SDM_RSWX        3.6798         6  0.7199
+            #> SDM_adjRSWX     3.7673         6  0.7081
+            #> SDM_Joint       5.5948         7  0.5878
+            #> Warning: use of spatially lagged factors (categorical variables) fDISCBD, fEW is not well-understood
+
+            lm_obj1 <- 
+              lm(I(scale(CRIME)) ~ 0 + I(scale(INC)) + I(scale(HOVAL)),
+                 data = columbus)
+
+            summary(SD.RStests(lm_obj1, 
+                               col.listw, 
+                               test = "all"))
+            #>              statistic parameter  p.value   
+            #> SDM_RSlag       7.8250         1 0.005153 **
+            #> SDM_adjRSlag    4.6111         1 0.031765 * 
+            #> SDM_RSWX        6.0609         2 0.048295 * 
+            #> SDM_adjRSWX     2.8470         2 0.240873   
+            #> SDM_Joint      10.6720         3 0.013638 * 
+            #> SDEM_RSerr      4.6111         1 0.031765 * 
+            #> SDEM_RSWX       6.0609         2 0.048295 * 
+            #> SDEM_Joint     10.6720         3 0.013638 * 
+            ```
+
+            -   No rejections when using sort of basic settings, but dropping the categoricals, scaling the numerics in the regression model does result in significant p-values.
+            -   Although the intercept is dropped here, leaving the intercept produces nearly the same results.
 
 ### Examples {#sec-reg-spat-econ-ex .unnumbered}
 
