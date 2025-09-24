@@ -51,7 +51,7 @@
 
 -   Tools
 
-    -   [{]{style="color: #990000"}[listvie](https://github.com/timelyportfolio/listviewer){style="color: #990000"}`lows you to inte`ractively explore and edit json files through the Viewer in the IDE. Docs show how it can be embedded into a Shiny app as well.
+    -   [{]{style="color: #990000"}[listviewer](https://github.com/timelyportfolio/listviewer){style="color: #990000"}[}]{style="color: #990000"} allows you to interactively explore and edit json files through the Viewer in the IDE. Docs show how it can be embedded into a Shiny app as well.
 
         -   [Example]{.ribbon-highlight}
 
@@ -100,6 +100,51 @@
       gzfile("/tmp/drops.json.gz")
     )
     ```
+
+## [{tidyr}]{style="color: #990000"} {#sec-json-tidyr .unnumbered}
+
+-   From flattened json to nested json
+
+    ``` r
+    library(tidyr)
+
+    items <- list(
+      list(loc = 1, type = "a",  val = 3),
+      list(loc = 1, type = "b", v1 = 4, note = "foo" ), 
+      list(loc = 2, type = "a", val = 3))
+
+    # desired format: nested by "loc"
+    # list(
+    #   list(loc = 1, items = list(
+    #       list(type = “a”, val = 3),
+    #       list(type = “b”, v1 = 4, note = “foo”)),
+    #   list(loc=2, items = list(
+    #       list(type = “a”, val = 3)))
+
+    ls_grouped <- 
+      tibble(json = items) |> 
+      hoist(json, # <1>
+            loc = "loc") |> 
+      nest(.by = "loc", # <2> 
+           .key = "items") |> 
+      dplyr::mutate(items = purrr::map(items, \(x) as.list(x[[1]]))) |> 
+      purrr::transpose() # <3>
+
+    json_nested <-  # <4>
+      tibble(json = items) |> 
+      hoist(json,
+            loc = "loc") |> 
+      nest(.by = "loc", 
+           .key = "items") |> 
+      dplyr::mutate(items = purrr::map(items, \(x) as.list(x[[1]]))) |> 
+      jsonlite::toJSON() |> 
+      jsonlite::prettify()
+    ```
+
+    1.  `hoist` acts like `purrr::pluck` for a list-column, and pulls the [loc]{.var-text} element out of each list cell and into a column
+    2.  `nest` performs a sort of `group_split` function that gathers all the columns and nests them according to the [loc]{.var-text} value. The output column, [items]{.var-text}, is a column of dataframes.
+    3.  `transpose` converts the tibble (which has *columns* [loc]{.var-text} and [items]{.var-text}) into a list structure where each element represents one *row*, effectively giving the desired nested list structure. This implementation of `transpose` is different from other examples of its use, but the conversion from a column-wise structure to a row-wise structure is its primary purpose which is essentially what's happening here.
+    4.  Removing the `transpose` line and adding `toJSON` coerces the tibble into a nested json.
 
 ## Python {#sec-json-py .unnumbered}
 
