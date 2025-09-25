@@ -114,8 +114,10 @@ lightbox:
 
 ## Spatial Weights {#sec-geo-swgt-swts .unnumbered}
 
--   A spatial weights matrix defines how closely related each pair of nodes are
--   Functions also require your sf object, so make sure your sf object has the same coordinate system that you used to create your neighbors list.
+-   [Misc]{.underline}
+    -   A spatial weights matrix defines how closely related each pair of nodes are
+    -   Functions require that your sf object has the same coordinate system that you used to create your neighbors list.
+    -   Normalizing your weights matrix is always a good idea. Otherwise, the spatial parameters might blow up – if you can estimate the model at all. It also ensures easy interpretation of spillover effects. ([source](https://ruettenauer.github.io/Geodata_Spatial_Regression/03_weights.html#normalization-of-boldsymbolmathbfw))
 -   `nb2listw` will add spatial weights to your neighbors list
 -   `nb2listwdist` - Supplements `nb2listw` with additional options
     -   Defaults: [type = "idw"]{.arg-text}, [alpha = 1]{.arg-text}, [style = "raw"]{.arg-text} (i.e. no normalization)
@@ -174,6 +176,13 @@ lightbox:
         -   Most popular as it makes results comparable, i.e. one node's set of relationships is comparable to another node's set of relationships (rows)
             -   *Seems to be preferred in econometric spatial models (and probably others) as it provides intuitive interpretability of impacts.*
         -   Best when the number of neighbors for each node can vary significantly.
+        -   Characteristics
+            -   With contiguity weights, spatially lagged variables contain mean of this variable among the neighbours of $i$
+            -   Proportions between units such as distances get lost
+            -   Can induce asymmetries, $w_{ij}\ne w_{ji}$
+        -   Issue: Has some **undesirable properties when some non-contigutiy based neighbour methods** are used, such as distance based neighbours. ([source](https://ruettenauer.github.io/Geodata_Spatial_Regression/03_weights.html#row-normalization))
+            -   It obscures the proportion due to dividing by a row-specific value.
+            -   e.g. The strength of the relation for distant locations can be similar to more proximate units
         -   [Example]{.ribbon-highlight}: Analyzing how house prices are influenced by neighboring houses in a suburban area. The *number* of neighboring houses isn't what primarily influences a house's value, it's the local houses themeselves.
         -   [Example]{.ribbon-highlight}: k-NN w/k=2\
             $$
@@ -205,8 +214,9 @@ lightbox:
         -   More robust to outliers or extreme values
         -   [Example]{.ribbon-highlight}: Analyzing disease clusters in areas with very uneven population density. Variance stabilization helps prevent false positives in dense areas
     -   **Min/Max**
-        -   Divides the weights by the minimum of the maximum row sums and maximum column sums of the input weights
-        -   Similar to U and C styles
+        -   Maximum eigenvalues normalization divides each non-zero weight by the overall maximum eigenvalue $\lambda_{\text{max}}$. Each element of $W$ (weights matrix) is divided by the same scalar parameter, which preserves the relations, $W/\lambda_{\text{max}}$.
+        -   Interpretation may become more complicated
+        -   Keeps proportions of connectivity strengths across units (relevant esp. for distance based methods) (i.e. **best for distance based methods**)
 
 ## Neighbor Algorithms {#sec-geo-swgt-nbalg .unnumbered}
 
@@ -489,6 +499,47 @@ lightbox:
 
         -   So, larger the upper threshold, then more links will be made.
         -   This fraction could correspond to a "reasonable" walking or driving distance if you're studying neighborhood effects.
+
+    -   Specifying thresholds may be useful (to get rid of very small non-zero weights)
+
+        -   [Example]{.ribbon-highlight}: Reduce sparseness ([source](https://ruettenauer.github.io/Geodata_Spatial_Regression/03_weights.html#distance-based-weights))
+
+            ``` r
+            queens.nb <- poly2nb(msoa.spdf, 
+                                 queen = TRUE, # 
+                                 snap = 1)
+            W <- nb2mat(queens.nb, style = "B")
+            print(W[1:10, 1:10])
+
+            #>    1 2 3 4 5 6 7 8 9 10
+            #> 1  0 0 0 0 0 0 0 0 0  0
+            #> 2  0 0 1 0 0 0 0 0 0  0
+            #> 3  0 1 0 0 1 0 0 0 0  0
+            #> 4  0 0 0 0 0 1 0 0 0  1
+            #> 5  0 0 1 0 0 1 1 0 0  0
+            #> 6  0 0 0 1 1 0 1 0 1  1
+            #> 7  0 0 0 0 1 1 0 1 1  0
+            #> 8  0 0 0 0 0 0 1 0 0  0
+            #> 9  0 0 0 0 0 1 1 0 0  1
+            #> 10 0 0 0 1 0 1 0 0 1  0
+
+            coords <- st_geometry(st_centroid(msoa.spdf))
+            dist_3.nb <- dnearneigh(coords, d1 = 0, d2 = 3000)
+
+            W2 <- nb2mat(dist_3.nb, style = "B")
+            W2[1:10, 1:10]
+            #>    1 2 3 4 5 6 7 8 9 10
+            #> 1  0 0 0 0 0 0 0 0 0  0
+            #> 2  0 0 1 0 1 0 0 0 0  0
+            #> 3  0 1 0 0 1 1 1 0 0  0
+            #> 4  0 0 0 0 1 1 1 0 1  1
+            #> 5  0 1 1 1 0 1 1 1 1  1
+            #> 6  0 0 1 1 1 0 1 1 1  1
+            #> 7  0 0 1 1 1 1 0 1 1  1
+            #> 8  0 0 0 0 1 1 1 0 1  0
+            #> 9  0 0 0 1 1 1 1 1 0  1
+            #> 10 0 0 0 1 1 1 1 0 1  0
+            ```
 
     -   If you set the the distance threshold (i.e. upper bound, [d2]{.arg-text}) to be too large:
 
