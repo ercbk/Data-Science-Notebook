@@ -183,21 +183,26 @@
 
 -   The process of using points with known values to estimate values at other points. In GIS applications, spatial interpolation is typically applied to a raster with estimates made for all cells. Spatial interpolation is therefore a means of creating surface data from sample points.
 -   Packages
-    -   [{]{style="color: #990000"}[gstat](https://cran.r-project.org/web/packages/gstat/index.html){style="color: #990000"}[}]{style="color: #990000"} - Has various interpolation methods.
-    -   [{]{style="color: #990000"}[intamap](https://cran.r-project.org/web/packages/intamap/index.html){style="color: #990000"}[}]{style="color: #990000"} ([Paper](https://www.sciencedirect.com/science/article/abs/pii/S0098300410002190?via%3Dihub)) - Procedures for Automated Interpolation (Edzer Pebesma et al)
+    -   [{]{style="color: #990000"}[BMEmapping](https://cran.r-project.org/web/packages/BMEmapping/index.html){style="color: #990000"}[}]{style="color: #990000"} - Spatial Interpolation using **Bayesian Maximum Entropy (BME)**
+        -   Ssupports optimal estimation using both precise (hard) and uncertain (soft) data, such as intervals or probability distributions
+    -   [{]{style="color: #990000"}[gstat](https://cran.r-project.org/web/packages/gstat/index.html){style="color: #990000"}[}]{style="color: #990000"} - **OG**; Has various interpolation methods.
+    -   [{]{style="color: #990000"}[intamap](https://cran.r-project.org/web/packages/intamap/index.html){style="color: #990000"}[}]{style="color: #990000"} ([Paper](https://www.sciencedirect.com/science/article/abs/pii/S0098300410002190?via%3Dihub)) - Procedures for **Automated Interpolation** (Edzer Pebesma et al)
         -   One needs to choose a model of spatial variability before one can interpolate, and experts disagree on which models are most useful.
-    -   [{]{style="color: #990000"}[interpolateR](https://cran.r-project.org/web/packages/InterpolateR/index.html){style="color: #990000"}[}]{style="color: #990000"} - Includes a range of methods, from traditional techniques to advanced machine learning approaches
+    -   [{]{style="color: #990000"}[interpolateR](https://cran.r-project.org/web/packages/InterpolateR/index.html){style="color: #990000"}[}]{style="color: #990000"} - Includes a range of methods, from traditional techniques to advanced **machine learning** approaches
         -   Inverse Distance Weighting (IDW): A widely used method that assigns weights to observations based on their inverse distance.
         -   Cressman Objective Analysis Method (Cressman): A powerful approach that iteratively refines interpolated values based on surrounding observations.
         -   RFmerge: A Random Forest-based method designed to merge multiple precipitation products and ground observations to enhance interpolation accuracy.
         -   RFplus: A novel approach that combines Random Forest with Quantile Mapping to refine interpolated estimates and minimize bias.
-    -   [{]{style="color: #990000"}[mbg](https://henryspatialanalysis.github.io/mbg/){style="color: #990000"}[}]{style="color: #990000"} - Interface to run spatial machine learning models and geostatistical models that estimate a continuous (raster) surface from point-referenced outcomes and, optionally, a set of raster covariates
-    -   [{]{style="color: #990000"}[BMEmapping](https://cran.r-project.org/web/packages/BMEmapping/index.html){style="color: #990000"}[}]{style="color: #990000"} - Spatial Interpolation using Bayesian Maximum Entropy (BME)
-        -   Ssupports optimal estimation using both precise (hard) and uncertain (soft) data, such as intervals or probability distributions
+    -   [{]{style="color: #990000"}[mbg](https://henryspatialanalysis.github.io/mbg/){style="color: #990000"}[}]{style="color: #990000"} - Interface to run spatial **machine learning** models and geostatistical models that estimate a continuous (raster) surface from point-referenced outcomes and, optionally, a set of raster covariates
     -   [{]{style="color: goldenrod"}[spatialize](https://github.com/alges/spatialize){style="color: goldenrod"}[}]{style="color: goldenrod"} ([Paper](https://arxiv.org/abs/2507.17867)) - Implements **ensemble spatial interpolation**, a novel method that combines the simplicity of basic interpolation methods with the power of classical geoestatistical tools
         -   Stochastic modelling and ensemble learning, making it robust, scalable and suitable for large datasets.
         -   Provides a powerful framework for uncertainty quantification, offering both point estimates and empirical posterior distributions.
         -   It is implemented in Python 3.x, with a C++ core for improved performance.
+-   In **Spatial Filtering** or **Smoothing**, the unobserved values ($S(s)$) are simulated and a white noise component ($\epsilon$) (possibly reflecting measuerment error) is included such that\
+    $$
+    Z(s) = S(s) + \epsilon
+    $$
+    -   In Kriging, $Z(s)$ is estimated through a model
 -   Measurements can have strong regional variance, so the geographical distribution of measurements can have a strong influence on statistical estimates.
     -   [Example]{.ribbon-highlight}: Temperature\
         -   Two different geographical distributions of sensors\
@@ -209,10 +214,101 @@
         -   Interpolation *evens* *out* the geographical distribution of measurments\
             ![](_resources/Geospatial,_General.resources/geospatial-distribution-3.png){.lightbox width="208"}
 
+### Inverse Distance Weighted (IDW)
+
+-   A weighted average, using weights inverse proportional to distances from the interpolation location\
+    $$
+    \begin{align}
+    &\hat z(s_0) = \frac{\sum_{i=1}^m w_i z(s_i)}{\sum_{i=1}^n w_i} \\
+    &\text{where} \;\; w_i = |s_o - s_i|^{-p}
+    \end{align}
+    $$
+
+    -   $p$ : The inverse distance power which is typically 2 or optimized via CV
+
+-   [Example]{.ribbon-highlight}: NO~2~ in Germany
+
+    ::: panel-tabset
+    ## Data
+
+    ![](_resources/Geospatial-Modeling.resources/interpol-idw-ex1-pts-1.png){.lightbox width="432"}
+
+    ``` r
+    pacman::p_load(
+      ggplot2,
+      sf,
+      stars,
+      gstat
+    )
+
+    dat_no2 <- 
+      readr::read_csv(system.file("external/no2.csv", 
+                                  package = "gstat"),
+                      show_col_types = FALSE)
+    crs <- st_crs("EPSG:32632")
+    shp_de <- 
+      read_sf("https://raw.githubusercontent.com/edzer/sdsr/main/data/de_nuts1.gpkg") |> 
+      st_transform(crs)
+
+
+    sf_no2 <- 
+      st_as_sf(dat_no2, 
+               crs = "OGC:CRS84", 
+               coords = c("station_longitude_deg", "station_latitude_deg")) |>
+      st_transform(crs)
+
+    ggplot() + 
+      # germany shapefile
+      geom_sf(data = shp_de) + 
+      # locations colored by value
+      geom_sf(data = sf_no2, aes(color = NO2))
+    ```
+
+    -   The variable of interest is values of NO~2~ pollution at various locations in Germany
+
+    ## IDW Interpolation
+
+    ![](_resources/Geospatial-Modeling.resources/interpol-idw-ex1-interpol-1.png){.lightbox width="432"}
+
+    ``` r
+    grid_de <- 
+      st_bbox(shp_de) |>
+      st_as_stars(dx = 10000) |>
+      st_crop(shp_de)
+
+    idw_no2 <- 
+      idw(NO2 ~ 1, 
+          sf_no2, 
+          grid_de)
+
+    ggplot() + 
+      # interpolation fill
+      geom_stars(
+        data = idw_no2,
+        aes(x = x, 
+            y = y, 
+            fill = var1.pred)
+      ) + 
+      # shapefile as a string
+      geom_sf(data = st_cast(shp_de, "MULTILINESTRING")) +
+      # locations
+      geom_sf(data = sf_no2) +  
+      xlab(NULL) + 
+      ylab(NULL)
+    ```
+
+    -   IDW requires a grid. [dx]{.arg-text} says the cells of the grid have 10000m (10km) width which results in 10km x 10km cells.
+        -   The grid isn't very fine and is visible if you zoom-in.
+    -   [NO2 \~ 1]{.arg-text} specifies an intercept-only (unknown, constant mean) model (aka simple kriging model)
+    -   The polygons as strings looks janky (esp zoomed in), but this code this way doesn't work otherwise. I'm sure there has to be a way to do this with polygons though.
+    -   The ordering of the layers is important. The interpolation fill must be first.
+    :::
+
 ### Kriging {#sec-geo-gmod-interp-krig .unnumbered}
 
 ![](./_resources/Geospatial,_General.resources/1-9BQ6w68VCYLqBrPLkggWSg.png){.lightbox width="532"}
 
+-   Gaussian Process prediction for values at unobserved locations
 -   Considers not only the distances but also the other variables that have a linear relationship with the estimation variables
 -   Misc
     -   Packages

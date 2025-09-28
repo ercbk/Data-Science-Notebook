@@ -51,66 +51,7 @@
     -   Run your interactive, smooth-zooming vector map from any storage like S3 that supports http requests; a Caddy server running on your Wi-Fi router, or even GitHub pages (if tiles \< 1GB).
     -   Cloudflare R2 is the recommended storage platform for PMTiles because it does not have bandwidth fees, only per-request fees: see [R2 Pricing](https://developers.cloudflare.com/r2/platform/pricing/#r2-pricing).
 
--   Shape Files
-
-    -   Read in only the attributes table using `foreign::read.dbf` if you don't need the geometries ([source](https://cmep-ms.github.io/blog/posts/2025-07-11_spatial_learning/))
-
-    -   Read in the full spatial data and drop the geometry using `sf::st_drop_geometry` or `terra::values` ([source](https://cmep-ms.github.io/blog/posts/2025-07-11_spatial_learning/))
-
-        -   These pull out the data frame, so if you assigned it to a different object you have to remove the spatial object
-
-    -   Validate geometries when loading a shape file
-
-        ``` r
-        NY8_sf <- 
-          st_read(system.file(
-                    "shapes/NY8_bna_utm18.gpkg", 
-                    package = "spData"), 
-                  quiet = TRUE)
-        # validate geometries
-        table(st_is_valid(NY8_sf))
-        #> TRUE 
-        #>  281 
-        ```
-
-        -   If `st_is_valid` returns FALSE, then you can run `st_make_valid`
-
-    -   [Example]{.ribbon-highlight}: Counties in California
-
-        ``` r
-        tbl <- 
-          tigris::counties(state = "CA") %>%
-          st_set_crs(4326)
-        ```
-
-    -   [{]{style="color: #990000"}[tigris](https://github.com/walkerke/tigris){style="color: #990000"}[}]{style="color: #990000"} - US data
-
-        ``` r
-        library(tigris)
-
-        us_states <- states(resolution = "20m", year = 2022, cb = TRUE)
-
-        lower_48 <- us_states %>%
-          filter(!(NAME %in% c("Alaska", "Hawaii", "Puerto Rico")))
-        ```
-
-    -   [{]{style="color: #990000"}[rnaturalearth](https://github.com/ropensci/rnaturalearth){style="color: #990000"}[}]{style="color: #990000"} - World data
-
-        ``` r
-        # Via URL
-        # Medium scale data, 1:50m Admin 0 - Countries
-        # Download from https://www.naturalearthdata.com/downloads/50m-cultural-vectors/
-        world_map <- read_sf("ne_50m_admin_0_countries/ne_50m_admin_0_countries.shp") %>%
-          filter(iso_a3 != "ATA")  # Remove Antarctica
-
-        # Via Package
-        library(rnaturalearth)
-
-        # rerturnclass = "sf" makes it so the resulting dataframe has the special
-        # sf-enabled geometry column
-        world_map <- ne_countries(scale = 50, returnclass = "sf") %>%
-          filter(iso_a3 != "ATA")  # Remove Antarctica
-        ```
+### Reading/Writing
 
 -   GeoJSON
 
@@ -150,59 +91,66 @@
       write_csv("data/phoenician_settlements.csv")
     ```
 
--   Read only data within a bounding box
+## Shape Files
 
-    -   Filtering during read can be much faster than "read then filter" if the file has a spatial index
+-   Read in only the attributes table using `foreign::read.dbf` if you don't need the geometries ([source](https://cmep-ms.github.io/blog/posts/2025-07-11_spatial_learning/))
 
-    -   From a URL ([source](https://pmassicotte.github.io/r-spatial-cookbook/filtering.html#filtering-spatial-data-with-a-bounding-box))
+-   Read in the full spatial data and drop the geometry using `sf::st_drop_geometry` or `terra::values` ([source](https://cmep-ms.github.io/blog/posts/2025-07-11_spatial_learning/))
 
-        ``` r
-        # URL to the wind turbine database
-        url <- "/vsizip//vsicurl/https://ftp.cartes.canada.ca/pub/nrcan_rncan/Wind-energy_Energie-eolienne/wind_turbines_database/wind_turbine_database_en.gdb.zip"
+    -   These pull out the data frame, so if you assigned it to a different object you have to remove the spatial object
 
-        # List layers in the dataset
-        st_layers(url)
+-   Validate geometries when loading a shape file
 
-        # Read and transform the area of interest
-        area_bdd <- read_sf(fs::path("data", "area.geojson")) |>
-          st_transform(crs = st_crs(pts))
+    ``` r
+    NY8_sf <- 
+      st_read(system.file(
+                "shapes/NY8_bna_utm18.gpkg", 
+                package = "spData"), 
+              quiet = TRUE)
+    # validate geometries
+    table(st_is_valid(NY8_sf))
+    #> TRUE 
+    #>  281 
+    ```
 
-        # Convert the area geometry to WKT
-        wkt_bdd <- area_bdd |>
-          st_geometry() |>
-          st_as_text()
+    -   If `st_is_valid` returns FALSE, then you can run `st_make_valid`
 
-        # Read the filtered dataset using the bounding box
-        dat_bdd <- read_sf(url, wkt_filter = wkt_bdd)
-        ```
+-   [Example]{.ribbon-highlight}: Counties in California
 
-        -   Also see [Databases, DuckDB \>\> Extensions](db-duckdb.html#sec-db-duckdb-ext){style="color: green"} \>\> Geospatial for an example of filter by bounding box through a DuckDB query
+    ``` r
+    tbl <- 
+      tigris::counties(state = "CA") %>%
+      st_set_crs(4326)
+    ```
 
-    -   From a file ([source](https://dewey.dunnington.ca/slides/rspatial2025/#/sf-for-bigger-data-filter-on-read))
+-   [{]{style="color: #990000"}[tigris](https://github.com/walkerke/tigris){style="color: #990000"}[}]{style="color: #990000"} - US data
 
-        ``` r
-        bounds_lonlat <- st_bbox(
-          c(xmin = -64.6418, 
-            xmax = -64.2868, 
-            ymin = 44.8473, 
-            ymax = 45.0151),
-          crs = st_crs("OGC:CRS84")
-        )
+    ``` r
+    library(tigris)
 
-        # Read the CRS of the source
-        elevation_crs <- st_layers("data/ns-water_elevation.fgb")$crs[[1]]
+    us_states <- states(resolution = "20m", year = 2022, cb = TRUE)
 
-        # Transform the bounds to the CRS of the source
-        bounds_poly <- bounds_lonlat |>
-          st_transform(elevation_crs) |>
-          st_as_sfc()
+    lower_48 <- us_states %>%
+      filter(!(NAME %in% c("Alaska", "Hawaii", "Puerto Rico")))
+    ```
 
-        # Read just the data you need
-        elevation <- st_read(
-          "data/ns-water_elevation.fgb",
-          wkt_filter = st_as_text(bounds_poly)
-        )
-        ```
+-   [{]{style="color: #990000"}[rnaturalearth](https://github.com/ropensci/rnaturalearth){style="color: #990000"}[}]{style="color: #990000"} - World data
+
+    ``` r
+    # Via URL
+    # Medium scale data, 1:50m Admin 0 - Countries
+    # Download from https://www.naturalearthdata.com/downloads/50m-cultural-vectors/
+    world_map <- read_sf("ne_50m_admin_0_countries/ne_50m_admin_0_countries.shp") %>%
+      filter(iso_a3 != "ATA")  # Remove Antarctica
+
+    # Via Package
+    library(rnaturalearth)
+
+    # rerturnclass = "sf" makes it so the resulting dataframe has the special
+    # sf-enabled geometry column
+    world_map <- ne_countries(scale = 50, returnclass = "sf") %>%
+      filter(iso_a3 != "ATA")  # Remove Antarctica
+    ```
 
 ## Big Data {#sec-geo-proc-bd .unnumbered}
 
@@ -723,6 +671,62 @@
           summarise(average_income = mean(v_CA16_2397, na.rm = TRUE))
 
         plot(average_income_by_crash_buffer["average_income"])
+        ```
+
+### Bounding Boxes
+
+-   Read only data within a bounding box
+
+    -   Filtering during read can be much faster than "read then filter" if the file has a spatial index
+
+    -   From a URL ([source](https://pmassicotte.github.io/r-spatial-cookbook/filtering.html#filtering-spatial-data-with-a-bounding-box))
+
+        ``` r
+        # URL to the wind turbine database
+        url <- "/vsizip//vsicurl/https://ftp.cartes.canada.ca/pub/nrcan_rncan/Wind-energy_Energie-eolienne/wind_turbines_database/wind_turbine_database_en.gdb.zip"
+
+        # List layers in the dataset
+        st_layers(url)
+
+        # Read and transform the area of interest
+        area_bdd <- read_sf(fs::path("data", "area.geojson")) |>
+          st_transform(crs = st_crs(pts))
+
+        # Convert the area geometry to WKT
+        wkt_bdd <- area_bdd |>
+          st_geometry() |>
+          st_as_text()
+
+        # Read the filtered dataset using the bounding box
+        dat_bdd <- read_sf(url, wkt_filter = wkt_bdd)
+        ```
+
+        -   Also see [Databases, DuckDB \>\> Extensions](db-duckdb.html#sec-db-duckdb-ext){style="color: green"} \>\> Geospatial for an example of filter by bounding box through a DuckDB query
+
+    -   From a file ([source](https://dewey.dunnington.ca/slides/rspatial2025/#/sf-for-bigger-data-filter-on-read))
+
+        ``` r
+        bounds_lonlat <- st_bbox(
+          c(xmin = -64.6418, 
+            xmax = -64.2868, 
+            ymin = 44.8473, 
+            ymax = 45.0151),
+          crs = st_crs("OGC:CRS84")
+        )
+
+        # Read the CRS of the source
+        elevation_crs <- st_layers("data/ns-water_elevation.fgb")$crs[[1]]
+
+        # Transform the bounds to the CRS of the source
+        bounds_poly <- bounds_lonlat |>
+          st_transform(elevation_crs) |>
+          st_as_sfc()
+
+        # Read just the data you need
+        elevation <- st_read(
+          "data/ns-water_elevation.fgb",
+          wkt_filter = st_as_text(bounds_poly)
+        )
         ```
 
 ## Aggregations {#sec-geo-proc-agg .unnumbered}
