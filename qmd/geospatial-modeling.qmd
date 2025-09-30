@@ -313,10 +313,13 @@
 #### Misc {#sec-geo-gmod-interp-krig-misc .unnumbered}
 
 -   Packages
+    -   [{]{style="color: #990000"}[automap](https://cran.r-project.org/web/packages/automap/){style="color: #990000"}[}]{style="color: #990000"} - An automatic kriging is done by automatically estimating the variogram and then calling [{gstat}]{style="color: #990000"}
+        -   Similar to using `gstat::vgm("<model>")`. According to Pebesma, "Slightly different defaults for fitting, definitely different defaults when computing the sample variogram, and has options for combining distance bins."
     -   [{]{style="color: #990000"}[psgp](https://cran.r-project.org/web/packages/psgp/index.html){style="color: #990000"}[}]{style="color: #990000"} - Implements projected sparse Gaussian process Kriging
 -   Notes from
     -   [Spatial Data Science, Ch. 12](https://r-spatial.org/book/12-Interpolation.html)
     -   [ArcGIS Pro: How Kriging works](https://pro.arcgis.com/en/pro-app/latest/tool-reference/3d-analyst/how-kriging-works.htm)
+    -   [An Algorithmic Approach to Variograms](https://tutorials.inbo.be/tutorials/spatial_variograms/)
 -   Resources
     -   [Spatial Sampling With R, Ch. 21](https://dickbrus.github.io/SpatialSamplingwithR/Introkriging.html)
 -   **Ordinary Kriging (OK)** - Aassumes that the mean of the study variable is the same everywhere. Considered a reasonable assumption unless there's a theoretical reason to dismiss it
@@ -372,14 +375,17 @@
 
 -   The empirical variogram cannot be computed at *every* distance, $h$, and due to variation in the estimation, it is not ensured that it is a *valid* (?) variogram which is needed for interpolation models. To ensure a valid variogram, models (aka Theoretical Variograms) are used to estimate it.
 
-    -   Variogram Models
-        -   Gaussian
+    -   (Some) Variogram Models
+
+        -   Gaussian\
+            ![](_resources/Geospatial-Modeling.resources/interp-krig-vario-mods-gaus-1.png){.lightbox width="232"}
 
             $$
             \gamma' = p(1 - e^{-(h^2/ (\frac{4}{7}r)^2)}) + n
             $$
 
-        -   Exponential
+        -   Exponential\
+            ![](_resources/Geospatial-Modeling.resources/interp-krig-vario-mods-exp-1.png){.lightbox width="232"}
 
             $$
             \gamma' = p(1- e^{-3h / r}) + n
@@ -388,6 +394,7 @@
             -   Spatial autocorrelation doesn't *completely* go to zero until distance is infinity
 
         -   Spherical\
+            ![](_resources/Geospatial-Modeling.resources/interp-krig-vario-mods-sph-1.png){.lightbox width="232"}\
             $$
             \gamma' = 
             \left\{ \begin{array}{lcl}
@@ -397,8 +404,10 @@
             $$
 
             -   Spatial autocorrelation goes to zero at some distance
+
     -   Terms\
         ![](_resources/Geospatial,_General.resources/krig-theo-vario-1.webp){.lightbox width="332"}
+
         -   $p$: Partial Sill
             -   The Sill represents the total variance of the data.
         -   $h$: Pairwise Distance Between Locations
@@ -408,11 +417,48 @@
             -   In models with a fixed sill, it is the distance at which this is first reached
             -   In models with an asymptotic sill, it is conventionally taken to be the distance when the semivariance first reaches 95% of the sill.
 
+    -   Available variogram models in [{gstat}]{style="color: #990000"}
+
+        ``` r
+        gstat::vgm()
+        #>     short                                      long
+        #>  1    Nug                              Nug (nugget)
+        #>  2    Exp                         Exp (exponential)
+        #>  3    Sph                           Sph (spherical)
+        #>  4    Gau                            Gau (gaussian)
+        #>  5    Exc        Exclass (Exponential class/stable)
+        #>  6    Mat                              Mat (Matern)
+        #>  7    Ste Mat (Matern, M. Stein's parameterization)
+        #>  8    Cir                            Cir (circular)
+        #>  9    Lin                              Lin (linear)
+        #>  10   Bes                              Bes (bessel)
+        #>  11   Pen                      Pen (pentaspherical)
+        #>  12   Per                            Per (periodic)
+        #>  13   Wav                                Wav (wave)
+        #>  14   Hol                                Hol (hole)
+        #>  15   Log                         Log (logarithmic)
+        #>  16   Pow                               Pow (power)
+        #>  17   Spl                              Spl (spline)
+        #>  18   Leg                            Leg (Legendre)
+        #>  19   Err                   Err (Measurement error)
+        #>  20   Int                           Int (Intercept)
+        ```
+
 -   Process: Optimize the parameters of variogram model to fit to the sample variogram estimates.
 
     -   [{gstat}]{style="color: #990000"} uses weighted least squares to fit the model
     -   In [SDS Ch. 12.3](https://r-spatial.org/book/12-Interpolation.html#fitting-variogram-models), there's code to fit an exponential model using maximum likelihood. The range and sill were a little shorter than the WLS fit which made a steeper curve, but they were pretty similar.
     -   The steeper the curve near the origin, the more influence the closest neighbors will have on the prediction. As a result, the output surface will be less smooth.
+
+-   Preprocessing
+
+    -   Detrending ([trend.beta]{.arg-text}) - Often improves variogram model regression, but it also removes/diminishes the effects of spatially correlated covariates
+        -   Recommend to store the detrended linear effects for later by applying your own `lm`, prior to variogram fitting, e.g. `resids_detrend <- lm(resp ~ long + lat, data)$residual`
+    -   Fixing the range can be a performance saver for larger data
+    -   Binning method can make a substantial difference on the variogram results
+        -   Types: equal size, equal width, log-spaced binning
+        -   Bins could also be determined by a grouping variable
+        -   If bin size varies, then bins with particularly large or small numbers of observations can produce outlier variogram estimates
 
 -   [Example]{.ribbon-highlight}: Exponential Model\
     ![](_resources/Geospatial-Modeling.resources/inter-krig-vario-ex1-exp-1.png){.lightbox width="432"}
@@ -441,8 +487,8 @@
     -   Additional `variogram` arguments:
         -   [cutoff]{.arg-text}: Maximum distance (Default is one-third of the length of the bounding box diagonal)
         -   [width]{.arg-text}: Constant interval width (Default is the cutoff divided by 15).
-    -   I think the `vgm` arguments (besides [model]{.arg-text}) specify starting values in the estimation process. It is possible to call `vgm("exp")` and function will use an algorithm to choose starting values for that model.
-        -   Model types combined, e.g. `c("Exp", "Sph")`, in which case the best fitting is returned
+    -   Tthe `vgm` arguments (besides [model]{.arg-text}) specify starting values in the estimation process. This is not required anymore. It is possible to call `vgm("exp")` and function will use an algorithm to choose starting values for that model which I think is recommended now.
+        -   Compare multiple model types, e.g. `c("Exp", "Sph")`, in which case the best fitting is returned
 
 #### Examples {#sec-geo-gmod-interp-krig-exs .unnumbered}
 
