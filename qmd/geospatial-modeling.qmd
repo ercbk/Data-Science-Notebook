@@ -323,6 +323,8 @@
     -   [Spatial Data Science, Ch. 12](https://r-spatial.org/book/12-Interpolation.html)
     -   [ArcGIS Pro: How Kriging works](https://pro.arcgis.com/en/pro-app/latest/tool-reference/3d-analyst/how-kriging-works.htm)
     -   [An Algorithmic Approach to Variograms](https://tutorials.inbo.be/tutorials/spatial_variograms/)
+        -   Manual coding of variograms with linear, gaussian, and matern models.
+        -   Various preprocessing steps. Also uses MAD instead of semivariance to measure spatial dependence.
 
 -   Resources
 
@@ -336,6 +338,10 @@
     -   Once the model is fit to the random errors and before making a prediction, the polynomial is added back to the predictions to give meaningful results.
     -   Universal kriging should only be used when you know there is a trend in your data and you can give a scientific justification to describe it.
 
+-   **Block Kriging** - Uses all the data (i.e. data weighted by distance) to estimate the mean of the variable over the target areas
+
+    -   Using `aggregate` gets you the sample mean per area. Block kriging doesn't assume the average value estimate is independent of neighboring areas.
+
 -   [{gstat}]{style="color: #990000"} Kriging Functions
 
     | Function | Description |
@@ -348,13 +354,28 @@
     | `krigeSimCE` | Simulation based on circulant embedding |
     | `krigeTg` | Trans-Gaussian kriging using Box-Cox transforms |
 
+    -   The `krige` documentation is somewhat lacking since the sf method isn't there (most workflows probably involve a sf object). The examples in the docs and in the SDS book don't include the arguments either, but you can figure (most of) them out. If you use `showMethods` it shows you the available classes.
+
+        ``` r
+        showMethods(gstat::krige)
+        #> Function: krige (package gstat)
+        #> formula="formula", locations="formula"
+        #> formula="formula", locations="NULL"
+        #> formula="formula", locations="sf"
+        #> formula="formula", locations="Spatial"
+        #> formula="formula", locations="ST"
+        ```
+
+        -   So from this, we see it determines the proper method by the class of the object used in the [locations]{.arg-text} argument.
+        -   Typing `gstat:::krige.sf(` in RStudio and hitting tab shows it has these arguments: `krige(formula, locations, newdata,..., nsim)`. The docs say the dots arguments are passed to the `gstat` function.
+        -   The first argument of `gstat` is [g]{.arg-text}. It's description is obscure, and its code is worse. Anyways, this is where the variogram model evidently goes.
+
 #### Description {#sec-geo-gmod-interp-krig-desc .unnumbered}
 
 -   Gaussian Process prediction for values at unobserved locations
     -   As a geostatistical method, statistical releationships between locations are calculated and therefore uncertainty estimates are available (unlike in IDW or spline interpolation)
 -   Assumptions
     -   Assumes that the spatial variation in the phenomenon represented by the z-values is statistically homogeneous throughout the surface (for example, the same pattern of variation can be observed at all locations on the surface)
-    -   Assumes the mean is constant between samples and is independent of location
     -   Assumes that the distance between sample points reflects a spatial correlation that can be used to explain variation in the surface
 -   Considers not only the distances but also the other variables that have a linear relationship with the estimation variables
 -   Uses a weighted average of the sampled values to predict the value at an unsampled location. The weights are determined by the variogram.\
@@ -378,6 +399,8 @@
     -   e.g. A measure of how much two samples taken from the mining area will vary in gold percentage depending on the distance between those samples. Samples taken far apart will *vary* more than samples taken close to each other.
 
 -   A decrease of spatial autocorrelation is, equivalently, an increase of semivariance
+
+    -   If your semivariance returns a constant, your data was not spatially related.
 
 -   Empirical (aka Sample or Experimental) Variogram
 
@@ -416,6 +439,11 @@
 
         -   Matern\
             ![](_resources/Geospatial-Modeling.resources/inter-frig-vario-mod-mat-1.png){.lightbox width="232"}
+
+            -   Does not allow decreasing or oscillating semivariance (sometimes seen in real data)
+            -   Uses a smoothness parameter, [kappa]{.arg-text}
+                -   `vgm` default: 0.5
+                -   `autofitVariogram` default: `c(0.05, seq(0.2, 2, 0.1), 5, 10)`
 
         -   Matern with Stein Parameterization\
             ![](_resources/Geospatial-Modeling.resources/inter-frig-vario-mod-ste-1.png){.lightbox width="232"}
@@ -480,8 +508,10 @@
 -   Preprocessing
 
     -   Detrending ([trend.beta]{.arg-text}) - Often improves variogram model regression, but it also removes/diminishes the effects of spatially correlated covariates
-        -   Recommend to store the detrended linear effects for later by applying your own `lm`, prior to variogram fitting, e.g. `resids_detrend <- lm(resp ~ long + lat, data)$residual`
-    -   Fixing the range can be a performance saver for larger data
+        -   If your semivariance keeps linearly increasing, try de-trending your data.
+        -   I'm not sure how to do this with `variogram`'s [trend.beta]{.arg-text} argument. One of the articles uses a `lm` in this way: `resids_detrend <- lm(resp ~ long + lat, data)$residual`
+            -   [trend.beta]{.arg-text} asks for the coefficients though.
+    -   Fixing the range can be a performance enhancer for larger data
     -   Binning method can make a substantial difference on the variogram results
         -   Types: equal size, equal width, log-spaced binning
         -   Bins could also be determined by a grouping variable
@@ -514,6 +544,7 @@
     -   Additional `variogram` arguments:
         -   [cutoff]{.arg-text}: Maximum distance (Default is one-third of the length of the bounding box diagonal)
         -   [width]{.arg-text}: Constant interval width (Default is the cutoff divided by 15).
+        -   cressie: Cressie's estimator that robust against outliers
     -   Tthe `vgm` arguments (besides [model]{.arg-text}) specify starting values in the estimation process. This is not required anymore. It is possible to call `vgm("exp")` and function will use an algorithm to choose starting values for that model which I think is recommended now.
         -   Compare multiple model types, e.g. `c("Exp", "Sph")`, in which case the best fitting is returned
         -   Process
@@ -523,14 +554,14 @@
 
 #### Examples {#sec-geo-gmod-interp-krig-exs .unnumbered}
 
--   [Example]{.ribbon-highlight}: Ordinary Kriging of NO~2~ in Germany\
+-   [Example 1]{.ribbon-highlight}: Ordinary Kriging of NO~2~ in Germany\
     ![](_resources/Geospatial-Modeling.resources/inter-krig-ex-ex1-1.png){.lightbox width="332"}
 
     ``` r
     mod_krig_no2 <- 
-      krige(NO2 ~ 1, 
-            sf_no2, 
-            grid_de, 
+      krige(formula = NO2 ~ 1, 
+            locations = sf_no2, 
+            newdata = grid_de, 
             mod_vario)
 
     ggplot() + 
@@ -549,8 +580,126 @@
       coord_sf(lims_method = "geometry_bbox")
     ```
 
-    -   The `krige` documentation is very obsure about what the names of the arguments are. Some stay with this function. Some go to another function (`gstat`), but the documentation of that function is also obsure. Usually you can figure it out by the order of the arguments but not here. It seems like you just throw stuff in there, and I guesss the function will figure out what it is depending on the class of the input.
     -   [NO2 \~ 1]{.arg-text} specifies an intercept-only (unknown, constant mean) model for (aka ordinary kriging model)
     -   [sf_no2]{.var-text} contains observed location geometries (See [Inverse Distance Weighting (IDW)](geospatial-modeling.qmd#sec-geo-gmod-interp-idw){style="color: green"} \>\> Example 1)
     -   [grid_de]{.var-text} is a grid for predicting values at new locations (See [Inverse Distance Weighting (IDW)](geospatial-modeling.qmd#sec-geo-gmod-interp-idw){style="color: green"} \>\> Example 1)
     -   [mod_vario]{.var-text} is the fitted variogram model (See [Variograms](geospatial-modeling.qmd#sec-geo-gmod-interp-krig-vario){style="color: green"} \>\> Example 1)
+
+-   [Example 2]{.ribbon-highlight}: Block Kriging NO~2~ in Germany\
+
+    ::: panel-tabset
+    ## Aggregate Means
+
+    ``` r
+    pacman::p_load(
+      dplyr,
+      ggplot2,
+      sf,
+      gstat
+    )
+
+    df_no2_agg <- 
+      aggregate(sf_no2["NO2"], 
+                by = shp_de, 
+                FUN = mean)
+
+    df_krig_no2 <- 
+      krige(NO2 ~ 1, 
+            locations = sf_no2, 
+            newdata = shp_de, 
+            mod_vario)
+
+    tib_krig_samp <- 
+      df_krig_no2 |> 
+      mutate(sample_mean = df_no2_agg$NO2) |> 
+      select(krig_mean = var1.pred, sample_mean) |> 
+      # go longer and coerce to factor for facet_wrap
+      tidyr::pivot_longer(
+        cols = 1:2,
+        names_to = "agg_type",
+        values_to = "no2_mean"
+      ) |> 
+      # change categories/levels for nicer facet titles
+      mutate(agg_type = forcats::fct_recode(agg_type, 
+                                            Kriging = "krig_mean", 
+                                            Sample = "sample_mean"))
+    head(tib_krig_samp)
+    #> Simple feature collection with 6 features and 2 fields
+    #> Geometry type: MULTIPOLYGON
+    #> Dimension:     XY
+    #> Bounding box:  xmin: 388243.2 ymin: 5235822 xmax: 855494.6 ymax: 5845553
+    #> Projected CRS: WGS 84 / UTM zone 32N
+    #> # A tibble: 6 × 3
+    #>                                                                                  geometry agg_type no2_mean
+    #>                                                                        <MULTIPOLYGON [m]> <fct>       <dbl>
+    #> 1 (((546832.3 5513967, 546879.7 5512723, 547306.1 5512316, 546132.9 5511048, 546977.6 ... Kriging      9.02
+    #> 2 (((546832.3 5513967, 546879.7 5512723, 547306.1 5512316, 546132.9 5511048, 546977.6 ... Sample       8.14
+    #> 3 (((580328.6 5600399, 580762.2 5599574, 581595.4 5599590, 581578.3 5600424, 582410.7 ... Kriging      9.04
+    #> 4 (((580328.6 5600399, 580762.2 5599574, 581595.4 5599590, 581578.3 5600424, 582410.7 ... Sample      10.0 
+    #> 5 (((802977.3 5845553, 803005.9 5844726, 803829.3 5844758, 803844.2 5844345, 803460.6 ... Kriging     12.0 
+    #> 6 (((802977.3 5845553, 803005.9 5844726, 803829.3 5844758, 803844.2 5844345, 803460.6 ... Sample      12.2 
+    ```
+
+    -   To go from kriging to block kriging, we replace the grid ([grid_de]{.var-text}) with polygons ([shp_de]{.var-text}) in [newdata]{.arg-text}
+    -   [sf_no2]{.var-text} contains observed location geometries (See [Inverse Distance Weighting (IDW)](geospatial-modeling.qmd#sec-geo-gmod-interp-idw){style="color: green"} \>\> Example 1)
+    -   [shp_de]{.var-text} is the shapfile object with the polygons (See [Inverse Distance Weighting (IDW)](geospatial-modeling.qmd#sec-geo-gmod-interp-idw){style="color: green"} \>\> Example 1)
+    -   [mod_vario]{.var-text} is the fitted variogram model (See [Variograms](geospatial-modeling.qmd#sec-geo-gmod-interp-krig-vario){style="color: green"} \>\> Example 1)
+
+    ## Aggregate SEs
+
+    ``` r
+    calc_samp_se <- function(x) sqrt(var(x)/length(x))
+    df_samp_se <- 
+      aggregate(sf_no2["NO2"], 
+                shp_de, 
+                calc_samp_se)
+
+    tib_krig_samp_se <- 
+      df_krig_no2 |> 
+      mutate(sample_mean_se = df_samp_se$NO2,
+             krig_mean_se = sqrt(var1.var)) |> 
+      select(krig_mean_se, sample_mean_se) |> 
+      tidyr::pivot_longer(
+        cols = 1:2,
+        names_to = "agg_type",
+        values_to = "no2_mean_se"
+      ) |> 
+      mutate(agg_type = forcats::fct_recode(agg_type, 
+                                            Kriging = "krig_mean_se", 
+                                            Sample = "sample_mean_se"))
+    ```
+
+    ## Visualize
+
+    ###### Block Kriging Means vs Sample Means
+
+    ![](_resources/Geospatial-Modeling.resources/inter-krig-ex2-blockkrig-1.png){.lightbox group="inter-krig-ex2-block" width="532"}
+
+    ``` r
+    ggplot() + 
+      geom_sf(data = tib_krig_samp, 
+              mapping = aes(fill = no2_mean)) + 
+      facet_wrap(~ agg_type) +
+      scale_fill_gradientn(colors = sf.colors(20)) +
+      labs(fill = "Avg NO2") +
+      theme_notebook()
+    ```
+
+    -   With the block kriging, the mean of an area gets smoothed towards it's neighborhood mean. This typically results in the more higher sample means being lessened and the more lower sample means being increased
+
+    ###### Block Kriging SEs vs Sample SEs
+
+    ![](_resources/Geospatial-Modeling.resources/inter-krig-ex-ex2-se-1.png){.lightbox group="inter-krig-ex2-block" width="532"}
+
+    ``` r
+    ggplot() + 
+      geom_sf(data = tib_krig_samp_se, 
+              mapping = aes(fill = no2_mean_se)) + 
+      facet_wrap(~ agg_type) +
+      scale_fill_gradientn(colors = sf.colors(20)) +
+      labs(fill = "SE of \nNO2 Mean") +
+      theme_notebook()    
+    ```
+
+    -   By including the all the data in the means calculations, kriging achieves substantially smaller standard errors than those calculated for sample means.
+    :::

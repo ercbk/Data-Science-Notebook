@@ -2664,7 +2664,11 @@ Z(s) = S(s) + \epsilon
 <ul>
 <li><a href="https://r-spatial.org/book/12-Interpolation.html">Spatial Data Science, Ch. 12</a></li>
 <li><a href="https://pro.arcgis.com/en/pro-app/latest/tool-reference/3d-analyst/how-kriging-works.htm">ArcGIS Pro: How Kriging works</a></li>
-<li><a href="https://tutorials.inbo.be/tutorials/spatial_variograms/">An Algorithmic Approach to Variograms</a></li>
+<li><a href="https://tutorials.inbo.be/tutorials/spatial_variograms/">An Algorithmic Approach to Variograms</a>
+<ul>
+<li>Manual coding of variograms with linear, gaussian, and matern models.</li>
+<li>Various preprocessing steps. Also uses MAD instead of semivariance to measure spatial dependence.</li>
+</ul></li>
 </ul></li>
 <li><p>Resources</p>
 <ul>
@@ -2676,6 +2680,10 @@ Z(s) = S(s) + \epsilon
 <li>This polynomial is subtracted from the original measured points, and the autocorrelation is modeled from the random errors.</li>
 <li>Once the model is fit to the random errors and before making a prediction, the polynomial is added back to the predictions to give meaningful results.</li>
 <li>Universal kriging should only be used when you know there is a trend in your data and you can give a scientific justification to describe it.</li>
+</ul></li>
+<li><p><strong>Block Kriging</strong> - Uses all the data (i.e.&nbsp;data weighted by distance) to estimate the mean of the variable over the target areas</p>
+<ul>
+<li>Using <code>aggregate</code> gets you the sample mean per area. Block kriging doesn’t assume the average value estimate is independent of neighboring areas.</li>
 </ul></li>
 <li><p><span style="color: #990000">{gstat}</span> Kriging Functions</p>
 <table class="caption-top table">
@@ -2719,7 +2727,22 @@ Z(s) = S(s) + \epsilon
 <td>Trans-Gaussian kriging using Box-Cox transforms</td>
 </tr>
 </tbody>
-</table></li>
+</table>
+<ul>
+<li><p>The <code>krige</code> documentation is somewhat lacking since the sf method isn’t there (most workflows probably involve a sf object). The examples in the docs and in the SDS book don’t include the arguments either, but you can figure (most of) them out. If you use <code>showMethods</code> it shows you the available classes.</p>
+<div class="sourceCode" id="cb3"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb3-1"><a href="#cb3-1" aria-hidden="true" tabindex="-1"></a><span class="fu">showMethods</span>(gstat<span class="sc">::</span>krige)</span>
+<span id="cb3-2"><a href="#cb3-2" aria-hidden="true" tabindex="-1"></a><span class="co">#&gt; Function: krige (package gstat)</span></span>
+<span id="cb3-3"><a href="#cb3-3" aria-hidden="true" tabindex="-1"></a><span class="co">#&gt; formula="formula", locations="formula"</span></span>
+<span id="cb3-4"><a href="#cb3-4" aria-hidden="true" tabindex="-1"></a><span class="co">#&gt; formula="formula", locations="NULL"</span></span>
+<span id="cb3-5"><a href="#cb3-5" aria-hidden="true" tabindex="-1"></a><span class="co">#&gt; formula="formula", locations="sf"</span></span>
+<span id="cb3-6"><a href="#cb3-6" aria-hidden="true" tabindex="-1"></a><span class="co">#&gt; formula="formula", locations="Spatial"</span></span>
+<span id="cb3-7"><a href="#cb3-7" aria-hidden="true" tabindex="-1"></a><span class="co">#&gt; formula="formula", locations="ST"</span></span></code><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></pre></div>
+<ul>
+<li>So from this, we see it determines the proper method by the class of the object used in the <span class="arg-text">locations</span> argument.</li>
+<li>Typing <code>gstat:::krige.sf(</code> in RStudio and hitting tab shows it has these arguments: <code>krige(formula, locations, newdata,..., nsim)</code>. The docs say the dots arguments are passed to the <code>gstat</code> function.</li>
+<li>The first argument of <code>gstat</code> is <span class="arg-text">g</span>. It’s description is obscure, and its code is worse. Anyways, this is where the variogram model evidently goes.</li>
+</ul></li>
+</ul></li>
 </ul>
 </section>
 <section id="sec-geo-gmod-interp-krig-desc" class="level4 unnumbered">
@@ -2732,7 +2755,6 @@ Z(s) = S(s) + \epsilon
 <li>Assumptions
 <ul>
 <li>Assumes that the spatial variation in the phenomenon represented by the z-values is statistically homogeneous throughout the surface (for example, the same pattern of variation can be observed at all locations on the surface)</li>
-<li>Assumes the mean is constant between samples and is independent of location</li>
 <li>Assumes that the distance between sample points reflects a spatial correlation that can be used to explain variation in the surface</li>
 </ul></li>
 <li>Considers not only the distances but also the other variables that have a linear relationship with the estimation variables</li>
@@ -2764,7 +2786,10 @@ Z(s) = S(s) + \epsilon
 <ul>
 <li>e.g.&nbsp;A measure of how much two samples taken from the mining area will vary in gold percentage depending on the distance between those samples. Samples taken far apart will <em>vary</em> more than samples taken close to each other.</li>
 </ul></li>
-<li><p>A decrease of spatial autocorrelation is, equivalently, an increase of semivariance</p></li>
+<li><p>A decrease of spatial autocorrelation is, equivalently, an increase of semivariance</p>
+<ul>
+<li>If your semivariance returns a constant, your data was not spatially related.</li>
+</ul></li>
 <li><p>Empirical (aka Sample or Experimental) Variogram</p>
 <p><span class="math display">\[
 \begin{align}
@@ -2797,7 +2822,15 @@ Z(s) = S(s) + \epsilon
 \gamma' = p(1 - e^{-(h^2/ (\frac{4}{7}r)^2)}) + n
 \]</span></p></li>
 <li><p>Matern<br>
-<a href="_resources/Geospatial-Modeling.resources/inter-frig-vario-mod-mat-1.png" class="lightbox" data-gallery="quarto-lightbox-gallery-15"><img src="_resources/Geospatial-Modeling.resources/inter-frig-vario-mod-mat-1.png" class="img-fluid" width="232"></a></p></li>
+<a href="_resources/Geospatial-Modeling.resources/inter-frig-vario-mod-mat-1.png" class="lightbox" data-gallery="quarto-lightbox-gallery-15"><img src="_resources/Geospatial-Modeling.resources/inter-frig-vario-mod-mat-1.png" class="img-fluid" width="232"></a></p>
+<ul>
+<li>Does not allow decreasing or oscillating semivariance (sometimes seen in real data)</li>
+<li>Uses a smoothness parameter, <span class="arg-text">kappa</span>
+<ul>
+<li><code>vgm</code> default: 0.5</li>
+<li><code>autofitVariogram</code> default: <code>c(0.05, seq(0.2, 2, 0.1), 5, 10)</code></li>
+</ul></li>
+</ul></li>
 <li><p>Matern with Stein Parameterization<br>
 <a href="_resources/Geospatial-Modeling.resources/inter-frig-vario-mod-ste-1.png" class="lightbox" data-gallery="quarto-lightbox-gallery-16"><img src="_resources/Geospatial-Modeling.resources/inter-frig-vario-mod-ste-1.png" class="img-fluid" width="232"></a></p></li>
 <li><p>Spherical<br>
@@ -2832,28 +2865,28 @@ p + n &amp; \mbox{if} \; h \gt r
 </ul></li>
 </ul></li>
 <li><p>Available variogram models in <span style="color: #990000">{gstat}</span></p>
-<div class="sourceCode" id="cb3"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb3-1"><a href="#cb3-1" aria-hidden="true" tabindex="-1"></a>gstat<span class="sc">::</span><span class="fu">vgm</span>()</span>
-<span id="cb3-2"><a href="#cb3-2" aria-hidden="true" tabindex="-1"></a><span class="co">#&gt;     short                                      long</span></span>
-<span id="cb3-3"><a href="#cb3-3" aria-hidden="true" tabindex="-1"></a><span class="co">#&gt;  1    Nug                              Nug (nugget)</span></span>
-<span id="cb3-4"><a href="#cb3-4" aria-hidden="true" tabindex="-1"></a><span class="co">#&gt;  2    Exp                         Exp (exponential)</span></span>
-<span id="cb3-5"><a href="#cb3-5" aria-hidden="true" tabindex="-1"></a><span class="co">#&gt;  3    Sph                           Sph (spherical)</span></span>
-<span id="cb3-6"><a href="#cb3-6" aria-hidden="true" tabindex="-1"></a><span class="co">#&gt;  4    Gau                            Gau (gaussian)</span></span>
-<span id="cb3-7"><a href="#cb3-7" aria-hidden="true" tabindex="-1"></a><span class="co">#&gt;  5    Exc        Exclass (Exponential class/stable)</span></span>
-<span id="cb3-8"><a href="#cb3-8" aria-hidden="true" tabindex="-1"></a><span class="co">#&gt;  6    Mat                              Mat (Matern)</span></span>
-<span id="cb3-9"><a href="#cb3-9" aria-hidden="true" tabindex="-1"></a><span class="co">#&gt;  7    Ste Mat (Matern, M. Stein's parameterization)</span></span>
-<span id="cb3-10"><a href="#cb3-10" aria-hidden="true" tabindex="-1"></a><span class="co">#&gt;  8    Cir                            Cir (circular)</span></span>
-<span id="cb3-11"><a href="#cb3-11" aria-hidden="true" tabindex="-1"></a><span class="co">#&gt;  9    Lin                              Lin (linear)</span></span>
-<span id="cb3-12"><a href="#cb3-12" aria-hidden="true" tabindex="-1"></a><span class="co">#&gt;  10   Bes                              Bes (bessel)</span></span>
-<span id="cb3-13"><a href="#cb3-13" aria-hidden="true" tabindex="-1"></a><span class="co">#&gt;  11   Pen                      Pen (pentaspherical)</span></span>
-<span id="cb3-14"><a href="#cb3-14" aria-hidden="true" tabindex="-1"></a><span class="co">#&gt;  12   Per                            Per (periodic)</span></span>
-<span id="cb3-15"><a href="#cb3-15" aria-hidden="true" tabindex="-1"></a><span class="co">#&gt;  13   Wav                                Wav (wave)</span></span>
-<span id="cb3-16"><a href="#cb3-16" aria-hidden="true" tabindex="-1"></a><span class="co">#&gt;  14   Hol                                Hol (hole)</span></span>
-<span id="cb3-17"><a href="#cb3-17" aria-hidden="true" tabindex="-1"></a><span class="co">#&gt;  15   Log                         Log (logarithmic)</span></span>
-<span id="cb3-18"><a href="#cb3-18" aria-hidden="true" tabindex="-1"></a><span class="co">#&gt;  16   Pow                               Pow (power)</span></span>
-<span id="cb3-19"><a href="#cb3-19" aria-hidden="true" tabindex="-1"></a><span class="co">#&gt;  17   Spl                              Spl (spline)</span></span>
-<span id="cb3-20"><a href="#cb3-20" aria-hidden="true" tabindex="-1"></a><span class="co">#&gt;  18   Leg                            Leg (Legendre)</span></span>
-<span id="cb3-21"><a href="#cb3-21" aria-hidden="true" tabindex="-1"></a><span class="co">#&gt;  19   Err                   Err (Measurement error)</span></span>
-<span id="cb3-22"><a href="#cb3-22" aria-hidden="true" tabindex="-1"></a><span class="co">#&gt;  20   Int                           Int (Intercept)</span></span></code><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></pre></div></li>
+<div class="sourceCode" id="cb4"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb4-1"><a href="#cb4-1" aria-hidden="true" tabindex="-1"></a>gstat<span class="sc">::</span><span class="fu">vgm</span>()</span>
+<span id="cb4-2"><a href="#cb4-2" aria-hidden="true" tabindex="-1"></a><span class="co">#&gt;     short                                      long</span></span>
+<span id="cb4-3"><a href="#cb4-3" aria-hidden="true" tabindex="-1"></a><span class="co">#&gt;  1    Nug                              Nug (nugget)</span></span>
+<span id="cb4-4"><a href="#cb4-4" aria-hidden="true" tabindex="-1"></a><span class="co">#&gt;  2    Exp                         Exp (exponential)</span></span>
+<span id="cb4-5"><a href="#cb4-5" aria-hidden="true" tabindex="-1"></a><span class="co">#&gt;  3    Sph                           Sph (spherical)</span></span>
+<span id="cb4-6"><a href="#cb4-6" aria-hidden="true" tabindex="-1"></a><span class="co">#&gt;  4    Gau                            Gau (gaussian)</span></span>
+<span id="cb4-7"><a href="#cb4-7" aria-hidden="true" tabindex="-1"></a><span class="co">#&gt;  5    Exc        Exclass (Exponential class/stable)</span></span>
+<span id="cb4-8"><a href="#cb4-8" aria-hidden="true" tabindex="-1"></a><span class="co">#&gt;  6    Mat                              Mat (Matern)</span></span>
+<span id="cb4-9"><a href="#cb4-9" aria-hidden="true" tabindex="-1"></a><span class="co">#&gt;  7    Ste Mat (Matern, M. Stein's parameterization)</span></span>
+<span id="cb4-10"><a href="#cb4-10" aria-hidden="true" tabindex="-1"></a><span class="co">#&gt;  8    Cir                            Cir (circular)</span></span>
+<span id="cb4-11"><a href="#cb4-11" aria-hidden="true" tabindex="-1"></a><span class="co">#&gt;  9    Lin                              Lin (linear)</span></span>
+<span id="cb4-12"><a href="#cb4-12" aria-hidden="true" tabindex="-1"></a><span class="co">#&gt;  10   Bes                              Bes (bessel)</span></span>
+<span id="cb4-13"><a href="#cb4-13" aria-hidden="true" tabindex="-1"></a><span class="co">#&gt;  11   Pen                      Pen (pentaspherical)</span></span>
+<span id="cb4-14"><a href="#cb4-14" aria-hidden="true" tabindex="-1"></a><span class="co">#&gt;  12   Per                            Per (periodic)</span></span>
+<span id="cb4-15"><a href="#cb4-15" aria-hidden="true" tabindex="-1"></a><span class="co">#&gt;  13   Wav                                Wav (wave)</span></span>
+<span id="cb4-16"><a href="#cb4-16" aria-hidden="true" tabindex="-1"></a><span class="co">#&gt;  14   Hol                                Hol (hole)</span></span>
+<span id="cb4-17"><a href="#cb4-17" aria-hidden="true" tabindex="-1"></a><span class="co">#&gt;  15   Log                         Log (logarithmic)</span></span>
+<span id="cb4-18"><a href="#cb4-18" aria-hidden="true" tabindex="-1"></a><span class="co">#&gt;  16   Pow                               Pow (power)</span></span>
+<span id="cb4-19"><a href="#cb4-19" aria-hidden="true" tabindex="-1"></a><span class="co">#&gt;  17   Spl                              Spl (spline)</span></span>
+<span id="cb4-20"><a href="#cb4-20" aria-hidden="true" tabindex="-1"></a><span class="co">#&gt;  18   Leg                            Leg (Legendre)</span></span>
+<span id="cb4-21"><a href="#cb4-21" aria-hidden="true" tabindex="-1"></a><span class="co">#&gt;  19   Err                   Err (Measurement error)</span></span>
+<span id="cb4-22"><a href="#cb4-22" aria-hidden="true" tabindex="-1"></a><span class="co">#&gt;  20   Int                           Int (Intercept)</span></span></code><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></pre></div></li>
 </ul></li>
 <li><p>Process: Optimize the parameters of variogram model to fit to the sample variogram estimates.</p>
 <ul>
@@ -2865,9 +2898,13 @@ p + n &amp; \mbox{if} \; h \gt r
 <ul>
 <li>Detrending (<span class="arg-text">trend.beta</span>) - Often improves variogram model regression, but it also removes/diminishes the effects of spatially correlated covariates
 <ul>
-<li>Recommend to store the detrended linear effects for later by applying your own <code>lm</code>, prior to variogram fitting, e.g.&nbsp;<code>resids_detrend &lt;- lm(resp ~ long + lat, data)$residual</code></li>
+<li>If your semivariance keeps linearly increasing, try de-trending your data.</li>
+<li>I’m not sure how to do this with <code>variogram</code>’s <span class="arg-text">trend.beta</span> argument. One of the articles uses a <code>lm</code> in this way: <code>resids_detrend &lt;- lm(resp ~ long + lat, data)$residual</code>
+<ul>
+<li><span class="arg-text">trend.beta</span> asks for the coefficients though.</li>
 </ul></li>
-<li>Fixing the range can be a performance saver for larger data</li>
+</ul></li>
+<li>Fixing the range can be a performance enhancer for larger data</li>
 <li>Binning method can make a substantial difference on the variogram results
 <ul>
 <li>Types: equal size, equal width, log-spaced binning</li>
@@ -2877,16 +2914,16 @@ p + n &amp; \mbox{if} \; h \gt r
 </ul></li>
 <li><p><span class="ribbon-highlight">Example</span>: Exponential Model<br>
 <a href="_resources/Geospatial-Modeling.resources/inter-krig-vario-ex1-exp-1.png" class="lightbox" data-gallery="quarto-lightbox-gallery-19"><img src="_resources/Geospatial-Modeling.resources/inter-krig-vario-ex1-exp-1.png" class="img-fluid" width="432"></a></p>
-<div class="sourceCode" id="cb4"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb4-1"><a href="#cb4-1" aria-hidden="true" tabindex="-1"></a>samp_vario <span class="ot">&lt;-</span> <span class="fu">variogram</span>(NO2 <span class="sc">~</span> <span class="dv">1</span>, sf_no2)</span>
-<span id="cb4-2"><a href="#cb4-2" aria-hidden="true" tabindex="-1"></a></span>
-<span id="cb4-3"><a href="#cb4-3" aria-hidden="true" tabindex="-1"></a>mod_vario <span class="ot">&lt;-</span> </span>
-<span id="cb4-4"><a href="#cb4-4" aria-hidden="true" tabindex="-1"></a>  <span class="fu">fit.variogram</span>(samp_vario, <span class="fu">vgm</span>(<span class="at">psill =</span> <span class="dv">1</span>, </span>
-<span id="cb4-5"><a href="#cb4-5" aria-hidden="true" tabindex="-1"></a>                                <span class="at">model =</span> <span class="st">"Exp"</span>, </span>
-<span id="cb4-6"><a href="#cb4-6" aria-hidden="true" tabindex="-1"></a>                                <span class="at">range =</span> <span class="dv">50000</span>, </span>
-<span id="cb4-7"><a href="#cb4-7" aria-hidden="true" tabindex="-1"></a>                                <span class="at">nugget =</span> <span class="dv">1</span>))</span>
-<span id="cb4-8"><a href="#cb4-8" aria-hidden="true" tabindex="-1"></a><span class="fu">plot</span>(samp_vario, </span>
-<span id="cb4-9"><a href="#cb4-9" aria-hidden="true" tabindex="-1"></a>     mod_vario,</span>
-<span id="cb4-10"><a href="#cb4-10" aria-hidden="true" tabindex="-1"></a>     <span class="at">plot.numbers =</span> <span class="cn">TRUE</span>)</span></code><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></pre></div>
+<div class="sourceCode" id="cb5"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb5-1"><a href="#cb5-1" aria-hidden="true" tabindex="-1"></a>samp_vario <span class="ot">&lt;-</span> <span class="fu">variogram</span>(NO2 <span class="sc">~</span> <span class="dv">1</span>, sf_no2)</span>
+<span id="cb5-2"><a href="#cb5-2" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb5-3"><a href="#cb5-3" aria-hidden="true" tabindex="-1"></a>mod_vario <span class="ot">&lt;-</span> </span>
+<span id="cb5-4"><a href="#cb5-4" aria-hidden="true" tabindex="-1"></a>  <span class="fu">fit.variogram</span>(samp_vario, <span class="fu">vgm</span>(<span class="at">psill =</span> <span class="dv">1</span>, </span>
+<span id="cb5-5"><a href="#cb5-5" aria-hidden="true" tabindex="-1"></a>                                <span class="at">model =</span> <span class="st">"Exp"</span>, </span>
+<span id="cb5-6"><a href="#cb5-6" aria-hidden="true" tabindex="-1"></a>                                <span class="at">range =</span> <span class="dv">50000</span>, </span>
+<span id="cb5-7"><a href="#cb5-7" aria-hidden="true" tabindex="-1"></a>                                <span class="at">nugget =</span> <span class="dv">1</span>))</span>
+<span id="cb5-8"><a href="#cb5-8" aria-hidden="true" tabindex="-1"></a><span class="fu">plot</span>(samp_vario, </span>
+<span id="cb5-9"><a href="#cb5-9" aria-hidden="true" tabindex="-1"></a>     mod_vario,</span>
+<span id="cb5-10"><a href="#cb5-10" aria-hidden="true" tabindex="-1"></a>     <span class="at">plot.numbers =</span> <span class="cn">TRUE</span>)</span></code><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></pre></div>
 <ul>
 <li>Data is from IDW Example 1. The fit is pretty decent.</li>
 <li>The points are the sample variogram (<code>variogram</code>) estimates for the observed locations</li>
@@ -2902,6 +2939,7 @@ p + n &amp; \mbox{if} \; h \gt r
 <ul>
 <li><span class="arg-text">cutoff</span>: Maximum distance (Default is one-third of the length of the bounding box diagonal)</li>
 <li><span class="arg-text">width</span>: Constant interval width (Default is the cutoff divided by 15).</li>
+<li>cressie: Cressie’s estimator that robust against outliers</li>
 </ul></li>
 <li>Tthe <code>vgm</code> arguments (besides <span class="arg-text">model</span>) specify starting values in the estimation process. This is not required anymore. It is possible to call <code>vgm("exp")</code> and function will use an algorithm to choose starting values for that model which I think is recommended now.
 <ul>
@@ -2919,35 +2957,143 @@ p + n &amp; \mbox{if} \; h \gt r
 <section id="sec-geo-gmod-interp-krig-exs" class="level4 unnumbered">
 <h4 class="unnumbered anchored" data-anchor-id="sec-geo-gmod-interp-krig-exs">Examples</h4>
 <ul>
-<li><p><span class="ribbon-highlight">Example</span>: Ordinary Kriging of NO<sub>2</sub> in Germany<br>
+<li><p><span class="ribbon-highlight">Example 1</span>: Ordinary Kriging of NO<sub>2</sub> in Germany<br>
 <a href="_resources/Geospatial-Modeling.resources/inter-krig-ex-ex1-1.png" class="lightbox" data-gallery="quarto-lightbox-gallery-20"><img src="_resources/Geospatial-Modeling.resources/inter-krig-ex-ex1-1.png" class="img-fluid" width="332"></a></p>
-<div class="sourceCode" id="cb5"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb5-1"><a href="#cb5-1" aria-hidden="true" tabindex="-1"></a>mod_krig_no2 <span class="ot">&lt;-</span> </span>
-<span id="cb5-2"><a href="#cb5-2" aria-hidden="true" tabindex="-1"></a>  <span class="fu">krige</span>(NO2 <span class="sc">~</span> <span class="dv">1</span>, </span>
-<span id="cb5-3"><a href="#cb5-3" aria-hidden="true" tabindex="-1"></a>        sf_no2, </span>
-<span id="cb5-4"><a href="#cb5-4" aria-hidden="true" tabindex="-1"></a>        grid_de, </span>
-<span id="cb5-5"><a href="#cb5-5" aria-hidden="true" tabindex="-1"></a>        mod_vario)</span>
-<span id="cb5-6"><a href="#cb5-6" aria-hidden="true" tabindex="-1"></a></span>
-<span id="cb5-7"><a href="#cb5-7" aria-hidden="true" tabindex="-1"></a><span class="fu">ggplot</span>() <span class="sc">+</span> </span>
-<span id="cb5-8"><a href="#cb5-8" aria-hidden="true" tabindex="-1"></a>  <span class="co"># interpolation fill</span></span>
-<span id="cb5-9"><a href="#cb5-9" aria-hidden="true" tabindex="-1"></a>  <span class="fu">geom_stars</span>(<span class="at">data =</span> mod_krig_no2, </span>
-<span id="cb5-10"><a href="#cb5-10" aria-hidden="true" tabindex="-1"></a>             <span class="fu">aes</span>(<span class="at">x =</span> x, </span>
-<span id="cb5-11"><a href="#cb5-11" aria-hidden="true" tabindex="-1"></a>                 <span class="at">y =</span> y,</span>
-<span id="cb5-12"><a href="#cb5-12" aria-hidden="true" tabindex="-1"></a>                 <span class="at">fill =</span> var1.pred)) <span class="sc">+</span> </span>
-<span id="cb5-13"><a href="#cb5-13" aria-hidden="true" tabindex="-1"></a>  <span class="fu">labs</span>(<span class="at">fill =</span> <span class="st">"NO2"</span>) <span class="sc">+</span></span>
-<span id="cb5-14"><a href="#cb5-14" aria-hidden="true" tabindex="-1"></a>  <span class="fu">xlab</span>(<span class="cn">NULL</span>) <span class="sc">+</span> </span>
-<span id="cb5-15"><a href="#cb5-15" aria-hidden="true" tabindex="-1"></a>  <span class="fu">ylab</span>(<span class="cn">NULL</span>) <span class="sc">+</span></span>
-<span id="cb5-16"><a href="#cb5-16" aria-hidden="true" tabindex="-1"></a>  <span class="co"># polygons to multistring</span></span>
-<span id="cb5-17"><a href="#cb5-17" aria-hidden="true" tabindex="-1"></a>  <span class="fu">geom_sf</span>(<span class="at">data =</span> <span class="fu">st_cast</span>(shp_de, <span class="st">"MULTILINESTRING"</span>)) <span class="sc">+</span> </span>
-<span id="cb5-18"><a href="#cb5-18" aria-hidden="true" tabindex="-1"></a>  <span class="co"># points</span></span>
-<span id="cb5-19"><a href="#cb5-19" aria-hidden="true" tabindex="-1"></a>  <span class="fu">geom_sf</span>(<span class="at">data =</span> sf_no2) <span class="sc">+</span></span>
-<span id="cb5-20"><a href="#cb5-20" aria-hidden="true" tabindex="-1"></a>  <span class="fu">coord_sf</span>(<span class="at">lims_method =</span> <span class="st">"geometry_bbox"</span>)</span></code><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></pre></div>
+<div class="sourceCode" id="cb6"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb6-1"><a href="#cb6-1" aria-hidden="true" tabindex="-1"></a>mod_krig_no2 <span class="ot">&lt;-</span> </span>
+<span id="cb6-2"><a href="#cb6-2" aria-hidden="true" tabindex="-1"></a>  <span class="fu">krige</span>(<span class="at">formula =</span> NO2 <span class="sc">~</span> <span class="dv">1</span>, </span>
+<span id="cb6-3"><a href="#cb6-3" aria-hidden="true" tabindex="-1"></a>        <span class="at">locations =</span> sf_no2, </span>
+<span id="cb6-4"><a href="#cb6-4" aria-hidden="true" tabindex="-1"></a>        <span class="at">newdata =</span> grid_de, </span>
+<span id="cb6-5"><a href="#cb6-5" aria-hidden="true" tabindex="-1"></a>        mod_vario)</span>
+<span id="cb6-6"><a href="#cb6-6" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb6-7"><a href="#cb6-7" aria-hidden="true" tabindex="-1"></a><span class="fu">ggplot</span>() <span class="sc">+</span> </span>
+<span id="cb6-8"><a href="#cb6-8" aria-hidden="true" tabindex="-1"></a>  <span class="co"># interpolation fill</span></span>
+<span id="cb6-9"><a href="#cb6-9" aria-hidden="true" tabindex="-1"></a>  <span class="fu">geom_stars</span>(<span class="at">data =</span> mod_krig_no2, </span>
+<span id="cb6-10"><a href="#cb6-10" aria-hidden="true" tabindex="-1"></a>             <span class="fu">aes</span>(<span class="at">x =</span> x, </span>
+<span id="cb6-11"><a href="#cb6-11" aria-hidden="true" tabindex="-1"></a>                 <span class="at">y =</span> y,</span>
+<span id="cb6-12"><a href="#cb6-12" aria-hidden="true" tabindex="-1"></a>                 <span class="at">fill =</span> var1.pred)) <span class="sc">+</span> </span>
+<span id="cb6-13"><a href="#cb6-13" aria-hidden="true" tabindex="-1"></a>  <span class="fu">labs</span>(<span class="at">fill =</span> <span class="st">"NO2"</span>) <span class="sc">+</span></span>
+<span id="cb6-14"><a href="#cb6-14" aria-hidden="true" tabindex="-1"></a>  <span class="fu">xlab</span>(<span class="cn">NULL</span>) <span class="sc">+</span> </span>
+<span id="cb6-15"><a href="#cb6-15" aria-hidden="true" tabindex="-1"></a>  <span class="fu">ylab</span>(<span class="cn">NULL</span>) <span class="sc">+</span></span>
+<span id="cb6-16"><a href="#cb6-16" aria-hidden="true" tabindex="-1"></a>  <span class="co"># polygons to multistring</span></span>
+<span id="cb6-17"><a href="#cb6-17" aria-hidden="true" tabindex="-1"></a>  <span class="fu">geom_sf</span>(<span class="at">data =</span> <span class="fu">st_cast</span>(shp_de, <span class="st">"MULTILINESTRING"</span>)) <span class="sc">+</span> </span>
+<span id="cb6-18"><a href="#cb6-18" aria-hidden="true" tabindex="-1"></a>  <span class="co"># points</span></span>
+<span id="cb6-19"><a href="#cb6-19" aria-hidden="true" tabindex="-1"></a>  <span class="fu">geom_sf</span>(<span class="at">data =</span> sf_no2) <span class="sc">+</span></span>
+<span id="cb6-20"><a href="#cb6-20" aria-hidden="true" tabindex="-1"></a>  <span class="fu">coord_sf</span>(<span class="at">lims_method =</span> <span class="st">"geometry_bbox"</span>)</span></code><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></pre></div>
 <ul>
-<li>The <code>krige</code> documentation is very obsure about what the names of the arguments are. Some stay with this function. Some go to another function (<code>gstat</code>), but the documentation of that function is also obsure. Usually you can figure it out by the order of the arguments but not here. It seems like you just throw stuff in there, and I guesss the function will figure out what it is depending on the class of the input.</li>
 <li><span class="arg-text">NO2 ~ 1</span> specifies an intercept-only (unknown, constant mean) model for (aka ordinary kriging model)</li>
 <li><span class="var-text">sf_no2</span> contains observed location geometries (See <a href="../qmd/geospatial-modeling.html#sec-geo-gmod-interp-idw" style="color: green">Inverse Distance Weighting (IDW)</a> &gt;&gt; Example 1)</li>
 <li><span class="var-text">grid_de</span> is a grid for predicting values at new locations (See <a href="../qmd/geospatial-modeling.html#sec-geo-gmod-interp-idw" style="color: green">Inverse Distance Weighting (IDW)</a> &gt;&gt; Example 1)</li>
 <li><span class="var-text">mod_vario</span> is the fitted variogram model (See <a href="../qmd/geospatial-modeling.html#sec-geo-gmod-interp-krig-vario" style="color: green">Variograms</a> &gt;&gt; Example 1)</li>
 </ul></li>
+<li><p><span class="ribbon-highlight">Example 2</span>: Block Kriging NO<sub>2</sub> in Germany<br>
+</p>
+<div class="tabset-margin-container"></div><div class="panel-tabset">
+<ul class="nav nav-tabs" role="tablist"><li class="nav-item" role="presentation"><a class="nav-link active" id="tabset-2-1-tab" data-bs-toggle="tab" data-bs-target="#tabset-2-1" role="tab" aria-controls="tabset-2-1" aria-selected="true">Aggregate Means</a></li><li class="nav-item" role="presentation"><a class="nav-link" id="tabset-2-2-tab" data-bs-toggle="tab" data-bs-target="#tabset-2-2" role="tab" aria-controls="tabset-2-2" aria-selected="false">Aggregate SEs</a></li><li class="nav-item" role="presentation"><a class="nav-link" id="tabset-2-3-tab" data-bs-toggle="tab" data-bs-target="#tabset-2-3" role="tab" aria-controls="tabset-2-3" aria-selected="false">Visualize</a></li></ul>
+<div class="tab-content">
+<div id="tabset-2-1" class="tab-pane active" role="tabpanel" aria-labelledby="tabset-2-1-tab">
+<div class="sourceCode" id="cb7"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb7-1"><a href="#cb7-1" aria-hidden="true" tabindex="-1"></a>pacman<span class="sc">::</span><span class="fu">p_load</span>(</span>
+<span id="cb7-2"><a href="#cb7-2" aria-hidden="true" tabindex="-1"></a>  dplyr,</span>
+<span id="cb7-3"><a href="#cb7-3" aria-hidden="true" tabindex="-1"></a>  ggplot2,</span>
+<span id="cb7-4"><a href="#cb7-4" aria-hidden="true" tabindex="-1"></a>  sf,</span>
+<span id="cb7-5"><a href="#cb7-5" aria-hidden="true" tabindex="-1"></a>  gstat</span>
+<span id="cb7-6"><a href="#cb7-6" aria-hidden="true" tabindex="-1"></a>)</span>
+<span id="cb7-7"><a href="#cb7-7" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb7-8"><a href="#cb7-8" aria-hidden="true" tabindex="-1"></a>df_no2_agg <span class="ot">&lt;-</span> </span>
+<span id="cb7-9"><a href="#cb7-9" aria-hidden="true" tabindex="-1"></a>  <span class="fu">aggregate</span>(sf_no2[<span class="st">"NO2"</span>], </span>
+<span id="cb7-10"><a href="#cb7-10" aria-hidden="true" tabindex="-1"></a>            <span class="at">by =</span> shp_de, </span>
+<span id="cb7-11"><a href="#cb7-11" aria-hidden="true" tabindex="-1"></a>            <span class="at">FUN =</span> mean)</span>
+<span id="cb7-12"><a href="#cb7-12" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb7-13"><a href="#cb7-13" aria-hidden="true" tabindex="-1"></a>df_krig_no2 <span class="ot">&lt;-</span> </span>
+<span id="cb7-14"><a href="#cb7-14" aria-hidden="true" tabindex="-1"></a>  <span class="fu">krige</span>(NO2 <span class="sc">~</span> <span class="dv">1</span>, </span>
+<span id="cb7-15"><a href="#cb7-15" aria-hidden="true" tabindex="-1"></a>        <span class="at">locations =</span> sf_no2, </span>
+<span id="cb7-16"><a href="#cb7-16" aria-hidden="true" tabindex="-1"></a>        <span class="at">newdata =</span> shp_de, </span>
+<span id="cb7-17"><a href="#cb7-17" aria-hidden="true" tabindex="-1"></a>        mod_vario)</span>
+<span id="cb7-18"><a href="#cb7-18" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb7-19"><a href="#cb7-19" aria-hidden="true" tabindex="-1"></a>tib_krig_samp <span class="ot">&lt;-</span> </span>
+<span id="cb7-20"><a href="#cb7-20" aria-hidden="true" tabindex="-1"></a>  df_krig_no2 <span class="sc">|&gt;</span> </span>
+<span id="cb7-21"><a href="#cb7-21" aria-hidden="true" tabindex="-1"></a>  <span class="fu">mutate</span>(<span class="at">sample_mean =</span> df_no2_agg<span class="sc">$</span>NO2) <span class="sc">|&gt;</span> </span>
+<span id="cb7-22"><a href="#cb7-22" aria-hidden="true" tabindex="-1"></a>  <span class="fu">select</span>(<span class="at">krig_mean =</span> var1.pred, sample_mean) <span class="sc">|&gt;</span> </span>
+<span id="cb7-23"><a href="#cb7-23" aria-hidden="true" tabindex="-1"></a>  <span class="co"># go longer and coerce to factor for facet_wrap</span></span>
+<span id="cb7-24"><a href="#cb7-24" aria-hidden="true" tabindex="-1"></a>  tidyr<span class="sc">::</span><span class="fu">pivot_longer</span>(</span>
+<span id="cb7-25"><a href="#cb7-25" aria-hidden="true" tabindex="-1"></a>    <span class="at">cols =</span> <span class="dv">1</span><span class="sc">:</span><span class="dv">2</span>,</span>
+<span id="cb7-26"><a href="#cb7-26" aria-hidden="true" tabindex="-1"></a>    <span class="at">names_to =</span> <span class="st">"agg_type"</span>,</span>
+<span id="cb7-27"><a href="#cb7-27" aria-hidden="true" tabindex="-1"></a>    <span class="at">values_to =</span> <span class="st">"no2_mean"</span></span>
+<span id="cb7-28"><a href="#cb7-28" aria-hidden="true" tabindex="-1"></a>  ) <span class="sc">|&gt;</span> </span>
+<span id="cb7-29"><a href="#cb7-29" aria-hidden="true" tabindex="-1"></a>  <span class="co"># change categories/levels for nicer facet titles</span></span>
+<span id="cb7-30"><a href="#cb7-30" aria-hidden="true" tabindex="-1"></a>  <span class="fu">mutate</span>(<span class="at">agg_type =</span> forcats<span class="sc">::</span><span class="fu">fct_recode</span>(agg_type, </span>
+<span id="cb7-31"><a href="#cb7-31" aria-hidden="true" tabindex="-1"></a>                                        <span class="at">Kriging =</span> <span class="st">"krig_mean"</span>, </span>
+<span id="cb7-32"><a href="#cb7-32" aria-hidden="true" tabindex="-1"></a>                                        <span class="at">Sample =</span> <span class="st">"sample_mean"</span>))</span>
+<span id="cb7-33"><a href="#cb7-33" aria-hidden="true" tabindex="-1"></a><span class="fu">head</span>(tib_krig_samp)</span>
+<span id="cb7-34"><a href="#cb7-34" aria-hidden="true" tabindex="-1"></a><span class="co">#&gt; Simple feature collection with 6 features and 2 fields</span></span>
+<span id="cb7-35"><a href="#cb7-35" aria-hidden="true" tabindex="-1"></a><span class="co">#&gt; Geometry type: MULTIPOLYGON</span></span>
+<span id="cb7-36"><a href="#cb7-36" aria-hidden="true" tabindex="-1"></a><span class="co">#&gt; Dimension:     XY</span></span>
+<span id="cb7-37"><a href="#cb7-37" aria-hidden="true" tabindex="-1"></a><span class="co">#&gt; Bounding box:  xmin: 388243.2 ymin: 5235822 xmax: 855494.6 ymax: 5845553</span></span>
+<span id="cb7-38"><a href="#cb7-38" aria-hidden="true" tabindex="-1"></a><span class="co">#&gt; Projected CRS: WGS 84 / UTM zone 32N</span></span>
+<span id="cb7-39"><a href="#cb7-39" aria-hidden="true" tabindex="-1"></a><span class="co">#&gt; # A tibble: 6 × 3</span></span>
+<span id="cb7-40"><a href="#cb7-40" aria-hidden="true" tabindex="-1"></a><span class="co">#&gt;                                                                                  geometry agg_type no2_mean</span></span>
+<span id="cb7-41"><a href="#cb7-41" aria-hidden="true" tabindex="-1"></a><span class="co">#&gt;                                                                        &lt;MULTIPOLYGON [m]&gt; &lt;fct&gt;       &lt;dbl&gt;</span></span>
+<span id="cb7-42"><a href="#cb7-42" aria-hidden="true" tabindex="-1"></a><span class="co">#&gt; 1 (((546832.3 5513967, 546879.7 5512723, 547306.1 5512316, 546132.9 5511048, 546977.6 ... Kriging      9.02</span></span>
+<span id="cb7-43"><a href="#cb7-43" aria-hidden="true" tabindex="-1"></a><span class="co">#&gt; 2 (((546832.3 5513967, 546879.7 5512723, 547306.1 5512316, 546132.9 5511048, 546977.6 ... Sample       8.14</span></span>
+<span id="cb7-44"><a href="#cb7-44" aria-hidden="true" tabindex="-1"></a><span class="co">#&gt; 3 (((580328.6 5600399, 580762.2 5599574, 581595.4 5599590, 581578.3 5600424, 582410.7 ... Kriging      9.04</span></span>
+<span id="cb7-45"><a href="#cb7-45" aria-hidden="true" tabindex="-1"></a><span class="co">#&gt; 4 (((580328.6 5600399, 580762.2 5599574, 581595.4 5599590, 581578.3 5600424, 582410.7 ... Sample      10.0 </span></span>
+<span id="cb7-46"><a href="#cb7-46" aria-hidden="true" tabindex="-1"></a><span class="co">#&gt; 5 (((802977.3 5845553, 803005.9 5844726, 803829.3 5844758, 803844.2 5844345, 803460.6 ... Kriging     12.0 </span></span>
+<span id="cb7-47"><a href="#cb7-47" aria-hidden="true" tabindex="-1"></a><span class="co">#&gt; 6 (((802977.3 5845553, 803005.9 5844726, 803829.3 5844758, 803844.2 5844345, 803460.6 ... Sample      12.2 </span></span></code><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></pre></div>
+<ul>
+<li>To go from kriging to block kriging, we replace the grid (<span class="var-text">grid_de</span>) with polygons (<span class="var-text">shp_de</span>) in <span class="arg-text">newdata</span></li>
+<li><span class="var-text">sf_no2</span> contains observed location geometries (See <a href="../qmd/geospatial-modeling.html#sec-geo-gmod-interp-idw" style="color: green">Inverse Distance Weighting (IDW)</a> &gt;&gt; Example 1)</li>
+<li><span class="var-text">shp_de</span> is the shapfile object with the polygons (See <a href="../qmd/geospatial-modeling.html#sec-geo-gmod-interp-idw" style="color: green">Inverse Distance Weighting (IDW)</a> &gt;&gt; Example 1)</li>
+<li><span class="var-text">mod_vario</span> is the fitted variogram model (See <a href="../qmd/geospatial-modeling.html#sec-geo-gmod-interp-krig-vario" style="color: green">Variograms</a> &gt;&gt; Example 1)</li>
+</ul>
+</div>
+<div id="tabset-2-2" class="tab-pane" role="tabpanel" aria-labelledby="tabset-2-2-tab">
+<div class="sourceCode" id="cb8"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb8-1"><a href="#cb8-1" aria-hidden="true" tabindex="-1"></a>calc_samp_se <span class="ot">&lt;-</span> <span class="cf">function</span>(x) <span class="fu">sqrt</span>(<span class="fu">var</span>(x)<span class="sc">/</span><span class="fu">length</span>(x))</span>
+<span id="cb8-2"><a href="#cb8-2" aria-hidden="true" tabindex="-1"></a>df_samp_se <span class="ot">&lt;-</span> </span>
+<span id="cb8-3"><a href="#cb8-3" aria-hidden="true" tabindex="-1"></a>  <span class="fu">aggregate</span>(sf_no2[<span class="st">"NO2"</span>], </span>
+<span id="cb8-4"><a href="#cb8-4" aria-hidden="true" tabindex="-1"></a>            shp_de, </span>
+<span id="cb8-5"><a href="#cb8-5" aria-hidden="true" tabindex="-1"></a>            calc_samp_se)</span>
+<span id="cb8-6"><a href="#cb8-6" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb8-7"><a href="#cb8-7" aria-hidden="true" tabindex="-1"></a>tib_krig_samp_se <span class="ot">&lt;-</span> </span>
+<span id="cb8-8"><a href="#cb8-8" aria-hidden="true" tabindex="-1"></a>  df_krig_no2 <span class="sc">|&gt;</span> </span>
+<span id="cb8-9"><a href="#cb8-9" aria-hidden="true" tabindex="-1"></a>  <span class="fu">mutate</span>(<span class="at">sample_mean_se =</span> df_samp_se<span class="sc">$</span>NO2,</span>
+<span id="cb8-10"><a href="#cb8-10" aria-hidden="true" tabindex="-1"></a>         <span class="at">krig_mean_se =</span> <span class="fu">sqrt</span>(var1.var)) <span class="sc">|&gt;</span> </span>
+<span id="cb8-11"><a href="#cb8-11" aria-hidden="true" tabindex="-1"></a>  <span class="fu">select</span>(krig_mean_se, sample_mean_se) <span class="sc">|&gt;</span> </span>
+<span id="cb8-12"><a href="#cb8-12" aria-hidden="true" tabindex="-1"></a>  tidyr<span class="sc">::</span><span class="fu">pivot_longer</span>(</span>
+<span id="cb8-13"><a href="#cb8-13" aria-hidden="true" tabindex="-1"></a>    <span class="at">cols =</span> <span class="dv">1</span><span class="sc">:</span><span class="dv">2</span>,</span>
+<span id="cb8-14"><a href="#cb8-14" aria-hidden="true" tabindex="-1"></a>    <span class="at">names_to =</span> <span class="st">"agg_type"</span>,</span>
+<span id="cb8-15"><a href="#cb8-15" aria-hidden="true" tabindex="-1"></a>    <span class="at">values_to =</span> <span class="st">"no2_mean_se"</span></span>
+<span id="cb8-16"><a href="#cb8-16" aria-hidden="true" tabindex="-1"></a>  ) <span class="sc">|&gt;</span> </span>
+<span id="cb8-17"><a href="#cb8-17" aria-hidden="true" tabindex="-1"></a>  <span class="fu">mutate</span>(<span class="at">agg_type =</span> forcats<span class="sc">::</span><span class="fu">fct_recode</span>(agg_type, </span>
+<span id="cb8-18"><a href="#cb8-18" aria-hidden="true" tabindex="-1"></a>                                        <span class="at">Kriging =</span> <span class="st">"krig_mean_se"</span>, </span>
+<span id="cb8-19"><a href="#cb8-19" aria-hidden="true" tabindex="-1"></a>                                        <span class="at">Sample =</span> <span class="st">"sample_mean_se"</span>))</span></code><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></pre></div>
+</div>
+<div id="tabset-2-3" class="tab-pane" role="tabpanel" aria-labelledby="tabset-2-3-tab">
+<h6 id="block-kriging-means-vs-sample-means" class="anchored">Block Kriging Means vs Sample Means</h6>
+<p><a href="_resources/Geospatial-Modeling.resources/inter-krig-ex2-blockkrig-1.png" class="lightbox" data-gallery="inter-krig-ex2-block"><img src="_resources/Geospatial-Modeling.resources/inter-krig-ex2-blockkrig-1.png" class="img-fluid" width="532"></a></p>
+<div class="sourceCode" id="cb9"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb9-1"><a href="#cb9-1" aria-hidden="true" tabindex="-1"></a><span class="fu">ggplot</span>() <span class="sc">+</span> </span>
+<span id="cb9-2"><a href="#cb9-2" aria-hidden="true" tabindex="-1"></a>  <span class="fu">geom_sf</span>(<span class="at">data =</span> tib_krig_samp, </span>
+<span id="cb9-3"><a href="#cb9-3" aria-hidden="true" tabindex="-1"></a>          <span class="at">mapping =</span> <span class="fu">aes</span>(<span class="at">fill =</span> no2_mean)) <span class="sc">+</span> </span>
+<span id="cb9-4"><a href="#cb9-4" aria-hidden="true" tabindex="-1"></a>  <span class="fu">facet_wrap</span>(<span class="sc">~</span> agg_type) <span class="sc">+</span></span>
+<span id="cb9-5"><a href="#cb9-5" aria-hidden="true" tabindex="-1"></a>  <span class="fu">scale_fill_gradientn</span>(<span class="at">colors =</span> <span class="fu">sf.colors</span>(<span class="dv">20</span>)) <span class="sc">+</span></span>
+<span id="cb9-6"><a href="#cb9-6" aria-hidden="true" tabindex="-1"></a>  <span class="fu">labs</span>(<span class="at">fill =</span> <span class="st">"Avg NO2"</span>) <span class="sc">+</span></span>
+<span id="cb9-7"><a href="#cb9-7" aria-hidden="true" tabindex="-1"></a>  <span class="fu">theme_notebook</span>()</span></code><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></pre></div>
+<ul>
+<li>With the block kriging, the mean of an area gets smoothed towards it’s neighborhood mean. This typically results in the more higher sample means being lessened and the more lower sample means being increased</li>
+</ul>
+<h6 id="block-kriging-ses-vs-sample-ses" class="anchored">Block Kriging SEs vs Sample SEs</h6>
+<p><a href="_resources/Geospatial-Modeling.resources/inter-krig-ex-ex2-se-1.png" class="lightbox" data-gallery="inter-krig-ex2-block"><img src="_resources/Geospatial-Modeling.resources/inter-krig-ex-ex2-se-1.png" class="img-fluid" width="532"></a></p>
+<div class="sourceCode" id="cb10"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb10-1"><a href="#cb10-1" aria-hidden="true" tabindex="-1"></a><span class="fu">ggplot</span>() <span class="sc">+</span> </span>
+<span id="cb10-2"><a href="#cb10-2" aria-hidden="true" tabindex="-1"></a>  <span class="fu">geom_sf</span>(<span class="at">data =</span> tib_krig_samp_se, </span>
+<span id="cb10-3"><a href="#cb10-3" aria-hidden="true" tabindex="-1"></a>          <span class="at">mapping =</span> <span class="fu">aes</span>(<span class="at">fill =</span> no2_mean_se)) <span class="sc">+</span> </span>
+<span id="cb10-4"><a href="#cb10-4" aria-hidden="true" tabindex="-1"></a>  <span class="fu">facet_wrap</span>(<span class="sc">~</span> agg_type) <span class="sc">+</span></span>
+<span id="cb10-5"><a href="#cb10-5" aria-hidden="true" tabindex="-1"></a>  <span class="fu">scale_fill_gradientn</span>(<span class="at">colors =</span> <span class="fu">sf.colors</span>(<span class="dv">20</span>)) <span class="sc">+</span></span>
+<span id="cb10-6"><a href="#cb10-6" aria-hidden="true" tabindex="-1"></a>  <span class="fu">labs</span>(<span class="at">fill =</span> <span class="st">"SE of </span><span class="sc">\n</span><span class="st">NO2 Mean"</span>) <span class="sc">+</span></span>
+<span id="cb10-7"><a href="#cb10-7" aria-hidden="true" tabindex="-1"></a>  <span class="fu">theme_notebook</span>()    </span></code><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></pre></div>
+<ul>
+<li>By including the all the data in the means calculations, kriging achieves substantially smaller standard errors than those calculated for sample means.</li>
+</ul>
+</div>
+</div>
+</div></li>
 </ul>
 
 
