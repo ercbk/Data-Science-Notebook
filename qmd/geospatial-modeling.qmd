@@ -316,7 +316,7 @@
 
     -   [{]{style="color: #990000"}[automap](https://cran.r-project.org/web/packages/automap/){style="color: #990000"}[}]{style="color: #990000"} - An automatic kriging is done by automatically estimating the variogram and then calling [{gstat}]{style="color: #990000"}
         -   Similar to using `gstat::vgm("<model>")`. According to Pebesma, "Slightly different defaults for fitting, definitely different defaults when computing the sample variogram, and has options for combining distance bins."
-    -   [{]{style="color: #990000"}[geoR](https://cran.r-project.org/web/packages/geoR/index.html){style="color: #990000"}[}]{style="color: #990000"} ([Vignette](http://www.leg.ufpr.br/geoR/geoRdoc/vignette/geoRintro.pdf), [Tutorials](http://www.leg.ufpr.br/geoR/geoRdoc/tutorials.html)) - Geostatistical analysis including variogram-based, likelihood-based and Bayesian methods.
+    -   [{]{style="color: #990000"}[geoR](https://cran.r-project.org/web/packages/geoR/index.html){style="color: #990000"}[}]{style="color: #990000"} ([Vignette](http://www.leg.ufpr.br/geoR/geoRdoc/vignette/geoRintro.pdf), [Tutorials](http://www.leg.ufpr.br/geoR/geoRdoc/tutorials.html)) - Geostatistical analysis including variogram-based, likelihood-based, and Bayesian methods.
     -   [{]{style="color: #990000"}[psgp](https://cran.r-project.org/web/packages/psgp/index.html){style="color: #990000"}[}]{style="color: #990000"} - Implements projected sparse Gaussian process Kriging
 
 -   Notes from
@@ -334,7 +334,7 @@
 -   [{gstat}]{style="color: #990000"} Kriging Functions
 
     | Function | Description |
-    |----|----|
+    |------------------------------------|------------------------------------|
     | `krige` | Simple, Ordinary or Universal, global or local, Point or Block Kriging, or simulation |
     | `krige.cv` | kriging cross validation, n-fold or leave-one-out |
     | `krigeSTTg` | Trans-Gaussian spatio-temporal kriging |
@@ -542,15 +542,28 @@
             -   The nugget parameter is taken as the mean of the first three sample variogram values, and
             -   The partial sill is taken as the mean of the last five sample variogram values.
 
-### Types {#sec-geo-gmod-interp-krig-types .unnumbered}
+#### Types {#sec-geo-gmod-interp-krig-types .unnumbered}
 
--   **Ordinary Kriging (OK)** - Aassumes that the mean of the study variable is the same everywhere. Considered a reasonable assumption unless there's a theoretical reason to dismiss it
+-   **Ordinary Kriging (OK)** - Assumes that the mean of the study variable is the same everywhere and spatial variability is a random process.
 
--   **Universal Kriging** - Assumes that there is an overriding trend in the data—for example, a prevailing wind — and it can be modeled by a deterministic function, a polynomial.
+-   **Universal Kriging (UK)** (aka **Regression-Kriging (RK)**) - Assumes that there is an overriding trend in the data.\
+    $$
+    \begin{align}
+    \hat z (s_0) &= \hat m(s_0) + \hat e(s_o)\\
+                 &= \sum_{k=0}^p \hat \beta_k q_k(s_0) + \sum_{i=1}^n \lambda_i e(s_i) 
+    \end{align}
+    $$
 
-    -   This polynomial is subtracted from the original measured points, and the autocorrelation is modeled from the random errors.
-    -   Once the model is fit to the random errors and before making a prediction, the polynomial is added back to the predictions to give meaningful results.
-    -   Universal kriging should only be used when you know there is a trend in your data and you can give a scientific justification to describe it.
+    -   Terms
+        -   $\hat m (s_0)$ : Fitted deterministic part at location, $s_0$
+        -   $\hat e (s_0)$ : Interpolated residual
+        -   $\lambda_i$ : Kriging weights determined by variogram
+        -   $q$ : Covariates
+    -   Includes other variables that are meaningfully correlated with the target variable in the kriging model to account for trend
+        -   In ordinary Kriging and conditional simulation (without covariates), it's assumed that all spatial variability is a random process, characterized by a spatial covariance model.
+    -   Adding variables typically reduces both the spatial correlation in the residuals, as well as its variance, and leads to more accurate predictions and more similar conditional simulations.
+    -   Process: The regression-part is estimated. Then, the residual is be interpolated with kriging and added to the estimated trend.
+    -   Some authors reserve the term universal kriging (UK) for the case when *only* the coordinates are used as predictors. If the deterministic part of variation (drift) is defined externally as a linear function of some auxiliary variables, rather than the coordinates, the term kriging with external drift (KED) is preferred
 
 -   **Block Kriging** - Uses all the data (i.e. data weighted by distance) to estimate the mean of the variable over the target areas
 
@@ -563,7 +576,7 @@
         -   [SSWR, Ch.13.1.2](https://dickbrus.github.io/SpatialSamplingwithR/MBpredictionofDesignVariance.html#GeostatisticalSimulationApproach) for an example of unconditional simulation where locations are (regularly) randomly sampled and the variance of overall mean (population) estimates is calculated. External variables are included in the variogram and kriging models to account for "trend."
         -   ([SDS, Ch.12.6](https://r-spatial.org/book/12-Interpolation.html#conditional-simulation)) for a basic example of conditional simulation
     -   Conditional simulation is only recommended if the quality of the data is sufficient, and we may trust that the study variable at the points has not changed since these data have been collected.
-        -   Otherwise Unconditional Simulation is recommended. `krige(nsim = 1, dummy = TRUE)` where [dummy = TRUE]{.arg-text}enforces unconditional simulation
+        -   Otherwise **Unconditional Simulation** (aka **Indicator Simulation**) is recommended. `krige(nsim = 1, indicator = TRUE)` where [indicator = TRUE]{.arg-text} enforces unconditional simulation
     -   Conditional Simulation Process ([SDS, Ch.12.6](https://r-spatial.org/book/12-Interpolation.html#conditional-simulation))
         -   Carry out a kriging prediction
         -   Draw a random variable from the normal distribution with mean and variance equal to the kriging variance
@@ -576,12 +589,6 @@
         -   Compute the variance of the S estimated means.
         -   Repeat steps 1 to 4 R times, and compute the mean of the R variances.
     -   For larger datasets, use `krigeSimCE` (circular embedding method) or `krigeSTSimTB` (turning bands method)
-
--   **Trend Models**
-
-    -   Includes other variables that are meaningfully correlated with the target variable in the kriging model to account for trend
-        -   In ordinary Kriging and conditional simulation (without covariates), it's assumed that all spatial variability is a random process, characterised by a spatial covariance model.
-    -   Adding variables typically reduces both the spatial correlation in the residuals, as well as its variance, and leads to more accurate predictions and more similar conditional simulations.
 
 #### Examples {#sec-geo-gmod-interp-krig-exs .unnumbered}
 
