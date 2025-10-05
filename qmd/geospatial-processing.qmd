@@ -357,9 +357,9 @@
 
 -   Required for Great Distance and Spherical Distance calculations
 
--   WGS 84
+-   EPSG:4326 (WGS 84)
 
-    -   EPSG:[4326]{.arg-text}
+    -   Usage Area: World
 
     -   Most common for global datasets. Used by most web mapping services and GPS devices
 
@@ -437,7 +437,12 @@
 
 -   Europe:
 
-    -   ETRS89-LAEA ([[EPSG:3035](https://epsg.io/3035)]{.arg-text}) is commonly used for pan-European analysis
+    -   Pan-Europe, European Union
+        -   [EPSG:3035](https://epsg.io/3035) - ETRS89-LAEA
+    -   Central Europe (between 6°E and 12°E) (Think Western Nordic, Denmark, Germany, Northern Italy)
+        -   [EPSG:25832](https://epsg.io/25832) - Uses datum ETRS89 and UTM zone 32N projection
+            -   Preferred standard for European mapping applications.
+        -   EPSG:32632 - Uses datum WGS84 and UTM zone 32N projection
     -   Individual countries often have their own systems
         -   e.g. British National Grid OSGB36 ([[EPSG:27700](https://epsg.io/27700)]{.arg-text})
 
@@ -769,7 +774,10 @@
 
 ### Examples {#sec-geo-proc-agg-exs .unnumbered}
 
--   [Example]{.ribbon-highlight}: Basic
+-   [Example]{.ribbon-highlight}: Basic by polygon, by grid cell
+
+    ::: panel-tabset
+    ## By Polygon
 
     ``` r
     # data
@@ -789,11 +797,45 @@
       read_sf("https://raw.githubusercontent.com/edzer/sdsr/main/data/de_nuts1.gpkg") |> 
       st_transform(crs)
 
-    a <- 
+    # aggregate by polygon
+    sf_no2_agg <- 
       aggregate(sf_no2["NO2"], 
                 by = shp_de, 
                 FUN = mean)
     ```
+
+    ## By Grid Cell
+
+    ``` r
+    # create grid
+    grid_de <- 
+      st_bbox(shp_de) |>
+      # 10km x 10km cells
+      st_as_stars(dx = 10000) |>
+      st_crop(shp_de)
+
+    # download and clean population data
+    dat_de_pop <- local({ 
+      load(url("https://raw.githubusercontent.com/edzer/sdsr/main/data/ch12.rda"), 
+           envir = environment()) 
+      get(ls()[1]) 
+    })
+    sf_pop <- 
+      dat_de_pop |> 
+      filter(Einwohner > 0) |> 
+      select(-Gitter_ID_100m) |>
+      # pan-euro crs
+      st_as_sf(coords = c("x_mp_100m", "y_mp_100m"), crs = 3035) |>
+      # cent euro crs
+      st_transform(st_crs(grd))
+
+    # aggregate by grid cell
+    grd_agg_pop <- 
+      aggregate(sf_pop, 
+                st_as_sf(grd, na.rm = FALSE), 
+                sum)
+    ```
+    :::
 
 -   [Example 1]{.ribbon-highlight}: Aggregate extensive variable into quadrants ([source](https://www.redhat.com/en/ansible-collaborative))\
     ![](_resources/Geospatial,_Processing.resources/sf-agg-nc-1.png){.lightbox width="432"}
