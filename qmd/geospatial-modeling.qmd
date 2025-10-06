@@ -741,3 +741,77 @@
 
     -   By including all the data in the means calculations, kriging achieves substantially smaller standard errors than many of those calculated for the sample means.
     :::
+
+-   Example 3: Universal Kriging
+
+    ``` r
+    pacman::p_load(
+      dplyr,
+      ggplot2,
+      sf,
+      stars,
+      gstat
+    )
+
+
+    # data
+    dat_no2 <- 
+      readr::read_csv(system.file("external/no2.csv", 
+                                  package = "gstat"),
+                      show_col_types = FALSE)
+
+    crs <- st_crs("EPSG:32632")
+    sf_no2 <- 
+      st_as_sf(dat_no2, 
+               crs = "OGC:CRS84", 
+               coords = c("station_longitude_deg", "station_latitude_deg")) |>
+      st_transform(crs)
+
+    # shape file with polygons
+    shp_de <- 
+      read_sf("https://raw.githubusercontent.com/edzer/sdsr/main/data/de_nuts1.gpkg") |> 
+      st_transform(crs)
+
+    # create grid
+    grid_de <- 
+      st_bbox(shp_de) |>
+      # 10km x 10km cells
+      st_as_stars(dx = 10000) |>
+      st_crop(shp_de)
+
+    # download and clean population data
+    dat_de_pop <- local({ 
+      load(url("https://raw.githubusercontent.com/edzer/sdsr/main/data/ch12.rda"), 
+           envir = environment()) 
+      get(ls()[1]) 
+    })
+    sf_pop <- 
+      dat_de_pop |> 
+      filter(Einwohner > 0) |> 
+      select(-Gitter_ID_100m) |>
+      # pan-euro crs
+      st_as_sf(coords = c("x_mp_100m", "y_mp_100m"), crs = 3035) |>
+      # cent euro crs
+      st_transform(st_crs(grd))
+
+    # aggregate by grid cell
+    grd_agg_pop <- 
+      aggregate(sf_pop, 
+                st_as_sf(grd, na.rm = FALSE), 
+                sum)
+
+    # creates an column-wise cell ID matrix
+    grid_de$ID <- 1:prod(dim(grid_de))
+    # finds grid cell IDs that intersect with country border (st_union(shp_de))
+    # st_intersect is a binary predictate where a 1 indicates a cells that crosses the border
+    is_cross_brdr <- 
+      st_intersects(grid_de["ID"], 
+                    st_cast(st_union(shp_de), "MULTILINESTRING"),
+                    as_points = FALSE) 
+    # selects cells that cross the border and creates a sf object for them
+    sf_grid_de <- 
+      st_as_sf(grid_de["ID"], na.rm = FALSE)[lengths(is_cross_brdr) > 0,]
+    # agr needs set for st_intersection
+    st_agr(sf_grid_de) = "identity"
+    grid_cross_brdr <- st_intersection(sf_grid_de, st_union(shp_de))
+    ```

@@ -537,6 +537,70 @@
         #> [1] ‘1.1.7’
         ```
 
+### Functions {#sec-geo-proc-sf-funs .unnumbered}
+
+-   `st_agr` - Gets or sets the “attribute-geometry relationship” (AGR) — that is, how each non-geometry attribute (column) relates to its geometry column
+    -   Certain geometric operations — like `st_union`, `st_intersection`, or `st_join` — may need to know how to handle attributes when geometries are modified or combined.
+
+    -   Possible Values
+
+        | AGR value | Meaning | Example use |
+        |----|----|----|
+        | ["constant"]{.arg-text} | The attribute is constant within the geometry. | A country’s name, ISO code, land use, soil type (it doesn’t change across the polygon). |
+        | ["aggregate"]{.arg-text} | The attribute is *summed* or *aggregated* when geometries are combined. | Population, GDP, or area — if you merge polygons, the attribute should be added. |
+        | ["identity"]{.arg-text} | Identifier | An ID or index variable (e.g., grid cell ID). |
+
+    -   Examples
+
+        -   Single Attribute AGR
+
+            ``` r
+            # find cells that cross border or don't
+            is_cross_brdr <- 
+              st_intersects(grid_de["ID"], 
+                            st_cast(st_union(shp_de), "MULTILINESTRING"),
+                            as_points = FALSE) 
+            # subset only cells with 1 (i.e. cross border)
+            sf_grid_de <- 
+              st_as_sf(grid_de["ID"], na.rm = FALSE)[lengths(is_cross_brdr) > 0,] 
+
+            attr(sf_grid_de, "agr") 
+            #> ID 
+            #> <NA> 
+            #> Levels: constant aggregate identity
+
+            st_agr(sf_grd_de) = "identity"  
+            attr(sf_grid_de, "agr") 
+            #> ID 
+            #> identity 
+            #> Levels: constant aggregate identity
+            ```
+
+            -   From [Geospatial, Modeling \>\> Interpolation \>\> Kriging \>\> Examples](geospatial-modeling.qmd#sec-geo-gmod-interp-krig-exs){style="color: green"} \>\> Example 3
+            -   There's only 1 *attribute* in this sf object, and it's a cell ID for a grid. Later `st_intersection` is used, so the AGR gets set to "identity."
+
+        -   Set AGRs for multiple attributes
+
+            ``` r
+            library(sf)
+
+            # Simple example with two attributes
+            nc <- st_read(system.file("shape/nc.shp", package="sf"), quiet = TRUE)
+            nc_small <- nc[1:3, c("NAME", "AREA", "geometry")]
+
+            # Check AGR
+            st_agr(nc_small)
+            #>      NAME      AREA 
+            #>       <NA>       <NA> 
+            #> Levels: constant aggregate identity
+
+            st_agr(nc_small) <- c(NAME = "constant", AREA = "aggregate")
+            st_agr(nc_small)
+            #>      NAME      AREA 
+            #>  constant aggregate 
+            #> Levels: constant aggregate identity
+            ```
+
 ### Measures {#sec-geo-proc-sf-meas .unnumbered}
 
 -   [Distances]{.underline}
@@ -661,9 +725,13 @@
         -   For big data, order points in both sets by latitude and longitude before using `st_union`. This can cut down processing time substantially. ([source](https://bsky.app/profile/fbabovic.bsky.social/post/3lsyraqgwik2z))
 
 -   [Intersection\
-    ]{.underline}![](_resources/Geospatial,_Processing.resources/sf-intersect-1.png){.lightbox width="482"}
+    ]{.underline}![st_intersection](_resources/Geospatial,_Processing.resources/sf-intersect-1.png){.lightbox width="482"}
 
-    -   [Example]{.ribbon-highlight}: ([source](https://bookdown.org/michael_bcalles/gis-crash-course-in-r/toolkit.html#intersection))\
+    -   `st_intersect` - A binary predicate (i.e. logical) that tests whether a geometry/cell in a grid/etc. intersects another geometry/cell in a grid/etc. Outputs 1/0.
+
+    -   `st_intersection` - A geometric processing step that actually computes the intersection shapes.
+
+    -   [Example]{.ribbon-highlight}: `st_intersection` ([source](https://bookdown.org/michael_bcalles/gis-crash-course-in-r/toolkit.html#intersection))\
         ![](_resources/Geospatial,_Processing.resources/sf-intersect-ex1-1.png){.lightbox width="382"}
 
         ``` r
@@ -678,6 +746,29 @@
 
         plot(average_income_by_crash_buffer["average_income"])
         ```
+
+    -   [Example]{.ribbon-highlight}: `st_intersects` and `st_intersection` (From [Geospatial, Modeling \>\> Interpolation \>\> Kriging \>\> Examples](geospatial-modeling.qmd#sec-geo-gmod-interp-krig-exs){style="color: green"} \>\> Example 3)![](_resources/Geospatial,_Processing.resources/sf-trans-inter-ex2-1.png){.lightbox width="332"}
+
+        ``` r
+        is_cross_brdr <-  # <1>
+          st_intersects(grid_de["ID"], 
+                        st_cast(st_union(shp_de), "MULTILINESTRING"),
+                        as_points = FALSE) 
+
+        sf_grid_de <-  # <2>
+          st_as_sf(grid_de["ID"], na.rm = FALSE)[lengths(is_cross_brdr) > 0,]
+        # agr needs set for st_intersection
+        st_agr(sf_grid_de) = "identity"
+
+        grid_cross_brdr <- st_intersection(sf_grid_de, st_union(shp_de)) # <3>
+        plot(grid_cross_brdr)
+        ```
+
+        1.  `st_intersect` finds grid cell IDs that intersect with country border (`st_union(shp_de)`)
+
+        2.  Subset only cells that cross the border and creates a sf object for them
+
+        3.  `st_intersection` takes those border cells and the polygons from the shape file and computes the intesection polygons (I think the colors are possibly referring to the cell IDs?)
 
 ### Bounding Boxes
 
@@ -815,22 +906,14 @@
       st_crop(shp_de)
 
     # download and clean population data
-    dat_de_pop <- local({ 
+    sf_pop <- local({ 
       load(url("https://raw.githubusercontent.com/edzer/sdsr/main/data/ch12.rda"), 
            envir = environment()) 
       get(ls()[1]) 
     })
-    sf_pop <- 
-      dat_de_pop |> 
-      filter(Einwohner > 0) |> 
-      select(-Gitter_ID_100m) |>
-      # pan-euro crs
-      st_as_sf(coords = c("x_mp_100m", "y_mp_100m"), crs = 3035) |>
-      # cent euro crs
-      st_transform(st_crs(grd))
 
     # aggregate by grid cell
-    grd_agg_pop <- 
+    grid_agg_pop <- 
       aggregate(sf_pop, 
                 st_as_sf(grd, na.rm = FALSE), 
                 sum)
