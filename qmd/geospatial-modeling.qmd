@@ -739,7 +739,7 @@
     -   By including all the data in the means calculations, kriging achieves substantially smaller standard errors than many of those calculated for the sample means.
     :::
 
--   Example 3: Universal Kriging
+-   Example 3: Universal Kriging (unfinished)
 
     ``` r
     pacman::p_load(
@@ -769,32 +769,29 @@
       read_sf("https://raw.githubusercontent.com/edzer/sdsr/main/data/de_nuts1.gpkg") |> 
       st_transform(crs)
 
-    # create grid
+    # create rectangular grid
     grid_de <- 
       st_bbox(shp_de) |>
-      # 10km x 10km cells
+      # 10km x 10km cells which is a 65 x 87 matrix of 0s
       st_as_stars(dx = 10000) |>
+      # replaces 0s with NAs for grid cells outside of the border
       st_crop(shp_de)
+    table(grid_de$values, useNA = "always") 
+    #>      0 <NA> 
+    #>   3579 2076
 
-    # download and clean population data
-    dat_de_pop <- local({ 
+
+    # download population data
+    sf_pop <- local({ 
       load(url("https://raw.githubusercontent.com/edzer/sdsr/main/data/ch12.rda"), 
            envir = environment()) 
       get(ls()[1]) 
     })
-    sf_pop <- 
-      dat_de_pop |> 
-      filter(Einwohner > 0) |> 
-      select(-Gitter_ID_100m) |>
-      # pan-euro crs
-      st_as_sf(coords = c("x_mp_100m", "y_mp_100m"), crs = 3035) |>
-      # cent euro crs
-      st_transform(st_crs(grd))
 
-    # aggregate by grid cell
-    grd_agg_pop <- 
+    # aggregate by grid cell from 100m x 100m to 10km x 10km
+    grid_agg_pop <- 
       aggregate(sf_pop, 
-                st_as_sf(grd, na.rm = FALSE), 
+                st_as_sf(grid_de, na.rm = FALSE), 
                 sum)
 
     # creates an column-wise cell ID matrix
@@ -810,5 +807,16 @@
       st_as_sf(grid_de["ID"], na.rm = FALSE)[lengths(is_cross_brdr) > 0,]
     # agr needs set for st_intersection
     st_agr(sf_grid_de) = "identity"
+    # create intersection grid cells on the country border
     grid_cross_brdr <- st_intersection(sf_grid_de, st_union(shp_de))
+
+    # calculates the cell area (10km x 10km) and inserts that area where values are 0 and not NA
+    # st_area fills a 65 x 87 matrix with the cell area value
+    # set_units sets the m^2 units attribute to the matrix in grid_de so it can be added to the area matrix
+    # results in cells where NA + area = NA; 0 + area = area
+    grid_de$area <- st_area(grid_de)[[1]] + units::set_units(grid_de$values, m^2)
+    # calculates the intersection border cell areas and assigns them the border cell areas in grid_de
+    grid_de$area[grid_cross_brdr$ID] <- st_area(grid_cross_brdr)
+
+    grid_de$pop_dens <- grid_agg_pop$Einwohner / grid_de$area
     ```
