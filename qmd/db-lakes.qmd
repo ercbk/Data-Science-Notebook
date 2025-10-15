@@ -115,12 +115,86 @@
             -   Web/mobile app data, backups, media files
             -   Archiving and static content delivery
 -   [Databricks Delta Lake](https://www.databricks.com/product/delta-lake-on-databricks)
+-   [Garage](https://garagehq.deuxfleurs.fr/) - An open-source distributed object storage service tailored for self-hosting
+    -   [hrbrmstr blessed](https://dailydrop.hrbrmstr.dev/2025/10/06/drop-714-2025-10-06-monday-morning-grab-bag/), "minimal, resilient object store designed to live across your homelab nodes without demanding Kubernetes clusters or a Ph.D. in consensus algorithms. ... Garage makes sense when you want to spread data across a few sites, stay independent of big-cloud object stores, and avoid the maintenance gravity of MinIO clusters."
+
+    -   [Example]{.ribbon-highlight}: Querying w/[{duckdb, dplyr}]{style="color: #990000"} ([source](https://mastodon.social/@hrbrmstr/115367864567669319))
+
+        <Details>
+
+        <Summary>Code</Summary>
+
+        ``` r
+        library(duckdb)
+        library(dplyr)
+
+        con <- dbConnect(duckdb::duckdb())
+
+        dbExecute(con, sprintf(r"(
+        INSTALL httpfs;
+        LOAD httpfs;
+        SET s3_endpoint='%s';
+        SET s3_access_key_id='%s';
+        SET s3_secret_access_key='%s';
+        SET s3_use_ssl=false;
+        SET s3_url_style='path';
+        SET s3_region='garage';
+        )",
+          Sys.getenv("garage_s3_endpoint"),
+          Sys.getenv("garage_s3_access_key_id"),
+          Sys.getenv("garage_s3_secret_access_key")
+        ))
+
+        tbl(con, sql(r"(
+        FROM (
+          FROM (
+            FROM read_parquet('s3://tspq/dt=*/*.parquet', hive_partitioning=true)
+            SELECT
+              substring(dt, 1, 10)::DATE AS day,
+              ip,
+              UNNEST(internet_scanner_intelligence)
+            WHERE dt >= '2025-09-01-00'
+          )
+          SELECT
+          * EXCLUDE(metadata),
+          UNNEST(metadata)
+        )
+        SELECT
+          * EXCLUDE(raw_data),
+          UNNEST(raw_data)
+        )"))
+
+        ## # Source:   SQL [?? x 46]
+        ## # Database: DuckDB v1.2.2 [root@Darwin 25.1.0:R 4.5.0/:memory:]
+        ##    day        ip          first_seen last_seen found tags  actor
+        ##    <date>     <chr>       <chr>      <chr>     <lgl> <lis> <chr>
+        ##  1 2025-09-01 1.0.165.243 2020-03-11 2025-09-… TRUE  <chr> unkn…
+        ##  2 2025-09-01 1.0.211.172 2020-11-10 2025-09-… TRUE  <chr> unkn…
+        ##  3 2025-09-01 1.0.226.5   2025-08-31 2025-09-… TRUE  <chr> unkn…
+        ##  4 2025-09-01 1.0.235.31  2020-12-25 2025-09-… TRUE  <chr> unkn…
+        ##  5 2025-09-01 1.0.235.44  2025-08-31 2025-09-… TRUE  <chr> unkn…
+        ##  6 2025-09-01 1.0.248.134 2019-11-25 2025-09-… TRUE  <chr> unkn…
+        ##  7 2025-09-01 1.0.249.246 2021-05-25 2025-09-… TRUE  <chr> unkn…
+        ##  8 2025-09-01 1.0.251.21  2025-08-31 2025-09-… TRUE  <chr> unkn…
+        ##  9 2025-09-01 1.0.251.93  2024-08-09 2025-09-… TRUE  <chr> unkn…
+        ## 10 2025-09-01 1.0.253.141 2024-05-27 2025-09-… TRUE  <chr> unkn…
+        ## # ℹ more rows
+        ## # ℹ 39 more variables: spoofable <lgl>, classification <chr>,
+        ## #   cves <list>, bot <lgl>, vpn <lgl>, vpn_service <chr>,
+        ## #   tor <lgl>, last_seen_timestamp <chr>, asn <chr>,
+        ## #   source_country <chr>, source_country_code <chr>,
+        ## #   source_city <chr>, domain <chr>, rdns_parent <chr>,
+        ## #   rdns_validated <lgl>, organization <chr>, category <chr>, …
+        ## # ℹ Use `print(n = ...)` to see more rows
+        ```
+
+        </Details>
 -   [Google Cloud Storage](https://cloud.google.com/storage/?hl=en)
     -   5 GB of US regional storage free per month, not charged against your credits.
 -   Hadoop
     -   Traditional format for data lakes
 -   [Linode/Akaime Cloud S3](https://www.linode.com/products/object-storage/)
--   [Minio](https://min.io/)
+-   [MinIO](https://min.io/)
     -   Open-Source alternative to AWS S3 storage.
     -   Given that S3 often stores customer PII (either inadvertently via screenshots or actual structured JSON files), Minio is a great alternative to companies mindful of who has access to user data.
         -   Of course, [AWS claims that AWS personnel](https://aws.amazon.com/compliance/privacy-features/#:~:text=We%20prohibit%2C%20and%20our%20systems,or%20to%20comply%20with%20law.) doesn’t have direct access to customer data, but by being closed-source, that statement is just a function of trust.
