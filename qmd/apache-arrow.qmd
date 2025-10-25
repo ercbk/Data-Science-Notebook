@@ -197,6 +197,23 @@
 
 ## Operations {#sec-apache-arrow-ops .unnumbered}
 
+-   [Misc]{.underline}
+
+    -   You can't replace a *numeric* value with NA (For character vectors, it's fine). Arrow thinks you're mixing variable types. So you have to use NaN (`is.nan` and `is.na` are supported by arrow)
+
+        ``` r
+        ds |> 
+          mutate(value = ifelse(value < 0, NA, value)) |> # or w/if_else
+          collect()
+        #> Error in `compute.arrow_dplyr_query()`:
+        #> ! NotImplemented: Function 'if_else' has no kernel matching input types (bool, bool, decimal128(38, 18))
+
+        # this works
+        ds |> 
+          mutate(value = ifelse(value < 0, NaN, value)) |> 
+          collect()
+        ```
+
 -   `read_csv_arrow(<csv_file>, as_data_frame = FALSE)`
 
     -   Reads csv into memory as an Arrow table
@@ -249,7 +266,7 @@
         -   Smaller data pages allow for more fine grained reading (e.g. single row lookup). Larger page sizes incur less space overhead (less page headers) and potentially less parsing overhead (processing headers)
         -   Default: 1MB; For sequential scans, the [docs](https://parquet.apache.org/docs/file-format/configurations/) recommend 8KB for page sizes.
 
--   [Example]{.ribbon-highlight}: Foursquare Sample (2025 Mar, Windows 10)
+-   [Example 1]{.ribbon-highlight}: Foursquare Sample (2025 Mar, Windows 10)
 
     ``` r
     fs::dir_ls("~/Documents/R/Data/foursquare-spaces/sample") |> 
@@ -288,7 +305,7 @@
         -   So, I need to increase the [max_rows_per_file]{.arg-text} to get five \~130 MB files.
         -   If I use the zstd compression that might get it down to 5 files as well.
 
--   [Example]{.ribbon-highlight}: Convert large csv to parquet
+-   [Example 2]{.ribbon-highlight}: Convert large csv to parquet
 
     ``` r
     my_data <- read_csv_arrow(
@@ -302,7 +319,7 @@
     -   Reminder: `read_parquet` loads data into memory
     -   Reduces size of data stored substantially (e.g. 15 GB csv to 9.5 GB parquet)
 
--   [Example]{.ribbon-highlight}: Lazily download subsetted dataset from S3 and locally convert to parquet with partitions
+-   [Example 3]{.ribbon-highlight}: Lazily download subsetted dataset from S3 and locally convert to parquet with partitions
 
     ``` r
     data_nyc = "data/nyc-taxi"
@@ -315,7 +332,7 @@
 
     -   [format = "arrow"]{.arg-text} also available
 
--   [Example]{.ribbon-highlight}: Explore a dataset with minimal memory usage
+-   [Example 4]{.ribbon-highlight}: Explore a dataset with minimal memory usage
 
     ::: panel-tabset
     ## `schema`
@@ -417,6 +434,42 @@
     #> 9  hour           1            1          NA 6e344c0b-79df-4c75-a72f-762ea0e10ed7
     #> 10 hour           1            1          NA 6e344c0b-79df-4c75-a72f-762ea0e10ed7
     ```
+
+    ## Viz and Tables
+
+    ###### Histogram
+
+    ![](_resources/Apache,_Arrow.resources/ops-ex4-hist-1.png){.lightbox width="332"}
+
+    ``` r
+    notebook_colors <- unname(swatches::read_ase(here::here("palettes/Forest Floor.ase")))
+
+    ds_no2_clean |> 
+      select(Value) |> 
+      filter(!is.nan(Value)) |> 
+      collect() |> 
+      ggplot(aes(x = Value)) +
+      geom_histogram(fill = notebook_colors[[2]]) +
+      theme_notebook()    
+    ```
+
+    -   I'm using [ds_no2_clean]{.var-text} instead of [ds_no2_raw]{.var-text}. See for details on the cleaning
+    -   The x-axis is fine. As seen in the `skim_arrow` results, the max value is 326
+
+    ####### Tables
+
+    ``` r
+    ds_no2_clean |> 
+      count(location, sort = TRUE) |> 
+      collect() |> 
+      pull(n) |> 
+      table()
+    #> 8759 
+    #>  412    
+    ```
+
+    -   All 412 [locations]{.var-text} have the same number of observations
+    -   [location]{.var-text} was formerly [Samplingpoint]{.var-text} but I extracted the main location code part of the string.
     :::
 
 ## Partitioning {#sec-apache-arrow-part .unnumbered}
