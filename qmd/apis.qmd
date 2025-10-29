@@ -141,6 +141,90 @@
         -   headers\
             ![](./_resources/APIs.resources/FPDXa2MXwAEr7Mx.png){.lightbox width="289"}
 
+## Optimization {#sec-apis-opt .unnumbered}
+
+-   Consider when payloads are large and/or request volumes are large
+-   [Serialization]{.underline}
+    -   Types
+
+        -   Text
+            -   e.g. json, csv, xml
+        -   Binary
+            -   e.g. parquet, feather, protobuf, rds, Rdata
+
+    -   Comparison
+
+        | **Aspect** | **Binary serialization** (e.g. `serialize`, `saveRDS`) | **Text serialization** (e.g., JSON, CSV) |
+        |------------------|-------------------------------|-----------------------|
+        | [Size (bytes)]{.underline} | Usually **smaller**, since it stores compact representations (e.g., deduplication, fixed width numeric vectors) | Usually **larger**, due to text overhead (quotes, braces, whitespace). |
+        | [Serialization/deserialization speed]{.underline} | Often **faster**, since it doesn’t need to convert to/from text strings. | Often **slower**, because it requires parsing or formatting text. |
+        | [Human readability]{.underline} | Not human-readable. | Human-readable, easy for debugging. |
+        | [Interoperability]{.underline} | Certain types are require same system (e.g. python to python) | Universally readable by other languages and APIs. |
+        | [Best use case]{.underline} | Within same-system communication. (e.g. R pipelines) | Between systems (APIs, web clients, JavaScript). |
+
+    -   [Example]{.ribbon-highlight}: [{plumber2}]{style="color: #990000"} and [{yyjsonr}]{style="color: #990000"} ([source](https://joekirincic.com/posts/performance-optimization-for-plumber-apis-serialization/))
+
+        ``` r
+        yyjsonr_serializer <- function(...) {
+          function(x) {
+            yyjsonr::write_json_str(x)
+          }
+        }
+
+        plumber2::register_serializer("yyjsonr", yyjsonr_serializer, "application/json")
+
+        #* Return a dataset using an optimized JSON serializer
+        #*
+        #* @get /optimized-payload
+        #* @serializer yyjsonr
+        #*
+        function() {
+          palmerpenguins::penguins
+        }
+
+        #* Return a dataset using the default JSON serializer
+        #*
+        #* @get /default-payload
+        #* @serializer json
+        #*
+        function() {
+          palmerpenguins::penguins
+        }
+        ```
+
+        -   2 endpoints:
+            -   [optimized-payload]{.var-text} which uses the [{yyjsonr}]{style="\"color:"} optimized json serializer
+            -   [default-payload]{.var-text} which uses the plumber2 default json serializer from [{jsonlite}]{style="\"color:"}
+-   [Compression]{.underline}
+    -   [Example]{.ribbon-highlight}: [{plumber2}]{style="color: #990000"} ([source](https://joekirincic.com/posts/performance-optimization-for-plumber-apis-serialization/))
+
+        ``` r
+        yyjsonr_compressed_serializer <- function(...) {
+          function(x) {
+            json <- yyjsonr::write_json_str(x)
+            out <- base::memCompress(json, type = "gzip")
+            return(out)
+          }
+        }
+
+        plumber2::register_serializer(
+          "yyjsonr_compressed", 
+          yyjsonr_compressed_serializer, 
+          "application/json"
+        )
+
+        #* Return a dataset using an optimized JSON serializer
+        #*
+        #* @get /optimized-payload
+        #* @serializer yyjsonr
+        #*
+        function() {
+          palmerpenguins::penguins
+        }
+        ```
+
+        -   Defines an [optimized-payload]{.var-text} endpoint which uses a custom json serializer from [{yyjsonr}]{style="color: #990000"} and then compresses with [gzip]{.arg-text}.
+
 ## Testing {#sec-apis-test .unnumbered}
 
 -   Misc
