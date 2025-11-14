@@ -732,7 +732,7 @@
 
 ## Python {#sec-db-duckdb-py .unnumbered}
 
--   [Example]{.ribbon-highlight}: Basic
+-   [Example 1]{.ribbon-highlight}: Basic
 
     ``` python
     import duckdb
@@ -762,9 +762,57 @@
     fig.show()
     ```
 
+-   [Example 2]{.ribbon-highlight}: Lazily aggregate Delta lake files in AWS S3 ([source](https://dataengineeringcentral.substack.com/p/650gb-of-data-delta-lake-on-s3-polars))
+
+    ``` python
+    import duckdb
+    from datetime import datetime
+
+    t1 = datetime.now()
+    con = duckdb.connect()
+
+    AWS_KEY = 'xxxxx'
+    AWS_SECRET = 'xxxxxxxxxxx'
+
+    con.execute("INSTALL httpfs; LOAD httpfs;")
+    con.execute("INSTALL delta; LOAD delta;")
+
+    con.execute(f"""
+    CREATE OR REPLACE SECRET s3_creds (
+        TYPE S3,
+        KEY_ID '{AWS_KEY}',
+        SECRET '{AWS_SECRET}',
+        REGION 'us-east-1' 
+    );
+    """)
+
+    table_path = "s3://confessions-of-a-data-guy/BigTest/social_media_rots_brains"
+
+    agg_df = con.execute(f"""
+        SELECT
+          DATE(created_at) AS post_date,
+          COUNT(*) AS num_posts
+        FROM delta_scan('{table_path}')
+        GROUP BY post_date
+        ORDER BY post_date
+    """).df()
+
+    agg_df.to_csv("posts_per_day.csv", index=False)
+    t2 = datetime.now()
+    print(t2-t1)
+    ```
+
+    -   `INSTALL httpfs; LOAD httpfs;` - Installs and loads the HTTP file system extension for reading remote files from S3
+    -   `INSTALL delta; LOAD delta;` - Installs and loads the Delta Lake extension for reading Delta format tables
+    -   `delta_scan('{table_path}')` - Scans a Delta table stored in S3 using the Delta Lake extension
+    -   `DATE(created_at) AS post_date, COUNT(*) AS num_posts` - Extracts date from timestamp and counts posts per day
+    -   `.df()` - Converts the query result to a pandas DataFrame (added for proper functionality)
+    -   `to_csv("posts_per_day.csv")` - Saves the aggregated results to a local CSV file
+
 ## Remote Connections {#sec-db-duckdb-remcon .unnumbered}
 
--   Misc
+-   [Misc]{.underline}
+    -   Also see [Python](db-duckdb.qmd#sec-db-duckdb-py){style="color: green"} \>\> Example 2
     -   Notes from
         -   [Query Remote Parquet Files with DuckDB](https://rfsaldanha.github.io/posts/query_remot_parquet_file.html)
 -   [httpfs](https://duckdb.org/docs/extensions/httpfs.html) Extension
