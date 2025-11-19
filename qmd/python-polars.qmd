@@ -471,16 +471,138 @@
 
 -   [Misc]{.underline}
 
+    -   Notes from [Python Rgonomics: User-defined functions in polars](https://www.emilyriederer.com/post/py-rgo-udf/)
     -   `pipe` – Allows piping of expressions and DataFrames into UDFs
+    -   `map_columns` - Accepts a column selector and a single transformation to be applied to all passed columns.
 
--   [Example]{.ribbon-highlight}: Basic `pipe`
+-   [Example 1]{.ribbon-highlight}: Basic `pipe` at column-level
 
     ``` python
+    data_dict = {
+      'group': ['a']*4 + ['b']*4,
+      'x': np.arange(1,9,1),
+      'y': np.arange(8,0,-1), 
+      'p': np.arange(1,9,1)/10
+    }
+    df = pl.DataFrame(data_dict)
+    df.glimpse()
+    #> Rows: 8
+    #> Columns: 4
+    #> $ group <str> 'a', 'a', 'a', 'a', 'b', 'b', 'b', 'b'
+    #> $ x     <i64> 1, 2, 3, 4, 5, 6, 7, 8
+    #> $ y     <i64> 8, 7, 6, 5, 4, 3, 2, 1
+    #> $ p     <f64> 0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8
+
+
     def cap(c:pl.Expr, ceil:int = 5) -> pl.Expr: 
       return pl.when(c > ceil).then(ceil).otherwise(c)
 
     df.with_columns(pl.col('x').pipe(cap))
+    #> shape: (8, 5)
+    #> group    x     y     p     literal
+    #>   str    i64 i64   f64       i64
+    #>   "a"    1       8     0.1         1
+    #>   "a"    2       7     0.2         2
+    #>   "a"    3       6     0.3         3
+    #>   "a"    4       5     0.4         4
+    #>   "b"    5       4     0.5         5
+    #>   "b"    6       3     0.6         5
+    #>   "b"    7       2     0.7         5
+    #>   "b"    8       1     0.8         5
+
+    df.with_columns(cs.numeric().pipe(cap).name.keep())
+    #>  shape: (8, 4)
+    #> group    x     y   p
+    #>   str    i64 i64 f64
+    #>   "a"      1   5 0.1
+    #>   "a"      2   5 0.2
+    #>   "a"      3   5 0.3
+    #>   "a"      4   5 0.4
+    #>   "b"      5   4 0.5
+    #>   "b"      5   3 0.6
+    #>   "b"      5   2 0.7
+    #>   "b"      5   1 0.8
     ```
+
+    -   The udf is essentially a `case_when`. It truncates any variable values greater than 5 at 5.
+    -   `pipe` takes the unquoted name of the udf as its argument.
+    -   Use `name.keep` when selecting more than one variable (e.g. `cs.numeric`) when using `pipe`. It prevents the output of the manipulated columns from having the same name.
+
+-   [Example 2]{.ribbon-highlight}: Basic `pipe` at df-level
+
+    ``` python
+    def calc_diffs(df:pl.DataFrame, threshhold:int = 5) -> pl.DataFrame:
+
+        df_out = (
+            df
+            .with_columns(
+                abs = (pl.col('x') - pl.col('y')).abs(),
+                abs_gt_t = (pl.col('x') - pl.col('y')).abs() > threshhold,
+            )
+        )
+        return df_out 
+
+    df.pipe(calc_diffs)
+    #> group      x   y   p abs abs_gt_t
+    #>   str    i64 i64 f64 i64     bool
+    #>   "a"      1   8 0.1   7     true
+    #>   "a"      2   7 0.2   5    false
+    #>   "a"      3   6 0.3   3    false
+    #>   "a"      4   5 0.4   1    false
+    #>   "b"      5   4 0.5   1    false
+    #>   "b"      6   3 0.6   3    false
+    #>   "b"      7   2 0.7   5    false
+    #>   "b"      8   1 0.8   7     true
+    ```
+
+    -   `calc_diffs` calculates the absolute difference between [x]{.var-text} and [y]{.var-text} and stores it in [abs]{.var-text}. Then tests whether [abs]{.var-text} is greater than some threshold ([abs_gt_t]{.var-text}).
+
+-   [Example 3]{.ribbon-highlight}: `pipe` at df-level w/args
+
+    ``` python
+    def calc_diffs(
+      df:pl.DataFrame, 
+      var1:str = 'x', 
+      var2:str = 'y', 
+      threshhold:int = 5) -> pl.DataFrame:
+
+        df_out = (
+            df
+            .with_columns(
+                abs = (pl.col(var1) - pl.col(var2)).abs(),
+                abs_gt_t = (pl.col(var1) - pl.col(var2)).abs() > threshhold,
+            )
+        )
+        return df_out 
+
+    df.pipe(
+        calc_diffs, 
+        var1 = 'y', 
+        var2 = 'x', 
+        threshhold = 3
+    )
+    #> group	  x	  y	  p	abs	abs_gt_t
+    #>   str	i64	i64	f64	i64	    bool
+    #>   "a"	  1	  8	0.1	  7	    true
+    #>   "a"	  2	  7	0.2	  5	    true
+    #>   "a"	  3	  6	0.3	  3	   false
+    #>   "a"	  4	  5	0.4	  1	   false
+    #>   "b"	  5	  4	0.5	  1	   false
+    #>   "b"	  6	  3	0.6	  3	   false
+    #>   "b"	  7	  2	0.7	  5	    true
+    #>   "b"	  8	  1	0.8	  7	    true
+    ```
+
+    -   Column names are quoted in the function arguments, but not in the fuction code.
+
+-   [Example 4]{.ribbon-highlight}: Basic `map_columns`
+
+    ``` python
+    df.map_columns(cs.numeric(), cap)
+    ```
+
+    -   See Example 1 for `cap` udf definition
+    -   More concise alternative to `pipe` at the column-level
 
 ## Snippets {#sec-py-polars-snip .unnumbered}
 
