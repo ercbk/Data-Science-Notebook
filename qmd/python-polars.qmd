@@ -7,7 +7,6 @@
 -   [Data Types](https://docs.pola.rs/api/python/dev/reference/datatypes.html)
 
     -   A signed integer can represent both positive and negative values (e.g. [Int16]{.arg-text}), while an unsigned integer can only represent non-negative values (e.g. [UInt16]{.arg-text})
-
     -   A [Struct](https://docs.pola.rs/user-guide/expressions/structs/) is a composite data type that can store multiple fields in a single column
 
 -   Notes from
@@ -134,7 +133,7 @@
     |------------------------|------------------------|------------------------|
     | Create new column | `mutate(df, x_mean = mean(x))` | `df.with_columns(pl.col("x").mean().alias("x_mean"))` |
 
--   `map_batches` – For applying non-polars vectorized functions
+-   `map_batches` – For applying *non-polars vectorized* functions
 
 -   [Example 1]{.ribbon-highlight}: Ratio variables
 
@@ -264,9 +263,9 @@
     ```
 
     -   Simple lambda function that takes 1 column ([p]{.var-text}) as input to create the column [coin_flip]{.var-text}
-    -   Each value of [p]{.var-text} is looped through `binomial`
+    -   Each value of [p]{.var-text} is looped through `binomial`. This fits the conditions for `map_batches` since `binomial` is non-polars ([{numpy}]{style="color: goldenrod"}) and vectorized.
 
--   [Example 5]{.ribbon-highlight}: `map_batches` multiple input columns
+-   [Example 5]{.ribbon-highlight}: `map_batches` multiple input columns ([source](https://www.emilyriederer.com/post/py-rgo-udf/#map-batches))
 
     ``` python
     # two column in, one value out - with structs
@@ -299,6 +298,36 @@
     1.  The `struct` is a composite data type that is created using multiple columns. After creating the struct using [x]{.var-text} and [p]{.var-text}, it's subsetted inside the lambda function (See [Misc](python-polars.qmd#sec-py-polars-){style="color: green"} \>\> Data Types)
     2.  This version just uses the [exprs]{.arg-text} argument to supply [x]{.var-text} and [p]{.var-text} to the lambda function where it's subsetted using indices.
 
+-   [Example 6]{.ribbon-highlight}: `map_batches` w/array output ([source](https://www.emilyriederer.com/post/py-rgo-udf/#map-batches))
+
+    ``` python
+    df.with_columns(
+        coin_flip = pl.struct('x','p')
+            .map_batches(function = lambda z: binomial(n = z.struct['x'], 
+                                                       p = z.struct['p'],
+                                                       size = (100,z.shape[0]))
+                                              .transpose(), 
+                         return_dtype = pl.Array(pl.UInt16, 100)
+            )
+    ).with_columns( 
+                avg_outcome = pl.col('coin_flip').arr.mean(),
+                exp_value = pl.col('x') * pl.col('p')
+    )
+    #> group      x   y   p       coin_flip avg_outcome exp_value
+    #>   str    i64 i64 f64 array[u16, 100]         f64       f64
+    #>   "a"      1   8 0.1     [0, 0, … 0]        0.06       0.1
+    #>   "a"      2   7 0.2     [0, 0, … 1]        0.48       0.4
+    #>   "a"      3   6 0.3     [1, 2, … 0]        0.85       0.9
+    #>   "a"      4   5 0.4     [2, 2, … 4]        1.69       1.6
+    #>   "b"      5   4 0.5     [2, 2, … 2]        2.53       2.5
+    #>   "b"      6   3 0.6     [5, 4, … 3]        3.62       3.6
+    #>   "b"      7   2 0.7     [6, 5, … 7]        4.81       4.9
+    #>   "b"      8   1 0.8     [5, 8, … 5]        6.5        6.4
+    ```
+
+    -   `coin_flip` is an array of counts of successful events. The number of trials ([size]{.arg-text}) is 100 and the number of experiments per trial is [x]{.var-text}. So, in each array, there shouldn't be a count larger than it's associated [x]{.var-text} value
+    -   [(100, z.shape\[0\])]{.arg-text} also indicates the shape of the array output
+
 ## Summarize {#sec-py-polars-sum .unnumbered}
 
 -   Quick Reference
@@ -308,7 +337,9 @@
     | Group     | `group_by(df, x)`          | `df.group_by("x")`                |
     | Summarize | `summarize(df, x_n = n())` | `df.agg(pl.count().alias("x_n"))` |
 
--   [Example]{.ribbon-highlight}: Group_By, Count, Sort
+-   `map_groups` - Similar to `map_batches` (non-polar, vectorized functions) but for group aggregations (See [Mutate](python-polars.qmd#sec-py-polars-mut){style="color: green"}, Examples 4-6)
+
+-   [Example 1]{.ribbon-highlight}: Group_By, Count, Sort
 
     ``` python
     df \
@@ -329,7 +360,7 @@
     #> └───────────┴────────┘
     ```
 
--   [Example]{.ribbon-highlight}: Group-By, Arrange, Summarize
+-   [Example 2]{.ribbon-highlight}: Group-By, Arrange, Summarize
 
     ::: panel-tabset
     ## [{polars}]{style="color: goldenrod"}
@@ -373,7 +404,7 @@
     ```
     :::
 
--   [Example]{.ribbon-highlight}: Select, Filter, Summarize, Across
+-   [Example 3]{.ribbon-highlight}: Select, Filter, Summarize, Across
 
     ::: panel-tabset
     ## [{polars}]{style="color: goldenrod"}
@@ -412,6 +443,47 @@
     #> # ℹ 1 more variable: mean_salary_increase_percentage <dbl>
     ```
     :::
+
+-   [Example 4]{.ribbon-highlight}: Basic `map_groups` ([source](https://www.emilyriederer.com/post/py-rgo-udf/#applying-custom-aggregations-map-groups))
+
+    ``` python
+    data_dict = {
+      'group': ['a']*4 + ['b']*4,
+      'truth': [1,1,0,0]*2,
+      'mod_bad': [0.25,0.25,0.75,0.75]*2, 
+      'mod_bst': [0.99,0.75,0.25,0.01]*2,
+      'mod_rnd': [0.5]*8,
+      'mod_mix': [0.99,0.75,0.25,0.01]+[0.5]*3+[0.6]
+    }
+    df = pl.DataFrame(data_dict)
+    df.glimpse()
+    #> Rows: 8
+    #> Columns: 6
+    #> $ group   <str> 'a', 'a', 'a', 'a', 'b', 'b', 'b', 'b'
+    #> $ truth   <i64> 1, 1, 0, 0, 1, 1, 0, 0
+    #> $ mod_bad <f64> 0.25, 0.25, 0.75, 0.75, 0.25, 0.25, 0.75, 0.75
+    #> $ mod_bst <f64> 0.99, 0.75, 0.25, 0.01, 0.99, 0.75, 0.25, 0.01
+    #> $ mod_rnd <f64> 0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5
+    #> $ mod_mix <f64> 0.99, 0.75, 0.25, 0.01, 0.5, 0.5, 0.5, 0.6
+
+    df.group_by('group').agg (
+        pl.map_groups(
+            exprs = ['truth', 'mod_mix'],
+            function = lambda x: roc_auc_score(x[0], x[1]),
+            return_dtype = pl.Float64,
+            returns_scalar = True
+        )
+    )
+
+    #> group	truth
+    #>   str	  f64
+    #>   "a"	 1.0
+    #>   "b"	 0.25
+    ```
+
+    -   Simulates calculating AUC scores for each group of a binary classification model
+    -   Each model has 8 probability predictions along with true classification label and a grouping variable
+    -   [exprs]{.arg-text} specifies columns for the lambda function which get subsetted by indices.
 
 ## Joins {#sec-py-polars-join .unnumbered}
 
