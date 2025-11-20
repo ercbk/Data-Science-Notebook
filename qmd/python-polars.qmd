@@ -4,6 +4,12 @@
 
 -   [API Reference](https://docs.pola.rs/api/python/dev/reference/index.html)
 
+-   [Data Types](https://docs.pola.rs/api/python/dev/reference/datatypes.html)
+
+    -   A signed integer can represent both positive and negative values (e.g. [Int16]{.arg-text}), while an unsigned integer can only represent non-negative values (e.g. [UInt16]{.arg-text})
+
+    -   A [Struct](https://docs.pola.rs/user-guide/expressions/structs/) is a composite data type that can store multiple fields in a single column
+
 -   Notes from
 
     -   [Comparing dplyr with polars](https://krz.github.io/Comparing-dplyr-with-polars/)
@@ -128,7 +134,9 @@
     |------------------------|------------------------|------------------------|
     | Create new column | `mutate(df, x_mean = mean(x))` | `df.with_columns(pl.col("x").mean().alias("x_mean"))` |
 
--   [Example]{.ribbon-highlight}: Ratio variables
+-   `map_batches` – For applying non-polars vectorized functions
+
+-   [Example 1]{.ribbon-highlight}: Ratio variables
 
     ::: panel-tabset
     ## [{polars}]{style="color: goldenrod"}
@@ -162,7 +170,7 @@
     ```
     :::
 
--   [Example]{.ribbon-highlight}: Case-When
+-   [Example 2]{.ribbon-highlight}: Case-When
 
     ::: panel-tabset
     ## [{polars}]{style="color: goldenrod"}
@@ -191,7 +199,7 @@
     ```
     :::
 
--   [Example]{.ribbon-highlight}: String Extraction
+-   [Example 3]{.ribbon-highlight}: String Extraction
 
     ::: panel-tabset
     ## [{polars}]{style="color: goldenrod"}
@@ -217,6 +225,79 @@
       )
     ```
     :::
+
+-   [Example 4]{.ribbon-highlight}: Basic `map_batches` ([source](https://www.emilyriederer.com/post/py-rgo-udf/#map-batches))
+
+    ``` python
+    data_dict = {
+      'group': ['a']*4 + ['b']*4,
+      'x': np.arange(1,9,1),
+      'y': np.arange(8,0,-1), 
+      'p': np.arange(1,9,1)/10
+    }
+    df = pl.DataFrame(data_dict)
+    df.glimpse()
+    #> Rows: 8
+    #> Columns: 4
+    #> $ group <str> 'a', 'a', 'a', 'a', 'b', 'b', 'b', 'b'
+    #> $ x     <i64> 1, 2, 3, 4, 5, 6, 7, 8
+    #> $ y     <i64> 8, 7, 6, 5, 4, 3, 2, 1
+    #> $ p     <f64> 0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8
+
+    # one column in, one value out
+    df.with_columns(
+        coin_flip = pl.col('p')
+            .map_batches(function = lambda p: binomial(n = 1, p = p), 
+            returns_scalar = True, 
+            return_dtype = pl.UInt16)
+    )
+    #> group      x   y   p coin_flip
+    #>   str    i64 i64 f64       u16
+    #>   "a"      1   8 0.1         0
+    #>   "a"      2   7 0.2         1
+    #>   "a"      3   6 0.3         0
+    #>   "a"      4   5 0.4         0
+    #>   "b"      5   4 0.5         1
+    #>   "b"      6   3 0.6         0
+    #>   "b"      7   2 0.7         1
+    #>   "b"      8   1 0.8         1
+    ```
+
+    -   Simple lambda function that takes 1 column ([p]{.var-text}) as input to create the column [coin_flip]{.var-text}
+    -   Each value of [p]{.var-text} is looped through `binomial`
+
+-   [Example 5]{.ribbon-highlight}: `map_batches` multiple input columns
+
+    ``` python
+    # two column in, one value out - with structs
+    df.with_columns(
+        coin_flip = pl.struct('x','p') # <1>
+            .map_batches(function = lambda z: binomial(n = z.struct['x'], p = z.struct['p']),
+                         returns_scalar = True, 
+                         return_dtype = pl.UInt16)
+    )
+
+    # two columns in, one value out - with exprs
+    df.with_columns(
+        coin_flip = pl.map_batches(exprs = ['x', 'p'], # <2>
+                                   function = lambda z: binomial(n = z[0], p = z[1]), 
+                                   returns_scalar = True, 
+                                   return_dtype = pl.UInt16)
+    )
+    #> group      x   y   p coin_flip
+    #>   str    i64 i64 f64       u16
+    #>   "a"      1   8 0.1         0
+    #>   "a"      2   7 0.2         0
+    #>   "a"      3   6 0.3         1
+    #>   "a"      4   5 0.4         2
+    #>   "b"      5   4 0.5         2
+    #>   "b"      6   3 0.6         5
+    #>   "b"      7   2 0.7         5
+    #>   "b"      8   1 0.8         5
+    ```
+
+    1.  The `struct` is a composite data type that is created using multiple columns. After creating the struct using [x]{.var-text} and [p]{.var-text}, it's subsetted inside the lambda function (See [Misc](python-polars.qmd#sec-py-polars-){style="color: green"} \>\> Data Types)
+    2.  This version just uses the [exprs]{.arg-text} argument to supply [x]{.var-text} and [p]{.var-text} to the lambda function where it's subsetted using indices.
 
 ## Summarize {#sec-py-polars-sum .unnumbered}
 
@@ -526,7 +607,7 @@
 
     -   The udf is essentially a `case_when`. It truncates any variable values greater than 5 at 5.
     -   `pipe` takes the unquoted name of the udf as its argument.
-    -   Use `name.keep` when selecting more than one variable (e.g. `cs.numeric`) when using `pipe`. It prevents the output of the manipulated columns from having the same name.
+    -   Use `name.keep` when selecting more than one column (e.g. `cs.numeric`) when using `pipe`. It prevents the output of the manipulated columns from having the same name.
 
 -   [Example 2]{.ribbon-highlight}: Basic `pipe` at df-level
 
@@ -581,19 +662,19 @@
         var2 = 'x', 
         threshhold = 3
     )
-    #> group	  x	  y	  p	abs	abs_gt_t
-    #>   str	i64	i64	f64	i64	    bool
-    #>   "a"	  1	  8	0.1	  7	    true
-    #>   "a"	  2	  7	0.2	  5	    true
-    #>   "a"	  3	  6	0.3	  3	   false
-    #>   "a"	  4	  5	0.4	  1	   false
-    #>   "b"	  5	  4	0.5	  1	   false
-    #>   "b"	  6	  3	0.6	  3	   false
-    #>   "b"	  7	  2	0.7	  5	    true
-    #>   "b"	  8	  1	0.8	  7	    true
+    #> group      x   y   p abs abs_gt_t
+    #>   str    i64 i64 f64 i64     bool
+    #>   "a"      1   8 0.1   7     true
+    #>   "a"      2   7 0.2   5     true
+    #>   "a"      3   6 0.3   3    false
+    #>   "a"      4   5 0.4   1    false
+    #>   "b"      5   4 0.5   1    false
+    #>   "b"      6   3 0.6   3    false
+    #>   "b"      7   2 0.7   5     true
+    #>   "b"      8   1 0.8   7     true
     ```
 
-    -   Column names are quoted in the function arguments, but not in the fuction code.
+    -   Column names are quoted in the function arguments, but not in the function code.
 
 -   [Example 4]{.ribbon-highlight}: Basic `map_columns`
 
@@ -601,7 +682,7 @@
     df.map_columns(cs.numeric(), cap)
     ```
 
-    -   See Example 1 for `cap` udf definition
+    -   See Example 1 for the output and `cap` udf definition
     -   More concise alternative to `pipe` at the column-level
 
 ## Snippets {#sec-py-polars-snip .unnumbered}
