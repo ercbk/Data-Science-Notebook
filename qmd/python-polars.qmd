@@ -504,10 +504,10 @@
     mods = cs.expand_selector(df, cs.starts_with('mod_')) # <2> 
 
     df.group_by('group').agg(auroc_expressions(mods)) # <3>
-    #> group	mod_bad	mod_bst	mod_rnd	mod_mix
-    #>   str	    f64	    f64	    f64	    f64
-    #>   "b"	   -0.0	    1.0	    0.5	   0.25
-    #>   "a"	   -0.0	    1.0	    0.5	   1.0
+    #> group    mod_bad mod_bst mod_rnd mod_mix
+    #>   str        f64     f64     f64     f64
+    #>   "b"       -0.0     1.0     0.5    0.25
+    #>   "a"       -0.0     1.0     0.5    1.0
     ```
 
     1.  Write a wrapper function that handles the iteration and acts as a generator yielding the expression of interest (Also see [Python, General \>\> Loops \>\> Generators](python-general.qmd#sec-py-gen-loops-gen){style="color: green"})
@@ -876,36 +876,46 @@
     ```
     :::
 
--   [Example]{.ribbon-highlight}: Split Dataframe and Loop
+-   [Example]{.ribbon-highlight}: Split Dataframe and Loop ([source](https://www.emilyriederer.com/post/py-rgo-udf/#partitions))
 
     ``` python
     dfs = df.partition_by('group', as_dict = True, include_key = True)
     for k,v in dfs.items():
         print(f"{k}  : {v}")
-    #> ('a',)  : shape: (4, 6)
-    #> ┌───────┬───────┬─────────┬─────────┬─────────┬─────────┐
-    #> │ group ┆ truth ┆ mod_bad ┆ mod_bst ┆ mod_rnd ┆ mod_mix │
-    #> │ ---   ┆ ---   ┆ ---     ┆ ---     ┆ ---     ┆ ---     │
-    #> │ str   ┆ i64   ┆ f64     ┆ f64     ┆ f64     ┆ f64     │
-    #> ╞═══════╪═══════╪═════════╪═════════╪═════════╪═════════╡
-    #> │ a     ┆ 1     ┆ 0.25    ┆ 0.99    ┆ 0.5     ┆ 0.99    │
-    #> │ a     ┆ 1     ┆ 0.25    ┆ 0.75    ┆ 0.5     ┆ 0.75    │
-    #> │ a     ┆ 0     ┆ 0.75    ┆ 0.25    ┆ 0.5     ┆ 0.25    │
-    #> │ a     ┆ 0     ┆ 0.75    ┆ 0.01    ┆ 0.5     ┆ 0.01    │
-    #> └───────┴───────┴─────────┴─────────┴─────────┴─────────┘
-    #> ('b',)  : shape: (4, 6)
-    #> ┌───────┬───────┬─────────┬─────────┬─────────┬─────────┐
-    #> │ group ┆ truth ┆ mod_bad ┆ mod_bst ┆ mod_rnd ┆ mod_mix │
-    #> │ ---   ┆ ---   ┆ ---     ┆ ---     ┆ ---     ┆ ---     │
-    #> │ str   ┆ i64   ┆ f64     ┆ f64     ┆ f64     ┆ f64     │
-    #> ╞═══════╪═══════╪═════════╪═════════╪═════════╪═════════╡
-    #> │ b     ┆ 1     ┆ 0.25    ┆ 0.99    ┆ 0.5     ┆ 0.5     │
-    #> │ b     ┆ 1     ┆ 0.25    ┆ 0.75    ┆ 0.5     ┆ 0.5     │
-    #> │ b     ┆ 0     ┆ 0.75    ┆ 0.25    ┆ 0.5     ┆ 0.5     │
-    #> │ b     ┆ 0     ┆ 0.75    ┆ 0.01    ┆ 0.5     ┆ 0.6     │
-    #> └───────┴───────┴─────────┴─────────┴─────────┴─────────┘
+    #> ('a',)  : shape: (4, 3)
+    #> ┌───────┬──────┬──────┐
+    #> │ group ┆ x    ┆ y    │
+    #> │ ---   ┆ ---  ┆ ---  │
+    #> │ str   ┆ f64  ┆ f64  │
+    #> ╞═══════╪══════╪══════╡
+    #> │ a     ┆ 0.99 ┆ 0.99 │
+    #> │ a     ┆ 0.75 ┆ 0.75 │
+    #> │ a     ┆ 0.25 ┆ 0.25 │
+    #> │ a     ┆ 0.01 ┆ 0.01 │
+    #> └───────┴──────┴──────┘
+    #> ('b',)  : shape: (4, 3)
+    #> ┌───────┬──────┬─────┐
+    #> │ group ┆ x    ┆ y   │
+    #> │ ---   ┆ ---  ┆ --- │
+    #> │ str   ┆ f64  ┆ f64 │
+    #> ╞═══════╪══════╪═════╡
+    #> │ b     ┆ 0.99 ┆ 0.5 │
+    #> │ b     ┆ 0.75 ┆ 0.5 │
+    #> │ b     ┆ 0.25 ┆ 0.5 │
+    #> │ b     ┆ 0.01 ┆ 0.6 │
+    #> └───────┴──────┴─────┘
 
+    grps = [k[0] for k in dfs.keys() ] # turn tuple to scalar bcs only one grouping var in key
+    mods = [sm.OLS(d['x'].to_numpy(), 
+                   sm.add_constant(d['y'].to_numpy())
+            ).fit() for k,d in dfs.items()]
+    coef = [m.params[1] for m in mods]
+    dict(zip(grps, coef))
+    #> {'a': np.float64(1.0000000000000004), 'b': np.float64(-6.533333333333339)}
     ```
+
+    -   `partition_by` splits the dataframe into a list of dataframes (like `split` in base R or `group_split` in [{dplyr}]{style="color: #990000"}). Since [as_dict = True]{.arg-text}, it's actually a dictionary of dataframes
+    -   This can also be done within the unsplit dataframe using `map_batch` and `map_elements` but it's less efficient. (See the previous section in the article for details)
 
 -   [Example]{.ribbon-highlight}: Lazily aggregate Delta lake files in AWS S3 ([source](https://dataengineeringcentral.substack.com/p/650gb-of-data-delta-lake-on-s3-polars))
 

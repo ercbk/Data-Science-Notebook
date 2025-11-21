@@ -12,6 +12,10 @@
         -   A powerful alternative to [{httr2}]{style="color: #990000"} for testing scenarios involving multiple simultaneous requests
     -   [{]{style="color: #990000"}[plumber2](https://plumber2.posit.co/){style="color: #990000"}[}]{style="color: #990000"} - Complete rewrite of [{plumber}]{style="color: #990000"} and incompatible with the original
     -   [{]{style="color: goldenrod"}[requests-ratelimiter](https://pypi.org/project/requests-ratelimiter/){style="color: goldenrod"}[}]{style="color: goldenrod"} - A simple wrapper around pyrate-limiter v2 that adds convenient integration with the requests library
+    -   [{]{style="color: goldenrod"}[tenacity](https://tenacity.readthedocs.io/en/latest/){style="color: goldenrod"}[}]{style="color: goldenrod"} - A general-purpose retrying library, written in Python, to simplify the task of adding retry behavior to just about anything (See [{requests}](apis.qmd#sec-apis-reqlib){style="color: green"} \>\> Rate Limiting \>\> Example)
+        -   Without backoff: 1000 failed requests retry simultaneously → rate limit → all fail again
+        -   With exponential backoff: Requests spread out over time → fewer rate limit hits → higher success rate
+        -   Benchmark: Reduces API failures from 15% to \<1% in production pipelines
     -   [{]{style="color: #990000"}[vcr](https://docs.ropensci.org/vcr/){style="color: #990000"}[}]{style="color: #990000"} - Records and replays HTTP requests so you can test your API package
         -   Works with [{crul}]{style="color: #990000"}, [{httr}]{style="color: #990000"} and [{httr2}]{style="color: #990000"}
 -   Resources
@@ -30,6 +34,22 @@
     -   JSON API
     -   Let the client decide what it wants
 -   An IO-bound task spends most of its time waiting for IO responses, which can be responses from webpages, databases, or disks. For web development where a request needs to fetch data from APIs or databases, it's an IO-bound task and concurrency can be achieved with either *threading* or *async/await* to minimize the waiting time from external resources.
+-   Exponential Backoff
+    -   Retries: Waits 1s, 2s, 4s, 8s between retries (up to a threshold (e.g. 60s)
+    -   When to use:
+        -   API calls (rate limits, transient errors)
+
+        -   Database connections (connection pool exhaustion)
+
+        -   Network I/O (timeouts, temporary network issues)
+
+        -   External service calls (third-party APIs that throttle)
+    -   When not to use it:
+        -   Logic errors (retrying won't help)
+
+        -   Authentication failures (will always fail)
+
+        -   CPU-bound operations (backoff doesn't help computation)
 
 ## Terms {#sec-apis-terms .unnumbered}
 
@@ -153,7 +173,7 @@
     -   Comparison
 
         | **Aspect** | **Binary serialization** (e.g. `serialize`, `saveRDS`) | **Text serialization** (e.g., JSON, CSV) |
-        |----|----|----|
+        |------------------------|------------------------|------------------------|
         | [Size (bytes)]{.underline} | Usually **smaller**, since it stores compact representations (e.g., deduplication, fixed width numeric vectors) | Usually **larger**, due to text overhead (quotes, braces, whitespace). |
         | [Serialization/deserialization speed]{.underline} | Often **faster**, especially as payload sizes increase, since it doesn’t need to convert to/from text strings. | Often **slower**, because it requires parsing or formatting text. |
         | [Debugging]{.underline} | Not human-readable. | Human-readable |
@@ -713,6 +733,42 @@
             -   Number of CPUs + 4, e.g. 12 CPU cores means 16 `ThreadPoolExecutor` workers
         -   Uses a standard `try`/`except` to handle errors. Errors don't stop code from completing the other requests
         -   `future.add_done_callback` calls your custom Python function. This function will have access to the `Future` object
+
+-   Rate Limiting
+
+    -   [Example]{.ribbon-highlight}: Exponential backoff with jitter
+
+        ``` python
+        from tenacity import (
+            retry,
+            stop_after_attempt,
+            wait_exponential,
+            retry_if_exception_type,
+        )
+
+        @retry(
+            stop=stop_after_attempt(5),
+            wait=wait_exponential(multiplier=1, min=1, max=60),
+            retry=retry_if_exception_type((ConnectionError, TimeoutError, HTTPError)),
+            reraise=True
+        )
+
+        def fetch_from_api(url):
+            """Fetch with automatic exponential backoff on failures."""
+            response = requests.get(url, timeout=10)
+            response.raise_for_status()
+            return response.json()
+        ```
+
+        -   Backs off exponentially on failures, but add randomness (jitter) to prevent thundering herd problems.
+
+        -   Exponential backoff: Waits 1s, 2s, 4s, 8s between retries (up to 60s max)
+
+        -   Jitter: Tenacity adds randomness to prevent synchronized retries
+
+        -   Conditional retries: Only retries on specific exceptions (not all errors)
+
+        -   Max attempts: Stops after 5 attempts to avoid infinite loops
 
 -   Using API keys
 

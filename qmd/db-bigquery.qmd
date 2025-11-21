@@ -708,6 +708,38 @@
               FROM
                 `datastic.stackoverflow.questions`)
             ```
+
+        -   [Example]{.ribbon-highlight}: ([source](https://dagster.io/blog/when-and-when-not-to-optimize-data-pipelines))
+
+            ``` sql
+            -- Create clustered copy of the table
+            CREATE OR REPLACE TABLE performance_demo.sales_fact_clustered
+            CLUSTER BY sale_date
+            AS
+            SELECT * FROM performance_demo.sales_fact;
+
+            -- Drop old table and rename the clustered one
+            DROP TABLE performance_demo.sales_fact;
+            ALTER TABLE performance_demo.sales_fact_clustered RENAME TO sales_fact;
+
+            -- GOOD: Same query, now leverages clustering
+            SELECT 
+                pd.product_name,
+                COUNT(*) AS transaction_count,
+                SUM(sf.sale_amount) AS total_revenue
+            FROM performance_demo.sales_fact sf
+            JOIN performance_demo.product_dim pd ON sf.product_id = pd.product_id
+            WHERE sf.sale_date >= '2020-01-01'  -- Clustering helps skip irrelevant clusters
+              AND sf.region_id = 5
+            GROUP BY pd.product_name;
+            ```
+
+            -   Without clustering, WHERE filters after scanning all 10M rows
+            -   On a BigQuery instance
+                -   Bytes processed: \~200-300 MB (only scans relevant clusters, vs 400-600 MB before)
+                -   Rows read: \~8 million rows (only the date range, vs 10M before)
+                -   Slot time: Much lower (cluster pruning active)
+                -   Execution time: \~30-60 seconds
     -   [Partition and Cluster]{.underline}
         -   [Example]{.ribbon-highlight}
 

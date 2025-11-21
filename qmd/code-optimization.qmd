@@ -12,6 +12,34 @@
     -   [{]{style="color: #990000"}[syrup](https://cran.r-project.org/web/packages/syrup/){style="color: #990000"}[}]{style="color: #990000"} - Measure Memory and CPU Usage for Parallel R Code
     -   [{]{style="color: #990000"}[memuse](https://cran.r-project.org/web/packages/memuse/){style="color: #990000"}[}]{style="color: #990000"} - Memory Estimation Utilities
         -   Finds memory usage for would-be objects (e.g. matrices), current usage, remaining RAM, and more
+-   Tools
+    -   Some orchestration platforms provide monitoring for execution time, memory usage, and I/O operations for you and are flexible enough for you to add whatever asset or runtime metadata you need (e.g. [Dagster](https://dagster.io/blog/introducing-the-new-dagster-plus-ui))
+-   Memory issues often masquerade as performance issues.
+    -   A function that "takes forever" is usually thrashing swap because it's trying to load 20GB into 8GB of RAM. The fix isn't faster Python, it's chunked processing or better data architecture.
+-   Common less-valuable optimizations
+    -   String concatenation in small loops
+
+        ``` python
+        result = ""
+        for item in small_list:  # <1000 items
+            result += item
+        ```
+
+    -   List comprehensions vs. map
+
+        ``` python
+        # These are functionally identical in performance:
+        [x * 2 for x in range(1000)]
+        list(map(lambda x: x * 2, range(1000)))
+        ```
+
+    -   Micro-optimizations in code that runs once
+
+        -   If your pipeline does something once per run (loading config, initializing connections), optimizing that code is pointless
+
+    -   Function call overhead
+
+        -   Yes, function calls have overhead. No, it doesn't matter for data pipelines. A function call costs \~100 nanoseconds. Your database query costs 500 milliseconds. Do the math.
 -   A **while** loop is faster than a recursive function
 -   **ungroup** before performing calculations in mutate or summarize when that calculation doesn't need to be performed within-group (i.e. per factor level)
 -   String functions
@@ -195,7 +223,7 @@
 
 -   Benchmarking
 
-    -   [{{]{style="color: goldenrod"}[time](https://docs.python.org/3/library/time.html){style="color: goldenrod"}[}}]{style="color: goldenrod"}(built-in module)
+    -   [{]{style="color: goldenrod"}[time](https://docs.python.org/3/library/time.html){style="color: goldenrod"}[}]{style="color: goldenrod"} (built-in module)
 
         ``` python
         import time
@@ -204,6 +232,28 @@
         elapsed = time.perf_counter() - start
         print(f'Time {elapsed:0.4}')
         #> Time 1.001
+        ```
+
+-   [{]{style="color: goldenrod"}[cProfile](https://docs.python.org/3/library/profile.html){style="color: goldenrod"}[}]{style="color: goldenrod"}
+
+    -   For CPU operations
+
+    -   [Example]{.ribbon-highlight}: Basic Workflow
+
+        ``` python
+        import cProfile
+        import pstats
+
+        profiler = cProfile.Profile()
+        profiler.enable()
+
+        # Your code here
+        expensive_function()
+
+        profiler.disable()
+        stats = pstats.Stats(profiler)
+        stats.sort_stats('cumulative')
+        stats.print_stats(10)  # Top 10 slowest functions
         ```
 
 -   Memory Usage
@@ -219,6 +269,18 @@
             -   [interval]{.arg-text}: For very quick operations the function `fn` might be executed more than once. By setting `interval` to a value [lower than 1e-6](https://github.com/pythonprofilers/memory_profiler/blob/0.55/memory_profiler.py#L350), we force it to execute only once.
 
             -   [retval]{.arg-text}: Tells the function to return the result of [fn]{.arg-text}.
+
+        -   [Example]{.ribbon-highlight}: Basic usage with profile decorator
+
+            ``` python
+            from memory_profiler import profile
+
+            @profile
+            def load_giant_dataframe():
+                """This will show line-by-line memory usage."""
+                df = pd.read_csv("10gb_file.csv")  # This will show line-by-line memory
+                return df.groupby("key").sum()
+            ```
 
         -   Non-interactive usage
 

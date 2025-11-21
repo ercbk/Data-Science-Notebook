@@ -6,6 +6,35 @@
 -   Column storage files (parquet) are more lightweight, as adequate compression can be made for each column. Row storage doesn't work in that way, since a single row can have multiple data types.\
     ![](./_resources/DB,_Engineering.resources/1-gZMYerPN9M8nlki3aloCaA.png){.lightbox width="532"}
     -   (See below) Apache Avro is smaller file size than most row format file types (e.g. csv)
+-   The 80/20 rule for data pipelines: 80% of your runtime typically comes from database queries, network I/O, disk I/O, and inefficient data processing patterns.
+    -   Python/R code execution? Usually under 5% of total runtime. Loops and refactoring functions typically only run once per pipeline.
+
+    -   Meanwhile, a single unoptimized SQL query burns compute credits and delays every downstream job.
+
+    -   Simple timing of pipeline components can usually help you discover the bottleneck
+
+        ``` python
+        import time
+        from contextlib import contextmanager
+
+        @contextmanager
+        def timer(name):
+            """Simple timing context manager for pipeline sections."""
+            start = time.perf_counter()
+            yield
+            duration = time.perf_counter() - start
+            print(f"{name}: {duration:.2f}s")
+
+        # In your pipeline:
+        with timer("Extract from API"):
+            data = fetch_from_api()
+
+        with timer("Transform with pandas"):
+            df = transform(data)
+
+        with timer("Load to warehouse"):
+            load_to_snowflake(df)
+        ```
 
 ## Terms {#sec-db-eng-terms .unnumbered}
 
@@ -205,6 +234,33 @@
     -   [Databases, BigQuery \>\> Optimization](db-bigquery.qmd#sec-db-bigqZ-opt){style="color: green"}
     -   [SQL \>\> Best Practices](sql.qmd#sec-sql-bestp){style="color: green"}
 
+-   Optimize or not?\
+    ![](_resources/DB,_Engineering.resources/xkcd-optimize-or-not-1.png){.lightbox}
+
+    -   Runtime Impact
+        -   If Impact \< 2 hours/week saved: Don't optimize yet.
+        -   If Impact \> 1 day/week saved: Optimize now.
+        -   If you're being yelled at: Optimize now
+    -   Pipeline Frequency
+        -   Once a day? Optimization ROI is probably low
+        -   Every 5 minutes? The sweet spot
+        -   Ad-hoc analysis? Don't bother
+    -   How long does it take for the pipeline to run?
+        -   \<5 minutes for job than runs hourly? That's fine
+        -   4 hours for a daily overnight job? Also probably fine
+        -   15 minutes for something users are waiting on? Problem
+    -   Business Criticality
+        -   Locks downstream pipelines? High impact
+        -   Delays morning dashboard refresh? Medium impact
+        -   Historical backfill that runs overnight? Low impact
+
+-   Common Bottlenecks
+
+    -   Full table scans on fact tables
+    -   Missing partition pruning
+    -   Cartesian joins
+    -   Loading data just to filter it in Python/R
+
 -   Avoid disk operations, make sure that you look out for hints & information in the `EXPLAIN PLAN` of your query. (e.g. using SORT without an index)\
     ![](_resources/DB,_Engineering.resources/costopt-explain-1.png){.lightbox width="270"}
 
@@ -268,11 +324,17 @@
 -   [Indexes]{.underline}
 
     -   Indexes help in filtering data faster as the data is stored in a predefined order based on some key columns.
+
         -   If the query uses those key columns, the index will be used, and the filter will be faster.
+
     -   Suitable for any combination of columns that are used in filter, group, order, or join
+
     -   MySQL [Docs](https://dev.mysql.com/doc/refman/8.0/en/optimization-indexes.html)
+
     -   Don't use indexes with `LIKE`
+
     -   [Cluster](https://www.postgresql.org/docs/current/sql-cluster.html) a table according to an index
+
         -   Also see [Databases, BigQuery \>\> Optimization](db-bigquery.qmd#sec-db-bigqZ-opt){style="color: green"} \>\> Partition and Cluster
 
         -   Rearranges the rows of a table on the disk
@@ -290,63 +352,63 @@
             CLUSTER pull_requests USING pull_requests_repository_id
             ```
 
--   Useful for queries such as
+    -   Useful for queries such as
 
-    ``` sql
-    SELECT *
-    FROM pull_requests
-    WHERE repository_id IN (...) AND number > 1000
-    ```
+        ``` sql
+        SELECT *
+        FROM pull_requests
+        WHERE repository_id IN (...) AND number > 1000
+        ```
 
--   Best Pactices
+    -   Best Pactices
 
-    -   Avoid too many indexes
-        -   A copy of the indexed column + the primary key is created on disk
-        -   Indexes add to the cost of inserts, updates, and deletes because each index must be updated
-        -   Before creating an index, see if you can repurpose an existing index to cater to an additional query
-        -   Create the least possible number of indexes to cover most of your queries (i.e. **Covering Indexes**).
-            -   Makes effective use of the index-only scan feature
+        -   Avoid too many indexes
+            -   A copy of the indexed column + the primary key is created on disk
+            -   Indexes add to the cost of inserts, updates, and deletes because each index must be updated
+            -   Before creating an index, see if you can repurpose an existing index to cater to an additional query
+            -   Create the least possible number of indexes to cover most of your queries (i.e. **Covering Indexes**).
+                -   Makes effective use of the index-only scan feature
 
-            -   Add `INCLUDE` to the create index expression
+                -   Add `INCLUDE` to the create index expression
 
-            -   [Example]{.ribbon-highlight}
+                -   [Example]{.ribbon-highlight}
 
-                ``` sql
-                -- query
-                SELECT y FROM tab WHERE x = 'key';
-                -- covering index, x
-                CREATE INDEX tab_x_y ON tab(x) INCLUDE (y);
-                -- if the index, x, is unique
-                CREATE UNIQUE INDEX tab_x_y ON tab(x) INCLUDE (y);
-                ```
+                    ``` sql
+                    -- query
+                    SELECT y FROM tab WHERE x = 'key';
+                    -- covering index, x
+                    CREATE INDEX tab_x_y ON tab(x) INCLUDE (y);
+                    -- if the index, x, is unique
+                    CREATE UNIQUE INDEX tab_x_y ON tab(x) INCLUDE (y);
+                    ```
 
-                -   [y]{.var-text} is called a non-payload column
-                    -   Don't add too many non-payload columns to an index. Each one duplicates data from the index's table and bloat the size of the index.
+                    -   [y]{.var-text} is called a non-payload column
+                        -   Don't add too many non-payload columns to an index. Each one duplicates data from the index's table and bloat the size of the index.
 
-            -   [Example]{.ribbon-highlight}: Query with function
+                -   [Example]{.ribbon-highlight}: Query with function
 
-                ``` sql
-                -- query
-                SELECT f(x) FROM tab WHERE f(x) < 1;
-                -- covering index, x
-                CREATE INDEX tab_f_x ON tab (f(x)) INCLUDE (x);
-                ```
+                    ``` sql
+                    -- query
+                    SELECT f(x) FROM tab WHERE f(x) < 1;
+                    -- covering index, x
+                    CREATE INDEX tab_f_x ON tab (f(x)) INCLUDE (x);
+                    ```
 
-                -   Where [f()]{.arg-text} can be MEAN, MEDIAN, etc.
-    -   Fix unusable indexes
-        -   Issues related to data types, collation (i.e. how it's sorted), character set (how the db encodes characters), etc
-        -   Sometimes you can make the indexes work by explicitly forcing the optimizer to use them. (?)
-    -   Repurpose or delete stale indexes
-        -   Indexes are designed to serve an existing or a future load of queries on the database
-        -   When queries change, some indexes originally designed to serve those queries might be completely irrelevant now
-        -   Automate stale index removal. Dbs keep statistics. Write a script to either notify you or just delete the index if it's older and not been used past a certain threshold
-    -   Use the most cost efficient index type
-        -   Example: If your use case only needs a regular expression search, you're better off having a simple index than a Full Text index.
-            -   Full Text indexes occupy much more space and take much more time to update
-    -   Don't index huge tables (\> 100M rows), partition instead
-        -   Then prune the partitions (**partition pruning**) you don't need and create indexes for the partitioned tables you do keep.
+                    -   Where [f()]{.arg-text} can be MEAN, MEDIAN, etc.
+        -   Fix unusable indexes
+            -   Issues related to data types, collation (i.e. how it's sorted), character set (how the db encodes characters), etc
+            -   Sometimes you can make the indexes work by explicitly forcing the optimizer to use them. (?)
+        -   Repurpose or delete stale indexes
+            -   Indexes are designed to serve an existing or a future load of queries on the database
+            -   When queries change, some indexes originally designed to serve those queries might be completely irrelevant now
+            -   Automate stale index removal. Dbs keep statistics. Write a script to either notify you or just delete the index if it's older and not been used past a certain threshold
+        -   Use the most cost efficient index type
+            -   Example: If your use case only needs a regular expression search, you're better off having a simple index than a Full Text index.
+                -   Full Text indexes occupy much more space and take much more time to update
+        -   Don't index huge tables (\> 100M rows), partition instead
+            -   Then prune the partitions (**partition pruning**) you don't need and create indexes for the partitioned tables you do keep.
 
--   Partitioning
+-   [Partitioning]{.underline}
 
     -   Also see [Databases, BigQuery \>\> Optimization](db-bigquery.qmd#sec-db-bigqZ-opt){style="color: green"} \>\> Partition and Cluster
 
@@ -404,7 +466,7 @@
     -   Slower to update than the standard ones. So you should avoid adding them to a frequently updated table.
         -   [GiST](https://www.postgresql.org/docs/9.1/textsearch-indexes.html) indexes are very good for dynamic data and fast if the number of unique words (lexemes) is under 100,000, while GIN indexes will handle 100,000+ lexemes better but are slower to update.
 
--   `NULLS LAST`puts the NULLS in a field in any sorting operations at the end
+-   `NULLS LAST` puts the NULLS in a field in any sorting operations at the end
 
     -   The default behavior of `ORDER BY` will put the NULLS first, so if you use `LIMIT` , you might get back a bunch of NULLS.
 
