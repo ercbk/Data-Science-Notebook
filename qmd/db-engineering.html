@@ -2165,6 +2165,32 @@ gtag('config', 'G-5J13QCM7YC', { 'anonymize_ip': true});
 <ul>
 <li>(See below) Apache Avro is smaller file size than most row format file types (e.g.&nbsp;csv)</li>
 </ul></li>
+<li>The 80/20 rule for data pipelines: 80% of your runtime typically comes from database queries, network I/O, disk I/O, and inefficient data processing patterns.
+<ul>
+<li><p>Python/R code execution? Usually under 5% of total runtime. Loops and refactoring functions typically only run once per pipeline.</p></li>
+<li><p>Meanwhile, a single unoptimized SQL query burns compute credits and delays every downstream job.</p></li>
+<li><p>Simple timing of pipeline components can usually help you discover the bottleneck</p>
+<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb1"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb1-1"><a href="#cb1-1" aria-hidden="true" tabindex="-1"></a><span class="im">import</span> time</span>
+<span id="cb1-2"><a href="#cb1-2" aria-hidden="true" tabindex="-1"></a><span class="im">from</span> contextlib <span class="im">import</span> contextmanager</span>
+<span id="cb1-3"><a href="#cb1-3" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb1-4"><a href="#cb1-4" aria-hidden="true" tabindex="-1"></a><span class="at">@contextmanager</span></span>
+<span id="cb1-5"><a href="#cb1-5" aria-hidden="true" tabindex="-1"></a><span class="kw">def</span> timer(name):</span>
+<span id="cb1-6"><a href="#cb1-6" aria-hidden="true" tabindex="-1"></a>    <span class="co">"""Simple timing context manager for pipeline sections."""</span></span>
+<span id="cb1-7"><a href="#cb1-7" aria-hidden="true" tabindex="-1"></a>    start <span class="op">=</span> time.perf_counter()</span>
+<span id="cb1-8"><a href="#cb1-8" aria-hidden="true" tabindex="-1"></a>    <span class="cf">yield</span></span>
+<span id="cb1-9"><a href="#cb1-9" aria-hidden="true" tabindex="-1"></a>    duration <span class="op">=</span> time.perf_counter() <span class="op">-</span> start</span>
+<span id="cb1-10"><a href="#cb1-10" aria-hidden="true" tabindex="-1"></a>    <span class="bu">print</span>(<span class="ss">f"</span><span class="sc">{</span>name<span class="sc">}</span><span class="ss">: </span><span class="sc">{</span>duration<span class="sc">:.2f}</span><span class="ss">s"</span>)</span>
+<span id="cb1-11"><a href="#cb1-11" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb1-12"><a href="#cb1-12" aria-hidden="true" tabindex="-1"></a><span class="co"># In your pipeline:</span></span>
+<span id="cb1-13"><a href="#cb1-13" aria-hidden="true" tabindex="-1"></a><span class="cf">with</span> timer(<span class="st">"Extract from API"</span>):</span>
+<span id="cb1-14"><a href="#cb1-14" aria-hidden="true" tabindex="-1"></a>    data <span class="op">=</span> fetch_from_api()</span>
+<span id="cb1-15"><a href="#cb1-15" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb1-16"><a href="#cb1-16" aria-hidden="true" tabindex="-1"></a><span class="cf">with</span> timer(<span class="st">"Transform with pandas"</span>):</span>
+<span id="cb1-17"><a href="#cb1-17" aria-hidden="true" tabindex="-1"></a>    df <span class="op">=</span> transform(data)</span>
+<span id="cb1-18"><a href="#cb1-18" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb1-19"><a href="#cb1-19" aria-hidden="true" tabindex="-1"></a><span class="cf">with</span> timer(<span class="st">"Load to warehouse"</span>):</span>
+<span id="cb1-20"><a href="#cb1-20" aria-hidden="true" tabindex="-1"></a>    load_to_snowflake(df)</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div></li>
+</ul></li>
 </ul>
 </section>
 <section id="sec-db-eng-terms" class="level2 unnumbered">
@@ -2378,8 +2404,43 @@ gtag('config', 'G-5J13QCM7YC', { 'anonymize_ip': true});
 <li><a href="../qmd/db-bigquery.html#sec-db-bigqZ-opt" style="color: green">Databases, BigQuery &gt;&gt; Optimization</a></li>
 <li><a href="../qmd/sql.html#sec-sql-bestp" style="color: green">SQL &gt;&gt; Best Practices</a></li>
 </ul></li>
+<li><p>Optimize or not?<br>
+<a href="_resources/DB,_Engineering.resources/xkcd-optimize-or-not-1.png" class="lightbox" data-gallery="quarto-lightbox-gallery-5"><img src="_resources/DB,_Engineering.resources/xkcd-optimize-or-not-1.png" class="img-fluid"></a></p>
+<ul>
+<li>Runtime Impact
+<ul>
+<li>If Impact &lt; 2 hours/week saved: Don’t optimize yet.</li>
+<li>If Impact &gt; 1 day/week saved: Optimize now.</li>
+<li>If you’re being yelled at: Optimize now</li>
+</ul></li>
+<li>Pipeline Frequency
+<ul>
+<li>Once a day? Optimization ROI is probably low</li>
+<li>Every 5 minutes? The sweet spot</li>
+<li>Ad-hoc analysis? Don’t bother</li>
+</ul></li>
+<li>How long does it take for the pipeline to run?
+<ul>
+<li>&lt;5 minutes for job than runs hourly? That’s fine</li>
+<li>4 hours for a daily overnight job? Also probably fine</li>
+<li>15 minutes for something users are waiting on? Problem</li>
+</ul></li>
+<li>Business Criticality
+<ul>
+<li>Locks downstream pipelines? High impact</li>
+<li>Delays morning dashboard refresh? Medium impact</li>
+<li>Historical backfill that runs overnight? Low impact</li>
+</ul></li>
+</ul></li>
+<li><p>Common Bottlenecks</p>
+<ul>
+<li>Full table scans on fact tables</li>
+<li>Missing partition pruning</li>
+<li>Cartesian joins</li>
+<li>Loading data just to filter it in Python/R</li>
+</ul></li>
 <li><p>Avoid disk operations, make sure that you look out for hints &amp; information in the <code>EXPLAIN PLAN</code> of your query. (e.g.&nbsp;using SORT without an index)<br>
-<a href="_resources/DB,_Engineering.resources/costopt-explain-1.png" class="lightbox" data-gallery="quarto-lightbox-gallery-5"><img src="_resources/DB,_Engineering.resources/costopt-explain-1.png" class="img-fluid" width="270"></a></p>
+<a href="_resources/DB,_Engineering.resources/costopt-explain-1.png" class="lightbox" data-gallery="quarto-lightbox-gallery-6"><img src="_resources/DB,_Engineering.resources/costopt-explain-1.png" class="img-fluid" width="270"></a></p>
 <ul>
 <li>When you see <code>filesort</code>, understand that it will try to fit the whole table in the memory in many chunks.
 <ul>
@@ -2407,7 +2468,7 @@ gtag('config', 'G-5J13QCM7YC', { 'anonymize_ip': true});
 <li>“We’re receiving around 10 Million requests each day, and unfortunately, around 40% of these queries are returning ‘no data found’ . It feels like a huge waste of resources to query the database for records that are almost always not there.”</li>
 </ul></li>
 <li>Set-Up<br>
-<a href="_resources/DB,_Engineering.resources/cost-opt-bloom-1.webp" class="lightbox" data-gallery="quarto-lightbox-gallery-6"><img src="_resources/DB,_Engineering.resources/cost-opt-bloom-1.webp" class="img-fluid" width="532"></a>
+<a href="_resources/DB,_Engineering.resources/cost-opt-bloom-1.webp" class="lightbox" data-gallery="quarto-lightbox-gallery-7"><img src="_resources/DB,_Engineering.resources/cost-opt-bloom-1.webp" class="img-fluid" width="532"></a>
 <ul>
 <li>A new request goes the bloom filter which sees if that request has been encountered before.</li>
 <li>If filter says the element <em>may</em> be present in the set, the request continues to do a database check.</li>
@@ -2436,7 +2497,7 @@ gtag('config', 'G-5J13QCM7YC', { 'anonymize_ip': true});
 <ul>
 <li><p>Use <code>LEFT_JOIN</code> instead of <code>INNER_JOIN</code></p></li>
 <li><p>Use <a href="https://www.postgresql.org/docs/14/planner-stats.html#PLANNER-STATS-EXTENDED">extended statistics</a></p>
-<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb1"><pre class="sourceCode sql code-with-copy"><code class="sourceCode sql"><span id="cb1-1"><a href="#cb1-1" aria-hidden="true" tabindex="-1"></a><span class="kw">CREATE</span> <span class="kw">STATISTICS</span> ids_correlation <span class="kw">ON</span> repository_id, merge_commit_id <span class="kw">FROM</span> pull_requests;</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
+<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb2"><pre class="sourceCode sql code-with-copy"><code class="sourceCode sql"><span id="cb2-1"><a href="#cb2-1" aria-hidden="true" tabindex="-1"></a><span class="kw">CREATE</span> <span class="kw">STATISTICS</span> ids_correlation <span class="kw">ON</span> repository_id, merge_commit_id <span class="kw">FROM</span> pull_requests;</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
 <ul>
 <li><p>“repository_id” and “merge_commit_id” are the correlated keys</p></li>
 <li><p>I’m not sure if “ids_correlation” is a function or just a user-defined name</p></li>
@@ -2452,14 +2513,14 @@ gtag('config', 'G-5J13QCM7YC', { 'anonymize_ip': true});
 </ul></li>
 <li><p><u>Indexes</u></p>
 <ul>
-<li>Indexes help in filtering data faster as the data is stored in a predefined order based on some key columns.
+<li><p>Indexes help in filtering data faster as the data is stored in a predefined order based on some key columns.</p>
 <ul>
 <li>If the query uses those key columns, the index will be used, and the filter will be faster.</li>
 </ul></li>
-<li>Suitable for any combination of columns that are used in filter, group, order, or join</li>
-<li>MySQL <a href="https://dev.mysql.com/doc/refman/8.0/en/optimization-indexes.html">Docs</a></li>
-<li>Don’t use indexes with <code>LIKE</code></li>
-<li><a href="https://www.postgresql.org/docs/current/sql-cluster.html">Cluster</a> a table according to an index
+<li><p>Suitable for any combination of columns that are used in filter, group, order, or join</p></li>
+<li><p>MySQL <a href="https://dev.mysql.com/doc/refman/8.0/en/optimization-indexes.html">Docs</a></p></li>
+<li><p>Don’t use indexes with <code>LIKE</code></p></li>
+<li><p><a href="https://www.postgresql.org/docs/current/sql-cluster.html">Cluster</a> a table according to an index</p>
 <ul>
 <li><p>Also see <a href="../qmd/db-bigquery.html#sec-db-bigqZ-opt" style="color: green">Databases, BigQuery &gt;&gt; Optimization</a> &gt;&gt; Partition and Cluster</p></li>
 <li><p>Rearranges the rows of a table on the disk</p></li>
@@ -2468,16 +2529,15 @@ gtag('config', 'G-5J13QCM7YC', { 'anonymize_ip': true});
 <li>See <a href="https://github.com/reorg/pg_repack">pg_repack</a> for a solution</li>
 </ul></li>
 <li><p><span class="ribbon-highlight">Example</span></p>
-<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb2"><pre class="sourceCode sql code-with-copy"><code class="sourceCode sql"><span id="cb2-1"><a href="#cb2-1" aria-hidden="true" tabindex="-1"></a><span class="co">-- create index</span></span>
-<span id="cb2-2"><a href="#cb2-2" aria-hidden="true" tabindex="-1"></a><span class="kw">CREATE</span> <span class="kw">INDEX</span> pull_requests_repository_id <span class="kw">ON</span> pull_requests (repository_id, <span class="dt">number</span>)</span>
-<span id="cb2-3"><a href="#cb2-3" aria-hidden="true" tabindex="-1"></a><span class="co">-- cluster table</span></span>
-<span id="cb2-4"><a href="#cb2-4" aria-hidden="true" tabindex="-1"></a><span class="kw">CLUSTER</span> pull_requests <span class="kw">USING</span> pull_requests_repository_id</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div></li>
-</ul></li>
+<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb3"><pre class="sourceCode sql code-with-copy"><code class="sourceCode sql"><span id="cb3-1"><a href="#cb3-1" aria-hidden="true" tabindex="-1"></a><span class="co">-- create index</span></span>
+<span id="cb3-2"><a href="#cb3-2" aria-hidden="true" tabindex="-1"></a><span class="kw">CREATE</span> <span class="kw">INDEX</span> pull_requests_repository_id <span class="kw">ON</span> pull_requests (repository_id, <span class="dt">number</span>)</span>
+<span id="cb3-3"><a href="#cb3-3" aria-hidden="true" tabindex="-1"></a><span class="co">-- cluster table</span></span>
+<span id="cb3-4"><a href="#cb3-4" aria-hidden="true" tabindex="-1"></a><span class="kw">CLUSTER</span> pull_requests <span class="kw">USING</span> pull_requests_repository_id</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div></li>
 </ul></li>
 <li><p>Useful for queries such as</p>
-<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb3"><pre class="sourceCode sql code-with-copy"><code class="sourceCode sql"><span id="cb3-1"><a href="#cb3-1" aria-hidden="true" tabindex="-1"></a><span class="kw">SELECT</span> <span class="op">*</span></span>
-<span id="cb3-2"><a href="#cb3-2" aria-hidden="true" tabindex="-1"></a><span class="kw">FROM</span> pull_requests</span>
-<span id="cb3-3"><a href="#cb3-3" aria-hidden="true" tabindex="-1"></a><span class="kw">WHERE</span> repository_id <span class="kw">IN</span> (<span class="op">..</span>.) <span class="kw">AND</span> <span class="dt">number</span> <span class="op">&gt;</span> <span class="dv">1000</span></span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div></li>
+<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb4"><pre class="sourceCode sql code-with-copy"><code class="sourceCode sql"><span id="cb4-1"><a href="#cb4-1" aria-hidden="true" tabindex="-1"></a><span class="kw">SELECT</span> <span class="op">*</span></span>
+<span id="cb4-2"><a href="#cb4-2" aria-hidden="true" tabindex="-1"></a><span class="kw">FROM</span> pull_requests</span>
+<span id="cb4-3"><a href="#cb4-3" aria-hidden="true" tabindex="-1"></a><span class="kw">WHERE</span> repository_id <span class="kw">IN</span> (<span class="op">..</span>.) <span class="kw">AND</span> <span class="dt">number</span> <span class="op">&gt;</span> <span class="dv">1000</span></span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div></li>
 <li><p>Best Pactices</p>
 <ul>
 <li>Avoid too many indexes
@@ -2490,12 +2550,12 @@ gtag('config', 'G-5J13QCM7YC', { 'anonymize_ip': true});
 <li><p>Makes effective use of the index-only scan feature</p></li>
 <li><p>Add <code>INCLUDE</code> to the create index expression</p></li>
 <li><p><span class="ribbon-highlight">Example</span></p>
-<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb4"><pre class="sourceCode sql code-with-copy"><code class="sourceCode sql"><span id="cb4-1"><a href="#cb4-1" aria-hidden="true" tabindex="-1"></a><span class="co">-- query</span></span>
-<span id="cb4-2"><a href="#cb4-2" aria-hidden="true" tabindex="-1"></a><span class="kw">SELECT</span> y <span class="kw">FROM</span> tab <span class="kw">WHERE</span> x <span class="op">=</span> <span class="st">'key'</span>;</span>
-<span id="cb4-3"><a href="#cb4-3" aria-hidden="true" tabindex="-1"></a><span class="co">-- covering index, x</span></span>
-<span id="cb4-4"><a href="#cb4-4" aria-hidden="true" tabindex="-1"></a><span class="kw">CREATE</span> <span class="kw">INDEX</span> tab_x_y <span class="kw">ON</span> tab(x) INCLUDE (y);</span>
-<span id="cb4-5"><a href="#cb4-5" aria-hidden="true" tabindex="-1"></a><span class="co">-- if the index, x, is unique</span></span>
-<span id="cb4-6"><a href="#cb4-6" aria-hidden="true" tabindex="-1"></a><span class="kw">CREATE</span> <span class="kw">UNIQUE</span> <span class="kw">INDEX</span> tab_x_y <span class="kw">ON</span> tab(x) INCLUDE (y);</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
+<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb5"><pre class="sourceCode sql code-with-copy"><code class="sourceCode sql"><span id="cb5-1"><a href="#cb5-1" aria-hidden="true" tabindex="-1"></a><span class="co">-- query</span></span>
+<span id="cb5-2"><a href="#cb5-2" aria-hidden="true" tabindex="-1"></a><span class="kw">SELECT</span> y <span class="kw">FROM</span> tab <span class="kw">WHERE</span> x <span class="op">=</span> <span class="st">'key'</span>;</span>
+<span id="cb5-3"><a href="#cb5-3" aria-hidden="true" tabindex="-1"></a><span class="co">-- covering index, x</span></span>
+<span id="cb5-4"><a href="#cb5-4" aria-hidden="true" tabindex="-1"></a><span class="kw">CREATE</span> <span class="kw">INDEX</span> tab_x_y <span class="kw">ON</span> tab(x) INCLUDE (y);</span>
+<span id="cb5-5"><a href="#cb5-5" aria-hidden="true" tabindex="-1"></a><span class="co">-- if the index, x, is unique</span></span>
+<span id="cb5-6"><a href="#cb5-6" aria-hidden="true" tabindex="-1"></a><span class="kw">CREATE</span> <span class="kw">UNIQUE</span> <span class="kw">INDEX</span> tab_x_y <span class="kw">ON</span> tab(x) INCLUDE (y);</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
 <ul>
 <li><span class="var-text">y</span> is called a non-payload column
 <ul>
@@ -2503,10 +2563,10 @@ gtag('config', 'G-5J13QCM7YC', { 'anonymize_ip': true});
 </ul></li>
 </ul></li>
 <li><p><span class="ribbon-highlight">Example</span>: Query with function</p>
-<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb5"><pre class="sourceCode sql code-with-copy"><code class="sourceCode sql"><span id="cb5-1"><a href="#cb5-1" aria-hidden="true" tabindex="-1"></a><span class="co">-- query</span></span>
-<span id="cb5-2"><a href="#cb5-2" aria-hidden="true" tabindex="-1"></a><span class="kw">SELECT</span> f(x) <span class="kw">FROM</span> tab <span class="kw">WHERE</span> f(x) <span class="op">&lt;</span> <span class="dv">1</span>;</span>
-<span id="cb5-3"><a href="#cb5-3" aria-hidden="true" tabindex="-1"></a><span class="co">-- covering index, x</span></span>
-<span id="cb5-4"><a href="#cb5-4" aria-hidden="true" tabindex="-1"></a><span class="kw">CREATE</span> <span class="kw">INDEX</span> tab_f_x <span class="kw">ON</span> tab (f(x)) INCLUDE (x);</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
+<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb6"><pre class="sourceCode sql code-with-copy"><code class="sourceCode sql"><span id="cb6-1"><a href="#cb6-1" aria-hidden="true" tabindex="-1"></a><span class="co">-- query</span></span>
+<span id="cb6-2"><a href="#cb6-2" aria-hidden="true" tabindex="-1"></a><span class="kw">SELECT</span> f(x) <span class="kw">FROM</span> tab <span class="kw">WHERE</span> f(x) <span class="op">&lt;</span> <span class="dv">1</span>;</span>
+<span id="cb6-3"><a href="#cb6-3" aria-hidden="true" tabindex="-1"></a><span class="co">-- covering index, x</span></span>
+<span id="cb6-4"><a href="#cb6-4" aria-hidden="true" tabindex="-1"></a><span class="kw">CREATE</span> <span class="kw">INDEX</span> tab_f_x <span class="kw">ON</span> tab (f(x)) INCLUDE (x);</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
 <ul>
 <li>Where <span class="arg-text">f()</span> can be MEAN, MEDIAN, etc.</li>
 </ul></li>
@@ -2535,7 +2595,8 @@ gtag('config', 'G-5J13QCM7YC', { 'anonymize_ip': true});
 <li>Then prune the partitions (<strong>partition pruning</strong>) you don’t need and create indexes for the partitioned tables you do keep.</li>
 </ul></li>
 </ul></li>
-<li><p>Partitioning</p>
+</ul></li>
+<li><p><u>Partitioning</u></p>
 <ul>
 <li><p>Also see <a href="../qmd/db-bigquery.html#sec-db-bigqZ-opt" style="color: green">Databases, BigQuery &gt;&gt; Optimization</a> &gt;&gt; Partition and Cluster</p></li>
 <li><p>Splits your table into smaller sub-tables under the hood</p>
@@ -2584,9 +2645,9 @@ gtag('config', 'G-5J13QCM7YC', { 'anonymize_ip': true});
 </ul></li>
 <li><p>Use Random Access via http range header + sparse-hilbert index to optimize db for query searches</p></li>
 <li><p><a href="https://www.postgresql.org/docs/current/citext.html">CITEXT</a> extension makes it so you don’t have use <code>lower</code> or <code>upper</code> which are huge hits on performance (at least they are in WHERE expressions) GIN custom indexes for <code>LIKE</code> and <code>ILIKE</code></p>
-<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb6"><pre class="sourceCode sql code-with-copy"><code class="sourceCode sql"><span id="cb6-1"><a href="#cb6-1" aria-hidden="true" tabindex="-1"></a><span class="kw">CREATE</span> EXTENSION <span class="cf">IF</span> <span class="kw">NOT</span> <span class="kw">EXISTS</span> btree_gin;</span>
-<span id="cb6-2"><a href="#cb6-2" aria-hidden="true" tabindex="-1"></a><span class="kw">CREATE</span> EXTENSION <span class="cf">IF</span> <span class="kw">NOT</span> <span class="kw">EXISTS</span> pg_trgm;</span>
-<span id="cb6-3"><a href="#cb6-3" aria-hidden="true" tabindex="-1"></a><span class="kw">CREATE</span> <span class="kw">INDEX</span> index_users_on_email_gin <span class="kw">ON</span> users <span class="kw">USING</span> gin (email gin_trgm_ops);</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
+<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb7"><pre class="sourceCode sql code-with-copy"><code class="sourceCode sql"><span id="cb7-1"><a href="#cb7-1" aria-hidden="true" tabindex="-1"></a><span class="kw">CREATE</span> EXTENSION <span class="cf">IF</span> <span class="kw">NOT</span> <span class="kw">EXISTS</span> btree_gin;</span>
+<span id="cb7-2"><a href="#cb7-2" aria-hidden="true" tabindex="-1"></a><span class="kw">CREATE</span> EXTENSION <span class="cf">IF</span> <span class="kw">NOT</span> <span class="kw">EXISTS</span> pg_trgm;</span>
+<span id="cb7-3"><a href="#cb7-3" aria-hidden="true" tabindex="-1"></a><span class="kw">CREATE</span> <span class="kw">INDEX</span> index_users_on_email_gin <span class="kw">ON</span> users <span class="kw">USING</span> gin (email gin_trgm_ops);</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
 <ul>
 <li><code>CREATE EXTENSION</code> adds btree and pg_trgm extensions</li>
 <li><span class="var-text">index_users_on_email_gin</span> is the name of the index</li>
@@ -2602,7 +2663,7 @@ gtag('config', 'G-5J13QCM7YC', { 'anonymize_ip': true});
 <li><a href="https://www.postgresql.org/docs/9.1/textsearch-indexes.html">GiST</a> indexes are very good for dynamic data and fast if the number of unique words (lexemes) is under 100,000, while GIN indexes will handle 100,000+ lexemes better but are slower to update.</li>
 </ul></li>
 </ul></li>
-<li><p><code>NULLS LAST</code>puts the NULLS in a field in any sorting operations at the end</p>
+<li><p><code>NULLS LAST</code> puts the NULLS in a field in any sorting operations at the end</p>
 <ul>
 <li><p>The default behavior of <code>ORDER BY</code> will put the NULLS first, so if you use <code>LIMIT</code> , you might get back a bunch of NULLS.</p></li>
 <li><p>Using NULLS LAST fixes this behavior but its slow even on an indexed column</p>
@@ -2610,22 +2671,22 @@ gtag('config', 'G-5J13QCM7YC', { 'anonymize_ip': true});
 <li><span class="ribbon-highlight">Example</span>: <code>ORDER BY email DESC NULLS LAST LIMIT 10</code></li>
 </ul></li>
 <li><p>Instead use two queries</p>
-<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb7"><pre class="sourceCode sql code-with-copy"><code class="sourceCode sql"><span id="cb7-1"><a href="#cb7-1" aria-hidden="true" tabindex="-1"></a><span class="kw">SELECT</span> <span class="op">*</span></span>
-<span id="cb7-2"><a href="#cb7-2" aria-hidden="true" tabindex="-1"></a><span class="kw">FROM</span> users</span>
-<span id="cb7-3"><a href="#cb7-3" aria-hidden="true" tabindex="-1"></a><span class="kw">ORDER</span> <span class="kw">BY</span> email <span class="kw">DESC</span></span>
-<span id="cb7-4"><a href="#cb7-4" aria-hidden="true" tabindex="-1"></a><span class="kw">WHERE</span> email <span class="kw">IS</span> <span class="kw">NOT</span> <span class="kw">NULL</span> <span class="kw">LIMIT</span> <span class="dv">10</span>;</span>
-<span id="cb7-5"><a href="#cb7-5" aria-hidden="true" tabindex="-1"></a></span>
-<span id="cb7-6"><a href="#cb7-6" aria-hidden="true" tabindex="-1"></a><span class="kw">SELECT</span> <span class="op">*</span></span>
-<span id="cb7-7"><a href="#cb7-7" aria-hidden="true" tabindex="-1"></a><span class="kw">FROM</span> users</span>
-<span id="cb7-8"><a href="#cb7-8" aria-hidden="true" tabindex="-1"></a><span class="kw">WHERE</span> email <span class="kw">IS</span> <span class="kw">NULL</span> <span class="kw">LIMIT</span> <span class="dv">10</span>;</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
+<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb8"><pre class="sourceCode sql code-with-copy"><code class="sourceCode sql"><span id="cb8-1"><a href="#cb8-1" aria-hidden="true" tabindex="-1"></a><span class="kw">SELECT</span> <span class="op">*</span></span>
+<span id="cb8-2"><a href="#cb8-2" aria-hidden="true" tabindex="-1"></a><span class="kw">FROM</span> users</span>
+<span id="cb8-3"><a href="#cb8-3" aria-hidden="true" tabindex="-1"></a><span class="kw">ORDER</span> <span class="kw">BY</span> email <span class="kw">DESC</span></span>
+<span id="cb8-4"><a href="#cb8-4" aria-hidden="true" tabindex="-1"></a><span class="kw">WHERE</span> email <span class="kw">IS</span> <span class="kw">NOT</span> <span class="kw">NULL</span> <span class="kw">LIMIT</span> <span class="dv">10</span>;</span>
+<span id="cb8-5"><a href="#cb8-5" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb8-6"><a href="#cb8-6" aria-hidden="true" tabindex="-1"></a><span class="kw">SELECT</span> <span class="op">*</span></span>
+<span id="cb8-7"><a href="#cb8-7" aria-hidden="true" tabindex="-1"></a><span class="kw">FROM</span> users</span>
+<span id="cb8-8"><a href="#cb8-8" aria-hidden="true" tabindex="-1"></a><span class="kw">WHERE</span> email <span class="kw">IS</span> <span class="kw">NULL</span> <span class="kw">LIMIT</span> <span class="dv">10</span>;</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
 <ul>
 <li>The first one would fetch the sorted non-null values. If the result does not satisfy the LIMIT, another query fetches remaining rows with NULL values.</li>
 </ul></li>
 </ul></li>
 <li><p>Rebuild Null Indexes</p>
-<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb8"><pre class="sourceCode sql code-with-copy"><code class="sourceCode sql"><span id="cb8-1"><a href="#cb8-1" aria-hidden="true" tabindex="-1"></a><span class="kw">DROP</span> <span class="kw">INDEX</span> CONCURRENTLY users_reset_token_ix;</span>
-<span id="cb8-2"><a href="#cb8-2" aria-hidden="true" tabindex="-1"></a><span class="kw">CREATE</span> <span class="kw">INDEX</span> CONCURRENTLY users_reset_token_ix <span class="kw">ON</span> users(reset_token)</span>
-<span id="cb8-3"><a href="#cb8-3" aria-hidden="true" tabindex="-1"></a><span class="kw">WHERE</span> reset_token <span class="kw">IS</span> <span class="kw">NOT</span> <span class="kw">NULL</span>;</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
+<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb9"><pre class="sourceCode sql code-with-copy"><code class="sourceCode sql"><span id="cb9-1"><a href="#cb9-1" aria-hidden="true" tabindex="-1"></a><span class="kw">DROP</span> <span class="kw">INDEX</span> CONCURRENTLY users_reset_token_ix;</span>
+<span id="cb9-2"><a href="#cb9-2" aria-hidden="true" tabindex="-1"></a><span class="kw">CREATE</span> <span class="kw">INDEX</span> CONCURRENTLY users_reset_token_ix <span class="kw">ON</span> users(reset_token)</span>
+<span id="cb9-3"><a href="#cb9-3" aria-hidden="true" tabindex="-1"></a><span class="kw">WHERE</span> reset_token <span class="kw">IS</span> <span class="kw">NOT</span> <span class="kw">NULL</span>;</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
 <ul>
 <li>Drops and rebuilds an index to only include NOT NULL rows</li>
 <li><span class="var-text">users_reset_token_ix</span> is the name of the index</li>
@@ -2639,15 +2700,15 @@ gtag('config', 'G-5J13QCM7YC', { 'anonymize_ip': true});
 <li>For large db updates, add batching
 <ul>
 <li><p><span class="ribbon-highlight">Example</span>: db update has a 100K rows, so update 10K at a time.</p>
-<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb9"><pre class="sourceCode sql code-with-copy"><code class="sourceCode sql"><span id="cb9-1"><a href="#cb9-1" aria-hidden="true" tabindex="-1"></a><span class="kw">UPDATE</span> messages <span class="kw">SET</span> status <span class="op">=</span> <span class="st">'archived'</span></span>
-<span id="cb9-2"><a href="#cb9-2" aria-hidden="true" tabindex="-1"></a>&nbsp; <span class="kw">WHERE</span> <span class="kw">id</span> <span class="kw">IN</span></span>
-<span id="cb9-3"><a href="#cb9-3" aria-hidden="true" tabindex="-1"></a>&nbsp; (<span class="kw">SELECT</span> <span class="kw">ID</span> <span class="kw">FROM</span> messages <span class="kw">ORDER</span> <span class="kw">BY</span> <span class="kw">ID</span> <span class="kw">LIMIT</span> <span class="dv">10000</span> OFFSET <span class="dv">0</span>);</span>
-<span id="cb9-4"><a href="#cb9-4" aria-hidden="true" tabindex="-1"></a><span class="kw">UPDATE</span> messages <span class="kw">SET</span> status <span class="op">=</span> <span class="st">'archived'</span></span>
-<span id="cb9-5"><a href="#cb9-5" aria-hidden="true" tabindex="-1"></a>&nbsp; <span class="kw">WHERE</span> <span class="kw">id</span> <span class="kw">IN</span></span>
-<span id="cb9-6"><a href="#cb9-6" aria-hidden="true" tabindex="-1"></a>&nbsp; (<span class="kw">SELECT</span> <span class="kw">ID</span> <span class="kw">FROM</span> messages <span class="kw">ORDER</span> <span class="kw">BY</span> <span class="kw">ID</span> <span class="kw">LIMIT</span> <span class="dv">10000</span> OFFSET <span class="dv">10000</span>);</span>
-<span id="cb9-7"><a href="#cb9-7" aria-hidden="true" tabindex="-1"></a><span class="kw">UPDATE</span> messages <span class="kw">SET</span> status <span class="op">=</span> <span class="st">'archived'</span></span>
-<span id="cb9-8"><a href="#cb9-8" aria-hidden="true" tabindex="-1"></a>&nbsp; <span class="kw">WHERE</span> <span class="kw">id</span> <span class="kw">IN</span></span>
-<span id="cb9-9"><a href="#cb9-9" aria-hidden="true" tabindex="-1"></a>&nbsp; (<span class="kw">SELECT</span> <span class="kw">ID</span> <span class="kw">FROM</span> messages <span class="kw">ORDER</span> <span class="kw">BY</span> <span class="kw">ID</span> <span class="kw">LIMIT</span> <span class="dv">10000</span> OFFSET <span class="dv">20000</span>);</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
+<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb10"><pre class="sourceCode sql code-with-copy"><code class="sourceCode sql"><span id="cb10-1"><a href="#cb10-1" aria-hidden="true" tabindex="-1"></a><span class="kw">UPDATE</span> messages <span class="kw">SET</span> status <span class="op">=</span> <span class="st">'archived'</span></span>
+<span id="cb10-2"><a href="#cb10-2" aria-hidden="true" tabindex="-1"></a>&nbsp; <span class="kw">WHERE</span> <span class="kw">id</span> <span class="kw">IN</span></span>
+<span id="cb10-3"><a href="#cb10-3" aria-hidden="true" tabindex="-1"></a>&nbsp; (<span class="kw">SELECT</span> <span class="kw">ID</span> <span class="kw">FROM</span> messages <span class="kw">ORDER</span> <span class="kw">BY</span> <span class="kw">ID</span> <span class="kw">LIMIT</span> <span class="dv">10000</span> OFFSET <span class="dv">0</span>);</span>
+<span id="cb10-4"><a href="#cb10-4" aria-hidden="true" tabindex="-1"></a><span class="kw">UPDATE</span> messages <span class="kw">SET</span> status <span class="op">=</span> <span class="st">'archived'</span></span>
+<span id="cb10-5"><a href="#cb10-5" aria-hidden="true" tabindex="-1"></a>&nbsp; <span class="kw">WHERE</span> <span class="kw">id</span> <span class="kw">IN</span></span>
+<span id="cb10-6"><a href="#cb10-6" aria-hidden="true" tabindex="-1"></a>&nbsp; (<span class="kw">SELECT</span> <span class="kw">ID</span> <span class="kw">FROM</span> messages <span class="kw">ORDER</span> <span class="kw">BY</span> <span class="kw">ID</span> <span class="kw">LIMIT</span> <span class="dv">10000</span> OFFSET <span class="dv">10000</span>);</span>
+<span id="cb10-7"><a href="#cb10-7" aria-hidden="true" tabindex="-1"></a><span class="kw">UPDATE</span> messages <span class="kw">SET</span> status <span class="op">=</span> <span class="st">'archived'</span></span>
+<span id="cb10-8"><a href="#cb10-8" aria-hidden="true" tabindex="-1"></a>&nbsp; <span class="kw">WHERE</span> <span class="kw">id</span> <span class="kw">IN</span></span>
+<span id="cb10-9"><a href="#cb10-9" aria-hidden="true" tabindex="-1"></a>&nbsp; (<span class="kw">SELECT</span> <span class="kw">ID</span> <span class="kw">FROM</span> messages <span class="kw">ORDER</span> <span class="kw">BY</span> <span class="kw">ID</span> <span class="kw">LIMIT</span> <span class="dv">10000</span> OFFSET <span class="dv">20000</span>);</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
 <ul>
 <li><span class="var-text">messages</span> is the table name</li>
 <li>I guess <code>OFFSET</code> is what’s key here.</li>

@@ -2947,20 +2947,51 @@ gtag('config', 'G-5J13QCM7YC', { 'anonymize_ip': true});
 <span id="cb23-5"><a href="#cb23-5" aria-hidden="true" tabindex="-1"></a>&nbsp; &nbsp; <span class="op">*</span></span>
 <span id="cb23-6"><a href="#cb23-6" aria-hidden="true" tabindex="-1"></a>&nbsp; <span class="kw">FROM</span></span>
 <span id="cb23-7"><a href="#cb23-7" aria-hidden="true" tabindex="-1"></a>&nbsp; &nbsp; `datastic.stackoverflow.questions`)</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div></li>
+<li><p><span class="ribbon-highlight">Example</span>: (<a href="https://dagster.io/blog/when-and-when-not-to-optimize-data-pipelines">source</a>)</p>
+<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb24"><pre class="sourceCode sql code-with-copy"><code class="sourceCode sql"><span id="cb24-1"><a href="#cb24-1" aria-hidden="true" tabindex="-1"></a><span class="co">-- Create clustered copy of the table</span></span>
+<span id="cb24-2"><a href="#cb24-2" aria-hidden="true" tabindex="-1"></a><span class="kw">CREATE</span> <span class="kw">OR</span> <span class="kw">REPLACE</span> <span class="kw">TABLE</span> performance_demo.sales_fact_clustered</span>
+<span id="cb24-3"><a href="#cb24-3" aria-hidden="true" tabindex="-1"></a><span class="kw">CLUSTER</span> <span class="kw">BY</span> sale_date</span>
+<span id="cb24-4"><a href="#cb24-4" aria-hidden="true" tabindex="-1"></a><span class="kw">AS</span></span>
+<span id="cb24-5"><a href="#cb24-5" aria-hidden="true" tabindex="-1"></a><span class="kw">SELECT</span> <span class="op">*</span> <span class="kw">FROM</span> performance_demo.sales_fact;</span>
+<span id="cb24-6"><a href="#cb24-6" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb24-7"><a href="#cb24-7" aria-hidden="true" tabindex="-1"></a><span class="co">-- Drop old table and rename the clustered one</span></span>
+<span id="cb24-8"><a href="#cb24-8" aria-hidden="true" tabindex="-1"></a><span class="kw">DROP</span> <span class="kw">TABLE</span> performance_demo.sales_fact;</span>
+<span id="cb24-9"><a href="#cb24-9" aria-hidden="true" tabindex="-1"></a><span class="kw">ALTER</span> <span class="kw">TABLE</span> performance_demo.sales_fact_clustered <span class="kw">RENAME</span> <span class="kw">TO</span> sales_fact;</span>
+<span id="cb24-10"><a href="#cb24-10" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb24-11"><a href="#cb24-11" aria-hidden="true" tabindex="-1"></a><span class="co">-- GOOD: Same query, now leverages clustering</span></span>
+<span id="cb24-12"><a href="#cb24-12" aria-hidden="true" tabindex="-1"></a><span class="kw">SELECT</span> </span>
+<span id="cb24-13"><a href="#cb24-13" aria-hidden="true" tabindex="-1"></a>    pd.product_name,</span>
+<span id="cb24-14"><a href="#cb24-14" aria-hidden="true" tabindex="-1"></a>    <span class="fu">COUNT</span>(<span class="op">*</span>) <span class="kw">AS</span> transaction_count,</span>
+<span id="cb24-15"><a href="#cb24-15" aria-hidden="true" tabindex="-1"></a>    <span class="fu">SUM</span>(sf.sale_amount) <span class="kw">AS</span> total_revenue</span>
+<span id="cb24-16"><a href="#cb24-16" aria-hidden="true" tabindex="-1"></a><span class="kw">FROM</span> performance_demo.sales_fact sf</span>
+<span id="cb24-17"><a href="#cb24-17" aria-hidden="true" tabindex="-1"></a><span class="kw">JOIN</span> performance_demo.product_dim pd <span class="kw">ON</span> sf.product_id <span class="op">=</span> pd.product_id</span>
+<span id="cb24-18"><a href="#cb24-18" aria-hidden="true" tabindex="-1"></a><span class="kw">WHERE</span> sf.sale_date <span class="op">&gt;=</span> <span class="st">'2020-01-01'</span>  <span class="co">-- Clustering helps skip irrelevant clusters</span></span>
+<span id="cb24-19"><a href="#cb24-19" aria-hidden="true" tabindex="-1"></a>  <span class="kw">AND</span> sf.region_id <span class="op">=</span> <span class="dv">5</span></span>
+<span id="cb24-20"><a href="#cb24-20" aria-hidden="true" tabindex="-1"></a><span class="kw">GROUP</span> <span class="kw">BY</span> pd.product_name;</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
+<ul>
+<li>Without clustering, WHERE filters after scanning all 10M rows</li>
+<li>On a BigQuery instance
+<ul>
+<li>Bytes processed: ~200-300 MB (only scans relevant clusters, vs 400-600 MB before)</li>
+<li>Rows read: ~8 million rows (only the date range, vs 10M before)</li>
+<li>Slot time: Much lower (cluster pruning active)</li>
+<li>Execution time: ~30-60 seconds</li>
+</ul></li>
+</ul></li>
 </ul></li>
 <li><u>Partition and Cluster</u>
 <ul>
 <li><p><span class="ribbon-highlight">Example</span></p>
-<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb24"><pre class="sourceCode sql code-with-copy"><code class="sourceCode sql"><span id="cb24-1"><a href="#cb24-1" aria-hidden="true" tabindex="-1"></a><span class="kw">CREATE</span> <span class="kw">OR</span> <span class="kw">REPLACE</span> <span class="kw">TABLE</span></span>
-<span id="cb24-2"><a href="#cb24-2" aria-hidden="true" tabindex="-1"></a>&nbsp; `datastic.stackoverflow.questions_partitioned_clustered`</span>
-<span id="cb24-3"><a href="#cb24-3" aria-hidden="true" tabindex="-1"></a><span class="kw">PARTITION</span> <span class="kw">BY</span></span>
-<span id="cb24-4"><a href="#cb24-4" aria-hidden="true" tabindex="-1"></a>&nbsp; DATE_TRUNC(creation_date,<span class="dt">MONTH</span>)</span>
-<span id="cb24-5"><a href="#cb24-5" aria-hidden="true" tabindex="-1"></a><span class="kw">CLUSTER</span> <span class="kw">BY</span></span>
-<span id="cb24-6"><a href="#cb24-6" aria-hidden="true" tabindex="-1"></a>&nbsp; tags <span class="kw">AS</span> (</span>
-<span id="cb24-7"><a href="#cb24-7" aria-hidden="true" tabindex="-1"></a>&nbsp; <span class="kw">SELECT</span></span>
-<span id="cb24-8"><a href="#cb24-8" aria-hidden="true" tabindex="-1"></a>&nbsp; &nbsp; <span class="op">*</span></span>
-<span id="cb24-9"><a href="#cb24-9" aria-hidden="true" tabindex="-1"></a>&nbsp; <span class="kw">FROM</span></span>
-<span id="cb24-10"><a href="#cb24-10" aria-hidden="true" tabindex="-1"></a>&nbsp; &nbsp; `datastic.stackoverflow.questions`)</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div></li>
+<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb25"><pre class="sourceCode sql code-with-copy"><code class="sourceCode sql"><span id="cb25-1"><a href="#cb25-1" aria-hidden="true" tabindex="-1"></a><span class="kw">CREATE</span> <span class="kw">OR</span> <span class="kw">REPLACE</span> <span class="kw">TABLE</span></span>
+<span id="cb25-2"><a href="#cb25-2" aria-hidden="true" tabindex="-1"></a>&nbsp; `datastic.stackoverflow.questions_partitioned_clustered`</span>
+<span id="cb25-3"><a href="#cb25-3" aria-hidden="true" tabindex="-1"></a><span class="kw">PARTITION</span> <span class="kw">BY</span></span>
+<span id="cb25-4"><a href="#cb25-4" aria-hidden="true" tabindex="-1"></a>&nbsp; DATE_TRUNC(creation_date,<span class="dt">MONTH</span>)</span>
+<span id="cb25-5"><a href="#cb25-5" aria-hidden="true" tabindex="-1"></a><span class="kw">CLUSTER</span> <span class="kw">BY</span></span>
+<span id="cb25-6"><a href="#cb25-6" aria-hidden="true" tabindex="-1"></a>&nbsp; tags <span class="kw">AS</span> (</span>
+<span id="cb25-7"><a href="#cb25-7" aria-hidden="true" tabindex="-1"></a>&nbsp; <span class="kw">SELECT</span></span>
+<span id="cb25-8"><a href="#cb25-8" aria-hidden="true" tabindex="-1"></a>&nbsp; &nbsp; <span class="op">*</span></span>
+<span id="cb25-9"><a href="#cb25-9" aria-hidden="true" tabindex="-1"></a>&nbsp; <span class="kw">FROM</span></span>
+<span id="cb25-10"><a href="#cb25-10" aria-hidden="true" tabindex="-1"></a>&nbsp; &nbsp; `datastic.stackoverflow.questions`)</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div></li>
 </ul></li>
 </ul></li>
 <li><p><u>Use <code>ORDER BY</code> only in the outermost query or within window clauses (analytic functions)</u></p>
@@ -2983,34 +3014,34 @@ gtag('config', 'G-5J13QCM7YC', { 'anonymize_ip': true});
 </ul></li>
 <li><p>Traditionally when dealing with nested structures, we need to understand the table schema in advance, then appropriately flatten any nested data with UNNEST() before running a combination of WHERE and REGEXP clause to search for specific terms. These are all compute-intensive operators.</p></li>
 <li><p><span class="ribbon-highlight">Example</span></p>
-<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb25"><pre class="sourceCode sql code-with-copy"><code class="sourceCode sql"><span id="cb25-1"><a href="#cb25-1" aria-hidden="true" tabindex="-1"></a><span class="co">-- old way</span></span>
-<span id="cb25-2"><a href="#cb25-2" aria-hidden="true" tabindex="-1"></a><span class="kw">SELECT</span></span>
-<span id="cb25-3"><a href="#cb25-3" aria-hidden="true" tabindex="-1"></a>&nbsp; `hash`,</span>
-<span id="cb25-4"><a href="#cb25-4" aria-hidden="true" tabindex="-1"></a>&nbsp; <span class="kw">size</span>,</span>
-<span id="cb25-5"><a href="#cb25-5" aria-hidden="true" tabindex="-1"></a>&nbsp; outputs</span>
-<span id="cb25-6"><a href="#cb25-6" aria-hidden="true" tabindex="-1"></a><span class="kw">FROM</span></span>
-<span id="cb25-7"><a href="#cb25-7" aria-hidden="true" tabindex="-1"></a>&nbsp; `bigquery<span class="op">-</span><span class="kw">public</span><span class="op">-</span><span class="kw">data</span>.crypto_bitcoin.transactions`</span>
-<span id="cb25-8"><a href="#cb25-8" aria-hidden="true" tabindex="-1"></a><span class="kw">CROSS</span> <span class="kw">JOIN</span></span>
-<span id="cb25-9"><a href="#cb25-9" aria-hidden="true" tabindex="-1"></a>&nbsp; UNNEST(outputs)</span>
-<span id="cb25-10"><a href="#cb25-10" aria-hidden="true" tabindex="-1"></a><span class="kw">CROSS</span> <span class="kw">JOIN</span></span>
-<span id="cb25-11"><a href="#cb25-11" aria-hidden="true" tabindex="-1"></a>&nbsp; UNNEST(addresses) <span class="kw">AS</span> outputs_address</span>
-<span id="cb25-12"><a href="#cb25-12" aria-hidden="true" tabindex="-1"></a><span class="kw">WHERE</span></span>
-<span id="cb25-13"><a href="#cb25-13" aria-hidden="true" tabindex="-1"></a>&nbsp; block_timestamp_month <span class="kw">BETWEEN</span> <span class="ot">"2009-01-01"</span> <span class="kw">AND</span> <span class="ot">"2010-12-31"</span></span>
-<span id="cb25-14"><a href="#cb25-14" aria-hidden="true" tabindex="-1"></a>&nbsp; <span class="kw">AND</span> REGEXP_CONTAINS(outputs_address, <span class="st">'1LzBzVqEeuQyjD2mRWHes3dgWrT9titxvq'</span>)</span>
-<span id="cb25-15"><a href="#cb25-15" aria-hidden="true" tabindex="-1"></a></span>
-<span id="cb25-16"><a href="#cb25-16" aria-hidden="true" tabindex="-1"></a><span class="co">-- with search()</span></span>
-<span id="cb25-17"><a href="#cb25-17" aria-hidden="true" tabindex="-1"></a><span class="kw">SELECT</span></span>
-<span id="cb25-18"><a href="#cb25-18" aria-hidden="true" tabindex="-1"></a>&nbsp; `hash`,</span>
-<span id="cb25-19"><a href="#cb25-19" aria-hidden="true" tabindex="-1"></a>&nbsp; <span class="kw">size</span>,</span>
-<span id="cb25-20"><a href="#cb25-20" aria-hidden="true" tabindex="-1"></a>&nbsp; outputs</span>
-<span id="cb25-21"><a href="#cb25-21" aria-hidden="true" tabindex="-1"></a><span class="kw">FROM</span></span>
-<span id="cb25-22"><a href="#cb25-22" aria-hidden="true" tabindex="-1"></a>&nbsp; `bigquery<span class="op">-</span><span class="kw">public</span><span class="op">-</span><span class="kw">data</span>.crypto_bitcoin.transactions`</span>
-<span id="cb25-23"><a href="#cb25-23" aria-hidden="true" tabindex="-1"></a><span class="kw">WHERE</span></span>
-<span id="cb25-24"><a href="#cb25-24" aria-hidden="true" tabindex="-1"></a>&nbsp; block_timestamp_month <span class="kw">BETWEEN</span> <span class="ot">"2009-01-01"</span> <span class="kw">AND</span> <span class="ot">"2010-12-31"</span></span>
-<span id="cb25-25"><a href="#cb25-25" aria-hidden="true" tabindex="-1"></a>&nbsp; <span class="kw">AND</span> SEARCH(outputs, ‘`<span class="dv">1</span>LzBzVqEeuQyjD2mRWHes3dgWrT9titxvq`’)</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div></li>
+<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb26"><pre class="sourceCode sql code-with-copy"><code class="sourceCode sql"><span id="cb26-1"><a href="#cb26-1" aria-hidden="true" tabindex="-1"></a><span class="co">-- old way</span></span>
+<span id="cb26-2"><a href="#cb26-2" aria-hidden="true" tabindex="-1"></a><span class="kw">SELECT</span></span>
+<span id="cb26-3"><a href="#cb26-3" aria-hidden="true" tabindex="-1"></a>&nbsp; `hash`,</span>
+<span id="cb26-4"><a href="#cb26-4" aria-hidden="true" tabindex="-1"></a>&nbsp; <span class="kw">size</span>,</span>
+<span id="cb26-5"><a href="#cb26-5" aria-hidden="true" tabindex="-1"></a>&nbsp; outputs</span>
+<span id="cb26-6"><a href="#cb26-6" aria-hidden="true" tabindex="-1"></a><span class="kw">FROM</span></span>
+<span id="cb26-7"><a href="#cb26-7" aria-hidden="true" tabindex="-1"></a>&nbsp; `bigquery<span class="op">-</span><span class="kw">public</span><span class="op">-</span><span class="kw">data</span>.crypto_bitcoin.transactions`</span>
+<span id="cb26-8"><a href="#cb26-8" aria-hidden="true" tabindex="-1"></a><span class="kw">CROSS</span> <span class="kw">JOIN</span></span>
+<span id="cb26-9"><a href="#cb26-9" aria-hidden="true" tabindex="-1"></a>&nbsp; UNNEST(outputs)</span>
+<span id="cb26-10"><a href="#cb26-10" aria-hidden="true" tabindex="-1"></a><span class="kw">CROSS</span> <span class="kw">JOIN</span></span>
+<span id="cb26-11"><a href="#cb26-11" aria-hidden="true" tabindex="-1"></a>&nbsp; UNNEST(addresses) <span class="kw">AS</span> outputs_address</span>
+<span id="cb26-12"><a href="#cb26-12" aria-hidden="true" tabindex="-1"></a><span class="kw">WHERE</span></span>
+<span id="cb26-13"><a href="#cb26-13" aria-hidden="true" tabindex="-1"></a>&nbsp; block_timestamp_month <span class="kw">BETWEEN</span> <span class="ot">"2009-01-01"</span> <span class="kw">AND</span> <span class="ot">"2010-12-31"</span></span>
+<span id="cb26-14"><a href="#cb26-14" aria-hidden="true" tabindex="-1"></a>&nbsp; <span class="kw">AND</span> REGEXP_CONTAINS(outputs_address, <span class="st">'1LzBzVqEeuQyjD2mRWHes3dgWrT9titxvq'</span>)</span>
+<span id="cb26-15"><a href="#cb26-15" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb26-16"><a href="#cb26-16" aria-hidden="true" tabindex="-1"></a><span class="co">-- with search()</span></span>
+<span id="cb26-17"><a href="#cb26-17" aria-hidden="true" tabindex="-1"></a><span class="kw">SELECT</span></span>
+<span id="cb26-18"><a href="#cb26-18" aria-hidden="true" tabindex="-1"></a>&nbsp; `hash`,</span>
+<span id="cb26-19"><a href="#cb26-19" aria-hidden="true" tabindex="-1"></a>&nbsp; <span class="kw">size</span>,</span>
+<span id="cb26-20"><a href="#cb26-20" aria-hidden="true" tabindex="-1"></a>&nbsp; outputs</span>
+<span id="cb26-21"><a href="#cb26-21" aria-hidden="true" tabindex="-1"></a><span class="kw">FROM</span></span>
+<span id="cb26-22"><a href="#cb26-22" aria-hidden="true" tabindex="-1"></a>&nbsp; `bigquery<span class="op">-</span><span class="kw">public</span><span class="op">-</span><span class="kw">data</span>.crypto_bitcoin.transactions`</span>
+<span id="cb26-23"><a href="#cb26-23" aria-hidden="true" tabindex="-1"></a><span class="kw">WHERE</span></span>
+<span id="cb26-24"><a href="#cb26-24" aria-hidden="true" tabindex="-1"></a>&nbsp; block_timestamp_month <span class="kw">BETWEEN</span> <span class="ot">"2009-01-01"</span> <span class="kw">AND</span> <span class="ot">"2010-12-31"</span></span>
+<span id="cb26-25"><a href="#cb26-25" aria-hidden="true" tabindex="-1"></a>&nbsp; <span class="kw">AND</span> SEARCH(outputs, ‘`<span class="dv">1</span>LzBzVqEeuQyjD2mRWHes3dgWrT9titxvq`’)</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div></li>
 <li><p>Create a search index for the column to enable point-lookup text searches</p>
-<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb26"><pre class="sourceCode sql code-with-copy"><code class="sourceCode sql"><span id="cb26-1"><a href="#cb26-1" aria-hidden="true" tabindex="-1"></a># <span class="kw">To</span> <span class="kw">create</span> <span class="kw">the</span> search <span class="kw">index</span> <span class="kw">over</span> existing BQ <span class="kw">table</span></span>
-<span id="cb26-2"><a href="#cb26-2" aria-hidden="true" tabindex="-1"></a><span class="kw">CREATE</span> SEARCH <span class="kw">INDEX</span> my_logs_index <span class="kw">ON</span> my_table (my_columns);</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div></li>
+<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb27"><pre class="sourceCode sql code-with-copy"><code class="sourceCode sql"><span id="cb27-1"><a href="#cb27-1" aria-hidden="true" tabindex="-1"></a># <span class="kw">To</span> <span class="kw">create</span> <span class="kw">the</span> search <span class="kw">index</span> <span class="kw">over</span> existing BQ <span class="kw">table</span></span>
+<span id="cb27-2"><a href="#cb27-2" aria-hidden="true" tabindex="-1"></a><span class="kw">CREATE</span> SEARCH <span class="kw">INDEX</span> my_logs_index <span class="kw">ON</span> my_table (my_columns);</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div></li>
 </ul></li>
 <li><p><u>Caching</u></p>
 <ul>
@@ -3057,19 +3088,19 @@ gtag('config', 'G-5J13QCM7YC', { 'anonymize_ip': true});
 <li>BigQueryML
 <ul>
 <li><p>Syntax</p>
-<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb27"><pre class="sourceCode sql code-with-copy"><code class="sourceCode sql"><span id="cb27-1"><a href="#cb27-1" aria-hidden="true" tabindex="-1"></a><span class="kw">CREATE</span> MODEL dataset.model_name</span>
-<span id="cb27-2"><a href="#cb27-2" aria-hidden="true" tabindex="-1"></a>&nbsp; OPTIONS(model_type<span class="op">=</span>’linear_reg’, input_label_cols<span class="op">=</span>[‘input_label’])</span>
-<span id="cb27-3"><a href="#cb27-3" aria-hidden="true" tabindex="-1"></a><span class="kw">AS</span> <span class="kw">SELECT</span> <span class="op">*</span> <span class="kw">FROM</span> input_table;</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
+<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb28"><pre class="sourceCode sql code-with-copy"><code class="sourceCode sql"><span id="cb28-1"><a href="#cb28-1" aria-hidden="true" tabindex="-1"></a><span class="kw">CREATE</span> MODEL dataset.model_name</span>
+<span id="cb28-2"><a href="#cb28-2" aria-hidden="true" tabindex="-1"></a>&nbsp; OPTIONS(model_type<span class="op">=</span>’linear_reg’, input_label_cols<span class="op">=</span>[‘input_label’])</span>
+<span id="cb28-3"><a href="#cb28-3" aria-hidden="true" tabindex="-1"></a><span class="kw">AS</span> <span class="kw">SELECT</span> <span class="op">*</span> <span class="kw">FROM</span> input_table;</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
 <ul>
 <li>Make predictions with <a href="https://cloud.google.com/bigquery-ml/docs/reference/standard-sql/bigqueryml-syntax-predict">ML.PREDICT</a></li>
 </ul></li>
 <li><p><span class="ribbon-highlight">Example</span>: Logistic Regression</p>
-<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb28"><pre class="sourceCode sql code-with-copy"><code class="sourceCode sql"><span id="cb28-1"><a href="#cb28-1" aria-hidden="true" tabindex="-1"></a><span class="kw">CREATE</span> MODEL `mydata.adults_log_reg`</span>
-<span id="cb28-2"><a href="#cb28-2" aria-hidden="true" tabindex="-1"></a>OPTIONS(model_type<span class="op">=</span><span class="st">'logistic_reg'</span>) <span class="kw">AS</span></span>
-<span id="cb28-3"><a href="#cb28-3" aria-hidden="true" tabindex="-1"></a><span class="kw">SELECT</span> <span class="op">*</span>,</span>
-<span id="cb28-4"><a href="#cb28-4" aria-hidden="true" tabindex="-1"></a>&nbsp; ad.income <span class="kw">AS</span> <span class="kw">label</span></span>
-<span id="cb28-5"><a href="#cb28-5" aria-hidden="true" tabindex="-1"></a><span class="kw">FROM</span></span>
-<span id="cb28-6"><a href="#cb28-6" aria-hidden="true" tabindex="-1"></a>&nbsp; `mydata.adults_data` ad</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
+<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb29"><pre class="sourceCode sql code-with-copy"><code class="sourceCode sql"><span id="cb29-1"><a href="#cb29-1" aria-hidden="true" tabindex="-1"></a><span class="kw">CREATE</span> MODEL `mydata.adults_log_reg`</span>
+<span id="cb29-2"><a href="#cb29-2" aria-hidden="true" tabindex="-1"></a>OPTIONS(model_type<span class="op">=</span><span class="st">'logistic_reg'</span>) <span class="kw">AS</span></span>
+<span id="cb29-3"><a href="#cb29-3" aria-hidden="true" tabindex="-1"></a><span class="kw">SELECT</span> <span class="op">*</span>,</span>
+<span id="cb29-4"><a href="#cb29-4" aria-hidden="true" tabindex="-1"></a>&nbsp; ad.income <span class="kw">AS</span> <span class="kw">label</span></span>
+<span id="cb29-5"><a href="#cb29-5" aria-hidden="true" tabindex="-1"></a><span class="kw">FROM</span></span>
+<span id="cb29-6"><a href="#cb29-6" aria-hidden="true" tabindex="-1"></a>&nbsp; `mydata.adults_data` ad</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
 <ul>
 <li>Output<br>
 <img src="./_resources/Google,_BigQuery.resources/image.9.png" class="img-fluid">
