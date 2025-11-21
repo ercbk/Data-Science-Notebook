@@ -22,6 +22,7 @@
 
     -   [Modern Polars](https://kevinheavey.github.io/modern-polars/)
     -   [Polars from Python and R](https://grantmcdermott.com/duckdb-polars/polars-rpy.html)
+    -   [Awesome Polars](https://ddotta.github.io/awesome-polars/)
 
 -   Polars Cloud
 
@@ -310,8 +311,8 @@
                          return_dtype = pl.Array(pl.UInt16, 100)
             )
     ).with_columns( 
-                avg_outcome = pl.col('coin_flip').arr.mean(),
-                exp_value = pl.col('x') * pl.col('p')
+        avg_outcome = pl.col('coin_flip').arr.mean(),
+        exp_value = pl.col('x') * pl.col('p')
     )
     #> group      x   y   p       coin_flip avg_outcome exp_value
     #>   str    i64 i64 f64 array[u16, 100]         f64       f64
@@ -417,8 +418,8 @@
 
     #> shape: (1, 5)
     #> mean_age mean_performance_rating mean_performance_reviews_count  mean_salary mean_salary_increase_percentage
-    #> f64  f64 f64 f64 f64
-    #> 46.6 4.4 3.4 40000.0 10.0
+    #>      f64                     f64                            f64          f64                             f64
+    #>     46.6                     4.4                            3.4      40000.0                            10.0
     ```
 
     -   For some reason, you have to sandwich `^` and `$` around the regex in order to return those column names
@@ -475,15 +476,43 @@
         )
     )
 
-    #> group	truth
-    #>   str	  f64
-    #>   "a"	 1.0
-    #>   "b"	 0.25
+    #> group    truth
+    #>   str      f64
+    #>   "a"     1.0
+    #>   "b"     0.25
+
+    # import polars_ds as pds
+    # 
+    # df.group_by('group').agg (
+    #     auroc = pds.query_roc_auc('truth', 'mod_bst')
+    # )
     ```
 
     -   Simulates calculating AUC scores for each group of a binary classification model
     -   Each model has 8 probability predictions along with true classification label and a grouping variable
     -   [exprs]{.arg-text} specifies columns for the lambda function which get subsetted by indices.
+    -   [{polars-ds}]{style="color: goldenrod"} has a one-liner function for this
+
+-   [Example 5]{.ribbon-highlight}: Multiple Column Aggregation ([source](https://www.emilyriederer.com/post/py-rgo-udf/#the-generator-trick))
+
+    ``` python
+    def auroc_expressions(models): # <1>
+        for m in models:
+            yield pds.query_roc_auc('truth', m).alias(m)
+
+    # could also do: [c for c in df.columns if c[:4] == 'mod_']
+    mods = cs.expand_selector(df, cs.starts_with('mod_')) # <2> 
+
+    df.group_by('group').agg(auroc_expressions(mods)) # <3>
+    #> group	mod_bad	mod_bst	mod_rnd	mod_mix
+    #>   str	    f64	    f64	    f64	    f64
+    #>   "b"	   -0.0	    1.0	    0.5	   0.25
+    #>   "a"	   -0.0	    1.0	    0.5	   1.0
+    ```
+
+    1.  Write a wrapper function that handles the iteration and acts as a generator yielding the expression of interest (Also see [Python, General \>\> Loops \>\> Generators](python-general.qmd#sec-py-gen-loops-gen){style="color: green"})
+    2.  Obtain relevant selectors to pass into the function. Here, you can use the `cs.expand_selector` helper or any raw parsing of the column names (e.g. list comprehension)
+    3.  Pass the generator into the standard `df.group_by(...).agg(...)` flow
 
 ## Joins {#sec-py-polars-join .unnumbered}
 
@@ -846,6 +875,37 @@
     #> 6 Carlos       20 20-8705991
     ```
     :::
+
+-   [Example]{.ribbon-highlight}: Split Dataframe and Loop
+
+    ``` python
+    dfs = df.partition_by('group', as_dict = True, include_key = True)
+    for k,v in dfs.items():
+        print(f"{k}  : {v}")
+    #> ('a',)  : shape: (4, 6)
+    #> ┌───────┬───────┬─────────┬─────────┬─────────┬─────────┐
+    #> │ group ┆ truth ┆ mod_bad ┆ mod_bst ┆ mod_rnd ┆ mod_mix │
+    #> │ ---   ┆ ---   ┆ ---     ┆ ---     ┆ ---     ┆ ---     │
+    #> │ str   ┆ i64   ┆ f64     ┆ f64     ┆ f64     ┆ f64     │
+    #> ╞═══════╪═══════╪═════════╪═════════╪═════════╪═════════╡
+    #> │ a     ┆ 1     ┆ 0.25    ┆ 0.99    ┆ 0.5     ┆ 0.99    │
+    #> │ a     ┆ 1     ┆ 0.25    ┆ 0.75    ┆ 0.5     ┆ 0.75    │
+    #> │ a     ┆ 0     ┆ 0.75    ┆ 0.25    ┆ 0.5     ┆ 0.25    │
+    #> │ a     ┆ 0     ┆ 0.75    ┆ 0.01    ┆ 0.5     ┆ 0.01    │
+    #> └───────┴───────┴─────────┴─────────┴─────────┴─────────┘
+    #> ('b',)  : shape: (4, 6)
+    #> ┌───────┬───────┬─────────┬─────────┬─────────┬─────────┐
+    #> │ group ┆ truth ┆ mod_bad ┆ mod_bst ┆ mod_rnd ┆ mod_mix │
+    #> │ ---   ┆ ---   ┆ ---     ┆ ---     ┆ ---     ┆ ---     │
+    #> │ str   ┆ i64   ┆ f64     ┆ f64     ┆ f64     ┆ f64     │
+    #> ╞═══════╪═══════╪═════════╪═════════╪═════════╪═════════╡
+    #> │ b     ┆ 1     ┆ 0.25    ┆ 0.99    ┆ 0.5     ┆ 0.5     │
+    #> │ b     ┆ 1     ┆ 0.25    ┆ 0.75    ┆ 0.5     ┆ 0.5     │
+    #> │ b     ┆ 0     ┆ 0.75    ┆ 0.25    ┆ 0.5     ┆ 0.5     │
+    #> │ b     ┆ 0     ┆ 0.75    ┆ 0.01    ┆ 0.5     ┆ 0.6     │
+    #> └───────┴───────┴─────────┴─────────┴─────────┴─────────┘
+
+    ```
 
 -   [Example]{.ribbon-highlight}: Lazily aggregate Delta lake files in AWS S3 ([source](https://dataengineeringcentral.substack.com/p/650gb-of-data-delta-lake-on-s3-polars))
 
