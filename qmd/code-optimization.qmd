@@ -16,7 +16,7 @@
     -   Some orchestration platforms provide monitoring for execution time, memory usage, and I/O operations for you and are flexible enough for you to add whatever asset or runtime metadata you need (e.g. [Dagster](https://dagster.io/blog/introducing-the-new-dagster-plus-ui))
 -   Memory issues often masquerade as performance issues.
     -   A function that "takes forever" is usually thrashing swap because it's trying to load 20GB into 8GB of RAM. The fix isn't faster Python, it's chunked processing or better data architecture.
--   Common less-valuable optimizations
+-   Common less-valuable optimizations ([source](https://dagster.io/blog/when-and-when-not-to-optimize-data-pipelines))
     -   String concatenation in small loops
 
         ``` python
@@ -40,6 +40,48 @@
     -   Function call overhead
 
         -   Yes, function calls have overhead. No, it doesn't matter for data pipelines. A function call costs \~100 nanoseconds. Your database query costs 500 milliseconds. Do the math.
+-   Common valuable optiimizations ([source](https://dagster.io/blog/when-and-when-not-to-optimize-data-pipelines))
+    -   Database queries
+        -   e.g. Adding an index, fixing a join, or using proper partitioning
+    -   Unnecessary data loading
+        -   Only load the data you need.
+        -   e.g. Parquets partitioned by date allow you to only read that date's parquet file. Lots of data reading functions allow you to filter rows or select columns when reading in data.
+    -   Inefficient iteration patterns
+        -   e.g. use vectorized functions wherever possible
+    -   Serialization/deserialization in tight loops
+        -   [Example]{.ribbon-highlight}: Batching and json serializers
+
+            ``` python
+            # Bad: JSON parsing in a loop for streaming data
+            for record in stream:
+                data = json.loads(record)  # Parsing overhead
+                process(data)
+
+            # Good: Batch and use faster serialization
+            batch = []
+            for record in stream:
+                batch.append(record)
+                if len(batch) >= 1000:
+                    data = orjson.loads(batch)  # Faster JSON library, batched
+                    process_batch(data)
+            ```
+    -   Retry logic without exponential backoff
+        -   See [APIs \>\> {requests}](apis.qmd#sec-apis-reqlib){style="color: green"} \>\> Rate Limiting \>\> [{tenacity}]{style="color: goldenrod"} example
+        -   Reduces API failures from 15% to \<1% by avoiding rate limit cascades. Makes pipelines more resilient to transient failures.
+    -   Memory churn from repeated allocation
+        -   [Example]{.ribbon-highlight}
+
+            ``` python
+            # Bad: Creating new objects in a hot loop
+            for i in range(1_000_000):
+                result = {}  # New dict allocation every iteration
+                result['key'] = expensive_calc(i)
+                results.append(result)
+
+            # Good: Reuse or pre-allocate
+            results = [{'key': expensive_calc(i)} for i in range(1_000_000)]
+            # Or use numpy/pandas which handle memory efficiently
+            ```
 -   A **while** loop is faster than a recursive function
 -   **ungroup** before performing calculations in mutate or summarize when that calculation doesn't need to be performed within-group (i.e. per factor level)
 -   String functions
