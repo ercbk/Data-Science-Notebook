@@ -745,19 +745,35 @@
             wait_exponential,
             retry_if_exception_type,
         )
+        import time
+        import requests
+
+        # Rate limiting: Don't exceed 100 requests/second
+        RATE_LIMIT = 100
+        MIN_INTERVAL = 1.0 / RATE_LIMIT  # 0.01 seconds between requests
 
         @retry(
             stop=stop_after_attempt(5),
             wait=wait_exponential(multiplier=1, min=1, max=60),
-            retry=retry_if_exception_type((ConnectionError, TimeoutError, HTTPError)),
+            retry=retry_if_exception_type((requests.HTTPError, ConnectionError)),
             reraise=True
         )
-
-        def fetch_from_api(url):
-            """Fetch with automatic exponential backoff on failures."""
+        def fetch_with_backoff(url, last_request_time):
+            """Fetch with rate limiting and exponential backoff."""
+            # Rate limiting: ensure minimum interval between requests
+            elapsed = time.time() - last_request_time
+            if elapsed < MIN_INTERVAL:
+                time.sleep(MIN_INTERVAL - elapsed)
+            
             response = requests.get(url, timeout=10)
             response.raise_for_status()
-            return response.json()
+            return response.json(), time.time()
+
+        # Process requests with rate limiting
+        last_request_time = 0
+        for url in api_urls:
+            data, last_request_time = fetch_with_backoff(url, last_request_time)
+            process(data)
         ```
 
         -   Backs off exponentially on failures, but add randomness (jitter) to prevent thundering herd problems.
