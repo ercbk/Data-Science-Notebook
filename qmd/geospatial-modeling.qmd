@@ -837,30 +837,35 @@
     grid_cross_brdr <- st_intersection(sf_grid_de, st_union(shp_de))
     ```
 
-    -   A grid of square cells will overlap the German border. So to get an accureate area, all cell areas must be within the border. Therefore, we need to chop of the parts of border cells that cross the border.
-    -   `st_intersect` is a binary predictate where a 1 indicates a grid cell that crosses the German bordern and 0 indicates the cell does *not* cross the border
+    -   A grid of square cells will overlap the German border. So to get an accurate area, all cell areas must be within the border. Therefore, we need to chop of the parts of border cells that cross the border.
+    -   `st_intersect` is a binary predictate where a 1 indicates a grid cell that crosses the German border and 0 indicates the cell does *not* cross the border
         -   `st_union` creates a shape (linestring) that's just the German country border (no provinces)
     -   agr needs set for `st_intersection` (See [Geospatial, Preprocessing \>\> sf \>\> Functions](geospatial-processing.qmd#sec-geo-proc-sf-funs){style="color: green"} \>\> `st_agr`)
     -   `st_intersection` creates intersection polygons of the German border grid cells (See [Geospatial, Preprocessing \>\> sf \>\> Transformations](geospatial-processing.qmd#sec-geo-proc-sf-trans){style="color: green"} \>\> Intersection \>\> Example 2) (i.e. parts of cells outside the German border get chopped off)
 
     ###### Calculate Density
 
+    ![](_resources/Geospatial-Modeling.resources/krig-ex3-dens-man-1.png){.lightbox group="krig-ex3" width="332"}
+
     ``` r
-    # calculates the cell area (10km x 10km) and inserts that area where values are 0 and not NA
-    # st_area fills a 65 x 87 matrix with the cell area value
-    # set_units sets the m^2 units attribute to the matrix in grid_de so it can be added to the area matrix
-    # results in cells where NA + area = NA; 0 + area = area
+
+    # fill (inside-border) area matrix cells with cell area (10km x 10km)
     grid_de$area <- st_area(grid_de)[[1]] + units::set_units(grid_de$values, m^2)
-    # calculates the intersection border cell areas and assigns them the border cell areas in grid_de
+    # fill (border) area matrix cells with intersection cell areas
     grid_de$area[grid_cross_brdr$ID] <- st_area(grid_cross_brdr)
+
     # calculate population density
     grid_de$pop_dens <- grid_agg_pop$Einwohner / grid_de$area
-
     # sanity check
-    sum(grid_de$pop_dens * grid_de$area, na.rm = TRUE) # verify
+    est_pop <- sum(grid_de$pop_dens * grid_de$area, na.rm = TRUE) # verify
+    est_pop
     # 80323301  [1]
-    sum(sf_pop$Einwohner, na.rm = TRUE)
+    true_pop <- sum(sf_pop$Einwohner, na.rm = TRUE)
+    true_pop
     # [1] 80324282
+    # relative error
+    (true_pop - as.numeric(est_pop)) * 100 / true_pop
+    # [1] 0.001221299
 
 
     ggplot() + 
@@ -873,7 +878,12 @@
       theme_void()
     ```
 
-    -   Thoughts
+    -   Inside Border: First the cell area (10km x 10km) is calcuated and that value is inserted where values are 0 (cells inside the German border) and not [NA]{.arg-text} (outside border)
+        -   `st_area` fills a 65 x 87 matrix with the cell area value
+        -   `set_units` sets the m^2^ units attribute to the matrix in [grid_de]{.var-text} so it can be added to the area matrix.
+        -   So now the addition of these two terms results in NA + area = NA; 0 + area = area
+    -   Border: Calculates the intersection border cell areas and assigns those area values to border cell ids in `grid_de$area`
+    -   This method produces a relative error of around 0.001% which should be good enough for most work.
 
     ###### Using Area Weighted Interpolation
 
@@ -882,17 +892,20 @@
     ```
 
     -   Redistributes the population from the source polygons (100m cells) to the target polygons (10km cells) based on the proportion of overlap
-    -   Assumes that the population within a source polygon is uniformly distributed, calculates the geometric intersection between source and target, and sums up the proportional values.
+    -   Assumes that the population within a source polygon is uniformly distributed and calculates the geometric intersection between source and target. Then, sums up the proportional values.
+    -   This method produces what's effectively a 100% accuracy although it's much more computationally intensive
+        -   No parallelization available. With my 16GB RAM desktop, it takes about 10 min for
 
     ## Universal Kriging
 
-    words
+    ###### EDA: NO~2~ vs. Population Density
+
+    ![](_resources/Geospatial-Modeling.resources/krig-ex3-no2-vs-dens-1.png){.lightbox group="krig-ex3" width="332"}
 
     ``` r
-    # grid_de is a stars object which is a list w/attr. select outputs a list w/attr. st_extract combines the values from the stars object to the locations specified by a sf object and     returns a sf dataframe.
     sf_no2_popdens <- 
       grid_de |>
-      select("pop_dens") |>
+      select(pop_dens) |>
       st_extract(sf_no2) |>
       mutate(pop_dens = as.numeric(pop_dens)) |>
       filter(!is.na(pop_dens)) |> 
@@ -900,14 +913,22 @@
       bind_cols(sf_no2) |> # strips sf class 
       st_as_sf() # adds sf class
 
-
+    # no2 vs pop dens
     ggplot(sf_no2_popdens,
            aes(x = sqrt(pop_dens),
                y = NO2)) +
       geom_point() +
       geom_smooth(formula = "y ~ x", method = "lm")
+    ```
 
+    -   [grid_de]{.var-text} is a stars object which is a list with attributes.
+    -   `st_extract` combines the values from the stars object to the locations specified by a sf object and returns a sf dataframe.
 
+    ###### Fit Variograms
+
+    ![](_resources/Geospatial-Modeling.resources/krig-ex3-vgram-1.png){.lightbox group="krig-ex3" width="332"}
+
+    ``` r
     # sample variogram
     var_samp_no2 <- 
       variogram(NO2 ~ sqrt(pop_dens), sf_no2_popdens)
@@ -918,7 +939,15 @@
     plot(x = var_samp_no2,
          model = var_mod_no2,
          plot.numbers = TRUE)
+    ```
 
+    -   Outliers at 100K and 150K meters, but otherwise the fit seems decent
+
+    ###### Fit Universal Kriging Model
+
+    ![](_resources/Geospatial-Modeling.resources/krig-ex3-krig-1.png){.lightbox group="krig-ex3" width="332"}
+
+    ``` r
     no2_krig_univ <- 
       krige(formula = NO2 ~ sqrt(pop_dens), 
             locations = sf_no2_popdens,
@@ -937,5 +966,7 @@
       theme_void()
     ```
 
-    -   Thoughts
+    -   Only rural locations were selected, so the data is geographically biased. The model doesn't having any information about NO~2~ concentrations in high population density areas, so the NO~2~ predictions for urban centers follow closely with population density estmates.
+        -   i.e. the higher the population density, the higher the predicted concentration of NO~2~.
+        -   Therefore, predictions for high population density areas shouldn't be considered reliable.
     :::
