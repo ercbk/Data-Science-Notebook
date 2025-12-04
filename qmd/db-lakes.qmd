@@ -88,6 +88,28 @@
         -   Does not coordinate data changes or schema evolution between applications in a transactionally consistent manner.
             -   Creates the necessity for data staging areas and this extra layer makes project pipelines brittle
 
+## Terms {#sec-db-lakes-term .unnumbered}
+
+-   [**Medallion Architecture**]{style="color: #009499"} - A data design pattern used to logically organize data in a lakehouse, with the goal of incrementally and progressively improving the structure and quality of data as it flows through each layer of the architecture (from Bronze ⇒ Silver ⇒ Gold layer tables). ([source](https://www.databricks.com/glossary/medallion-architecture))\
+    ![](_resources/DB,_Engineering.resources/medallion-architecture-1.png){.lightbox width="532"}
+
+    -   Also see
+        -   [Ducklake \>\> R](db-lakes.qmd#sec-db-lakes-dklk-r){style="color: green"} \>\> Example 2
+    -   Medallion architectures are sometimes also referred to as "**multi-hop**" architectures.
+    -   Compatible with the concept of a data mesh. Bronze and silver tables can be joined together in a "one-to-many" fashion, meaning that the data in a single upstream table could be used to generate multiple downstream tables
+    -   [Bronze]{.underline}: Data from external source systems.
+        -   The table structures in this layer correspond to the source system table structures "as-is," along with any additional metadata columns that capture the load date/time, process ID, etc.
+        -   The focus in this layer is quick Change Data Capture and the ability to provide an historical archive of source (cold storage), data lineage, auditability, reprocessing if needed without rereading the data from the source system.
+    -   [Silver]{.underline}: Data from the Bronze layer is matched, merged, conformed and cleansed ("just-enough") so that the Silver layer can provide an "Enterprise view" of all its key business entities, concepts and transactions. (e.g. master customers, stores, non-duplicated transactions and cross-reference tables).
+        -   Enables self-service analytics for ad-hoc reporting, advanced analytics and ML.
+        -   Only minimal or "just-enough" transformations and data cleansing rules are applied while loading the Silver layer
+            -   Has more 3rd-Normal Form like data models.
+            -   Data Vault-like where write-performant data models can be used in this layer
+    -   [Gold]{.underline}: Consumption-ready "project-specific" databases
+        -   For reporting and uses more de-normalized and read-optimized data models with fewer joins. Data quality rules are applied here.
+        -   Final presentation layer of projects such as Customer Analytics, Product Quality Analytics, Inventory Analytics, Customer Segmentation, Product Recommendations, Marking/Sales Analytics etc.
+        -   Kimball style star schema-based data models or Inmon style Data marts are often used
+
 ## Brands {#sec-db-lakes-brands .unnumbered}
 
 -   Amazon S3
@@ -300,11 +322,24 @@
     -   **Commodity file storage** - Any common platform that can act as an object store (Amazon S3, Azure Blob, Google Cloud Storage, local filesystem, etc.).
 -   Currently supports only [NOT NULL]{.arg-text} constraints.
     -   [PRIMARY KEY]{.arg-text}, [FOREIGN KEY]{.arg-text}, [UNIQUE]{.arg-text}, and [CHECK]{.arg-text} constraints are not yet implemented, though this may change as the format matures.
+-   Frozen Ducklakes
+    -   Notes from
+        -   [Frozen DuckLakes for Multi-User, Serverless Data Access](https://ducklake.select/2025/10/24/frozen-ducklake/)
+            -   Article shows an example of creating a read-only DuckDB database file and how to create new revisions of a Frozen DuckLake.
+    -   A read-only and has no moving parts other than a cloud storage system
+    -   Advantages
+        -   They have almost zero cost overhead on top of the storage of the Parquet data files.
+        -   A Frozen DuckLake can be used for public-facing data (e.g., public buckets), since there are no extra services required over cloud or HTTP file access.
+        -   They make the data immediately accessible in a SQL database with no special provisions required.
+        -   They allow data files to live in different cloud environments, while being referenced from the same Frozen DuckLake.
+    -   Versioning
+        -   Data can still be updated by creating a *new* Frozen DuckLake.
+        -   Older versions can be accessed by retaining revisions of the DuckDB database file — or by simply using [time travel](#0).
 
 ### R {#sec-db-lakes-dklk-r .unnumbered}
 
 -   Requires [{duckdb}]{style="color: #990000"} \> version 1.3.1
--   [Example]{.ribbon-highlight}: Basic Workflow
+-   [Example 1]{.ribbon-highlight}: Basic Workflow
     -   Local Set-Up
 
         ``` r
@@ -350,25 +385,27 @@
 
     -   Do Work
 
-        ``` r
-        query_sym <- "
-          SELECT contrast, COUNT(symbol) FROM my_ducklake.stats GROUP BY       contrast;
-        "
-        df_fsq <- DBI::dbGetQuery(conn, query_sym)
+        -   Example: Basic
 
-        lazy_df <- 
-          tbl(con, "stats") |>
-          dplyr::filter(symbol == "Cd34")
-        lazy_df
-        #> # Source:   SQL [?? x 9]
-        #> # Database: DuckDB v1.3.1 [root@Darwin 24.5.0:R 4.5.0/:memory:]
-        #>   study     contrast    symbol gene_id      logFC  CI.L  CI.R  P.Value adj.P.Val
-        #>   <chr>     <chr>       <chr>  <chr>        <dbl> <dbl> <dbl>    <dbl>     <dbl>
-        #> 1 Wang_2018 two_months  Cd34   ENSMUSG0000…  1.10 0.935  1.26 2.21e-14  2.23e-10
-        #> 2 Wang_2018 four_months Cd34   ENSMUSG0000…  1.99 1.81   2.18 6.75e-20  7.51e-17
-        ```
+            ``` r
+            query_sym <- "
+              SELECT contrast, COUNT(symbol) FROM my_ducklake.stats GROUP BY       contrast;
+            "
+            df_fsq <- DBI::dbGetQuery(conn, query_sym)
 
-        -   Show two ways of querying data: DBI and dbplyr
+            lazy_df <- 
+              tbl(con, "stats") |>
+              dplyr::filter(symbol == "Cd34")
+            lazy_df
+            #> # Source:   SQL [?? x 9]
+            #> # Database: DuckDB v1.3.1 [root@Darwin 24.5.0:R 4.5.0/:memory:]
+            #>   study     contrast    symbol gene_id      logFC  CI.L  CI.R  P.Value adj.P.Val
+            #>   <chr>     <chr>       <chr>  <chr>        <dbl> <dbl> <dbl>    <dbl>     <dbl>
+            #> 1 Wang_2018 two_months  Cd34   ENSMUSG0000…  1.10 0.935  1.26 2.21e-14  2.23e-10
+            #> 2 Wang_2018 four_months Cd34   ENSMUSG0000…  1.99 1.81   2.18 6.75e-20  7.51e-17
+            ```
+
+            -   Show two ways of querying data: DBI and dbplyr
 
     -   View Data Files
 
@@ -418,6 +455,125 @@
 
         -   Closing a connection does not release the locks held on the database files as the file handles are held by the main DuckDB instance, so you should DETACH before closing the connection
         -   Detaching from a default database isn't possible, so `USE memory` is required first
+-   [Example 2]{.ribbon-highlight}: Medallion Architecture ([source](https://discindo.org/posts/2025-09-20-r-ducklake/))
+    -   Set-up
+
+        ``` r
+        library("duckdb")
+
+        con <- dbConnect(duckdb(), dbdir=":memory:")
+        dbExecute(con, "INSTALL ducklake;")
+        dbExecute(con, "ATTACH 'ducklake:metadata.ducklake' AS r_ducklake;")
+        dbExecute(con, "USE r_ducklake;")
+        ```
+
+        -   Then to open in the browser UI: `duckdb -ui metadata.ducklake`
+
+    -   Create tables
+
+        ``` r
+        # Bronze: raw data
+        dbWriteTable(con, "bronze_mtcars", mtcars)
+
+        # Silver: filtered / cleaned
+        dbExecute(con, "
+          CREATE TABLE silver_mtcars AS
+          SELECT *, (mpg/mean(mpg) OVER()) AS mpg_norm
+          FROM bronze_mtcars;
+        ")
+
+        # Gold: aggregated summary
+        dbExecute(con, "
+          CREATE TABLE gold_mtcars AS
+          SELECT cyl, AVG(mpg) AS avg_mpg, AVG(mpg_norm) AS avg_mpg_norm
+          FROM silver_mtcars
+          GROUP BY cyl;
+        ")
+        ```
+
+        -   Running these queries will create this file structure
+
+            ```         
+            [metadata.ducklake.files]$ tree
+            .
+            └── main
+                ├── bronze_mtcars
+                │   └── ducklake-01996884-c393-7134-bee0-cbffb31e19c7.parquet
+                ├── gold_mtcars
+                │   └── ducklake-01996884-c3cd-7ae6-bcaa-0b69196040cb.parquet
+                └── silver_mtcars
+                    └── ducklake-01996884-c3b5-7d9d-b9f8-05e3c8377bee.parquet
+            ```
+
+    -   Create relationships between intial tables
+
+        ``` r
+        dbExecute(con, "
+        CREATE TABLE IF NOT EXISTS ducklake_lineage (
+          parent_table VARCHAR,
+          child_table  VARCHAR,
+          created_at   TIMESTAMP,
+          description  VARCHAR
+        );
+        ")
+
+        # After creating a silver table from bronze
+        dbExecute(con, "
+            INSERT INTO ducklake_lineage (parent_table, child_table, created_at, description)
+            VALUES ('bronze_mtcars', 'silver_mtcars', NOW(), 'normalization / filtering');
+        ")
+
+        # After creating gold table from silver
+        dbExecute(con, "
+            INSERT INTO ducklake_lineage (parent_table, child_table, created_at, description)
+            VALUES ('silver_mtcars', 'gold_mtcars', NOW(), 'aggregation');
+        ")
+        ```
+
+    -   Add relationships after creating more tables
+
+        ``` r
+        dbExecute(con, "
+            INSERT INTO ducklake_lineage (parent_table, child_table, created_at, description)
+            VALUES ('bronze_mtcars', 'silver_mtcars_2', NOW(), 'normalization / filtering');
+        ")
+
+        dbExecute(con, "
+            INSERT INTO ducklake_lineage (parent_table, child_table, created_at, description)
+            VALUES ('bronze_mtcars', 'silver_mtcars_3', NOW(), 'normalization / filtering');
+        ")
+
+        dbExecute(con, "
+            INSERT INTO ducklake_lineage (parent_table, child_table, created_at, description)
+            VALUES ('silver_mtcars', 'gold_mtcars_2', NOW(), 'aggregation');
+        ")
+        ```
+
+        -   This is done after creating 2 more silver tables and 1 more gold table
+
+    -   Visualize relationships\
+        ![](_resources/DB-Lakes.resources/ducklake-r-ex2-rel-1.png){.lightbox width="432"}
+
+        ``` r
+        library(igraph)
+        library(ggraph)
+
+        edges <- dbGetQuery(con, "SELECT parent_table AS from_table, child_table AS to_table FROM ducklake_lineage")
+        g <- graph_from_data_frame(edges, directed = TRUE)
+
+        ggraph(g, layout = "tree") +
+          geom_edge_diagonal(arrow = arrow(length = unit(4, 'mm')), end_cap = circle(3, 'mm')) +
+          geom_node_point(shape = 15, size = 8, color = "steelblue", fill = "lightblue") + 
+          geom_node_text(aes(label = name), vjust = -1.2, size = 4) +               
+          coord_flip() +
+          scale_y_reverse() +  
+          theme_void() +       
+          ggtitle("DuckLake Medallion Lineage")
+        ```
+
+        -   This plot could be part of a Quarto report or a Shiny app with some interactivity to keep track of the transformations that happen to the data you are managing.
+
+        -   Could be improved upon. See [Databricks Unity Catalog view](https://docs.databricks.com/aws/en/data-governance/unity-catalog/data-lineage)
 
 ### Python {#sec-db-lakes-dklk-py .unnumbered}
 
