@@ -2664,6 +2664,11 @@ Z(s) = S(s) + \epsilon
 <li><span style="color: #990000">{</span><a href="https://cran.r-project.org/web/packages/geoR/index.html" style="color: #990000">geoR</a><span style="color: #990000">}</span> (<a href="http://www.leg.ufpr.br/geoR/geoRdoc/vignette/geoRintro.pdf">Vignette</a>, <a href="http://www.leg.ufpr.br/geoR/geoRdoc/tutorials.html">Tutorials</a>) - Geostatistical analysis including variogram-based, likelihood-based, and Bayesian methods.</li>
 <li><span style="color: #990000">{</span><a href="https://cran.r-project.org/web/packages/psgp/index.html" style="color: #990000">psgp</a><span style="color: #990000">}</span> - Implements projected sparse Gaussian process Kriging</li>
 <li><span style="color: #990000">{</span><a href="https://cloud.r-project.org/web/packages/rlibkriging/index.html" style="color: #990000">rlibkriging</a><span style="color: #990000">}</span> - Interface to <a href="https://github.com/libKriging" class="uri">libKriging</a> C++ library that should provide most standard Kriging / Gaussian process regression features (like in ‘DiceKriging’, ‘kergp’ or ‘RobustGaSP’ packages).</li>
+<li><span style="color: #990000">{</span><a href="https://cran.r-project.org/web/packages/snapKrig/index.html" style="color: #990000">snapKrig</a><span style="color: #990000">}</span> - Fast Kriging and Geostatistics on Grids with Kronecker Covariance
+<ul>
+<li>Kronecker products in these models provide shortcuts for solving large matrix problems in likelihood and conditional mean, making ‘snapKrig’ computationally efficient with large grids.</li>
+<li>Package supplies its own S3 grid object class. Has a comprehensive vignette; handles sf, terra, raster objects; so it shouldn’t be too difficult to use.</li>
+</ul></li>
 </ul></li>
 <li><p>Notes from</p>
 <ul>
@@ -3279,75 +3284,187 @@ p + n &amp; \mbox{if} \; h \gt r
 <li>Border: Calculates the intersection border cell areas and assigns those area values to border cell ids in <code>grid_de$area</code></li>
 <li>This method produces a relative error of around 0.001% which should be good enough for most work.</li>
 </ul>
-<h6 id="using-area-weighted-interpolation" class="anchored">Using Area Weighted Interpolation</h6>
-<div class="sourceCode" id="cb14"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb14-1"><a href="#cb14-1" aria-hidden="true" tabindex="-1"></a><span class="co"># code</span></span></code><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></pre></div>
+<h6 id="using-area-weighted-aggregation" class="anchored">Using Area Weighted Aggregation</h6>
+<p><a href="_resources/Geospatial-Modeling.resources/krig-ex3-dens-aw-1.png" class="lightbox" data-gallery="krig-ex3"><img src="_resources/Geospatial-Modeling.resources/krig-ex3-dens-aw-1.png" class="img-fluid" width="332"></a></p>
+<div class="sourceCode" id="cb14"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb14-1"><a href="#cb14-1" aria-hidden="true" tabindex="-1"></a><span class="fu">library</span>(exactextractr); <span class="fu">library</span>(terra)</span>
+<span id="cb14-2"><a href="#cb14-2" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb14-3"><a href="#cb14-3" aria-hidden="true" tabindex="-1"></a>cell_half <span class="ot">&lt;-</span> <span class="dv">50</span></span>
+<span id="cb14-4"><a href="#cb14-4" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb14-5"><a href="#cb14-5" aria-hidden="true" tabindex="-1"></a><span class="co"># Create one template square centered at (0,0)</span></span>
+<span id="cb14-6"><a href="#cb14-6" aria-hidden="true" tabindex="-1"></a>template_square <span class="ot">&lt;-</span> <span class="fu">matrix</span>(</span>
+<span id="cb14-7"><a href="#cb14-7" aria-hidden="true" tabindex="-1"></a>  <span class="fu">c</span>(<span class="sc">-</span>cell_half, <span class="sc">-</span>cell_half,</span>
+<span id="cb14-8"><a href="#cb14-8" aria-hidden="true" tabindex="-1"></a>    cell_half, <span class="sc">-</span>cell_half,</span>
+<span id="cb14-9"><a href="#cb14-9" aria-hidden="true" tabindex="-1"></a>    cell_half,  cell_half,</span>
+<span id="cb14-10"><a href="#cb14-10" aria-hidden="true" tabindex="-1"></a>    <span class="sc">-</span>cell_half,  cell_half,</span>
+<span id="cb14-11"><a href="#cb14-11" aria-hidden="true" tabindex="-1"></a>    <span class="sc">-</span>cell_half, <span class="sc">-</span>cell_half),</span>
+<span id="cb14-12"><a href="#cb14-12" aria-hidden="true" tabindex="-1"></a>  <span class="at">ncol =</span> <span class="dv">2</span>,</span>
+<span id="cb14-13"><a href="#cb14-13" aria-hidden="true" tabindex="-1"></a>  <span class="at">byrow =</span> <span class="cn">TRUE</span></span>
+<span id="cb14-14"><a href="#cb14-14" aria-hidden="true" tabindex="-1"></a>)</span>
+<span id="cb14-15"><a href="#cb14-15" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb14-16"><a href="#cb14-16" aria-hidden="true" tabindex="-1"></a><span class="co"># Extract coordinates of points (vectorized)</span></span>
+<span id="cb14-17"><a href="#cb14-17" aria-hidden="true" tabindex="-1"></a>coords <span class="ot">&lt;-</span> <span class="fu">st_coordinates</span>(sf_pop)</span>
+<span id="cb14-18"><a href="#cb14-18" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb14-19"><a href="#cb14-19" aria-hidden="true" tabindex="-1"></a><span class="co"># For each point, add its (x,y) to the template vertices</span></span>
+<span id="cb14-20"><a href="#cb14-20" aria-hidden="true" tabindex="-1"></a><span class="co"># Create array: [n_points x 5 vertices x 2 coords]</span></span>
+<span id="cb14-21"><a href="#cb14-21" aria-hidden="true" tabindex="-1"></a>verts <span class="ot">&lt;-</span> <span class="fu">array</span>(</span>
+<span id="cb14-22"><a href="#cb14-22" aria-hidden="true" tabindex="-1"></a>  <span class="at">data =</span> <span class="fu">c</span>(</span>
+<span id="cb14-23"><a href="#cb14-23" aria-hidden="true" tabindex="-1"></a>    template_square[,<span class="dv">1</span>] <span class="sc">+</span> <span class="fu">rep</span>(coords[,<span class="dv">1</span>], <span class="at">each =</span> <span class="dv">5</span>),</span>
+<span id="cb14-24"><a href="#cb14-24" aria-hidden="true" tabindex="-1"></a>    template_square[,<span class="dv">2</span>] <span class="sc">+</span> <span class="fu">rep</span>(coords[,<span class="dv">2</span>], <span class="at">each =</span> <span class="dv">5</span>)</span>
+<span id="cb14-25"><a href="#cb14-25" aria-hidden="true" tabindex="-1"></a>  ),</span>
+<span id="cb14-26"><a href="#cb14-26" aria-hidden="true" tabindex="-1"></a>  <span class="at">dim =</span> <span class="fu">c</span>(<span class="dv">5</span>, <span class="fu">nrow</span>(coords), <span class="dv">2</span>)</span>
+<span id="cb14-27"><a href="#cb14-27" aria-hidden="true" tabindex="-1"></a>)</span>
+<span id="cb14-28"><a href="#cb14-28" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb14-29"><a href="#cb14-29" aria-hidden="true" tabindex="-1"></a><span class="co"># Build polygons (vectorized!)</span></span>
+<span id="cb14-30"><a href="#cb14-30" aria-hidden="true" tabindex="-1"></a>polys <span class="ot">&lt;-</span> <span class="fu">st_sfc</span>(</span>
+<span id="cb14-31"><a href="#cb14-31" aria-hidden="true" tabindex="-1"></a>  <span class="fu">lapply</span>(<span class="dv">1</span><span class="sc">:</span><span class="fu">nrow</span>(coords), <span class="cf">function</span>(i) <span class="fu">st_polygon</span>(<span class="fu">list</span>(verts[, i, ]))),</span>
+<span id="cb14-32"><a href="#cb14-32" aria-hidden="true" tabindex="-1"></a>  <span class="at">crs =</span> <span class="fu">st_crs</span>(sf_pop)</span>
+<span id="cb14-33"><a href="#cb14-33" aria-hidden="true" tabindex="-1"></a>)</span>
+<span id="cb14-34"><a href="#cb14-34" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb14-35"><a href="#cb14-35" aria-hidden="true" tabindex="-1"></a><span class="co"># Replace geometry efficiently</span></span>
+<span id="cb14-36"><a href="#cb14-36" aria-hidden="true" tabindex="-1"></a>sf_pop_poly <span class="ot">&lt;-</span> sf_pop</span>
+<span id="cb14-37"><a href="#cb14-37" aria-hidden="true" tabindex="-1"></a><span class="fu">st_geometry</span>(sf_pop_poly) <span class="ot">&lt;-</span> polys</span>
+<span id="cb14-38"><a href="#cb14-38" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb14-39"><a href="#cb14-39" aria-hidden="true" tabindex="-1"></a><span class="co"># derive bounding box from sf_pop_poly</span></span>
+<span id="cb14-40"><a href="#cb14-40" aria-hidden="true" tabindex="-1"></a>bb <span class="ot">&lt;-</span> <span class="fu">st_bbox</span>(sf_pop_poly)</span>
+<span id="cb14-41"><a href="#cb14-41" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb14-42"><a href="#cb14-42" aria-hidden="true" tabindex="-1"></a><span class="co"># Create 100m raster aligned to pop cells</span></span>
+<span id="cb14-43"><a href="#cb14-43" aria-hidden="true" tabindex="-1"></a>r100 <span class="ot">&lt;-</span> <span class="fu">rast</span>(</span>
+<span id="cb14-44"><a href="#cb14-44" aria-hidden="true" tabindex="-1"></a>  <span class="at">xmin =</span> bb[<span class="st">"xmin"</span>], <span class="at">xmax =</span> bb[<span class="st">"xmax"</span>],</span>
+<span id="cb14-45"><a href="#cb14-45" aria-hidden="true" tabindex="-1"></a>  <span class="at">ymin =</span> bb[<span class="st">"ymin"</span>], <span class="at">ymax =</span> bb[<span class="st">"ymax"</span>],</span>
+<span id="cb14-46"><a href="#cb14-46" aria-hidden="true" tabindex="-1"></a>  <span class="at">resolution =</span> <span class="dv">100</span>,</span>
+<span id="cb14-47"><a href="#cb14-47" aria-hidden="true" tabindex="-1"></a>  <span class="at">crs =</span> <span class="fu">st_crs</span>(sf_pop_poly)<span class="sc">$</span>wkt</span>
+<span id="cb14-48"><a href="#cb14-48" aria-hidden="true" tabindex="-1"></a>)</span>
+<span id="cb14-49"><a href="#cb14-49" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb14-50"><a href="#cb14-50" aria-hidden="true" tabindex="-1"></a>pop_r <span class="ot">&lt;-</span> <span class="fu">rasterize</span>(<span class="fu">vect</span>(sf_pop_poly), r100, <span class="at">field=</span><span class="st">"Einwohner"</span>, <span class="at">fun=</span><span class="st">"sum"</span>)</span>
+<span id="cb14-51"><a href="#cb14-51" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb14-52"><a href="#cb14-52" aria-hidden="true" tabindex="-1"></a><span class="co"># should match exactly (aside from floating-point rounding)</span></span>
+<span id="cb14-53"><a href="#cb14-53" aria-hidden="true" tabindex="-1"></a><span class="fu">global</span>(pop_r, <span class="st">"sum"</span>, <span class="at">na.rm =</span> <span class="cn">TRUE</span>)[<span class="dv">1</span>]</span>
+<span id="cb14-54"><a href="#cb14-54" aria-hidden="true" tabindex="-1"></a><span class="co">#&gt;                sum</span></span>
+<span id="cb14-55"><a href="#cb14-55" aria-hidden="true" tabindex="-1"></a><span class="co">#&gt; Einwohner 80324282</span></span>
+<span id="cb14-56"><a href="#cb14-56" aria-hidden="true" tabindex="-1"></a><span class="fu">sum</span>(sf_pop_poly<span class="sc">$</span>Einwohner)</span>
+<span id="cb14-57"><a href="#cb14-57" aria-hidden="true" tabindex="-1"></a><span class="co">#&gt; [1] 80324282</span></span>
+<span id="cb14-58"><a href="#cb14-58" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb14-59"><a href="#cb14-59" aria-hidden="true" tabindex="-1"></a>grid_sf<span class="sc">$</span>Einwohner <span class="ot">&lt;-</span> <span class="fu">exact_extract</span>(pop_r, grid_sf, <span class="st">"sum"</span>)</span>
+<span id="cb14-60"><a href="#cb14-60" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb14-61"><a href="#cb14-61" aria-hidden="true" tabindex="-1"></a><span class="fu">sum</span>(grid_sf<span class="sc">$</span>Einwohner, <span class="at">na.rm =</span> <span class="cn">TRUE</span>)</span>
+<span id="cb14-62"><a href="#cb14-62" aria-hidden="true" tabindex="-1"></a><span class="co">#&gt; [1] 80324279</span></span>
+<span id="cb14-63"><a href="#cb14-63" aria-hidden="true" tabindex="-1"></a><span class="fu">sum</span>(sf_pop_poly<span class="sc">$</span>Einwohner, <span class="at">na.rm =</span> <span class="cn">TRUE</span>)</span>
+<span id="cb14-64"><a href="#cb14-64" aria-hidden="true" tabindex="-1"></a><span class="co">#&gt; [1] 80324282</span></span>
+<span id="cb14-65"><a href="#cb14-65" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb14-66"><a href="#cb14-66" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb14-67"><a href="#cb14-67" aria-hidden="true" tabindex="-1"></a><span class="co"># area in km²</span></span>
+<span id="cb14-68"><a href="#cb14-68" aria-hidden="true" tabindex="-1"></a>grid_sf<span class="sc">$</span>area_km2 <span class="ot">&lt;-</span> units<span class="sc">::</span><span class="fu">set_units</span>(<span class="fu">st_area</span>(grid_sf), <span class="st">"km^2"</span>) <span class="sc">|&gt;</span> units<span class="sc">::</span><span class="fu">drop_units</span>()</span>
+<span id="cb14-69"><a href="#cb14-69" aria-hidden="true" tabindex="-1"></a>grid_sf<span class="sc">$</span>pop_dens <span class="ot">&lt;-</span> grid_sf<span class="sc">$</span>Einwohner <span class="sc">/</span> grid_sf<span class="sc">$</span>area_km2</span>
+<span id="cb14-70"><a href="#cb14-70" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb14-71"><a href="#cb14-71" aria-hidden="true" tabindex="-1"></a><span class="co"># 1. Assign the calculated density back to the original stars object</span></span>
+<span id="cb14-72"><a href="#cb14-72" aria-hidden="true" tabindex="-1"></a><span class="co"># (This works because grid_sf was created from grid_de with na.rm=FALSE, so the cell order matches)</span></span>
+<span id="cb14-73"><a href="#cb14-73" aria-hidden="true" tabindex="-1"></a>grid_de<span class="sc">$</span>pop_dens <span class="ot">&lt;-</span> grid_sf<span class="sc">$</span>pop_dens</span>
+<span id="cb14-74"><a href="#cb14-74" aria-hidden="true" tabindex="-1"></a>grid_masked <span class="ot">&lt;-</span> grid_de[shp_de]</span>
+<span id="cb14-75"><a href="#cb14-75" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb14-76"><a href="#cb14-76" aria-hidden="true" tabindex="-1"></a><span class="co"># 2. Plot the stars object directly</span></span>
+<span id="cb14-77"><a href="#cb14-77" aria-hidden="true" tabindex="-1"></a><span class="fu">ggplot</span>() <span class="sc">+</span></span>
+<span id="cb14-78"><a href="#cb14-78" aria-hidden="true" tabindex="-1"></a>  <span class="fu">geom_stars</span>(<span class="at">data =</span> grid_masked, <span class="fu">aes</span>(<span class="at">fill =</span> pop_dens)) <span class="sc">+</span> </span>
+<span id="cb14-79"><a href="#cb14-79" aria-hidden="true" tabindex="-1"></a>  <span class="fu">geom_sf</span>(<span class="at">data =</span> shp_de, <span class="at">fill =</span> <span class="cn">NA</span>, <span class="at">color =</span> <span class="st">"black"</span>, <span class="at">linewidth =</span> <span class="fl">0.5</span>) <span class="sc">+</span></span>
+<span id="cb14-80"><a href="#cb14-80" aria-hidden="true" tabindex="-1"></a>  <span class="fu">scale_fill_viridis_c</span>(</span>
+<span id="cb14-81"><a href="#cb14-81" aria-hidden="true" tabindex="-1"></a>    <span class="at">name =</span> <span class="st">"Population density</span><span class="sc">\n</span><span class="st">(people per km²)"</span>,</span>
+<span id="cb14-82"><a href="#cb14-82" aria-hidden="true" tabindex="-1"></a>    <span class="at">trans =</span> <span class="st">"sqrt"</span>,</span>
+<span id="cb14-83"><a href="#cb14-83" aria-hidden="true" tabindex="-1"></a>    <span class="at">na.value =</span> <span class="st">"transparent"</span></span>
+<span id="cb14-84"><a href="#cb14-84" aria-hidden="true" tabindex="-1"></a>  ) <span class="sc">+</span></span>
+<span id="cb14-85"><a href="#cb14-85" aria-hidden="true" tabindex="-1"></a>  <span class="fu">coord_sf</span>() <span class="sc">+</span></span>
+<span id="cb14-86"><a href="#cb14-86" aria-hidden="true" tabindex="-1"></a>  <span class="fu">theme_void</span>(<span class="at">base_size =</span> <span class="dv">14</span>) <span class="sc">+</span></span>
+<span id="cb14-87"><a href="#cb14-87" aria-hidden="true" tabindex="-1"></a>  <span class="fu">labs</span>(</span>
+<span id="cb14-88"><a href="#cb14-88" aria-hidden="true" tabindex="-1"></a>    <span class="at">title =</span> <span class="st">"Population Density (10 km Grid)"</span>,</span>
+<span id="cb14-89"><a href="#cb14-89" aria-hidden="true" tabindex="-1"></a>    <span class="at">subtitle =</span> <span class="st">"Area-weighted interpolation from 100 m population data"</span></span>
+<span id="cb14-90"><a href="#cb14-90" aria-hidden="true" tabindex="-1"></a>  )</span></code><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></pre></div>
 <ul>
 <li>Redistributes the population from the source polygons (100m cells) to the target polygons (10km cells) based on the proportion of overlap</li>
 <li>Assumes that the population within a source polygon is uniformly distributed and calculates the geometric intersection between source and target. Then, sums up the proportional values.</li>
+<li>Process
+<ul>
+<li><em>Calculates precise coverage fractions</em>: For each 100m population raster cell, determine exactly what fraction of that cell falls within each 10km grid polygon. This is done using computational geometry rather than simple point-in-polygon tests.</li>
+<li><em>Weights values by coverage</em>: Each raster cell’s value (population count) is multiplied by its coverage fraction within the polygon.</li>
+<li><em>Sums the weighted values</em>: All weighted values are summed to get the total for each 10km grid cell.</li>
+</ul></li>
 <li>This method produces what’s effectively a 100% accuracy although it’s much more computationally intensive
 <ul>
-<li>No parallelization available. With my 16GB RAM desktop, it takes about 10 min for</li>
+<li>The tiny difference (3 people) is likely due to floating-point precision or edge effects at the outer boundary.</li>
+</ul></li>
+<li>Could also use <code>st_interpolate_aw</code> from <span style="color: #990000">{sf}</span> which takes polygons as the source, but I found this less accurate and slower (i.e.&nbsp;more computationally expensive
+<ul>
+<li><p>Example:</p>
+<div class="sourceCode" id="cb15"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb15-1"><a href="#cb15-1" aria-hidden="true" tabindex="-1"></a>grid_sf <span class="ot">&lt;-</span> <span class="fu">st_interpolate_aw</span>(</span>
+<span id="cb15-2"><a href="#cb15-2" aria-hidden="true" tabindex="-1"></a>  sf_pop_poly[<span class="st">"Einwohner"</span>], </span>
+<span id="cb15-3"><a href="#cb15-3" aria-hidden="true" tabindex="-1"></a>  grid_sf, </span>
+<span id="cb15-4"><a href="#cb15-4" aria-hidden="true" tabindex="-1"></a>  <span class="at">extensive =</span> <span class="cn">TRUE</span></span>
+<span id="cb15-5"><a href="#cb15-5" aria-hidden="true" tabindex="-1"></a>)</span></code><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></pre></div>
+<ul>
+<li><span class="arg-text">extensive = TRUE</span> since population is an extensive variable (i.e.&nbsp;count)</li>
+</ul></li>
 </ul></li>
 </ul>
 </div>
 <div id="tabset-3-3" class="tab-pane" role="tabpanel" aria-labelledby="tabset-3-3-tab">
 <h6 id="eda-no2-vs.-population-density" class="anchored">EDA: NO<sub>2</sub> vs.&nbsp;Population Density</h6>
 <p><a href="_resources/Geospatial-Modeling.resources/krig-ex3-no2-vs-dens-1.png" class="lightbox" data-gallery="krig-ex3"><img src="_resources/Geospatial-Modeling.resources/krig-ex3-no2-vs-dens-1.png" class="img-fluid" width="332"></a></p>
-<div class="sourceCode" id="cb15"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb15-1"><a href="#cb15-1" aria-hidden="true" tabindex="-1"></a><span class="co"># grid_de is a stars object which is a list w/attr. select outputs a list w/attr. st_extract combines the values from the stars object to the locations specified by a sf object and     returns a sf dataframe.</span></span>
-<span id="cb15-2"><a href="#cb15-2" aria-hidden="true" tabindex="-1"></a>sf_no2_popdens <span class="ot">&lt;-</span> </span>
-<span id="cb15-3"><a href="#cb15-3" aria-hidden="true" tabindex="-1"></a>  grid_de <span class="sc">|&gt;</span></span>
-<span id="cb15-4"><a href="#cb15-4" aria-hidden="true" tabindex="-1"></a>  <span class="fu">select</span>(<span class="st">"pop_dens"</span>) <span class="sc">|&gt;</span></span>
-<span id="cb15-5"><a href="#cb15-5" aria-hidden="true" tabindex="-1"></a>  <span class="fu">st_extract</span>(sf_no2) <span class="sc">|&gt;</span></span>
-<span id="cb15-6"><a href="#cb15-6" aria-hidden="true" tabindex="-1"></a>  <span class="fu">mutate</span>(<span class="at">pop_dens =</span> <span class="fu">as.numeric</span>(pop_dens)) <span class="sc">|&gt;</span></span>
-<span id="cb15-7"><a href="#cb15-7" aria-hidden="true" tabindex="-1"></a>  <span class="fu">filter</span>(<span class="sc">!</span><span class="fu">is.na</span>(pop_dens)) <span class="sc">|&gt;</span> </span>
-<span id="cb15-8"><a href="#cb15-8" aria-hidden="true" tabindex="-1"></a>  <span class="fu">st_drop_geometry</span>() <span class="sc">|&gt;</span> <span class="co"># redundant geometry</span></span>
-<span id="cb15-9"><a href="#cb15-9" aria-hidden="true" tabindex="-1"></a>  <span class="fu">bind_cols</span>(sf_no2) <span class="sc">|&gt;</span> <span class="co"># strips sf class </span></span>
-<span id="cb15-10"><a href="#cb15-10" aria-hidden="true" tabindex="-1"></a>  <span class="fu">st_as_sf</span>() <span class="co"># adds sf class</span></span>
-<span id="cb15-11"><a href="#cb15-11" aria-hidden="true" tabindex="-1"></a></span>
-<span id="cb15-12"><a href="#cb15-12" aria-hidden="true" tabindex="-1"></a><span class="co"># no2 vs pop dens</span></span>
-<span id="cb15-13"><a href="#cb15-13" aria-hidden="true" tabindex="-1"></a><span class="fu">ggplot</span>(sf_no2_popdens,</span>
-<span id="cb15-14"><a href="#cb15-14" aria-hidden="true" tabindex="-1"></a>       <span class="fu">aes</span>(<span class="at">x =</span> <span class="fu">sqrt</span>(pop_dens),</span>
-<span id="cb15-15"><a href="#cb15-15" aria-hidden="true" tabindex="-1"></a>           <span class="at">y =</span> NO2)) <span class="sc">+</span></span>
-<span id="cb15-16"><a href="#cb15-16" aria-hidden="true" tabindex="-1"></a>  <span class="fu">geom_point</span>() <span class="sc">+</span></span>
-<span id="cb15-17"><a href="#cb15-17" aria-hidden="true" tabindex="-1"></a>  <span class="fu">geom_smooth</span>(<span class="at">formula =</span> <span class="st">"y ~ x"</span>, <span class="at">method =</span> <span class="st">"lm"</span>)</span></code><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></pre></div>
+<div class="sourceCode" id="cb16"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb16-1"><a href="#cb16-1" aria-hidden="true" tabindex="-1"></a>sf_no2_popdens <span class="ot">&lt;-</span> </span>
+<span id="cb16-2"><a href="#cb16-2" aria-hidden="true" tabindex="-1"></a>  grid_de <span class="sc">|&gt;</span></span>
+<span id="cb16-3"><a href="#cb16-3" aria-hidden="true" tabindex="-1"></a>  <span class="fu">select</span>(pop_dens) <span class="sc">|&gt;</span></span>
+<span id="cb16-4"><a href="#cb16-4" aria-hidden="true" tabindex="-1"></a>  <span class="fu">st_extract</span>(sf_no2) <span class="sc">|&gt;</span></span>
+<span id="cb16-5"><a href="#cb16-5" aria-hidden="true" tabindex="-1"></a>  <span class="fu">mutate</span>(<span class="at">pop_dens =</span> <span class="fu">as.numeric</span>(pop_dens)) <span class="sc">|&gt;</span></span>
+<span id="cb16-6"><a href="#cb16-6" aria-hidden="true" tabindex="-1"></a>  <span class="fu">filter</span>(<span class="sc">!</span><span class="fu">is.na</span>(pop_dens)) <span class="sc">|&gt;</span> </span>
+<span id="cb16-7"><a href="#cb16-7" aria-hidden="true" tabindex="-1"></a>  <span class="fu">st_drop_geometry</span>() <span class="sc">|&gt;</span> <span class="co"># redundant geometry</span></span>
+<span id="cb16-8"><a href="#cb16-8" aria-hidden="true" tabindex="-1"></a>  <span class="fu">bind_cols</span>(sf_no2) <span class="sc">|&gt;</span> <span class="co"># strips sf class </span></span>
+<span id="cb16-9"><a href="#cb16-9" aria-hidden="true" tabindex="-1"></a>  <span class="fu">st_as_sf</span>() <span class="co"># adds sf class</span></span>
+<span id="cb16-10"><a href="#cb16-10" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb16-11"><a href="#cb16-11" aria-hidden="true" tabindex="-1"></a><span class="co"># no2 vs pop dens</span></span>
+<span id="cb16-12"><a href="#cb16-12" aria-hidden="true" tabindex="-1"></a><span class="fu">ggplot</span>(sf_no2_popdens,</span>
+<span id="cb16-13"><a href="#cb16-13" aria-hidden="true" tabindex="-1"></a>       <span class="fu">aes</span>(<span class="at">x =</span> <span class="fu">sqrt</span>(pop_dens),</span>
+<span id="cb16-14"><a href="#cb16-14" aria-hidden="true" tabindex="-1"></a>           <span class="at">y =</span> NO2)) <span class="sc">+</span></span>
+<span id="cb16-15"><a href="#cb16-15" aria-hidden="true" tabindex="-1"></a>  <span class="fu">geom_point</span>() <span class="sc">+</span></span>
+<span id="cb16-16"><a href="#cb16-16" aria-hidden="true" tabindex="-1"></a>  <span class="fu">geom_smooth</span>(<span class="at">formula =</span> <span class="st">"y ~ x"</span>, <span class="at">method =</span> <span class="st">"lm"</span>)</span></code><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></pre></div>
 <ul>
-<li>Thoughts</li>
+<li><span class="var-text">grid_de</span> is a stars object which is a list with attributes.</li>
+<li><code>st_extract</code> combines the values from the stars object to the locations specified by a sf object and returns a sf dataframe.</li>
 </ul>
 <h6 id="fit-variograms" class="anchored">Fit Variograms</h6>
 <p><a href="_resources/Geospatial-Modeling.resources/krig-ex3-vgram-1.png" class="lightbox" data-gallery="krig-ex3"><img src="_resources/Geospatial-Modeling.resources/krig-ex3-vgram-1.png" class="img-fluid" width="332"></a></p>
-<div class="sourceCode" id="cb16"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb16-1"><a href="#cb16-1" aria-hidden="true" tabindex="-1"></a><span class="co"># sample variogram</span></span>
-<span id="cb16-2"><a href="#cb16-2" aria-hidden="true" tabindex="-1"></a>var_samp_no2 <span class="ot">&lt;-</span> </span>
-<span id="cb16-3"><a href="#cb16-3" aria-hidden="true" tabindex="-1"></a>  <span class="fu">variogram</span>(NO2 <span class="sc">~</span> <span class="fu">sqrt</span>(pop_dens), sf_no2_popdens)</span>
-<span id="cb16-4"><a href="#cb16-4" aria-hidden="true" tabindex="-1"></a><span class="co"># model variogram</span></span>
-<span id="cb16-5"><a href="#cb16-5" aria-hidden="true" tabindex="-1"></a>var_mod_no2 <span class="ot">&lt;-</span> </span>
-<span id="cb16-6"><a href="#cb16-6" aria-hidden="true" tabindex="-1"></a>  <span class="fu">fit.variogram</span>(var_samp_no2, <span class="fu">vgm</span>(<span class="dv">1</span>, <span class="st">"Exp"</span>, <span class="dv">50000</span>, <span class="dv">1</span>))</span>
-<span id="cb16-7"><a href="#cb16-7" aria-hidden="true" tabindex="-1"></a></span>
-<span id="cb16-8"><a href="#cb16-8" aria-hidden="true" tabindex="-1"></a><span class="fu">plot</span>(<span class="at">x =</span> var_samp_no2,</span>
-<span id="cb16-9"><a href="#cb16-9" aria-hidden="true" tabindex="-1"></a>     <span class="at">model =</span> var_mod_no2,</span>
-<span id="cb16-10"><a href="#cb16-10" aria-hidden="true" tabindex="-1"></a>     <span class="at">plot.numbers =</span> <span class="cn">TRUE</span>)</span></code><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></pre></div>
+<div class="sourceCode" id="cb17"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb17-1"><a href="#cb17-1" aria-hidden="true" tabindex="-1"></a><span class="co"># sample variogram</span></span>
+<span id="cb17-2"><a href="#cb17-2" aria-hidden="true" tabindex="-1"></a>var_samp_no2 <span class="ot">&lt;-</span> </span>
+<span id="cb17-3"><a href="#cb17-3" aria-hidden="true" tabindex="-1"></a>  <span class="fu">variogram</span>(NO2 <span class="sc">~</span> <span class="fu">sqrt</span>(pop_dens), sf_no2_popdens)</span>
+<span id="cb17-4"><a href="#cb17-4" aria-hidden="true" tabindex="-1"></a><span class="co"># model variogram</span></span>
+<span id="cb17-5"><a href="#cb17-5" aria-hidden="true" tabindex="-1"></a>var_mod_no2 <span class="ot">&lt;-</span> </span>
+<span id="cb17-6"><a href="#cb17-6" aria-hidden="true" tabindex="-1"></a>  <span class="fu">fit.variogram</span>(var_samp_no2, <span class="fu">vgm</span>(<span class="dv">1</span>, <span class="st">"Exp"</span>, <span class="dv">50000</span>, <span class="dv">1</span>))</span>
+<span id="cb17-7"><a href="#cb17-7" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb17-8"><a href="#cb17-8" aria-hidden="true" tabindex="-1"></a><span class="fu">plot</span>(<span class="at">x =</span> var_samp_no2,</span>
+<span id="cb17-9"><a href="#cb17-9" aria-hidden="true" tabindex="-1"></a>     <span class="at">model =</span> var_mod_no2,</span>
+<span id="cb17-10"><a href="#cb17-10" aria-hidden="true" tabindex="-1"></a>     <span class="at">plot.numbers =</span> <span class="cn">TRUE</span>)</span></code><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></pre></div>
 <ul>
-<li>Thoughts</li>
+<li>Outliers at 100K and 150K meters, but otherwise the fit seems decent</li>
 </ul>
 <h6 id="fit-universal-kriging-model" class="anchored">Fit Universal Kriging Model</h6>
 <p><a href="_resources/Geospatial-Modeling.resources/krig-ex3-krig-1.png" class="lightbox" data-gallery="krig-ex3"><img src="_resources/Geospatial-Modeling.resources/krig-ex3-krig-1.png" class="img-fluid" width="332"></a></p>
-<div class="sourceCode" id="cb17"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb17-1"><a href="#cb17-1" aria-hidden="true" tabindex="-1"></a>no2_krig_univ <span class="ot">&lt;-</span> </span>
-<span id="cb17-2"><a href="#cb17-2" aria-hidden="true" tabindex="-1"></a>  <span class="fu">krige</span>(<span class="at">formula =</span> NO2 <span class="sc">~</span> <span class="fu">sqrt</span>(pop_dens), </span>
-<span id="cb17-3"><a href="#cb17-3" aria-hidden="true" tabindex="-1"></a>        <span class="at">locations =</span> sf_no2_popdens,</span>
-<span id="cb17-4"><a href="#cb17-4" aria-hidden="true" tabindex="-1"></a>        <span class="at">newdata =</span> grid_de[<span class="st">"pop_dens"</span>], </span>
-<span id="cb17-5"><a href="#cb17-5" aria-hidden="true" tabindex="-1"></a>        <span class="at">model =</span> var_mod_no2)</span>
-<span id="cb17-6"><a href="#cb17-6" aria-hidden="true" tabindex="-1"></a></span>
-<span id="cb17-7"><a href="#cb17-7" aria-hidden="true" tabindex="-1"></a><span class="fu">ggplot</span>() <span class="sc">+</span> </span>
-<span id="cb17-8"><a href="#cb17-8" aria-hidden="true" tabindex="-1"></a>  <span class="fu">geom_stars</span>(<span class="at">data =</span> no2_krig_univ, </span>
-<span id="cb17-9"><a href="#cb17-9" aria-hidden="true" tabindex="-1"></a>             <span class="fu">aes</span>(<span class="at">x =</span> x, </span>
-<span id="cb17-10"><a href="#cb17-10" aria-hidden="true" tabindex="-1"></a>                 <span class="at">y =</span> y,</span>
-<span id="cb17-11"><a href="#cb17-11" aria-hidden="true" tabindex="-1"></a>                 <span class="at">fill =</span> var1.pred)) <span class="sc">+</span></span>
-<span id="cb17-12"><a href="#cb17-12" aria-hidden="true" tabindex="-1"></a>  <span class="fu">geom_sf</span>(<span class="at">data =</span> <span class="fu">st_cast</span>(shp_de, <span class="st">"MULTILINESTRING"</span>)) <span class="sc">+</span> </span>
-<span id="cb17-13"><a href="#cb17-13" aria-hidden="true" tabindex="-1"></a>  <span class="fu">geom_sf</span>(<span class="at">data =</span> sf_no2) <span class="sc">+</span></span>
-<span id="cb17-14"><a href="#cb17-14" aria-hidden="true" tabindex="-1"></a>  <span class="fu">scale_fill_viridis_c</span>() <span class="sc">+</span></span>
-<span id="cb17-15"><a href="#cb17-15" aria-hidden="true" tabindex="-1"></a>  <span class="fu">coord_sf</span>(<span class="at">lims_method =</span> <span class="st">"geometry_bbox"</span>) <span class="sc">+</span></span>
-<span id="cb17-16"><a href="#cb17-16" aria-hidden="true" tabindex="-1"></a>  <span class="fu">theme_void</span>()</span></code><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></pre></div>
+<div class="sourceCode" id="cb18"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb18-1"><a href="#cb18-1" aria-hidden="true" tabindex="-1"></a>no2_krig_univ <span class="ot">&lt;-</span> </span>
+<span id="cb18-2"><a href="#cb18-2" aria-hidden="true" tabindex="-1"></a>  <span class="fu">krige</span>(<span class="at">formula =</span> NO2 <span class="sc">~</span> <span class="fu">sqrt</span>(pop_dens), </span>
+<span id="cb18-3"><a href="#cb18-3" aria-hidden="true" tabindex="-1"></a>        <span class="at">locations =</span> sf_no2_popdens,</span>
+<span id="cb18-4"><a href="#cb18-4" aria-hidden="true" tabindex="-1"></a>        <span class="at">newdata =</span> grid_de[<span class="st">"pop_dens"</span>], </span>
+<span id="cb18-5"><a href="#cb18-5" aria-hidden="true" tabindex="-1"></a>        <span class="at">model =</span> var_mod_no2)</span>
+<span id="cb18-6"><a href="#cb18-6" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb18-7"><a href="#cb18-7" aria-hidden="true" tabindex="-1"></a><span class="fu">ggplot</span>() <span class="sc">+</span> </span>
+<span id="cb18-8"><a href="#cb18-8" aria-hidden="true" tabindex="-1"></a>  <span class="fu">geom_stars</span>(<span class="at">data =</span> no2_krig_univ, </span>
+<span id="cb18-9"><a href="#cb18-9" aria-hidden="true" tabindex="-1"></a>             <span class="fu">aes</span>(<span class="at">x =</span> x, </span>
+<span id="cb18-10"><a href="#cb18-10" aria-hidden="true" tabindex="-1"></a>                 <span class="at">y =</span> y,</span>
+<span id="cb18-11"><a href="#cb18-11" aria-hidden="true" tabindex="-1"></a>                 <span class="at">fill =</span> var1.pred)) <span class="sc">+</span></span>
+<span id="cb18-12"><a href="#cb18-12" aria-hidden="true" tabindex="-1"></a>  <span class="fu">geom_sf</span>(<span class="at">data =</span> <span class="fu">st_cast</span>(shp_de, <span class="st">"MULTILINESTRING"</span>)) <span class="sc">+</span> </span>
+<span id="cb18-13"><a href="#cb18-13" aria-hidden="true" tabindex="-1"></a>  <span class="fu">geom_sf</span>(<span class="at">data =</span> sf_no2) <span class="sc">+</span></span>
+<span id="cb18-14"><a href="#cb18-14" aria-hidden="true" tabindex="-1"></a>  <span class="fu">scale_fill_viridis_c</span>() <span class="sc">+</span></span>
+<span id="cb18-15"><a href="#cb18-15" aria-hidden="true" tabindex="-1"></a>  <span class="fu">coord_sf</span>(<span class="at">lims_method =</span> <span class="st">"geometry_bbox"</span>) <span class="sc">+</span></span>
+<span id="cb18-16"><a href="#cb18-16" aria-hidden="true" tabindex="-1"></a>  <span class="fu">theme_void</span>()</span></code><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></pre></div>
 <ul>
-<li>Thoughts</li>
+<li>Only rural locations were selected, so the data is geographically biased. The model doesn’t having any information about NO<sub>2</sub> concentrations in high population density areas, so the NO<sub>2</sub> predictions for urban centers follow closely with population density estmates.
+<ul>
+<li>i.e.&nbsp;the higher the population density, the higher the predicted concentration of NO<sub>2</sub>.</li>
+<li>Therefore, predictions for high population density areas shouldn’t be considered reliable.</li>
+</ul></li>
 </ul>
 </div>
 </div>
