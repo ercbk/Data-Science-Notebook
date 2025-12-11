@@ -345,7 +345,7 @@
 -   [{gstat}]{style="color: #990000"} Kriging Functions
 
     | Function | Description |
-    |----|----|
+    |------------------------------------|------------------------------------|
     | `krige` | Simple, Ordinary or Universal, global or local, Point or Block Kriging, or simulation |
     | `krige.cv` | kriging cross validation, n-fold or leave-one-out |
     | `krigeSTTg` | Trans-Gaussian spatio-temporal kriging |
@@ -797,6 +797,7 @@
       st_as_stars(dx = 10000) |>
       # replaces 0s with NAs for grid cells outside of the border
       st_crop(shp_de)
+
     table(grid_de$values, useNA = "always") 
     #>      0 <NA> 
     #>   3579 2076
@@ -888,90 +889,84 @@
     -   Border: Calculates the intersection border cell areas and assigns those area values to border cell ids in `grid_de$area`
     -   This method produces a relative error of around 0.001% which should be good enough for most work.
 
-    ###### Using Area Weighted Aggregation
+    ## Population Density (Alt)
+
+    ###### Area Weighted Aggregation
+
+    -   Redistributes the population from the source polygons (100m cells) to the target polygons (10km cells) based on the proportion of overlap
+    -   Assumes that the population within a source polygon is uniformly distributed and calculates the geometric intersection between source and target. Then, sums up the proportional values.
+    -   Process
+        -   *Calculates precise coverage fractions*: For each 100m population raster cell, determine exactly what fraction of that cell falls within each 10km grid polygon. This is done using computational geometry rather than simple point-in-polygon tests.
+        -   *Weights values by coverage*: Each raster cell's value (population count) is multiplied by its coverage fraction within the polygon.
+        -   *Sums the weighted values*: All weighted values are summed to get the total for each 10km grid cell.
+    -   This method produces what's effectively a 100% accuracy although it's much more computationally intensive
+        -   The tiny difference (3 people) is likely due to floating-point precision or edge effects at the outer boundary.
+
+    ###### [{exactextractr}]{style="color: #990000"} (Raster)
 
     ![](_resources/Geospatial-Modeling.resources/krig-ex3-dens-aw-1.png){.lightbox group="krig-ex3" width="332"}
 
     ``` r
     library(exactextractr); library(terra)
 
-    cell_half <- 50
+    # Convert to sf polygons
+    grid_sf <- st_as_sf(grid_de, na.rm = FALSE)
+    grid_sf$ID <- seq_len(nrow(grid_sf))
 
-    # Create one template square centered at (0,0)
-    template_square <- matrix(
-      c(-cell_half, -cell_half,
-        cell_half, -cell_half,
-        cell_half,  cell_half,
-        -cell_half,  cell_half,
-        -cell_half, -cell_half),
-      ncol = 2,
-      byrow = TRUE
-    )
-
-    # Extract coordinates of points (vectorized)
-    coords <- st_coordinates(sf_pop)
-
-    # For each point, add its (x,y) to the template vertices
-    # Create array: [n_points x 5 vertices x 2 coords]
-    verts <- array(
-      data = c(
-        template_square[,1] + rep(coords[,1], each = 5),
-        template_square[,2] + rep(coords[,2], each = 5)
-      ),
-      dim = c(5, nrow(coords), 2)
-    )
-
-    # Build polygons (vectorized!)
-    polys <- st_sfc(
-      lapply(1:nrow(coords), function(i) st_polygon(list(verts[, i, ]))),
-      crs = st_crs(sf_pop)
-    )
-
-    # Replace geometry efficiently
-    sf_pop_poly <- sf_pop
-    st_geometry(sf_pop_poly) <- polys
+    grid_sf_pop <- sf_pop |>
+      st_buffer(dist = 50, endCapStyle = "SQUARE", nQuadSegs = 1)
 
     # derive bounding box from sf_pop_poly
-    bb <- st_bbox(sf_pop_poly)
+    bb <- st_bbox(grid_sf_pop)
 
     # Create 100m raster aligned to pop cells
-    r100 <- rast(
-      xmin = bb["xmin"], xmax = bb["xmax"],
-      ymin = bb["ymin"], ymax = bb["ymax"],
-      resolution = 100,
-      crs = st_crs(sf_pop_poly)$wkt
+    r100 <- 
+      rast(
+        xmin = bb["xmin"], xmax = bb["xmax"],
+        ymin = bb["ymin"], ymax = bb["ymax"],
+        resolution = 100,
+        crs = st_crs(grid_sf_pop)$wkt
     )
 
-    pop_r <- rasterize(vect(sf_pop_poly), r100, field="Einwohner", fun="sum")
+    pop_r <- 
+      rasterize(
+        vect(grid_sf_pop), 
+        r100, 
+        field = "Einwohner", 
+        fun = "sum"
+      )
 
     # should match exactly (aside from floating-point rounding)
     global(pop_r, "sum", na.rm = TRUE)[1]
     #>                sum
     #> Einwohner 80324282
-    sum(sf_pop_poly$Einwohner)
+    sum(grid_sf_pop$Einwohner)
     #> [1] 80324282
 
     grid_sf$Einwohner <- exact_extract(pop_r, grid_sf, "sum")
 
     sum(grid_sf$Einwohner, na.rm = TRUE)
     #> [1] 80324279
-    sum(sf_pop_poly$Einwohner, na.rm = TRUE)
+    sum(grid_sf_pop$Einwohner, na.rm = TRUE)
     #> [1] 80324282
-
 
     # area in km²
     grid_sf$area_km2 <- units::set_units(st_area(grid_sf), "km^2") |> units::drop_units()
     grid_sf$pop_dens <- grid_sf$Einwohner / grid_sf$area_km2
 
-    # 1. Assign the calculated density back to the original stars object
+    # Assign the calculated density back to the original stars object
     # (This works because grid_sf was created from grid_de with na.rm=FALSE, so the cell order matches)
     grid_de$pop_dens <- grid_sf$pop_dens
     grid_masked <- grid_de[shp_de]
 
-    # 2. Plot the stars object directly
+    # Plot the stars object directly
     ggplot() +
-      geom_stars(data = grid_masked, aes(fill = pop_dens)) + 
-      geom_sf(data = shp_de, fill = NA, color = "black", linewidth = 0.5) +
+      geom_stars(data = grid_masked, 
+                 aes(fill = pop_dens)) + 
+      geom_sf(data = shp_de, 
+              fill = NA, 
+              color = "black", 
+              linewidth = 0.5) +
       scale_fill_viridis_c(
         name = "Population density\n(people per km²)",
         trans = "sqrt",
@@ -985,26 +980,76 @@
       )
     ```
 
-    -   Redistributes the population from the source polygons (100m cells) to the target polygons (10km cells) based on the proportion of overlap
-    -   Assumes that the population within a source polygon is uniformly distributed and calculates the geometric intersection between source and target. Then, sums up the proportional values.
-    -   Process
-        -   *Calculates precise coverage fractions*: For each 100m population raster cell, determine exactly what fraction of that cell falls within each 10km grid polygon. This is done using computational geometry rather than simple point-in-polygon tests.
-        -   *Weights values by coverage*: Each raster cell's value (population count) is multiplied by its coverage fraction within the polygon.
-        -   *Sums the weighted values*: All weighted values are summed to get the total for each 10km grid cell.
-    -   This method produces what's effectively a 100% accuracy although it's much more computationally intensive
-        -   The tiny difference (3 people) is likely due to floating-point precision or edge effects at the outer boundary.
-    -   Could also use `st_interpolate_aw` from [{sf}]{style="color: #990000"} which takes polygons as the source, but I found this less accurate and slower (i.e. more computationally expensive
-        -   Example:
+    -   This raster method took 138.14 sec (almost entirely by `rasterize`) from `bbox` to `exact_extract`
 
-            ``` r
-            grid_sf <- st_interpolate_aw(
-              sf_pop_poly["Einwohner"], 
-              grid_sf, 
-              extensive = TRUE
-            )
-            ```
+    ###### [{chopin}]{style="color: #990000"} (Polygon)
 
-            -   [extensive = TRUE]{.arg-text} since population is an extensive variable (i.e. count)
+    ![](_resources/Geospatial-Modeling.resources/krig-ex3-dens-aw-2.png){.lightbox group="krig-ex3" width="332"}
+
+    ``` r
+    library(chopin)
+
+    # Convert to sf polygons
+    grid_sf <- st_as_sf(grid_de, na.rm = FALSE)
+    grid_sf$ID <- seq_len(nrow(grid_sf))
+
+    # 100m cell grid fpr population data
+    grid_sf_pop <- sf_pop |>
+      st_buffer(dist = 50, endCapStyle = "SQUARE", nQuadSegs = 1)
+
+    # aggregate from 100m to 10km cells
+    aw <- summarize_aw(
+      x = grid_sf,
+      y = grid_sf_pop,
+      target_fields = "Einwohner",
+      id_x = "ID",
+      fun = "sum"
+    )
+
+    # sanity check
+    sum(aw$Einwohner, na.rm = TRUE)
+    # [1] 80324279
+    sum(sf_pop$Einwohner,   na.rm = TRUE)
+    # [1] 80324282
+
+    # calculate population density per km^2
+    aw$area <- st_area(aw)
+    aw$pop_density <- aw$Einwohner / (as.numeric(aw$area) / 1e6)
+
+    # Since grid_sf was created from grid_de with the same cell order
+    # Just directly assign where we have matches
+    grid_sf$pop_dens <- NA_real_
+
+    # Use spatial join to match aw back to grid_sf
+    matched <- st_join(grid_sf, aw, join = st_equals)
+    grid_sf$pop_dens <- matched$pop_density
+
+    # Now assign to stars and mask so only Germany shows
+    grid_de$pop_dens <- grid_sf$pop_dens
+    grid_masked <- grid_de[shp_de]
+
+    ggplot() +
+      geom_stars(data = grid_masked, 
+                 aes(fill = pop_dens)) + 
+      geom_sf(data = shp_de, 
+              fill = NA, 
+              color = "black", 
+              linewidth = 0.5) +
+      scale_fill_viridis_c(
+        name = "Population density\n(people per km²)",
+        trans = "sqrt",
+        na.value = "transparent"
+      ) +
+      coord_sf() +
+      theme_void(base_size = 14) +
+      labs(
+        title = "Population Density (10 km Grid)",
+        subtitle = "Area-weighted interpolation from 100 m population data"
+      )
+    ```
+
+    -   This polygon method took 505.92 sec which was just the `summarize_aw` function
+    -   Could also use `st_interpolate_aw` from [{sf}]{style="color: #990000"}, but I had trouble with it. This `summarize_aw` from [{chopin}]{style="color: #990000"} worked for me more easily.
 
     ## Universal Kriging
 

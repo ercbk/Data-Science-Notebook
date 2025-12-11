@@ -239,6 +239,126 @@ fig-cap-location: top
             -   Districts get distorted but the states retain their shape and so distortion of the overall visualization is minimized
         -   [{]{style="color: #990000"}[tmap.cartogram](https://r-tmap.github.io/tmap.cartogram/){style="color: #990000"}[}]{style="color: #990000"} can do something similar but much less sophisticated.
 
+### Regular Grids {#sec-geo-gen-gridsys-reg .unnumbered}
+
+-   Grids with square or rectangular cells
+
+-   [Example 1]{.ribbon-highlight}: Square grid that covers Germany w/10km cells\
+    ![](_resources/Geospatial,_General.resources/grid-reg-ex1.png){.lightbox}
+
+    ``` r
+    library(sf)
+
+    crs <- st_crs("EPSG:32632")
+
+    # German shapefile
+    shp_de <- read_sf(
+      "https://raw.githubusercontent.com/edzer/sdsr/main/data/de_nuts1.gpkg"
+    ) |> 
+      st_transform(crs)
+
+    cell <- 10000   # 10 km cell
+
+    grid_de <- st_make_grid(
+      shp_de,
+      cellsize = cell,
+      what = "polygons",
+      square = TRUE
+    )
+
+    plot(grid_de)
+    ```
+
+-   [Example 2]{.ribbon-highlight}: Create an irregular shaped grid based on point geometries\
+    ![](_resources/Geospatial,_General.resources/grid-reg-ex2.png){.lightbox width="267"}
+
+    ``` r
+    library(sf)
+
+    # German population for 100m grid cells w/only point geometry
+    sf_pop <- local({
+      load(url("https://raw.githubusercontent.com/edzer/sdsr/main/data/ch12.rda"),
+           envir = environment())
+      get(ls()[2])
+    })
+
+    grid_de_pop <- sf_pop |>
+      st_buffer(dist = 50, # radius
+                endCapStyle = "SQUARE", 
+                nQuadSegs = 1)
+
+    plot(grid_de_pop)
+    ```
+
+    -   Creates a grid in the shape of Germany by using the point geometry as centroids for each square cell created
+
+    -   The file has over 3M rows, so that means over 3M grid cells. Trying to visualize that used up all my 32GB of RAM and still didn't render it. So, probably don't plot this at home, kids.
+
+    -   `st_buffer` arguments
+
+        -   `dist = 50` creates a 50m buffer around each point (giving you 100m × 100m cells)
+        -   `endCapStyle = "SQUARE"` ensures square corners instead of rounded
+        -   `nQuadSegs = 1` minimizes the number of vertices per corner (creates true squares rather than approximations)
+            -   i.e. the higher the integer, the more vertices used to form the corner, the more curved/smooth the corner becomes.
+
+            -   We don't want extra space between our square cells, so we want them as pointed as possible
+
+-   [Example 3]{.ribbon-highlight}: Manually
+
+    ``` r
+    sf_pop <- local({
+      load(url("https://raw.githubusercontent.com/edzer/sdsr/main/data/ch12.rda"),
+           envir = environment())
+      get(ls()[2])
+    })
+
+    # sf_pop has: columns x, y, Einwohner, and POINT geometry
+
+    cell_half <- 50
+
+    # Create one template square centered at (0,0)
+    template_square <- matrix(
+      c(-cell_half, -cell_half,
+        cell_half, -cell_half,
+        cell_half,  cell_half,
+        -cell_half,  cell_half,
+        -cell_half, -cell_half),
+      ncol = 2,
+      byrow = TRUE
+    )
+
+    # Extract coordinates of points (vectorized)
+    coords <- st_coordinates(sf_pop)
+
+    # For each point, add its (x,y) to the template vertices
+    # Create array: [n_points x 5 vertices x 2 coords]
+    verts <- array(
+      data = c(
+        template_square[,1] + rep(coords[,1], each = 5),
+        template_square[,2] + rep(coords[,2], each = 5)
+      ),
+      dim = c(5, nrow(coords), 2)
+    )
+
+    # Build polygons (vectorized)
+    polys <- st_sfc(
+      lapply(1:nrow(coords), function(i) st_polygon(list(verts[, i, ]))),
+      crs = st_crs(sf_pop)
+    )
+
+    # Replace geometry efficiently
+    grid_de_pop <- sf_pop
+    st_geometry(grid_de_pop) <- polys
+    ```
+
+    -   Manually creates the grid from Example 2. Who knows — might come in useful if you want a bespoke shaped grid cell.
+
+    -   Btw, this method took roughly twice as long (91.48 sec vs 42.61 sec) as just using `st_buffer`
+
+    -   Notice that the matrix, [template_square]{.var-text}, is 5 x 2. Each row is the coordinate of a vertex of the square cell. There are five vertices/coordinates (instead of 4 like you'd think), because the fifth one is the same as the first and it acts to "close" the polygon. (i.e. the starting point must be repeated as the ending point.)
+
+        -   This is a standard requirement, according to the Simple Features specification, in spatial formats (WKT, GeoJSON, shapefiles, etc.).
+
 ### Hexagonal Grids {#sec-geo-gen-gridsys-hex .unnumbered}
 
 -   Misc
