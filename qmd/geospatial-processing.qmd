@@ -1421,6 +1421,7 @@
     -   The goal is to create a population density variable, so the hard part is calculating a reasonably accurate area from square grid cells (i.e. the overlapping parts of the border cells need to be cut off)
         -   Aggregation to the 10km cell grid is relatively straightforward. No 100m cell grid need be created. The point geometries are evidently enough.
     -   Aggregation and area-correction are performed by 2 different methods: manually and area-weighted aggregation. Two different area-weighted aggregation workflows are demonstrated: via raster and via polygon.
+    -   tl;dr Although the area-weighted raster method is pretty fast, the manual way is probably fastest (didn't time it). While the area-weighted method is more accurate and less complicated code-wise, the manual way is probably accurate enough for most use cases.
 
     ``` r
     pacman::p_load(
@@ -1538,8 +1539,20 @@
     # relative error
     (true_pop - as.numeric(est_pop)) * 100 / true_pop
     # [1] 0.001221299
+    ```
 
+    -   Inside Border: First the cell area (10km x 10km) is calcuated and that value is inserted where values are 0 (cells inside the German border) and not [NA]{.arg-text} (outside border)
+        -   `st_area` fills a 65 x 87 matrix with the cell area value
+        -   `set_units` sets the m^2^ units attribute to the matrix in [grid_de]{.var-text} so it can be added to the area matrix.
+        -   So now the addition of these two terms results in NA + area = NA; 0 + area = area
+    -   Border: Calculates the intersection border cell areas and assigns those area values to border cell ids in `grid_de$area`
+    -   This method produces a relative error of around 0.001% which should be good enough for most work.
 
+    <Details>
+
+    <Summary>Visualization Code</Summary>
+
+    ``` r
     ggplot() + 
       geom_stars(data = grid_de, 
                  aes(x = x, 
@@ -1550,24 +1563,19 @@
       theme_void()
     ```
 
-    -   Inside Border: First the cell area (10km x 10km) is calcuated and that value is inserted where values are 0 (cells inside the German border) and not [NA]{.arg-text} (outside border)
-        -   `st_area` fills a 65 x 87 matrix with the cell area value
-        -   `set_units` sets the m^2^ units attribute to the matrix in [grid_de]{.var-text} so it can be added to the area matrix.
-        -   So now the addition of these two terms results in NA + area = NA; 0 + area = area
-    -   Border: Calculates the intersection border cell areas and assigns those area values to border cell ids in `grid_de$area`
-    -   This method produces a relative error of around 0.001% which should be good enough for most work.
+    </Details>
 
     ## Area Weighted Aggregation
 
     ###### Description
 
-    -   Redistributes the population from the source polygons (100m cells) to the target polygons (10km cells) based on the proportion of overlap
+    -   Redistributes the population from the source polygons (100m cells) to the target polygons (10km cells) based on the proportion of overlap. It takes care of the overlapping border problem and aggregation all at once.
     -   Assumes that the population within a source polygon is uniformly distributed and calculates the geometric intersection between source and target. Then, sums up the proportional values.
     -   Process
         -   *Calculates precise coverage fractions*: For each 100m population raster cell, determine exactly what fraction of that cell falls within each 10km grid polygon. This is done using computational geometry rather than simple point-in-polygon tests.
         -   *Weights values by coverage*: Each raster cell's value (population count) is multiplied by its coverage fraction within the polygon.
         -   *Sums the weighted values*: All weighted values are summed to get the total for each 10km grid cell.
-    -   This method produces what's effectively a 100% accuracy although it's much more computationally intensive
+    -   This method produces what's effectively 100% accuracy, although it's much more computationally intensive
         -   The tiny difference (3 people) is likely due to floating-point precision or edge effects at the outer boundary.
 
     ###### [{exactextractr}]{style="color: #990000"} (Raster)
@@ -1584,7 +1592,7 @@
     grid_sf_pop <- sf_pop |>
       st_buffer(dist = 50, endCapStyle = "SQUARE", nQuadSegs = 1)
 
-    # derive bounding box from sf_pop_poly
+    # derive bounding box from grid_sf_pop
     bb <- st_bbox(grid_sf_pop)
 
     # Create 100m raster aligned to pop cells
@@ -1621,7 +1629,15 @@
     # area in km²
     grid_sf$area_km2 <- units::set_units(st_area(grid_sf), "km^2") |> units::drop_units()
     grid_sf$pop_dens <- grid_sf$Einwohner / grid_sf$area_km2
+    ```
 
+    -   This raster method took 138.14 sec (almost entirely by `rasterize`) from `bbox` to `exact_extract`
+
+    <Details>
+
+    <Summary>Visualization Code</Summary>
+
+    ``` r
     # Assign the calculated density back to the original stars object
     # (This works because grid_sf was created from grid_de with na.rm=FALSE, so the cell order matches)
     grid_de$pop_dens <- grid_sf$pop_dens
@@ -1648,7 +1664,7 @@
       )
     ```
 
-    -   This raster method took 138.14 sec (almost entirely by `rasterize`) from `bbox` to `exact_extract`
+    </Details>
 
     ###### [{chopin}]{style="color: #990000"} (Polygon)
 
@@ -1683,7 +1699,16 @@
     # calculate population density per km^2
     aw$area <- st_area(aw)
     aw$pop_density <- aw$Einwohner / (as.numeric(aw$area) / 1e6)
+    ```
 
+    -   This polygon method took 505.92 sec which was just the `summarize_aw` function
+    -   Could also use `st_interpolate_aw` from [{sf}]{style="color: #990000"}, but I had trouble with it. This `summarize_aw` from [{chopin}]{style="color: #990000"} worked for me more easily.
+
+    <Details>
+
+    <Summary>Visualization Code</Summary>
+
+    ``` r
     # Since grid_sf was created from grid_de with the same cell order
     # Just directly assign where we have matches
     grid_sf$pop_dens <- NA_real_
@@ -1716,6 +1741,5 @@
       )
     ```
 
-    -   This polygon method took 505.92 sec which was just the `summarize_aw` function
-    -   Could also use `st_interpolate_aw` from [{sf}]{style="color: #990000"}, but I had trouble with it. This `summarize_aw` from [{chopin}]{style="color: #990000"} worked for me more easily.
+    </Details>
     :::
