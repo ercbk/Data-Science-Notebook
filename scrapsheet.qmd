@@ -58,9 +58,6 @@ title: "Scrapsheet"
     -   Components
 
         -   Spatial Patterns (EOFs) - Shows where *variability* is concentrated
-
-        <!-- -->
-
         -   Time series (principal components) - Shows when each pattern is *active* and with what *amplitude*
 
     -   Process
@@ -69,7 +66,40 @@ title: "Scrapsheet"
         -   Preprocess (scale) and perform PCA
         -   Each EOF is an eigenvector ($V$) representing a spatial pattern, and its eigenvalue tells you how much variance that pattern explains. The PC is a time series ($\text{PC1}_i = V_{(,1)} \cdot A_{(i,)}$)
 
-    -   Example: In sea surface temperature data, EOF1 might reveal the El Niño/La Niña pattern - showing warming/cooling in the tropical Pacific. The associated PC would be a time series showing El Niño events as positive peaks and La Niña as negative troughs.
+    -   Example: In sea surface temperature data, EOF1 might reveal the El Niño/La Niña pattern — showing warming/cooling in the tropical Pacific. The associated PC would be a time series showing El Niño events as positive peaks and La Niña as negative troughs.
+-   API: Strategies for long-running tasks
+    -   e.g. training machine learning models or performing batch ETL jobs
+    -   Notes from [Performance Optimization for Plumber APIs: Long Running Jobs](https://joekirincic.com/posts/performance-optimization-for-plumber-apis-long-running-jobs/) ([Github](https://github.com/joekirincic/performance-optimization-for-plumber-apis))
+    -   Polling Pattern
+        -   AKA [async request-reply pattern](https://learn.microsoft.com/en-us/azure/architecture/patterns/async-request-reply)
+        -   Take your endpoint and turn it into four: one to accept the job, one to check status, one to retrieve results, and one to cancel. 
+        -   Issues
+            -   Adds some latency to your long-running tasks.
+                -   Example: If the client can only poll every 5 seconds but your task finishes in 6 seconds, then the task takes a total of 10 seconds roundtrip because the client has to wait an additional 4 seconds to retrieve the result.
+                -   Solution: Understand the typical execution times of your long-running tasks and set the polling interval accordingly.
+            -   The status endpoint introduces additional computational overhead on your API.
+                -   Clients want the results of their tasks as soon as possible, and if you don’t tell them otherwise, they will poll for status updates aggressively. Recall that R is single threaded, and that little things add up.
+                -   Recall that R is single threaded, and that little things add up. An endpoint that completes in 1 millisecond is fast, but hit it with a 1000 requests and now that fast endpoint is taking a whole second to process them all.
+                -   Solution: Research batching client updates
+        -   Use Cases
+            -   Firewall restrictions prevent inbound connections. A lot of mobile or private apps only allow outbound traffic to external services. In cases like this, webhooks wouldn’t work, but polling does.
+            -   You don’t own the client or can’t easily make changes to it. The added complexity webhooks introduce, including backend changes and authentication, may make them a no-go for the client we’re integrating with. In these cases, polling is simpler to implement for any client.
+            -   Updates occur at a high frequency. If our tasks get large amounts of updates, instead of ruthlessly pinging our app for updates, the client can submit requests in batches, thereby controlling the toll polling places on our app.
+    -   Webhooks
+        -   An event-driven strategy for communicating with other web services.
+            -   When the client requests some work to be done, it also provides a URL for the server to post the task result to when the task is complete.
+        -   Two Endpoints: Submit Task and Cancel Task
+        -   Eliminates Polling Pattern Issues of extra overhead and latency
+            -   The client no longer polls for updates about the task because the server is now in charge of delivering the finished result to the client. Therefore, no more added latency as in Polling Pattern
+        -   Issues
+            -   The client needs to implement a new endpoint that our application can send results to.
+                -   If the client is a browser, for example, then this can’t be done. Since the server is now POST-ing data to the client, the client also needs to think about authentication so that it doesn’t leave itself vulnerable to malicious actors.
+            -   Suppose an error occurs during the lifecycle of the webhook request. Our implementation doesn’t include it, but in production, the webhook functionality will usually have logic for handling retries. Even if, after retries, the request still fails, the client has no way of recovering the results of the completed task; in such circumstances, the client has no choice but to issue a new request, thereby creating wasted effort for our application.
+        -   Use Cases
+            -   The client is also a server. Think backend-to-backend communication, like one Plumber API talking to another instead of a Plumber API talking to a Shiny app. These are the sorts of clients that can support webhooks.
+            -   The client needs real-time notifications. Remember how polling adds latency to tasks? This can be a showstopper for applications that need real-time updates. The event-driven nature of webhooks are more suitable for these kinds of applications.
+            -   Task execution times have high variability. If your task execution times are all over the place, it can make implementing the polling pattern awkward. Setting the `Retry-After` header to a single value can create unnecessary friction inside of your app because tasks that finish faster have to have the same polling interval as tasks that are slower.
+            -   High volume of concurrent requests. If we have lots of concurrent users submitting tasks, and we use polling, then our application is going to experience spikes in demand from all the simultaneous polling requests. The added overhead from this activity can really hurt an application that already gets a lot of traffi
 
 ## Multivariable Geostatistics
 
