@@ -24,7 +24,6 @@
     -   Nested resources
     -   JSON API
     -   Let the client decide what it wants
--   An IO-bound task spends most of its time waiting for IO responses, which can be responses from webpages, databases, or disks. For web development where a request needs to fetch data from APIs or databases, it's an IO-bound task and concurrency can be achieved with either *threading* or *async/await* to minimize the waiting time from external resources.
 
 ## Terms {#sec-apis-bld-term .unnumbered}
 
@@ -33,9 +32,36 @@
 
 ## Strategies {#sec-apis-bld-strat .unnumbered}
 
--   These are needed for long running tasks
+-   Alternatives to a standard syncronous API are needed for situations where there are high volumes of requests or endpoints with long running tasks.
     -   e.g. Training machine learning models or performing batch ETL jobs
--   Notes from [Performance Optimization for Plumber APIs: Long Running Jobs](https://joekirincic.com/posts/performance-optimization-for-plumber-apis-long-running-jobs/) ([Github](https://github.com/joekirincic/performance-optimization-for-plumber-apis))
+-   Notes from
+    -   [Performance Optimization for Plumber APIs: Async How async programming can improve API performance.](https://joekirincic.com/posts/performance-optimization-for-plumber-apis-async/)
+    -   [Performance Optimization for Plumber APIs: Long Running Jobs](https://joekirincic.com/posts/performance-optimization-for-plumber-apis-long-running-jobs/) ([Github](https://github.com/joekirincic/performance-optimization-for-plumber-apis))
+-   [Asynchronous Programming (Async)]{.underline}
+    -   Executes multiple computations/requests without waiting for each one to finish
+    -   Single threaded programming languages like R and Python handle this by starting background R/Python processes in addition to the main one.
+    -   Async typically benefits apps with a lot of I/O-bound tasks rather than CPU-bound tasks
+        -   IO-bound Tasks
+            -   The bottleneck is waiting for IO *responses*
+            -   Includes fetching data from other APIs, webpages, or databases
+            -   N CPUs should mean N x as many requests that can be handled.
+        -   CPU-bound Tasks
+            -   Include in-memory data processing, *training* machine learning models, or other complex mathematical *calculations*.
+            -   Example: A server with 4 cores and training an ML model is using all of them
+                -   Spawning more background R sessions isn’t going to do much, since all of the cores are busy.
+                -   The new R sessions created by async would just idle waiting for one of them to become available
+    -   What about mixed cases where an endpoint is a task that is both IO-bound and CPU-bound?
+        -   e.g. fetching data and then training a model on that data
+        -   Probably, but with mixed cases it’s best to use load tests to verify whether using async programming is beneficial.
+    -   Debugging is harder due to the added complexity
+    -   More RAM is used automatically.
+        -   If 0.5 GB of RAM is required for a session and the async API uses 8 CPUs, then 4 GB of RAM is taken before any requests are taken.
+        -   The API may hit an OOM error later due to the additional memory used to process all the incoming requests if these considerations aren't taken into account.
+        -   Disk spillover may also occur which will slow things down.
+    -   Checklist (If 2 out of 3, then try async)
+        -   Does the endpoint receive a lot of traffic compared to others?
+        -   Is the endpoint primarily I/O-bound?
+        -   Does it take a long time to execute (e.g. 100-500ms or more)?
 -   [Polling Pattern]{.underline}
     -   AKA [async request-reply pattern](https://learn.microsoft.com/en-us/azure/architecture/patterns/async-request-reply)
     -   Take your endpoint and turn it into four: one to accept the job, one to check status, one to retrieve results, and one to cancel. 
@@ -325,10 +351,34 @@
 ## [{plumber2}]{style="color: #990000"} {#sec-apis-plumb2 .unnumbered}
 
 -   [Docs](https://plumber2.posit.co/index.html)
+
 -   Tags
+
     -   `@parser` - Used to specify how the request body should be parsed into an R object
     -   `@serializer` - Used to convert the return value of your function into a string or binary representation to send back to the client
         -   Default uses a collection of common serialization formats and lets the client chose which they prefer through the [Content-Type]{.arg-text} header
+
+-   [Example]{.ribbon-highlight}: Basic Async
+
+    ``` r
+    library(promises)
+    library(plumber)
+
+    #* Get a response back asynchronously.
+    #* @get /greeting
+    function(){
+       mirai::mirai({
+          "Ayyyyy SYNC!"
+       }) %...>%
+       (function(x) {
+         x
+        })
+    }
+    ```
+
+    -   Business logic of our endpoint is passed to `mirai`, which evaluates an R expression in a background R session and returns a mirai object.
+    -   The mirai object is converted into a promise using the promise pipe operator from [{promises}]{style="color: #990000"}.
+    -   That promise is passed to a function that returns the result when it’s ready
 
 ## FastAPI {#sec-apis-bld-fastapi .unnumbered}
 
