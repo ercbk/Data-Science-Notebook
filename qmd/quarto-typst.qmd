@@ -352,7 +352,9 @@
     :::
 
     -   The complete code is in the github and directory
+
     -   Template
+
         -   Header
 
             <Details>
@@ -450,6 +452,251 @@
             -   Functions: `box`, `text`, `v`
 
             </Details>
+
+    -   Quarto Document
+
+        <Details>
+
+        <Summary>Code</Summary>
+
+        ```` markdown
+        ---
+        format:
+          typst:
+            keep-typ: false
+        params:
+          store_key: 999999
+          year: 2024
+          month: 2
+        ---
+
+        ```{{=typst}}
+        #import "sales-report-template.typ": *
+        ```
+
+        ```{{r}}
+        #| label: setup
+        #| include: false
+
+        # packages
+        # ggplot theme set
+
+        # Set knitr options for graphics
+        knitr::opts_chunk$set(
+          dev = "svglite"
+        )
+        ```
+        ```{{r}}
+        #| label: data-prep
+        #| include: false
+
+        # data prep code
+        ```
+
+        ```{{=typst}}
+        #show: sales-report.with(
+          title: "Monthly Sales Report",
+          store-name: "`r store_info$description`",
+          store-id: "`r store_id`",
+          report-period: "`r report_period`",
+          country: "`r store_info$country_name`",
+          state: "`r if_else(is.na(store_info$state), '', store_info$state)`"
+        )
+        ```
+
+        # Executive Summary
+
+        This report provides a comprehensive analysis of sales performance for `r store_info$description` during `r report_period`. The analysis includes revenue trends, product performance, and key insights to support strategic decision-making.
+
+        ```{{=typst}}
+        #grid(
+          columns: (1fr, 1fr, 1fr, 1fr),
+          column-gutter: 12pt,
+          kpi-box(
+            "Total Revenue",
+            "`r dollar(current_metrics$total_revenue, accuracy = 1)`",
+            change: `r round(revenue_change, 1)`
+          ),
+          kpi-box(
+            "Gross Margin",
+            "`r dollar(current_metrics$total_margin, accuracy = 1)`",
+            change: `r round(margin_change, 1)`
+          ),
+          kpi-box(
+            "Total Orders",
+            "`r comma(current_metrics$total_orders)`",
+            change: `r round(orders_change, 1)`
+          ),
+          kpi-box(
+            "Avg Order Value",
+            "`r dollar(current_metrics$avg_order_value, accuracy = 1)`",
+            change: `r round(aov_change, 1)`
+          )
+        )
+        ```
+
+        etc, etc, etc
+
+        ```{{=typst}}
+        #info-box("Performance Highlights", [
+          - Revenue `r revenue_trend` by *`r abs(round(revenue_change, 1))`%* compared to the previous month
+          - Top 3 categories (*`r paste(top_3_categories$category_name, collapse = ", ")`*) account for *`r percent(sum(top_3_categories$revenue_pct)/100, accuracy = 0.1)`* of total revenue
+          - Highest margin product: *`r top_margin_product$product_name`* with *`r percent(top_margin_product$margin_pct/100, accuracy = 0.1)`* margin
+        ])
+        ```
+
+        line break at the end of document
+        ---
+        ````
+
+        -   See the repo/code directory for the complete code
+        -   The "show" code that would normally be in a `sales-report-show.typ` is in a typst chunk
+        -   Inline R code is allowed in the typst chunks
+        -   Evidently there's a different way of doing this through a [quarto template](https://quarto.org/docs/extensions/starter-templates.html), but he said this way (typst chunks I think) gave him more control over the layout
+
+        </Details>
+
+    -   Generate Reports
+
+        <Details>
+
+        <Summary>Code</Summary>
+
+        ``` r
+        generate_report <- function(
+          store_key,
+          year,
+          month,
+          store_name
+        ) {
+          # Create unique temporary directory for this render to avoid conflicts
+          temp_dir <- tempfile(
+            pattern = sprintf("quarto_%06d_%04d%02d_", store_key, year, month)
+          )
+          dir.create(temp_dir, recursive = TRUE)
+
+          tryCatch(
+            {
+              # Format output filename
+              output_file <- sprintf("store_%06d_%04d-%02d.pdf", store_key, year, month)
+              output_path <- file.path(OUTPUT_DIR, output_file)
+
+              # Copy Quarto template to temp directory
+              file.copy("sales-report.qmd", file.path(temp_dir, "sales-report.qmd"))
+
+              # Copy Typst template if it exists
+              if (file.exists("sales-report-template.typ")) {
+                file.copy(
+                  "sales-report-template.typ",
+                  file.path(temp_dir, "sales-report-template.typ")
+                )
+              }
+
+              withr::with_dir(
+                temp_dir,
+                {
+                  temp_output <- file.path(temp_dir, output_file)
+                  quarto_render(
+                    input = file.path(temp_dir, "sales-report.qmd"),
+                    output_file = output_file,
+                    output_format = "typst",
+                    execute_params = list(
+                      store_key = store_key,
+                      year = year,
+                      month = month
+                    ),
+                    quiet = TRUE
+                  )
+                }
+              )
+
+              # Move rendered file to final location
+              if (file.exists(temp_output)) {
+                file.copy(temp_output, output_path, overwrite = TRUE)
+              }
+
+              # Clean up temp directory
+              unlink(temp_dir, recursive = TRUE)
+
+              # Get file size
+              if (file.exists(output_path)) {
+                file_size <- file.info(output_path)$size
+                file_size_kb <- round(file_size / 1024, 1)
+
+                #log_msg(sprintf("SUCCESS: %s (%s KB)", output_file, file_size_kb))
+
+                return(list(
+                  success = TRUE,
+                  store_key = store_key,
+                  year = year,
+                  month = month,
+                  output_file = output_file,
+                  file_size_kb = file_size_kb
+                ))
+              } else {
+                # log_msg(
+                #   sprintf("ERROR: Output file not found: %s", output_file),
+                #   "ERROR"
+                # )
+                return(list(
+                  success = FALSE,
+                  store_key = store_key,
+                  year = year,
+                  month = month
+                ))
+              }
+            },
+            error = function(e) {
+              # Clean up temp directory on error
+              if (dir.exists(temp_dir)) {
+                unlink(temp_dir, recursive = TRUE)
+              }
+
+              error_msg <- sprintf(
+                "Failed for store %d (%d-%02d): %s",
+                store_key,
+                year,
+                month,
+                e$message
+              )
+              #log_msg(error_msg, "ERROR")
+              return(list(
+                success = FALSE,
+                store_key = store_key,
+                year = year,
+                month = month,
+                error = e$message
+              ))
+            }
+          )
+        }
+
+        # Start mirai daemons
+        daemons(NUM_WORKERS, dispatcher = TRUE)
+
+        results <- mirai_map(
+          select(store_months, store_key, year, month),
+          \(store_key, year, month) {
+            library(dplyr)
+            library(lubridate)
+            library(quarto)
+            generate_report(
+              store_key = store_key,
+              year = year,
+              month = month
+            )
+          },
+          generate_report = generate_report,
+          OUTPUT_DIR = OUTPUT_DIR
+        )[.progress]
+
+        # Stop mirai daemons
+        daemons(0)
+        ```
+
+        -   See repo/code directory for complete script which includes some of these variable values, a logging function, and console messaging
+
+        </Details>
 
 ## Extensions {#sec-quarto-typst-ext .unnumbered}
 

@@ -79,6 +79,7 @@
         -   Supports [Hydra](https://hydra.cc/) - YAML config system for experimentation ([How to use Hydra with W&B](https://wandb.ai/adrishd/hydra-example/reports/Configuring-W-B-Projects-with-Hydra--VmlldzoxNTA2MzQw))
 -   Resources
     -   [Applied HPC with R](https://book-hpc.ggvy.cl/)
+    -   [DevOps for Data Science](https://do4ds.com/)
 -   Python model storage formats and their issues
     -   Notes from [{PyMilo}]{style="color: goldenrod"} JOSS
     -   Pickle
@@ -95,6 +96,50 @@
         -   Has been shown to introduce compatibility issues, performance degradation, and inconsistencies in inference behavior due to backend limitations and environment-specific faults.
         -   Models from other frameworks, such as scikit-learn or PyTorch, must be re-implemented or retrained in TensorFlow to be exported.
         -   Running complex models in JavaScript runtimes introduces memory and performance limitations, often making the deployment of large neural networks prohibitively slow or even infeasible in browser environments
+-   Logging
+    -   Also see R \>\> Code \>\> mlops \>\> manual-logging.R for more details/use cases
+
+    -   [Example]{.ribbon-highlight}: Manual Logging ([source](https://github.com/joekirincic/burst-reporting/blob/2164be1289d897070905f4d33d8a3b24306e3da0/burst-report.R#L103C1-L197C2))
+
+        ``` r
+        OUTPUT_DIR <- "reports"
+
+        # Create output directory
+        if (!dir.exists(OUTPUT_DIR)) {
+          dir.create(OUTPUT_DIR, recursive = TRUE)
+          cat(sprintf("Created output directory: %s\n", OUTPUT_DIR))
+        }
+
+        # Initialize logging
+        log_file <- file.path(
+          OUTPUT_DIR,
+          sprintf("burst-report-log_%s.txt", format(Sys.time(), "%Y%m%d_%H%M%S"))
+        )
+        log_conn <- file(log_file, open = "wt")
+
+        # level is the type of message (e.g. info, error)
+        log_msg <- function(msg, level = "INFO") {
+          timestamp <- format(Sys.time(), "%Y-%m-%d %H:%M:%S")
+          log_line <- sprintf("[%s] %s: %s", timestamp, level, msg)
+          cat(log_line, "\n", file = log_conn)
+          cat(log_line, "\n")
+        }
+
+
+        # use cases
+        log_msg("Starting burst report generation")
+
+        log_msg(sprintf(
+          "Found %d store-month combinations with >= %d orders",
+          nrow(store_months),
+          MIN_ORDERS
+        ))
+
+        # Close log file
+        close(log_conn)
+        ```
+
+        -   See [R, Base \>\> Error Handling](r-base-r.qmd#sec-r-baser-err){style="color: green"} \>\> `tryCatch` \>\> Example 3 for usage in logging error messages
 
 ## Terms {#sec-mlops-terms .unnumbered}
 
@@ -324,20 +369,35 @@
         -   `moo` will not be found unless it's included in [.args]{.arg-text}
         -   [x]{.arg-text} is the input for `c(1:10)`. The input for the vector doesn't have to be the first argument. I think it just has to be one not included in [.args]{.arg-text}
 
-    -   [Example]{.ribbon-highlight}: with [{]{style="color: #990000"}[purrr](https://purrr.tidyverse.org/){style="color: #990000"}[}]{style="color: #990000"}
+    -   [Example]{.ribbon-highlight}:
 
         ``` r
-        parallelly::availableCores() 
-        daemons(6) # starts 6 processes
+        log_msg(sprintf("Starting parallel processing with %d workers", NUM_WORKERS))
 
-        mtcars |> 
-          purrr::map_dbl(sum, .parallel = TRUE) 
-        #> mpg cyl disp hp drat wt qsec 
-        #> 642.900 198.000 7383.100 4694.000 115.090 102.952 571.160 
-        #> vs am gear carb 
-        #> 14.000 13.000 118.000 90.000
+        # Start mirai daemons
+        daemons(NUM_WORKERS, dispatcher = TRUE)
 
-        daemons(0) # terminates processes
+        results <- mirai_map(
+          select(store_months, store_key, year, month),
+          \(store_key, year, month) {
+            library(dplyr)
+            library(lubridate)
+            library(quarto)
+            
+            generate_report(
+              store_key = store_key,
+              year = year,
+              month = month
+            )
+          },
+          generate_report = generate_report,
+          OUTPUT_DIR = OUTPUT_DIR
+        )[.progress]
+
+        # Stop mirai daemons
+        daemons(0)
+
+        log_msg("Parallel processing complete")
         ```
 -   [{]{style="color: #990000"}[purrr](https://purrr.tidyverse.org/){style="color: #990000"}[}]{style="color: #990000"}
     -   Uses [{mirai}]{style="color: #990000"} for parallelization, so `daemons` and `in_parallel` needed
