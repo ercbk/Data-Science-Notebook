@@ -21,6 +21,7 @@
         -   and more (24 days worth)
     -   [DuckDB and dplyr and ibis](https://grantmcdermott.com/duckdb-polars/)
         -   R examples use a DBI connects
+    -   [DuckDB in Action](https://motherduck.com/duckdb-book-brief-orig/) (Free ebook) (See R \>\> Documents \>\> Storage)
 -   Tools
     -   Also see [Apache, Arrow \>\> Misc](apache-arrow.qmd#sec-apache-arrow-misc){style="color: green"} \>\> Tools
     -   DuckDB UI ([Overview](https://duckdb.org/2025/03/12/duckdb-ui.html))\
@@ -61,6 +62,7 @@
     -   [Dash](https://www.dash.builders/)
         -   [Web app](https://app.dash.builders/) (Also see extension), [Docs](https://www.dash.builders/docs/dashboards#dashboards)
         -   A local first data exploration and visualization tool built on top of DuckDB. Use it in your browser or as a DuckDB Extension, analyze, and visualize your data with ease.
+-   Check version: `duckdb:::sql("SELECT version()")`
 -   DuckDB + AWS Lambda for distributed computing and reducing Snowflake costs ([article](https://juhache.substack.com/p/oktas-multi-engine-data-stack))
 -   High performance embedded database for analytics which provides a few enhancements over SQLite such as increased speed and allowing a larger number of columns
     -   Represents a massive leap forward from CSV-based files for a range of reasons, not least the fact it encodes schema metadata (column names and data types) and adopts columnar storage which enables effective compression of data.
@@ -82,27 +84,6 @@
 -   Unlike some other big data tools it is entirely self-contained. (aka embedded, in-process)
     -   No external dependencies, or server software to install, update, or maintain
 -   Can directly run queries on [Parquet files](https://duckdb.org/docs/data/parquet), [CSV files](https://duckdb.org/docs/data/csv), [SQLite files](https://github.com/duckdblabs/sqlite_scanner), [postgres files](https://duckdb.org/2022/09/30/postgres-scanner.html), [Pandas](https://duckdb.org/docs/guides/python/sql_on_pandas), [R](https://duckdb.org/docs/api/r#efficient-transfer) and [Julia](https://duckdb.org/docs/api/julia#scanning-dataframes) data frames as well as [Apache Arrow sources](https://duckdb.org/docs/guides/python/sql_on_arrow)
-
-## Set-up {#sec-db-duckdb-setup .unnumbered}
-
--   Installation: `install.packages("duckdb")`
--   Check version: `duckdb:::sql("SELECT version()")`
--   Create db and populate table from csv
-    -   [Example]{.ribbon-highlight} ![](./_resources/DB,_duckdb.resources/image.png)
-
-    -   [Example]{.ribbon-highlight}
-
-        ``` r
-        # includes filename/id
-        withr::with_dir("data-raw/files/", {
-          dbSendQuery(
-            con, "
-            CREATE TABLE files AS
-            SELECT *, regexp_extract(filename, '\\d{7}') AS file_number
-            FROM read_csv_auto('*Control*File-*.txt', FILENAME = TRUE);"
-          )
-        })
-        ```
 
 ## CLI {#sec-db-duckdb-cli .unnumbered}
 
@@ -550,7 +531,7 @@
 
 ## SQL {#sec-db-duckdb-sql .unnumbered}
 
--   Misc
+-   [Misc]{.underline}
 
     -   Set a RAM limit
 
@@ -562,30 +543,104 @@
 
         -   A parameterized query that is prepared with question marks (`?`) or dollar symbols (`$1`) indicating the parameters of the query.
 
--   [Example 1]{.ribbon-highlight}: Read and Query Parquet (SQL)
+    -   Connect to a duckdb file and read out of memory
 
-    -   Open UI
+        -   [{duckdb}]{style="color: #990000"}
 
-        ``` powershell
-         duckdb -ui
+            ``` r
+            con_ro <- 
+              dbConnect(duckdb::duckdb(), 
+                        dbdir = "pixar.duckdb", 
+                        read_only = TRUE)
+            my_pixar_films <- tbl(con_ro, "pixar_films")
+            ```
+
+        -   [{duckplyr}]{style="color: #990000"}
+
+            ``` r
+            sql_attach <- paste0(
+              "ATTACH DATABASE '",
+              path_duckdb,
+              "' AS external (READ_ONLY)"
+            )
+            db_exec(sql_attach)
+            read_sql_duckdb("SELECT * FROM external.data")
+            ```
+
+            -   Returns a duckplyr frame
+
+-   [EDA]{.underline}
+
+    -   List tables from database file from CLI ([source](https://joshpersi.github.io/blog/posts/03_duckdb_trade_database/))\
+        ![](_resources/DB,_duckdb.resources/sql-eda-db-descr-1.png){.lightbox width="482"}
+
+        ``` bash
+        duckdb data/can_trade.duckdb 
+
+        SELECT database, name, column_names FROM (DESCRIBE);
         ```
 
-    -   Query
+    -   Read first 10 lines from file
 
-        ``` sql
-        SELECT name, fsq_category_labels, locality, region, address, latitude, longitude, geom, bbox
-        FROM read_parquet('/Users/ercbk/Documents/R/Data/foursquare-spaces/*.parquet')
-        WHERE locality = 'Louisville' and region = 'KY' and fsq_category_labels[1] ILIKE '%Car Dealership%'
+        ``` r
+        duckdb:::sql("FROM Data8277.csv LIMIT 10")
         ```
 
-        -   For other methods of performing this query, see
-            -   Example 2
-            -   [dbplyr](db-duckdb.qmd#sec-db-duckdb-dbplyr){style="color: green"} \>\> Example 1
-            -   [Apache, Arrow \>\> Queries](apache-arrow.qmd#sec-apache-arrow-quer){style="color: green"} \>\> Example: Collect Then Wrangle List Column
-        -   [fsq_category_labels]{.var-text} is an array with strings inside, e.g. "[Retail \> Automotive Retail \> Car Dealership]{.var-text}"
-            -   `[1]` subsets the array, so only the first element of the array is matched. I tried including an `or` and pattern matching the second element, but it just returns all car dealerships no matter if they're in Louisville, KY or not. There's probably a way match both elements in one query but I didn't investigate further — maybe with parentheses surrounding both subset expressions.
-        -   `ILIKE '%Car Dealership%` matches the entire string and is case insensitive (unlike `LIKE`) ([Docs](https://duckdb.org/docs/stable/sql/functions/pattern_matching))
-            -   An underscore (`_`) in pattern stands for (matches) any single character; a percent sign (`%`) matches any sequence of zero or more characters
+    -   Print schema from file
+
+        ``` r
+        duckdb:::sql("DESCRIBE FROM Data8277.csv")
+        #>   column_name column_type ...
+        #> 1        Year      BIGINT ...
+        #> 2         Age     VARCHAR ...
+        #> 3      Ethnic      BIGINT ...
+        #> 4         Sex      BIGINT ...
+        #> 5        Area     VARCHAR ...
+        #> 6       count     VARCHAR ...
+        ```
+
+    -   Summary Stats from file
+
+        ``` r
+        duckdb:::sql("SUMMARIZE FROM Data8277.csv")
+        #> # A tibble: 6 × 12
+        #>   column_name column_type min   max     approx_unique avg      std   q25   q50  
+        #>   <chr>       <chr>       <chr> <chr>           <dbl> <chr>    <chr> <chr> <chr>
+        #> 1 Year        BIGINT      2006  2018                3 2012.33… 4.92… 2006  2013 
+        #> 2 Age         VARCHAR     000   999999            149 NA       NA    NA    NA   
+        #> 3 Ethnic      BIGINT      1     9999               11 930.545… 2867… 3     6    
+        #> 4 Sex         BIGINT      1     9                   3 4.0      3.55… 1     2    
+        #> 5 Area        VARCHAR     001   DHB9999          2048 NA       NA    NA    NA   
+        #> 6 count       VARCHAR     ..C   9999            16825 NA       NA    NA    NA   
+        # ℹ 3 more variables: q75 <chr>, count <dbl>, null_percentage <dbl>
+        ```
+
+-   [Read and Query]{.underline}
+
+    -   [Example 1]{.ribbon-highlight}: Read and Query Parquet (SQL)
+
+        -   Open UI
+
+            ``` powershell
+             duckdb -ui
+            ```
+
+        -   Query
+
+            ``` sql
+            SELECT name, fsq_category_labels, locality, region, address, latitude, longitude, geom, bbox
+            FROM read_parquet('/Users/ercbk/Documents/R/Data/foursquare-spaces/*.parquet')
+            WHERE locality = 'Louisville' and region = 'KY' and fsq_category_labels[1] ILIKE '%Car Dealership%'
+            ```
+
+            -   For other methods of performing this query, see
+                -   Example 2
+                -   [dbplyr](db-duckdb.qmd#sec-db-duckdb-dbplyr){style="color: green"} \>\> Example 1
+                -   [Apache, Arrow \>\> Queries](apache-arrow.qmd#sec-apache-arrow-quer){style="color: green"} \>\> Example: Collect Then Wrangle List Column
+            -   [fsq_category_labels]{.var-text} is an array with strings inside, e.g. "[Retail \> Automotive Retail \> Car Dealership]{.var-text}"
+                -   `[1]` subsets the array, so only the first element of the array is matched. I tried including an `or` and pattern matching the second element, but it just returns all car dealerships no matter if they're in Louisville, KY or not. There's probably a way match both elements in one query but I didn't investigate further — maybe with parentheses surrounding both subset expressions.
+            -   `ILIKE '%Car Dealership%` matches the entire string and is case insensitive (unlike `LIKE`) ([Docs](https://duckdb.org/docs/stable/sql/functions/pattern_matching))
+                -   An underscore (`_`) in pattern stands for (matches) any single character; a percent sign (`%`) matches any sequence of zero or more characters
 
     -   [Example 2]{.ribbon-highlight}: Read and Query Parquet (DBI)
 
@@ -618,118 +673,156 @@
             -   [Apache, Arrow \>\> Queries](apache-arrow.qmd#sec-apache-arrow-quer){style="color: green"} \>\> Example: Collect Then Wrangle List Column
         -   Query doesn't try to blow up RAM. The only memory used with the resultant dataframe.
 
--   CSV Parser
-
-    -   Read first 10 lines
+    -   [Example 3]{.ribbon-highlight}: Connect, Read in Parallel, and Query
 
         ``` r
-        duckdb:::sql("FROM Data8277.csv LIMIT 10")
-        ```
-
-    -   Print schema
-
-        ``` r
-        duckdb:::sql("DESCRIBE FROM Data8277.csv")
-        #>   column_name column_type ...
-        #> 1        Year      BIGINT ...
-        #> 2         Age     VARCHAR ...
-        #> 3      Ethnic      BIGINT ...
-        #> 4         Sex      BIGINT ...
-        #> 5        Area     VARCHAR ...
-        #> 6       count     VARCHAR ...
-        ```
-
-    -   Summary Stats
-
-        ``` r
-        duckdb:::sql("SUMMARIZE FROM Data8277.csv")
-        #> # A tibble: 6 × 12
-        #>   column_name column_type min   max     approx_unique avg      std   q25   q50  
-        #>   <chr>       <chr>       <chr> <chr>           <dbl> <chr>    <chr> <chr> <chr>
-        #> 1 Year        BIGINT      2006  2018                3 2012.33… 4.92… 2006  2013 
-        #> 2 Age         VARCHAR     000   999999            149 NA       NA    NA    NA   
-        #> 3 Ethnic      BIGINT      1     9999               11 930.545… 2867… 3     6    
-        #> 4 Sex         BIGINT      1     9                   3 4.0      3.55… 1     2    
-        #> 5 Area        VARCHAR     001   DHB9999          2048 NA       NA    NA    NA   
-        #> 6 count       VARCHAR     ..C   9999            16825 NA       NA    NA    NA   
-        # ℹ 3 more variables: q75 <chr>, count <dbl>, null_percentage <dbl>
-        ```
-
--   Connect to a duckdb file and read out of memory
-
-    -   [{duckdb}]{style="color: #990000"}
-
-        ``` r
-        con_ro <- 
-          dbConnect(duckdb::duckdb(), 
-                    dbdir = "pixar.duckdb", 
-                    read_only = TRUE)
-        my_pixar_films <- tbl(con_ro, "pixar_films")
-        ```
-
-    -   [{duckplyr}]{style="color: #990000"}
-
-        ``` r
-        sql_attach <- paste0(
-          "ATTACH DATABASE '",
-          path_duckdb,
-          "' AS external (READ_ONLY)"
+        sqltxt <- paste0(
+          "select
+                state, min(measurement) as min_m,
+                max(measurement) as max_m,
+                avg(measurement) as mean_m
+          from read_csv('", file_name, "',
+                parallel = true,
+                delim = ',',
+                header = true,
+                columns = {
+                    'measurement': 'DOUBLE',
+                    'state': 'VARCHAR'
+                }
+          )
+          group by state"
         )
-        db_exec(sql_attach)
-        read_sql_duckdb("SELECT * FROM external.data")
+        con <- 
+          dbConnect(duckdb(), 
+                    dbdir = ":memory:")
+
+        dbGetQuery(con, 
+                   sqltxt)
+
+        dbDisconnect(con, 
+                     shutdown = TRUE)
+        gc()
         ```
 
-        -   Returns a duckplyr frame
+        -   Fastest method besides polars for running this operation in this [benchmark](https://github.com/jrosell/1br/tree/main)
 
--   [Example]{.ribbon-highlight}3: Connect, Read in Parallel, and Query
+-   [Operations]{.underline}
 
-    ``` r
-    sqltxt <- paste0(
-      "select
-            state, min(measurement) as min_m,
-            max(measurement) as max_m,
-            avg(measurement) as mean_m
-      from read_csv('", file_name, "',
-            parallel = true,
-            delim = ',',
-            header = true,
-            columns = {
-                'measurement': 'DOUBLE',
-                'state': 'VARCHAR'
-            }
-      )
-      group by state"
-    )
-    con <- 
-      dbConnect(duckdb(), 
-                dbdir = ":memory:")
-    dbGetQuery(con, 
-               sqltxt)
-    dbDisconnect(con, 
-                 shutdown = TRUE)
-    gc()
-    ```
+    -   Create db and populate table from csv
 
-    -   Fastest method besides polars for running this operation in this [benchmark](https://github.com/jrosell/1br/tree/main)
+        -   [Example 1]{.ribbon-highlight}  ![](./_resources/DB,_duckdb.resources/image.png)
 
--   Star Expressions
+        -   [Example 2]{.ribbon-highlight}
 
-    -   Allows you dynamically select columns
+            ``` r
+            # includes filename/id
+            withr::with_dir("data-raw/files/", {
+              dbSendQuery(
+                con, "
+                CREATE TABLE files AS
+                SELECT *, regexp_extract(filename, '\\d{7}') AS file_number
+                FROM read_csv_auto('*Control*File-*.txt', FILENAME = TRUE);"
+              )
+            })
+            ```
 
-        ``` sql
-        -- select all columns present in the FROM clause
-        SELECT * FROM table_name;
-        -- select all columns from the table called "table_name"
-        SELECT table_name.* FROM table_name JOIN other_table_name USING (id);
-        -- select all columns except the city column from the addresses table
-        SELECT * EXCLUDE (city) FROM addresses;
-        -- select all columns from the addresses table, but replace city with LOWER(city)
-        SELECT * REPLACE (LOWER(city) AS city) FROM addresses;
-        -- select all columns matching the given expression
-        SELECT COLUMNS(c -> c LIKE '%num%') FROM addresses;
-        -- select all columns matching the given regex from the table
-        SELECT COLUMNS('number\d+') FROM addresses;
-        ```
+        -   [Example 3]{.ribbon-highlight}: Canadian Import/Exports ([source](https://joshpersi.github.io/blog/posts/03_duckdb_trade_database/))
+
+            ::: panel-tabset
+            ## Create Table
+
+            ``` sql
+            CREATE SEQUENCE IF NOT EXISTS domestic_exports_id INCREMENT BY 1 MINVALUE 1;
+
+            CREATE TABLE IF NOT EXISTS fct_domestic_exports (
+                id INTEGER PRIMARY KEY DEFAULT(nextval('domestic_exports_id')),
+                year INTEGER,
+                month INTEGER,
+                hs8  VARCHAR(8) NOT NULL REFERENCES ref_hs8_codes(hs8),
+                country VARCHAR(2) NOT NULL,
+                province VARCHAR(2) NOT NULL,
+                state VARCHAR(2),
+                value BIGINT NOT NULL,
+                quantity BIGINT NOT NULL,
+                unit VARCHAR(3) NOT NULL REFERENCES ref_units_of_measurement(unit)
+            );
+            ```
+
+            -   A natural key is created using a sequence of integers, starting at one, that increments by one for each new row. This [id]{.var-text} column will be this table’s primary key
+            -   [hs8]{.var-text} is a foreign key for the [ref_hs_8_codes]{.var-text} table.
+                -   See EDA section for an example that has a description of all the tables in the database file.
+
+            ## Populate Table
+
+            ``` sql
+            INSERT INTO fct_domestic_exports (
+                year, 
+                month,
+                hs8,
+                country,
+                province,
+                state,
+                value,
+                quantity,
+                unit
+            ) 
+            SELECT 
+                ("YearMonth/AnnéeMois" / 100)::INTEGER AS year,   
+                ("YearMonth/AnnéeMois" % 100)::INTEGER AS month,
+                HS8,
+                "Country/Pays",
+                Province,
+                "State/État",
+                "Value/Valeur",
+                "Quantity/Quantité",
+                "Unit of Measure/Unité de Mesure"
+            FROM 
+                read_csv("data/data_unzipped/CIMT-CICM_Dom_Exp_*/ODPFN016_*.csv");
+            ```
+
+            -   I think this is using wildcards to read in multiple files
+
+            ## Query
+
+            Which commodities were the top exports, in terms of dollar value, in the year 2025?
+
+            ![](_resources/DB,_duckdb.resources/sql-op-ex2-query-1.png){.lightbox width="532"}
+
+            ``` sql
+            SELECT
+                fct_domestic_exports.hs8,
+                ref_hs8_codes.description_en,
+                sum(fct_domestic_exports.value) AS total_value
+            FROM fct_domestic_exports LEFT JOIN ref_hs8_codes USING (hs8)
+            WHERE year = 2025
+            GROUP BY fct_domestic_exports.hs8, ref_hs8_codes.description_en
+            ORDER BY total_value DESC
+            LIMIT 5;
+            ```
+
+            -   The [ref_hs8_codes]{.var-text} table is accessed for a description of each eight-digit HS code.
+            :::
+
+-   [Syntax]{.underline}
+
+    -   Star Expressions
+
+        -   Allows you dynamically select columns
+
+            ``` sql
+            -- select all columns present in the FROM clause
+            SELECT * FROM table_name;
+            -- select all columns from the table called "table_name"
+            SELECT table_name.* FROM table_name JOIN other_table_name USING (id);
+            -- select all columns except the city column from the addresses table
+            SELECT * EXCLUDE (city) FROM addresses;
+            -- select all columns from the addresses table, but replace city with LOWER(city)
+            SELECT * REPLACE (LOWER(city) AS city) FROM addresses;
+            -- select all columns matching the given expression
+            SELECT COLUMNS(c -> c LIKE '%num%') FROM addresses;
+            -- select all columns matching the given regex from the table
+            SELECT COLUMNS('number\d+') FROM addresses;
+            ```
 
 ## Python {#sec-db-duckdb-py .unnumbered}
 
