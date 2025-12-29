@@ -81,6 +81,115 @@
     -   Example\
         ![](./_resources/Project,_Planning.resources/1-1Zj8iZRg_8ClIH2ocpXZqQ.png){.lightbox width="582"}
 
+## Small Projects {#sec-proj-plan-smol .unnumbered}
+
+-   Notes from [Pipeline Design and Implementation for Small-Scale Data Pipelines](https://pipeline2insights.substack.com/p/pipeline-design-and-implementation)
+-   These could be for experimentation, ad-hoc requests, internal reporting, operational needs, etc.
+    -   i..e Doesn't need to support millions of rows per second or handle dozens of microservices.
+-   [Problem Scope]{.underline}
+    -   What's the data source? (shapes our decisions around scheduling, retries, and performance)
+        -   Is it a CSV export, a third-party API, a database, or a Google Sheet?
+        -   Will it be pulled (we fetch it) or pushed (we receive it)?
+        -   How often is the data updated? Daily? Real-time?
+    -   What is the goal?
+        -   Feeding a dashboard?
+        -   Populating a report?
+        -   Training a model?
+        -   Preparing a flat file for finance or ops?
+    -   Who are the stakeholders? (how *well* should this be documented, reproducible, tested, etc.?)
+        -   Are you the only one maintaining this?
+        -   Will someone else consume or review the output?
+        -   Is this part of a larger project or a temporary solution?
+    -   What is the data size and frequency? (influences our tool choices and performance planning)
+        -   Are we talking hundreds, thousands, or millions of records?
+        -   Will it run hourly, daily, or on demand?
+        -   Can it fit in memory for transformations (e.g., with Pandas), or does it require chunking
+    -   What are the constraints (ensures pipeline works reliably and safely within its environment)
+        -   Any rate limits, API auth, or file format quirks?
+        -   Do we have limited compute, memory, or access?
+        -   Are there security or compliance considerations, like for Personally Identifiable Information (PII)?
+-   [Design Principles]{.underline}\
+    ![](_resources/Project,_Planning.resources/smol-design-1.webp){.lightbox width="432"}
+    -   *Keep It Simple*: Choose the simplest possible tool that solves the problem. Simplicity helps us build faster, debug quicker, and onboard others more easily.
+    -   *Modularize the Pipeline*: Split the process into clear stages such as Extract, Transform, and Load. Keeping these stages separate improves readability and makes it easier to test and replace parts when things change.
+    -   *Make it Reproducible*: Our pipeline should produce the same result every time, given the same inputs.
+    -   *Log Properly*: Add basic logging to track what’s happening. Even a few log lines in stdout or a log file to track the start and end time of each step, number of records processed, warnings, and edge cases can save a lot.
+    -   *Consider Failures*: Things will break. Even simple retry logic or writing errors to a separate file can prevent data loss and headaches.
+    -   *Build for “Small but Growing”:* Start small, but think a step ahead. A bit of foresight means your pipeline won’t need to be rebuilt from scratch when the scope expands slightly.
+-   [Choose the right tools]{.underline}
+    -   The tools should fit naturally into your team or company’s existing data/tech ecosystem
+        -   Easier to hand off or scale
+        -   Onboarding new teammates is easier
+        -   Faster to troubleshoot
+        -   More likely to be reused or extended
+    -   Questions
+        -   What tools does the team already use for data storage, scripting, or orchestration?
+        -   Are there internal conventions, frameworks, or even naming standards to align with?
+        -   Will someone else maintain or extend this in the future?
+        -   Are we introducing something that might create tech debt?
+    -   Match the tool to the task
+        -   If the data fits in memory and only needs occasional processing, don’t reach for distributed tools.
+        -   If the team uses SQL heavily, lean on SQL-based transformations rather than something else like Python.
+        -   If there’s already an internal scheduler or workflow manager, integrate with it instead of spinning up something new.
+    -   Prioritize Maintainability
+        -   Minimise tool count: each additional tool adds complexity.
+        -   Prefer community-supported and documented tools: these save time in the long run.
+        -   Avoid tightly coupling the pipeline to niche tools or services unless we are solving a very specific problem.
+        -   Don’t optimize for scale we don’t need: optimize for clarity, portability, and ownership.
+-   [Implementation Approach]{.underline}
+    -   What decision or action will this pipeline support?
+        -   Helps to frame the pipeline backward: from output → data model → transformations → source
+        -   [Example]{.ribbon-highlight}: A stakeholder wants a cleaned dataset or a weekly report
+            -   Who’s using it?
+            -   How often?
+            -   What will they do with it?
+    -   Sketch out the pipeline
+        -   Include
+            -   Data source (e.g., an API or database)
+            -   Transformation needs (e.g., filter spam, parse rating fields, join metadata)
+            -   Destination (e.g., internal Postgres DB or Data Warehouse)
+    -   Personally inspect the data
+        -   Helps when designing transformations
+        -   Pull sample records, look at edge cases, and check things like:
+            -   Are dates consistent?
+
+            -   Are any fields unexpectedly nested or missing?
+
+            -   Do I need to deduplicate or reformat?
+    -   Start with a quick ETL
+        -   Helps to find the trouble areas
+        -   Example:
+            -   My extract step might be a Python function calling an API with pagination.
+            -   The transform step is where I keep things clean: using Pandas or SQL, with logging for record counts and nulls.
+            -   The load step might be `to_sql()` or a file export. However, always isolated so I can rerun transformations without re-downloading the source.
+    -   Add basic monitoring, validation, etc.
+        -   Some logging (start time, rows processed, error messages)
+        -   Schema checks (column presence, expected types)
+        -   Retry logic for flaky APIs
+    -   Parameterize
+        -   Wrap the pipeline in a CLI or parameterized script.
+        -   Avoid hardcoding file paths or dates.
+        -   For CLIs, possibly add a simple `--dry-run` flag or `--start-date` input.
+    -   Document
+        -   Remove unused code
+        -   Add a short README or comment block explaining inputs and outputs
+        -   Leave clear TODOs or assumptions
+-   [Monitor for Refactoring Signs]{.underline}
+    -   Hopefully you're able catch problems and refactor before they cause major breakage in production
+    -   *Pipeline Logic Is Hard to Follow*: We have to scroll up and down constantly just to trace one transformation. If our extract-transform-load stages are blurred together, or the logic is tightly coupled and hard to test separately.
+    -   *We are Copy-Pasting or Rewriting Code Often*: This is a strong sign that a shared utility module, configuration file, or even a lightweight library would make the pipeline more maintainable.
+    -   *The Pipeline Fails More Frequently*: Add resilience: retries, fallbacks, error logging, and validation.
+        -   Maybe it’s time to switch from ad hoc scripts to a scheduler that supports retries and alerts.
+    -   *Data Volumes Have Grown*: Increased volume can introduce:
+        -   Memory issues
+
+        -   Timeout problems
+
+        -   Longer runtimes that outgrow our local machine or scheduler
+
+        -   Consider chunking, batching, or moving parts of the pipeline to a database or scalable tool.
+    -   *More Stakeholders Now Rely on the Output*: We may need better documentation, more consistent delivery, better monitoring, and ownership.
+
 ## General Steps for Starting a Project {#sec-proj-plan-gensteps .unnumbered}
 
 1.  Gather Information
