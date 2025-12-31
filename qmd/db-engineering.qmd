@@ -3,6 +3,125 @@
 ## Misc {#sec-db-eng-misc .unnumbered}
 
 -   Packages
+    -   [{]{style="color: goldenrod"}[daft](https://github.com/Eventual-Inc/Daft){style="color: goldenrod"}[}]{style="color: goldenrod"} - A distributed query engine for large-scale data processing using Python or SQL, implemented in Rust.
+        -   [Example 1]{.ribbon-highlight}: Lazily aggregate delta lake files in AWS S3 ([source](https://dataengineeringcentral.substack.com/p/650gb-of-data-delta-lake-on-s3-polars))
+
+            <Details>
+
+            <Summary>Code</Summary>
+
+            ``` python
+            import os
+            import daft
+            from daft import col
+            import daft.functions as F
+            from datetime import datetime
+
+            t1 = datetime.now()
+
+            table_path = "s3://confessions-of-a-data-guy/BigTest/social_media_rots_brains"
+            os.environ["AWS_SECRET_ACCESS_KEY"] = "xxxxxxxxxxxx"
+            os.environ["AWS_DEFAULT_REGION"] = "us-east-1"
+
+            df = daft.read_deltalake(table_path)
+
+            df = df.with_column(
+                "created_at_ts",
+                F.to_datetime(col("created_at"), "%Y-%m-%d %H:%M:%S")
+            )
+
+            agg = (
+                df.with_column("post_date", F.date(col("created_at_ts")))
+                  .groupby("post_date")
+                  .count()
+                  .with_column_renamed("count", "num_posts")
+                  .sort("post_date")
+            )
+
+            agg.repartition(1).write_csv("posts_per_day.csv")
+
+            t2 = datetime.now()
+            print(f"Elapsed time: {t2 - t1}")
+            ```
+
+            -   Reads the Delta Lake table using Daft's I/O API.
+            -   Explicitly sets AWS credentials via environment variables.
+            -   Parses the timestamp and extracts the date component.
+            -   Groups by date and counts rows to compute daily totals.
+            -   Writes a single CSV file using Daft’s `repartition().write_csv()`.
+
+            </Details>
+
+        -   [Example 2]{.ribbon-highlight}: Process parquet files in S3 w/batches ([article](https://dataengineeringcentral.substack.com/p/1tb-of-parquets-single-node-benchmark?utm_source=multiple-personal-recommendations-email&utm_medium=email&triedRedirect=true), [repo](https://github.com/danielbeach/duckdbAndDaftEat1TB/blob/main/daft_main.py))
+
+            <Details>
+
+            <Summary>Code</Summary>
+
+            ``` python
+            from datetime import datetime
+
+            import daft
+            from daft import col, DataType
+
+            import pyarrow as pa
+            import pyarrow.csv as pacsv
+
+
+            def main():
+                start_time = datetime.now()
+
+                bucket = "confessions-of-a-data-guy"
+                prefix = "transactions"
+                s3_glob = f"s3://{bucket}/{prefix}/**/*.parquet"
+
+                print(f"Reading data from: {s3_glob}")
+                print(f"Start time: {start_time:%Y-%m-%d %H:%M:%S}")
+                print("-" * 60)
+
+                try:
+                    df = daft.read_parquet(s3_glob)
+                    df = df.into_batches(200_000)
+
+                    result = (
+                        df.with_column("date", col("datetime").cast(DataType.date()))
+                          .groupby("date")
+                          .agg(
+                              col("transaction_id").count().alias("transaction_count"),
+                              col("customer_id").count().alias("customer_count"),
+                              col("order_amount").sum().alias("total_order_amount"),
+                              col("order_qty").sum().alias("total_order_qty"),
+                          )
+                          .sort(col("total_order_amount"), desc=True)
+                    )
+
+                    output_file = "daily_transactions_summary.csv"
+
+                    arrow_tbl: pa.Table = result.to_arrow()
+                    pacsv.write_csv(arrow_tbl, output_file)
+
+                    end_time = datetime.now()
+                    duration = end_time - start_time
+
+                    print(f"\nResults written to: {output_file}")
+                    print(f"End time: {end_time:%Y-%m-%d %H:%M:%S}")
+                    print(f"Total duration: {duration}")
+                    print(f"Total seconds: {duration.total_seconds():.2f}")
+
+                except Exception as e:
+                    print(f"Error processing data: {e}")
+                    print("\nTips:")
+                    print("- Verify AWS creds are correct and have S3 read access.")
+                    print("- If datetime casting fails, the column may be a string with mixed formats.")
+
+
+            if __name__ == "__main__":
+                main()
+            ```
+
+            -   Runs a query on 1TB of parquet files in a S3 bucket using compute with 16 CPUs and 64 GB of RAM. Took almost 30 min. (vs 20 min with duckdb)
+
+            </Details>
     -   [{]{style="color: goldenrod"}[dlt](https://dlthub.com/){style="color: goldenrod"}[}]{style="color: goldenrod"} ([Docs](https://dlthub.com/docs/intro)) - Moves data from source (mysql, API, S3 bucket, etc.) to a storage destination (duckdb, snowflake ([article](https://seifert.substack.com/p/can-you-run-dlt-inside-snowflake)))
 -   If you're developing an application, a good rule of thumb is to write your frequently run queries in such a way that they return a response within **500 ms**
 -   Column storage files (parquet) are more lightweight, as adequate compression can be made for each column. Row storage doesn't work in that way, since a single row can have multiple data types.\

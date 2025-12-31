@@ -64,7 +64,11 @@
         -   A local first data exploration and visualization tool built on top of DuckDB. Use it in your browser or as a DuckDB Extension, analyze, and visualize your data with ease.
 -   Check version: `duckdb:::sql("SELECT version()")`
 -   DuckDB + AWS Lambda for distributed computing and reducing Snowflake costs ([article](https://juhache.substack.com/p/oktas-multi-engine-data-stack))
--   High performance embedded database for analytics which provides a few enhancements over SQLite such as increased speed and allowing a larger number of columns
+-   General Benefits
+    -   No Spark clusters, no complicated installs, dependencies, or JARs, no backflips to use Apache Comet with some JAR to speed up Spark, no Docker images needed.
+    -   A single 64GB node vs some oversized cluster at a very high-priced charge. There is real savings in complexity and architecture.
+-   Vs SQLite
+    -   High performance embedded database for analytics which provides a few enhancements over SQLite such as increased speed and allowing a larger number of columns
     -   Represents a massive leap forward from CSV-based files for a range of reasons, not least the fact it encodes schema metadata (column names and data types) and adopts columnar storage which enables effective compression of data.
     -   Column storage is optimal for analytics since only certain columns are typically required in a query.
     -   Faster than sqlite for most analytics queries (sums, aggregates etc).
@@ -957,6 +961,76 @@
     -   `DATE(created_at) AS post_date, COUNT(*) AS num_posts` - Extracts date from timestamp and counts posts per day
     -   `.df()` - Converts the query result to a pandas DataFrame (added for proper functionality)
     -   `to_csv("posts_per_day.csv")` - Saves the aggregated results to a local CSV file
+
+-   [Example 3]{.ribbon-highlight}: Parquet in S3 w/memory limit and spillover ([article](https://dataengineeringcentral.substack.com/p/1tb-of-parquets-single-node-benchmark?utm_source=multiple-personal-recommendations-email&utm_medium=email&triedRedirect=true), [repo](https://github.com/danielbeach/duckdbAndDaftEat1TB/blob/main/duckdb_main.py))
+
+    ``` python
+    import os
+    import duckdb
+    from datetime import datetime
+    from pathlib import Path
+
+    def main():
+        start_time = datetime.now()
+
+        bucket = "confessions-of-a-data-guy"
+        prefix = "transactions"
+        s3_glob = f"s3://{bucket}/{prefix}/**/*.parquet"
+
+        spill_dir = Path("./duckdb_spill").resolve()
+        spill_dir.mkdir(parents=True, exist_ok=True)
+
+        print(f"Reading data from: {s3_glob}")
+        print(f"Spill dir: {spill_dir}")
+        try:
+            con = duckdb.connect(database=":memory:")
+            con.execute("INSTALL httpfs;")
+            con.execute("LOAD httpfs;")
+
+            con.execute("SET memory_limit='50GB';")
+            con.execute("SET temp_directory=?;", [str(spill_dir)])
+            con.execute("SET preserve_insertion_order=false;")
+
+            query = f"""
+                SELECT
+                    CAST(datetime AS DATE) AS date,
+                    COUNT(transaction_id) AS transaction_count,
+                    COUNT(customer_id) AS customer_count,
+                    SUM(order_amount) AS total_order_amount,
+                    SUM(order_qty) AS total_order_qty
+                FROM read_parquet('{s3_glob}')
+                GROUP BY 1
+                ORDER BY total_order_amount DESC
+            """
+
+            output_file = "daily_transactions_summary.csv"
+
+            con.execute(
+                "COPY (" + query + ") TO ? (HEADER, DELIMITER ',');",
+                [output_file],
+            )
+
+            end_time = datetime.now()
+            duration = end_time - start_time
+
+            print(f"\nResults written to: {output_file}")
+            print(f"End time: {end_time.strftime('%Y-%m-%d %H:%M:%S')}")
+            print(f"Total duration: {duration}")
+            print(f"Total seconds: {duration.total_seconds():.2f}")
+
+        except Exception as e:
+            print(f"Error processing data: {e}")
+            print("\nTips:")
+            print("- Ensure AWS creds are available (env vars, ~/.aws, or instance role).")
+            print("- Set AWS_REGION/AWS_DEFAULT_REGION if needed.")
+            print("- If your DuckDB build can't INSTALL extensions, use a build that can or preinstall httpfs.")
+
+    if __name__ == "__main__":
+        main()
+    ```
+
+    -   Runs a query on 1TB of parquet files in a S3 bucket using compute with 16 CPUs and 64 GB of RAM. Took almost 20 min. (vs 30 min with daft) with peak memory usage around 48GB.
+    -   "Spilling" temporarily writes intermediate data to disk when it exceeds available memory
 
 ## Remote Connections {#sec-db-duckdb-remcon .unnumbered}
 
