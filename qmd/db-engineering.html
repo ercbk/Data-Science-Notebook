@@ -2202,6 +2202,120 @@ gtag('config', 'G-5J13QCM7YC', { 'anonymize_ip': true});
 <ul>
 <li>Packages
 <ul>
+<li><span style="color: goldenrod">{</span><a href="https://github.com/Eventual-Inc/Daft" style="color: goldenrod">daft</a><span style="color: goldenrod">}</span> - A distributed query engine for large-scale data processing using Python or SQL, implemented in Rust.
+<ul>
+<li><p><span class="ribbon-highlight">Example 1</span>: Lazily aggregate delta lake files in AWS S3 (<a href="https://dataengineeringcentral.substack.com/p/650gb-of-data-delta-lake-on-s3-polars">source</a>)</p>
+<details>
+<summary>
+<p>Code</p>
+</summary>
+<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb1"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb1-1"><a href="#cb1-1" aria-hidden="true" tabindex="-1"></a><span class="im">import</span> os</span>
+<span id="cb1-2"><a href="#cb1-2" aria-hidden="true" tabindex="-1"></a><span class="im">import</span> daft</span>
+<span id="cb1-3"><a href="#cb1-3" aria-hidden="true" tabindex="-1"></a><span class="im">from</span> daft <span class="im">import</span> col</span>
+<span id="cb1-4"><a href="#cb1-4" aria-hidden="true" tabindex="-1"></a><span class="im">import</span> daft.functions <span class="im">as</span> F</span>
+<span id="cb1-5"><a href="#cb1-5" aria-hidden="true" tabindex="-1"></a><span class="im">from</span> datetime <span class="im">import</span> datetime</span>
+<span id="cb1-6"><a href="#cb1-6" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb1-7"><a href="#cb1-7" aria-hidden="true" tabindex="-1"></a>t1 <span class="op">=</span> datetime.now()</span>
+<span id="cb1-8"><a href="#cb1-8" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb1-9"><a href="#cb1-9" aria-hidden="true" tabindex="-1"></a>table_path <span class="op">=</span> <span class="st">"s3://confessions-of-a-data-guy/BigTest/social_media_rots_brains"</span></span>
+<span id="cb1-10"><a href="#cb1-10" aria-hidden="true" tabindex="-1"></a>os.environ[<span class="st">"AWS_SECRET_ACCESS_KEY"</span>] <span class="op">=</span> <span class="st">"xxxxxxxxxxxx"</span></span>
+<span id="cb1-11"><a href="#cb1-11" aria-hidden="true" tabindex="-1"></a>os.environ[<span class="st">"AWS_DEFAULT_REGION"</span>] <span class="op">=</span> <span class="st">"us-east-1"</span></span>
+<span id="cb1-12"><a href="#cb1-12" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb1-13"><a href="#cb1-13" aria-hidden="true" tabindex="-1"></a>df <span class="op">=</span> daft.read_deltalake(table_path)</span>
+<span id="cb1-14"><a href="#cb1-14" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb1-15"><a href="#cb1-15" aria-hidden="true" tabindex="-1"></a>df <span class="op">=</span> df.with_column(</span>
+<span id="cb1-16"><a href="#cb1-16" aria-hidden="true" tabindex="-1"></a>    <span class="st">"created_at_ts"</span>,</span>
+<span id="cb1-17"><a href="#cb1-17" aria-hidden="true" tabindex="-1"></a>    F.to_datetime(col(<span class="st">"created_at"</span>), <span class="st">"%Y-%m-</span><span class="sc">%d</span><span class="st"> %H:%M:%S"</span>)</span>
+<span id="cb1-18"><a href="#cb1-18" aria-hidden="true" tabindex="-1"></a>)</span>
+<span id="cb1-19"><a href="#cb1-19" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb1-20"><a href="#cb1-20" aria-hidden="true" tabindex="-1"></a>agg <span class="op">=</span> (</span>
+<span id="cb1-21"><a href="#cb1-21" aria-hidden="true" tabindex="-1"></a>    df.with_column(<span class="st">"post_date"</span>, F.date(col(<span class="st">"created_at_ts"</span>)))</span>
+<span id="cb1-22"><a href="#cb1-22" aria-hidden="true" tabindex="-1"></a>      .groupby(<span class="st">"post_date"</span>)</span>
+<span id="cb1-23"><a href="#cb1-23" aria-hidden="true" tabindex="-1"></a>      .count()</span>
+<span id="cb1-24"><a href="#cb1-24" aria-hidden="true" tabindex="-1"></a>      .with_column_renamed(<span class="st">"count"</span>, <span class="st">"num_posts"</span>)</span>
+<span id="cb1-25"><a href="#cb1-25" aria-hidden="true" tabindex="-1"></a>      .sort(<span class="st">"post_date"</span>)</span>
+<span id="cb1-26"><a href="#cb1-26" aria-hidden="true" tabindex="-1"></a>)</span>
+<span id="cb1-27"><a href="#cb1-27" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb1-28"><a href="#cb1-28" aria-hidden="true" tabindex="-1"></a>agg.repartition(<span class="dv">1</span>).write_csv(<span class="st">"posts_per_day.csv"</span>)</span>
+<span id="cb1-29"><a href="#cb1-29" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb1-30"><a href="#cb1-30" aria-hidden="true" tabindex="-1"></a>t2 <span class="op">=</span> datetime.now()</span>
+<span id="cb1-31"><a href="#cb1-31" aria-hidden="true" tabindex="-1"></a><span class="bu">print</span>(<span class="ss">f"Elapsed time: </span><span class="sc">{</span>t2 <span class="op">-</span> t1<span class="sc">}</span><span class="ss">"</span>)</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
+<ul>
+<li>Reads the Delta Lake table using Daft’s I/O API.</li>
+<li>Explicitly sets AWS credentials via environment variables.</li>
+<li>Parses the timestamp and extracts the date component.</li>
+<li>Groups by date and counts rows to compute daily totals.</li>
+<li>Writes a single CSV file using Daft’s <code>repartition().write_csv()</code>.</li>
+</ul>
+</details></li>
+<li><p><span class="ribbon-highlight">Example 2</span>: Process parquet files in S3 w/batches (<a href="https://dataengineeringcentral.substack.com/p/1tb-of-parquets-single-node-benchmark?utm_source=multiple-personal-recommendations-email&amp;utm_medium=email&amp;triedRedirect=true">article</a>, <a href="https://github.com/danielbeach/duckdbAndDaftEat1TB/blob/main/daft_main.py">repo</a>)</p>
+<details>
+<summary>
+<p>Code</p>
+</summary>
+<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb2"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb2-1"><a href="#cb2-1" aria-hidden="true" tabindex="-1"></a><span class="im">from</span> datetime <span class="im">import</span> datetime</span>
+<span id="cb2-2"><a href="#cb2-2" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb2-3"><a href="#cb2-3" aria-hidden="true" tabindex="-1"></a><span class="im">import</span> daft</span>
+<span id="cb2-4"><a href="#cb2-4" aria-hidden="true" tabindex="-1"></a><span class="im">from</span> daft <span class="im">import</span> col, DataType</span>
+<span id="cb2-5"><a href="#cb2-5" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb2-6"><a href="#cb2-6" aria-hidden="true" tabindex="-1"></a><span class="im">import</span> pyarrow <span class="im">as</span> pa</span>
+<span id="cb2-7"><a href="#cb2-7" aria-hidden="true" tabindex="-1"></a><span class="im">import</span> pyarrow.csv <span class="im">as</span> pacsv</span>
+<span id="cb2-8"><a href="#cb2-8" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb2-9"><a href="#cb2-9" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb2-10"><a href="#cb2-10" aria-hidden="true" tabindex="-1"></a><span class="kw">def</span> main():</span>
+<span id="cb2-11"><a href="#cb2-11" aria-hidden="true" tabindex="-1"></a>    start_time <span class="op">=</span> datetime.now()</span>
+<span id="cb2-12"><a href="#cb2-12" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb2-13"><a href="#cb2-13" aria-hidden="true" tabindex="-1"></a>    bucket <span class="op">=</span> <span class="st">"confessions-of-a-data-guy"</span></span>
+<span id="cb2-14"><a href="#cb2-14" aria-hidden="true" tabindex="-1"></a>    prefix <span class="op">=</span> <span class="st">"transactions"</span></span>
+<span id="cb2-15"><a href="#cb2-15" aria-hidden="true" tabindex="-1"></a>    s3_glob <span class="op">=</span> <span class="ss">f"s3://</span><span class="sc">{</span>bucket<span class="sc">}</span><span class="ss">/</span><span class="sc">{</span>prefix<span class="sc">}</span><span class="ss">/**/*.parquet"</span></span>
+<span id="cb2-16"><a href="#cb2-16" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb2-17"><a href="#cb2-17" aria-hidden="true" tabindex="-1"></a>    <span class="bu">print</span>(<span class="ss">f"Reading data from: </span><span class="sc">{</span>s3_glob<span class="sc">}</span><span class="ss">"</span>)</span>
+<span id="cb2-18"><a href="#cb2-18" aria-hidden="true" tabindex="-1"></a>    <span class="bu">print</span>(<span class="ss">f"Start time: </span><span class="sc">{</span>start_time<span class="sc">:</span><span class="op">%</span>Y<span class="op">-%</span>m<span class="op">-%</span>d <span class="op">%</span>H<span class="sc">:</span><span class="op">%</span>M<span class="sc">:</span><span class="op">%</span>S<span class="sc">}</span><span class="ss">"</span>)</span>
+<span id="cb2-19"><a href="#cb2-19" aria-hidden="true" tabindex="-1"></a>    <span class="bu">print</span>(<span class="st">"-"</span> <span class="op">*</span> <span class="dv">60</span>)</span>
+<span id="cb2-20"><a href="#cb2-20" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb2-21"><a href="#cb2-21" aria-hidden="true" tabindex="-1"></a>    <span class="cf">try</span>:</span>
+<span id="cb2-22"><a href="#cb2-22" aria-hidden="true" tabindex="-1"></a>        df <span class="op">=</span> daft.read_parquet(s3_glob)</span>
+<span id="cb2-23"><a href="#cb2-23" aria-hidden="true" tabindex="-1"></a>        df <span class="op">=</span> df.into_batches(<span class="dv">200_000</span>)</span>
+<span id="cb2-24"><a href="#cb2-24" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb2-25"><a href="#cb2-25" aria-hidden="true" tabindex="-1"></a>        result <span class="op">=</span> (</span>
+<span id="cb2-26"><a href="#cb2-26" aria-hidden="true" tabindex="-1"></a>            df.with_column(<span class="st">"date"</span>, col(<span class="st">"datetime"</span>).cast(DataType.date()))</span>
+<span id="cb2-27"><a href="#cb2-27" aria-hidden="true" tabindex="-1"></a>              .groupby(<span class="st">"date"</span>)</span>
+<span id="cb2-28"><a href="#cb2-28" aria-hidden="true" tabindex="-1"></a>              .agg(</span>
+<span id="cb2-29"><a href="#cb2-29" aria-hidden="true" tabindex="-1"></a>                  col(<span class="st">"transaction_id"</span>).count().alias(<span class="st">"transaction_count"</span>),</span>
+<span id="cb2-30"><a href="#cb2-30" aria-hidden="true" tabindex="-1"></a>                  col(<span class="st">"customer_id"</span>).count().alias(<span class="st">"customer_count"</span>),</span>
+<span id="cb2-31"><a href="#cb2-31" aria-hidden="true" tabindex="-1"></a>                  col(<span class="st">"order_amount"</span>).<span class="bu">sum</span>().alias(<span class="st">"total_order_amount"</span>),</span>
+<span id="cb2-32"><a href="#cb2-32" aria-hidden="true" tabindex="-1"></a>                  col(<span class="st">"order_qty"</span>).<span class="bu">sum</span>().alias(<span class="st">"total_order_qty"</span>),</span>
+<span id="cb2-33"><a href="#cb2-33" aria-hidden="true" tabindex="-1"></a>              )</span>
+<span id="cb2-34"><a href="#cb2-34" aria-hidden="true" tabindex="-1"></a>              .sort(col(<span class="st">"total_order_amount"</span>), desc<span class="op">=</span><span class="va">True</span>)</span>
+<span id="cb2-35"><a href="#cb2-35" aria-hidden="true" tabindex="-1"></a>        )</span>
+<span id="cb2-36"><a href="#cb2-36" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb2-37"><a href="#cb2-37" aria-hidden="true" tabindex="-1"></a>        output_file <span class="op">=</span> <span class="st">"daily_transactions_summary.csv"</span></span>
+<span id="cb2-38"><a href="#cb2-38" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb2-39"><a href="#cb2-39" aria-hidden="true" tabindex="-1"></a>        arrow_tbl: pa.Table <span class="op">=</span> result.to_arrow()</span>
+<span id="cb2-40"><a href="#cb2-40" aria-hidden="true" tabindex="-1"></a>        pacsv.write_csv(arrow_tbl, output_file)</span>
+<span id="cb2-41"><a href="#cb2-41" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb2-42"><a href="#cb2-42" aria-hidden="true" tabindex="-1"></a>        end_time <span class="op">=</span> datetime.now()</span>
+<span id="cb2-43"><a href="#cb2-43" aria-hidden="true" tabindex="-1"></a>        duration <span class="op">=</span> end_time <span class="op">-</span> start_time</span>
+<span id="cb2-44"><a href="#cb2-44" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb2-45"><a href="#cb2-45" aria-hidden="true" tabindex="-1"></a>        <span class="bu">print</span>(<span class="ss">f"</span><span class="ch">\n</span><span class="ss">Results written to: </span><span class="sc">{</span>output_file<span class="sc">}</span><span class="ss">"</span>)</span>
+<span id="cb2-46"><a href="#cb2-46" aria-hidden="true" tabindex="-1"></a>        <span class="bu">print</span>(<span class="ss">f"End time: </span><span class="sc">{</span>end_time<span class="sc">:</span><span class="op">%</span>Y<span class="op">-%</span>m<span class="op">-%</span>d <span class="op">%</span>H<span class="sc">:</span><span class="op">%</span>M<span class="sc">:</span><span class="op">%</span>S<span class="sc">}</span><span class="ss">"</span>)</span>
+<span id="cb2-47"><a href="#cb2-47" aria-hidden="true" tabindex="-1"></a>        <span class="bu">print</span>(<span class="ss">f"Total duration: </span><span class="sc">{</span>duration<span class="sc">}</span><span class="ss">"</span>)</span>
+<span id="cb2-48"><a href="#cb2-48" aria-hidden="true" tabindex="-1"></a>        <span class="bu">print</span>(<span class="ss">f"Total seconds: </span><span class="sc">{</span>duration<span class="sc">.</span>total_seconds()<span class="sc">:.2f}</span><span class="ss">"</span>)</span>
+<span id="cb2-49"><a href="#cb2-49" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb2-50"><a href="#cb2-50" aria-hidden="true" tabindex="-1"></a>    <span class="cf">except</span> <span class="pp">Exception</span> <span class="im">as</span> e:</span>
+<span id="cb2-51"><a href="#cb2-51" aria-hidden="true" tabindex="-1"></a>        <span class="bu">print</span>(<span class="ss">f"Error processing data: </span><span class="sc">{</span>e<span class="sc">}</span><span class="ss">"</span>)</span>
+<span id="cb2-52"><a href="#cb2-52" aria-hidden="true" tabindex="-1"></a>        <span class="bu">print</span>(<span class="st">"</span><span class="ch">\n</span><span class="st">Tips:"</span>)</span>
+<span id="cb2-53"><a href="#cb2-53" aria-hidden="true" tabindex="-1"></a>        <span class="bu">print</span>(<span class="st">"- Verify AWS creds are correct and have S3 read access."</span>)</span>
+<span id="cb2-54"><a href="#cb2-54" aria-hidden="true" tabindex="-1"></a>        <span class="bu">print</span>(<span class="st">"- If datetime casting fails, the column may be a string with mixed formats."</span>)</span>
+<span id="cb2-55"><a href="#cb2-55" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb2-56"><a href="#cb2-56" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb2-57"><a href="#cb2-57" aria-hidden="true" tabindex="-1"></a><span class="cf">if</span> <span class="va">__name__</span> <span class="op">==</span> <span class="st">"__main__"</span>:</span>
+<span id="cb2-58"><a href="#cb2-58" aria-hidden="true" tabindex="-1"></a>    main()</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
+<ul>
+<li>Runs a query on 1TB of parquet files in a S3 bucket using compute with 16 CPUs and 64 GB of RAM. Took almost 30 min. (vs 20 min with duckdb)</li>
+</ul>
+</details></li>
+</ul></li>
 <li><span style="color: goldenrod">{</span><a href="https://dlthub.com/" style="color: goldenrod">dlt</a><span style="color: goldenrod">}</span> (<a href="https://dlthub.com/docs/intro">Docs</a>) - Moves data from source (mysql, API, S3 bucket, etc.) to a storage destination (duckdb, snowflake (<a href="https://seifert.substack.com/p/can-you-run-dlt-inside-snowflake">article</a>))</li>
 </ul></li>
 <li>If you’re developing an application, a good rule of thumb is to write your frequently run queries in such a way that they return a response within <strong>500 ms</strong></li>
@@ -2215,26 +2329,26 @@ gtag('config', 'G-5J13QCM7YC', { 'anonymize_ip': true});
 <li><p>Python/R code execution? Usually under 5% of total runtime. Loops and refactoring functions typically only run once per pipeline.</p></li>
 <li><p>Meanwhile, a single unoptimized SQL query burns compute credits and delays every downstream job.</p></li>
 <li><p>Simple timing of pipeline components can usually help you discover the bottleneck</p>
-<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb1"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb1-1"><a href="#cb1-1" aria-hidden="true" tabindex="-1"></a><span class="im">import</span> time</span>
-<span id="cb1-2"><a href="#cb1-2" aria-hidden="true" tabindex="-1"></a><span class="im">from</span> contextlib <span class="im">import</span> contextmanager</span>
-<span id="cb1-3"><a href="#cb1-3" aria-hidden="true" tabindex="-1"></a></span>
-<span id="cb1-4"><a href="#cb1-4" aria-hidden="true" tabindex="-1"></a><span class="at">@contextmanager</span></span>
-<span id="cb1-5"><a href="#cb1-5" aria-hidden="true" tabindex="-1"></a><span class="kw">def</span> timer(name):</span>
-<span id="cb1-6"><a href="#cb1-6" aria-hidden="true" tabindex="-1"></a>    <span class="co">"""Simple timing context manager for pipeline sections."""</span></span>
-<span id="cb1-7"><a href="#cb1-7" aria-hidden="true" tabindex="-1"></a>    start <span class="op">=</span> time.perf_counter()</span>
-<span id="cb1-8"><a href="#cb1-8" aria-hidden="true" tabindex="-1"></a>    <span class="cf">yield</span></span>
-<span id="cb1-9"><a href="#cb1-9" aria-hidden="true" tabindex="-1"></a>    duration <span class="op">=</span> time.perf_counter() <span class="op">-</span> start</span>
-<span id="cb1-10"><a href="#cb1-10" aria-hidden="true" tabindex="-1"></a>    <span class="bu">print</span>(<span class="ss">f"</span><span class="sc">{</span>name<span class="sc">}</span><span class="ss">: </span><span class="sc">{</span>duration<span class="sc">:.2f}</span><span class="ss">s"</span>)</span>
-<span id="cb1-11"><a href="#cb1-11" aria-hidden="true" tabindex="-1"></a></span>
-<span id="cb1-12"><a href="#cb1-12" aria-hidden="true" tabindex="-1"></a><span class="co"># In your pipeline:</span></span>
-<span id="cb1-13"><a href="#cb1-13" aria-hidden="true" tabindex="-1"></a><span class="cf">with</span> timer(<span class="st">"Extract from API"</span>):</span>
-<span id="cb1-14"><a href="#cb1-14" aria-hidden="true" tabindex="-1"></a>    data <span class="op">=</span> fetch_from_api()</span>
-<span id="cb1-15"><a href="#cb1-15" aria-hidden="true" tabindex="-1"></a></span>
-<span id="cb1-16"><a href="#cb1-16" aria-hidden="true" tabindex="-1"></a><span class="cf">with</span> timer(<span class="st">"Transform with pandas"</span>):</span>
-<span id="cb1-17"><a href="#cb1-17" aria-hidden="true" tabindex="-1"></a>    df <span class="op">=</span> transform(data)</span>
-<span id="cb1-18"><a href="#cb1-18" aria-hidden="true" tabindex="-1"></a></span>
-<span id="cb1-19"><a href="#cb1-19" aria-hidden="true" tabindex="-1"></a><span class="cf">with</span> timer(<span class="st">"Load to warehouse"</span>):</span>
-<span id="cb1-20"><a href="#cb1-20" aria-hidden="true" tabindex="-1"></a>    load_to_snowflake(df)</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div></li>
+<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb3"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb3-1"><a href="#cb3-1" aria-hidden="true" tabindex="-1"></a><span class="im">import</span> time</span>
+<span id="cb3-2"><a href="#cb3-2" aria-hidden="true" tabindex="-1"></a><span class="im">from</span> contextlib <span class="im">import</span> contextmanager</span>
+<span id="cb3-3"><a href="#cb3-3" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb3-4"><a href="#cb3-4" aria-hidden="true" tabindex="-1"></a><span class="at">@contextmanager</span></span>
+<span id="cb3-5"><a href="#cb3-5" aria-hidden="true" tabindex="-1"></a><span class="kw">def</span> timer(name):</span>
+<span id="cb3-6"><a href="#cb3-6" aria-hidden="true" tabindex="-1"></a>    <span class="co">"""Simple timing context manager for pipeline sections."""</span></span>
+<span id="cb3-7"><a href="#cb3-7" aria-hidden="true" tabindex="-1"></a>    start <span class="op">=</span> time.perf_counter()</span>
+<span id="cb3-8"><a href="#cb3-8" aria-hidden="true" tabindex="-1"></a>    <span class="cf">yield</span></span>
+<span id="cb3-9"><a href="#cb3-9" aria-hidden="true" tabindex="-1"></a>    duration <span class="op">=</span> time.perf_counter() <span class="op">-</span> start</span>
+<span id="cb3-10"><a href="#cb3-10" aria-hidden="true" tabindex="-1"></a>    <span class="bu">print</span>(<span class="ss">f"</span><span class="sc">{</span>name<span class="sc">}</span><span class="ss">: </span><span class="sc">{</span>duration<span class="sc">:.2f}</span><span class="ss">s"</span>)</span>
+<span id="cb3-11"><a href="#cb3-11" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb3-12"><a href="#cb3-12" aria-hidden="true" tabindex="-1"></a><span class="co"># In your pipeline:</span></span>
+<span id="cb3-13"><a href="#cb3-13" aria-hidden="true" tabindex="-1"></a><span class="cf">with</span> timer(<span class="st">"Extract from API"</span>):</span>
+<span id="cb3-14"><a href="#cb3-14" aria-hidden="true" tabindex="-1"></a>    data <span class="op">=</span> fetch_from_api()</span>
+<span id="cb3-15"><a href="#cb3-15" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb3-16"><a href="#cb3-16" aria-hidden="true" tabindex="-1"></a><span class="cf">with</span> timer(<span class="st">"Transform with pandas"</span>):</span>
+<span id="cb3-17"><a href="#cb3-17" aria-hidden="true" tabindex="-1"></a>    df <span class="op">=</span> transform(data)</span>
+<span id="cb3-18"><a href="#cb3-18" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb3-19"><a href="#cb3-19" aria-hidden="true" tabindex="-1"></a><span class="cf">with</span> timer(<span class="st">"Load to warehouse"</span>):</span>
+<span id="cb3-20"><a href="#cb3-20" aria-hidden="true" tabindex="-1"></a>    load_to_snowflake(df)</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div></li>
 </ul></li>
 </ul>
 </section>
@@ -2532,7 +2646,7 @@ gtag('config', 'G-5J13QCM7YC', { 'anonymize_ip': true});
 <ul>
 <li><p>Use <code>LEFT_JOIN</code> instead of <code>INNER_JOIN</code></p></li>
 <li><p>Use <a href="https://www.postgresql.org/docs/14/planner-stats.html#PLANNER-STATS-EXTENDED">extended statistics</a></p>
-<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb2"><pre class="sourceCode sql code-with-copy"><code class="sourceCode sql"><span id="cb2-1"><a href="#cb2-1" aria-hidden="true" tabindex="-1"></a><span class="kw">CREATE</span> <span class="kw">STATISTICS</span> ids_correlation <span class="kw">ON</span> repository_id, merge_commit_id <span class="kw">FROM</span> pull_requests;</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
+<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb4"><pre class="sourceCode sql code-with-copy"><code class="sourceCode sql"><span id="cb4-1"><a href="#cb4-1" aria-hidden="true" tabindex="-1"></a><span class="kw">CREATE</span> <span class="kw">STATISTICS</span> ids_correlation <span class="kw">ON</span> repository_id, merge_commit_id <span class="kw">FROM</span> pull_requests;</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
 <ul>
 <li><p>“repository_id” and “merge_commit_id” are the correlated keys</p></li>
 <li><p>I’m not sure if “ids_correlation” is a function or just a user-defined name</p></li>
@@ -2564,15 +2678,15 @@ gtag('config', 'G-5J13QCM7YC', { 'anonymize_ip': true});
 <li>See <a href="https://github.com/reorg/pg_repack">pg_repack</a> for a solution</li>
 </ul></li>
 <li><p><span class="ribbon-highlight">Example</span></p>
-<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb3"><pre class="sourceCode sql code-with-copy"><code class="sourceCode sql"><span id="cb3-1"><a href="#cb3-1" aria-hidden="true" tabindex="-1"></a><span class="co">-- create index</span></span>
-<span id="cb3-2"><a href="#cb3-2" aria-hidden="true" tabindex="-1"></a><span class="kw">CREATE</span> <span class="kw">INDEX</span> pull_requests_repository_id <span class="kw">ON</span> pull_requests (repository_id, <span class="dt">number</span>)</span>
-<span id="cb3-3"><a href="#cb3-3" aria-hidden="true" tabindex="-1"></a><span class="co">-- cluster table</span></span>
-<span id="cb3-4"><a href="#cb3-4" aria-hidden="true" tabindex="-1"></a><span class="kw">CLUSTER</span> pull_requests <span class="kw">USING</span> pull_requests_repository_id</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div></li>
+<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb5"><pre class="sourceCode sql code-with-copy"><code class="sourceCode sql"><span id="cb5-1"><a href="#cb5-1" aria-hidden="true" tabindex="-1"></a><span class="co">-- create index</span></span>
+<span id="cb5-2"><a href="#cb5-2" aria-hidden="true" tabindex="-1"></a><span class="kw">CREATE</span> <span class="kw">INDEX</span> pull_requests_repository_id <span class="kw">ON</span> pull_requests (repository_id, <span class="dt">number</span>)</span>
+<span id="cb5-3"><a href="#cb5-3" aria-hidden="true" tabindex="-1"></a><span class="co">-- cluster table</span></span>
+<span id="cb5-4"><a href="#cb5-4" aria-hidden="true" tabindex="-1"></a><span class="kw">CLUSTER</span> pull_requests <span class="kw">USING</span> pull_requests_repository_id</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div></li>
 </ul></li>
 <li><p>Useful for queries such as</p>
-<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb4"><pre class="sourceCode sql code-with-copy"><code class="sourceCode sql"><span id="cb4-1"><a href="#cb4-1" aria-hidden="true" tabindex="-1"></a><span class="kw">SELECT</span> <span class="op">*</span></span>
-<span id="cb4-2"><a href="#cb4-2" aria-hidden="true" tabindex="-1"></a><span class="kw">FROM</span> pull_requests</span>
-<span id="cb4-3"><a href="#cb4-3" aria-hidden="true" tabindex="-1"></a><span class="kw">WHERE</span> repository_id <span class="kw">IN</span> (<span class="op">..</span>.) <span class="kw">AND</span> <span class="dt">number</span> <span class="op">&gt;</span> <span class="dv">1000</span></span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div></li>
+<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb6"><pre class="sourceCode sql code-with-copy"><code class="sourceCode sql"><span id="cb6-1"><a href="#cb6-1" aria-hidden="true" tabindex="-1"></a><span class="kw">SELECT</span> <span class="op">*</span></span>
+<span id="cb6-2"><a href="#cb6-2" aria-hidden="true" tabindex="-1"></a><span class="kw">FROM</span> pull_requests</span>
+<span id="cb6-3"><a href="#cb6-3" aria-hidden="true" tabindex="-1"></a><span class="kw">WHERE</span> repository_id <span class="kw">IN</span> (<span class="op">..</span>.) <span class="kw">AND</span> <span class="dt">number</span> <span class="op">&gt;</span> <span class="dv">1000</span></span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div></li>
 <li><p>Best Pactices</p>
 <ul>
 <li>Avoid too many indexes
@@ -2585,12 +2699,12 @@ gtag('config', 'G-5J13QCM7YC', { 'anonymize_ip': true});
 <li><p>Makes effective use of the index-only scan feature</p></li>
 <li><p>Add <code>INCLUDE</code> to the create index expression</p></li>
 <li><p><span class="ribbon-highlight">Example</span></p>
-<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb5"><pre class="sourceCode sql code-with-copy"><code class="sourceCode sql"><span id="cb5-1"><a href="#cb5-1" aria-hidden="true" tabindex="-1"></a><span class="co">-- query</span></span>
-<span id="cb5-2"><a href="#cb5-2" aria-hidden="true" tabindex="-1"></a><span class="kw">SELECT</span> y <span class="kw">FROM</span> tab <span class="kw">WHERE</span> x <span class="op">=</span> <span class="st">'key'</span>;</span>
-<span id="cb5-3"><a href="#cb5-3" aria-hidden="true" tabindex="-1"></a><span class="co">-- covering index, x</span></span>
-<span id="cb5-4"><a href="#cb5-4" aria-hidden="true" tabindex="-1"></a><span class="kw">CREATE</span> <span class="kw">INDEX</span> tab_x_y <span class="kw">ON</span> tab(x) INCLUDE (y);</span>
-<span id="cb5-5"><a href="#cb5-5" aria-hidden="true" tabindex="-1"></a><span class="co">-- if the index, x, is unique</span></span>
-<span id="cb5-6"><a href="#cb5-6" aria-hidden="true" tabindex="-1"></a><span class="kw">CREATE</span> <span class="kw">UNIQUE</span> <span class="kw">INDEX</span> tab_x_y <span class="kw">ON</span> tab(x) INCLUDE (y);</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
+<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb7"><pre class="sourceCode sql code-with-copy"><code class="sourceCode sql"><span id="cb7-1"><a href="#cb7-1" aria-hidden="true" tabindex="-1"></a><span class="co">-- query</span></span>
+<span id="cb7-2"><a href="#cb7-2" aria-hidden="true" tabindex="-1"></a><span class="kw">SELECT</span> y <span class="kw">FROM</span> tab <span class="kw">WHERE</span> x <span class="op">=</span> <span class="st">'key'</span>;</span>
+<span id="cb7-3"><a href="#cb7-3" aria-hidden="true" tabindex="-1"></a><span class="co">-- covering index, x</span></span>
+<span id="cb7-4"><a href="#cb7-4" aria-hidden="true" tabindex="-1"></a><span class="kw">CREATE</span> <span class="kw">INDEX</span> tab_x_y <span class="kw">ON</span> tab(x) INCLUDE (y);</span>
+<span id="cb7-5"><a href="#cb7-5" aria-hidden="true" tabindex="-1"></a><span class="co">-- if the index, x, is unique</span></span>
+<span id="cb7-6"><a href="#cb7-6" aria-hidden="true" tabindex="-1"></a><span class="kw">CREATE</span> <span class="kw">UNIQUE</span> <span class="kw">INDEX</span> tab_x_y <span class="kw">ON</span> tab(x) INCLUDE (y);</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
 <ul>
 <li><span class="var-text">y</span> is called a non-payload column
 <ul>
@@ -2598,10 +2712,10 @@ gtag('config', 'G-5J13QCM7YC', { 'anonymize_ip': true});
 </ul></li>
 </ul></li>
 <li><p><span class="ribbon-highlight">Example</span>: Query with function</p>
-<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb6"><pre class="sourceCode sql code-with-copy"><code class="sourceCode sql"><span id="cb6-1"><a href="#cb6-1" aria-hidden="true" tabindex="-1"></a><span class="co">-- query</span></span>
-<span id="cb6-2"><a href="#cb6-2" aria-hidden="true" tabindex="-1"></a><span class="kw">SELECT</span> f(x) <span class="kw">FROM</span> tab <span class="kw">WHERE</span> f(x) <span class="op">&lt;</span> <span class="dv">1</span>;</span>
-<span id="cb6-3"><a href="#cb6-3" aria-hidden="true" tabindex="-1"></a><span class="co">-- covering index, x</span></span>
-<span id="cb6-4"><a href="#cb6-4" aria-hidden="true" tabindex="-1"></a><span class="kw">CREATE</span> <span class="kw">INDEX</span> tab_f_x <span class="kw">ON</span> tab (f(x)) INCLUDE (x);</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
+<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb8"><pre class="sourceCode sql code-with-copy"><code class="sourceCode sql"><span id="cb8-1"><a href="#cb8-1" aria-hidden="true" tabindex="-1"></a><span class="co">-- query</span></span>
+<span id="cb8-2"><a href="#cb8-2" aria-hidden="true" tabindex="-1"></a><span class="kw">SELECT</span> f(x) <span class="kw">FROM</span> tab <span class="kw">WHERE</span> f(x) <span class="op">&lt;</span> <span class="dv">1</span>;</span>
+<span id="cb8-3"><a href="#cb8-3" aria-hidden="true" tabindex="-1"></a><span class="co">-- covering index, x</span></span>
+<span id="cb8-4"><a href="#cb8-4" aria-hidden="true" tabindex="-1"></a><span class="kw">CREATE</span> <span class="kw">INDEX</span> tab_f_x <span class="kw">ON</span> tab (f(x)) INCLUDE (x);</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
 <ul>
 <li>Where <span class="arg-text">f()</span> can be MEAN, MEDIAN, etc.</li>
 </ul></li>
@@ -2680,9 +2794,9 @@ gtag('config', 'G-5J13QCM7YC', { 'anonymize_ip': true});
 </ul></li>
 <li><p>Use Random Access via http range header + sparse-hilbert index to optimize db for query searches</p></li>
 <li><p><a href="https://www.postgresql.org/docs/current/citext.html">CITEXT</a> extension makes it so you don’t have use <code>lower</code> or <code>upper</code> which are huge hits on performance (at least they are in WHERE expressions) GIN custom indexes for <code>LIKE</code> and <code>ILIKE</code></p>
-<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb7"><pre class="sourceCode sql code-with-copy"><code class="sourceCode sql"><span id="cb7-1"><a href="#cb7-1" aria-hidden="true" tabindex="-1"></a><span class="kw">CREATE</span> EXTENSION <span class="cf">IF</span> <span class="kw">NOT</span> <span class="kw">EXISTS</span> btree_gin;</span>
-<span id="cb7-2"><a href="#cb7-2" aria-hidden="true" tabindex="-1"></a><span class="kw">CREATE</span> EXTENSION <span class="cf">IF</span> <span class="kw">NOT</span> <span class="kw">EXISTS</span> pg_trgm;</span>
-<span id="cb7-3"><a href="#cb7-3" aria-hidden="true" tabindex="-1"></a><span class="kw">CREATE</span> <span class="kw">INDEX</span> index_users_on_email_gin <span class="kw">ON</span> users <span class="kw">USING</span> gin (email gin_trgm_ops);</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
+<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb9"><pre class="sourceCode sql code-with-copy"><code class="sourceCode sql"><span id="cb9-1"><a href="#cb9-1" aria-hidden="true" tabindex="-1"></a><span class="kw">CREATE</span> EXTENSION <span class="cf">IF</span> <span class="kw">NOT</span> <span class="kw">EXISTS</span> btree_gin;</span>
+<span id="cb9-2"><a href="#cb9-2" aria-hidden="true" tabindex="-1"></a><span class="kw">CREATE</span> EXTENSION <span class="cf">IF</span> <span class="kw">NOT</span> <span class="kw">EXISTS</span> pg_trgm;</span>
+<span id="cb9-3"><a href="#cb9-3" aria-hidden="true" tabindex="-1"></a><span class="kw">CREATE</span> <span class="kw">INDEX</span> index_users_on_email_gin <span class="kw">ON</span> users <span class="kw">USING</span> gin (email gin_trgm_ops);</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
 <ul>
 <li><code>CREATE EXTENSION</code> adds btree and pg_trgm extensions</li>
 <li><span class="var-text">index_users_on_email_gin</span> is the name of the index</li>
@@ -2706,22 +2820,22 @@ gtag('config', 'G-5J13QCM7YC', { 'anonymize_ip': true});
 <li><span class="ribbon-highlight">Example</span>: <code>ORDER BY email DESC NULLS LAST LIMIT 10</code></li>
 </ul></li>
 <li><p>Instead use two queries</p>
-<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb8"><pre class="sourceCode sql code-with-copy"><code class="sourceCode sql"><span id="cb8-1"><a href="#cb8-1" aria-hidden="true" tabindex="-1"></a><span class="kw">SELECT</span> <span class="op">*</span></span>
-<span id="cb8-2"><a href="#cb8-2" aria-hidden="true" tabindex="-1"></a><span class="kw">FROM</span> users</span>
-<span id="cb8-3"><a href="#cb8-3" aria-hidden="true" tabindex="-1"></a><span class="kw">ORDER</span> <span class="kw">BY</span> email <span class="kw">DESC</span></span>
-<span id="cb8-4"><a href="#cb8-4" aria-hidden="true" tabindex="-1"></a><span class="kw">WHERE</span> email <span class="kw">IS</span> <span class="kw">NOT</span> <span class="kw">NULL</span> <span class="kw">LIMIT</span> <span class="dv">10</span>;</span>
-<span id="cb8-5"><a href="#cb8-5" aria-hidden="true" tabindex="-1"></a></span>
-<span id="cb8-6"><a href="#cb8-6" aria-hidden="true" tabindex="-1"></a><span class="kw">SELECT</span> <span class="op">*</span></span>
-<span id="cb8-7"><a href="#cb8-7" aria-hidden="true" tabindex="-1"></a><span class="kw">FROM</span> users</span>
-<span id="cb8-8"><a href="#cb8-8" aria-hidden="true" tabindex="-1"></a><span class="kw">WHERE</span> email <span class="kw">IS</span> <span class="kw">NULL</span> <span class="kw">LIMIT</span> <span class="dv">10</span>;</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
+<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb10"><pre class="sourceCode sql code-with-copy"><code class="sourceCode sql"><span id="cb10-1"><a href="#cb10-1" aria-hidden="true" tabindex="-1"></a><span class="kw">SELECT</span> <span class="op">*</span></span>
+<span id="cb10-2"><a href="#cb10-2" aria-hidden="true" tabindex="-1"></a><span class="kw">FROM</span> users</span>
+<span id="cb10-3"><a href="#cb10-3" aria-hidden="true" tabindex="-1"></a><span class="kw">ORDER</span> <span class="kw">BY</span> email <span class="kw">DESC</span></span>
+<span id="cb10-4"><a href="#cb10-4" aria-hidden="true" tabindex="-1"></a><span class="kw">WHERE</span> email <span class="kw">IS</span> <span class="kw">NOT</span> <span class="kw">NULL</span> <span class="kw">LIMIT</span> <span class="dv">10</span>;</span>
+<span id="cb10-5"><a href="#cb10-5" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb10-6"><a href="#cb10-6" aria-hidden="true" tabindex="-1"></a><span class="kw">SELECT</span> <span class="op">*</span></span>
+<span id="cb10-7"><a href="#cb10-7" aria-hidden="true" tabindex="-1"></a><span class="kw">FROM</span> users</span>
+<span id="cb10-8"><a href="#cb10-8" aria-hidden="true" tabindex="-1"></a><span class="kw">WHERE</span> email <span class="kw">IS</span> <span class="kw">NULL</span> <span class="kw">LIMIT</span> <span class="dv">10</span>;</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
 <ul>
 <li>The first one would fetch the sorted non-null values. If the result does not satisfy the LIMIT, another query fetches remaining rows with NULL values.</li>
 </ul></li>
 </ul></li>
 <li><p>Rebuild Null Indexes</p>
-<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb9"><pre class="sourceCode sql code-with-copy"><code class="sourceCode sql"><span id="cb9-1"><a href="#cb9-1" aria-hidden="true" tabindex="-1"></a><span class="kw">DROP</span> <span class="kw">INDEX</span> CONCURRENTLY users_reset_token_ix;</span>
-<span id="cb9-2"><a href="#cb9-2" aria-hidden="true" tabindex="-1"></a><span class="kw">CREATE</span> <span class="kw">INDEX</span> CONCURRENTLY users_reset_token_ix <span class="kw">ON</span> users(reset_token)</span>
-<span id="cb9-3"><a href="#cb9-3" aria-hidden="true" tabindex="-1"></a><span class="kw">WHERE</span> reset_token <span class="kw">IS</span> <span class="kw">NOT</span> <span class="kw">NULL</span>;</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
+<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb11"><pre class="sourceCode sql code-with-copy"><code class="sourceCode sql"><span id="cb11-1"><a href="#cb11-1" aria-hidden="true" tabindex="-1"></a><span class="kw">DROP</span> <span class="kw">INDEX</span> CONCURRENTLY users_reset_token_ix;</span>
+<span id="cb11-2"><a href="#cb11-2" aria-hidden="true" tabindex="-1"></a><span class="kw">CREATE</span> <span class="kw">INDEX</span> CONCURRENTLY users_reset_token_ix <span class="kw">ON</span> users(reset_token)</span>
+<span id="cb11-3"><a href="#cb11-3" aria-hidden="true" tabindex="-1"></a><span class="kw">WHERE</span> reset_token <span class="kw">IS</span> <span class="kw">NOT</span> <span class="kw">NULL</span>;</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
 <ul>
 <li>Drops and rebuilds an index to only include NOT NULL rows</li>
 <li><span class="var-text">users_reset_token_ix</span> is the name of the index</li>
@@ -2735,15 +2849,15 @@ gtag('config', 'G-5J13QCM7YC', { 'anonymize_ip': true});
 <li>For large db updates, add batching
 <ul>
 <li><p><span class="ribbon-highlight">Example</span>: db update has a 100K rows, so update 10K at a time.</p>
-<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb10"><pre class="sourceCode sql code-with-copy"><code class="sourceCode sql"><span id="cb10-1"><a href="#cb10-1" aria-hidden="true" tabindex="-1"></a><span class="kw">UPDATE</span> messages <span class="kw">SET</span> status <span class="op">=</span> <span class="st">'archived'</span></span>
-<span id="cb10-2"><a href="#cb10-2" aria-hidden="true" tabindex="-1"></a>&nbsp; <span class="kw">WHERE</span> <span class="kw">id</span> <span class="kw">IN</span></span>
-<span id="cb10-3"><a href="#cb10-3" aria-hidden="true" tabindex="-1"></a>&nbsp; (<span class="kw">SELECT</span> <span class="kw">ID</span> <span class="kw">FROM</span> messages <span class="kw">ORDER</span> <span class="kw">BY</span> <span class="kw">ID</span> <span class="kw">LIMIT</span> <span class="dv">10000</span> OFFSET <span class="dv">0</span>);</span>
-<span id="cb10-4"><a href="#cb10-4" aria-hidden="true" tabindex="-1"></a><span class="kw">UPDATE</span> messages <span class="kw">SET</span> status <span class="op">=</span> <span class="st">'archived'</span></span>
-<span id="cb10-5"><a href="#cb10-5" aria-hidden="true" tabindex="-1"></a>&nbsp; <span class="kw">WHERE</span> <span class="kw">id</span> <span class="kw">IN</span></span>
-<span id="cb10-6"><a href="#cb10-6" aria-hidden="true" tabindex="-1"></a>&nbsp; (<span class="kw">SELECT</span> <span class="kw">ID</span> <span class="kw">FROM</span> messages <span class="kw">ORDER</span> <span class="kw">BY</span> <span class="kw">ID</span> <span class="kw">LIMIT</span> <span class="dv">10000</span> OFFSET <span class="dv">10000</span>);</span>
-<span id="cb10-7"><a href="#cb10-7" aria-hidden="true" tabindex="-1"></a><span class="kw">UPDATE</span> messages <span class="kw">SET</span> status <span class="op">=</span> <span class="st">'archived'</span></span>
-<span id="cb10-8"><a href="#cb10-8" aria-hidden="true" tabindex="-1"></a>&nbsp; <span class="kw">WHERE</span> <span class="kw">id</span> <span class="kw">IN</span></span>
-<span id="cb10-9"><a href="#cb10-9" aria-hidden="true" tabindex="-1"></a>&nbsp; (<span class="kw">SELECT</span> <span class="kw">ID</span> <span class="kw">FROM</span> messages <span class="kw">ORDER</span> <span class="kw">BY</span> <span class="kw">ID</span> <span class="kw">LIMIT</span> <span class="dv">10000</span> OFFSET <span class="dv">20000</span>);</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
+<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb12"><pre class="sourceCode sql code-with-copy"><code class="sourceCode sql"><span id="cb12-1"><a href="#cb12-1" aria-hidden="true" tabindex="-1"></a><span class="kw">UPDATE</span> messages <span class="kw">SET</span> status <span class="op">=</span> <span class="st">'archived'</span></span>
+<span id="cb12-2"><a href="#cb12-2" aria-hidden="true" tabindex="-1"></a>&nbsp; <span class="kw">WHERE</span> <span class="kw">id</span> <span class="kw">IN</span></span>
+<span id="cb12-3"><a href="#cb12-3" aria-hidden="true" tabindex="-1"></a>&nbsp; (<span class="kw">SELECT</span> <span class="kw">ID</span> <span class="kw">FROM</span> messages <span class="kw">ORDER</span> <span class="kw">BY</span> <span class="kw">ID</span> <span class="kw">LIMIT</span> <span class="dv">10000</span> OFFSET <span class="dv">0</span>);</span>
+<span id="cb12-4"><a href="#cb12-4" aria-hidden="true" tabindex="-1"></a><span class="kw">UPDATE</span> messages <span class="kw">SET</span> status <span class="op">=</span> <span class="st">'archived'</span></span>
+<span id="cb12-5"><a href="#cb12-5" aria-hidden="true" tabindex="-1"></a>&nbsp; <span class="kw">WHERE</span> <span class="kw">id</span> <span class="kw">IN</span></span>
+<span id="cb12-6"><a href="#cb12-6" aria-hidden="true" tabindex="-1"></a>&nbsp; (<span class="kw">SELECT</span> <span class="kw">ID</span> <span class="kw">FROM</span> messages <span class="kw">ORDER</span> <span class="kw">BY</span> <span class="kw">ID</span> <span class="kw">LIMIT</span> <span class="dv">10000</span> OFFSET <span class="dv">10000</span>);</span>
+<span id="cb12-7"><a href="#cb12-7" aria-hidden="true" tabindex="-1"></a><span class="kw">UPDATE</span> messages <span class="kw">SET</span> status <span class="op">=</span> <span class="st">'archived'</span></span>
+<span id="cb12-8"><a href="#cb12-8" aria-hidden="true" tabindex="-1"></a>&nbsp; <span class="kw">WHERE</span> <span class="kw">id</span> <span class="kw">IN</span></span>
+<span id="cb12-9"><a href="#cb12-9" aria-hidden="true" tabindex="-1"></a>&nbsp; (<span class="kw">SELECT</span> <span class="kw">ID</span> <span class="kw">FROM</span> messages <span class="kw">ORDER</span> <span class="kw">BY</span> <span class="kw">ID</span> <span class="kw">LIMIT</span> <span class="dv">10000</span> OFFSET <span class="dv">20000</span>);</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
 <ul>
 <li><span class="var-text">messages</span> is the table name</li>
 <li>I guess <code>OFFSET</code> is what’s key here.</li>
