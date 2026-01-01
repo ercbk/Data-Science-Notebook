@@ -24,13 +24,365 @@
 
 ## Design Patterns {#sec-prod-datval-pat .unnumbered}
 
+### Misc {#sec-prod-datval-pat-misc .unnumbered}
+
 -   Notes from [Data Quality Design Patterns](https://pipeline2insights.substack.com/p/data-quality-design-patterns-wap-awap)
--   [WAP (Write–Audit–Publish)\
-    ]{.underline}![](_resources/Production,_Data_Validation.resources/pat-wap-1.webp){.lightbox width="532"}
-    -   Load new data into a safe, temporary area, check whether it’s valid, and only then make it available to production.
--   [AWAP (Audit–Write–Audit–Publish)]{.underline}
--   [TAP (Transform–Audit–Publish)]{.underline}
--   [Signal Table Pattern]{.underline}
+
+### WAP (Write–Audit–Publish) {#sec-prod-datval-pat-wap .unnumbered}
+
+![](_resources/Production,_Data_Validation.resources/pat-wap-1.webp){.lightbox width="532"}
+
+-   See [An Engineering Guide to Data Quality - A Data Contract Perspective - Part 2](https://www.dataengineeringweekly.com/p/an-engineering-guide-to-data-quality) for implementing this pattern for streaming data
+
+-   Process:
+
+    -   *Write*: Write new data into a staging or temporary area
+    -   *Audit*: Run quality checks and validation rules
+    -   *Publish*: Promote the data to production only if it passes
+
+-   Load new data into a safe, temporary area, check whether it’s valid, and only then make it available to production.
+
+-   The temporary area is like a staging area in an ETL pipeline, except in this pattern that staging area is an isolated environment that protects downstream resources from bad data.
+
+-   There is a controlled gate where new data is written to a temporary location, audited with quality checks, and only promoted to production if it passes. If it fails, it’s quarantined for review instead of corrupting production.
+
+-   [Two-Phase WAP\
+    ]{.underline}![](_resources/Production,_Data_Validation.resources/pat-wap-2.webp){.lightbox width="532"}
+
+    -   Requires two physical copies of the table:
+        1.  *Write*: Write new data to a staging table.
+        2.  *Audit*: Validate the staged data.
+        3.  *Publish*: If valid, copy it into the production table.
+    -   After publishing, staging is cleared out
+
+-   [One-Phase WAP (Zero-Copy WAP)\
+    ]{.underline}![](_resources/Production,_Data_Validation.resources/pat-wap-3.webp){.lightbox width="432"}
+
+    -   Modern lakehouse table formats allow WAP without copying data and support transactional branching or hidden snapshots
+        -   e.g. Iceberg enables WAP simply through table properties like:
+            -   `write.wap.enabled`
+            -   `wap.id`
+    -   Write and Audit phases occur on an isolated snapshot or branch, and the Publish step is just a metadata commit, no deep copy required
+
+-   [Example]{.ribbon-highlight}: [{pandas}]{style="color: goldenrod"} ([source](https://dagster.io/blog/python-write-audit-publish))
+
+    <Details>
+
+    <Summary>Code</Summary>
+
+    ``` python
+    import pandas as pd
+    import glob
+    import duckdb
+
+    ### Collect all CSV files in the directory
+    files = glob.glob('sales_data_*.csv')
+
+    ### Buffer to temporarily store data from each file
+    data_frames = []
+
+    for file in files:
+        df = pd.read_csv(file)
+        data_frames.append(df)
+
+    ### Combine all data into a single DataFrame
+    combined_data = pd.concat(data_frames, ignore_index=True)
+
+    ### Filter out rows with missing 'sales_amount'
+    clean_data = combined_data.dropna(subset=['sales_amount'])
+
+    ### Filter out rows with negative 'sales_amount'
+    clean_data = clean_data[clean_data['sales_amount'] >= 0]
+
+    ### Connect to DuckDB
+    conn = duckdb.connect(database=':memory:', read_only=False)
+
+    if not clean_data.empty:
+        clean_data.to_sql(
+            'cleaned_sales_data',
+            conn,
+            if_exists='replace',
+            index=False
+        )
+        print(f"Inserted {len(clean_data)} rows into DuckDB.")
+    else:
+        print("No data passed the audit.")
+    ```
+
+    </Details>
+
+-   [Example]{.ribbon-highlight}: Snowflake's Zero-Copy Clone ([source](https://uncledata.substack.com/p/write-audit-publish-pattern-in-modern))
+
+    -   Allows pipelines to create full copies of tables or schemas instantly without duplicating storage
+    -   Write:
+        -   Transform all data into a development or staging schema (e.g., `RAW_WAP`).
+        -   Run dbt models in this “sandbox” schema.
+    -   Audit:
+        -   Run dbt tests or Snowflake-native quality checks on the cloned assets.
+        -   Nothing touches production until tests are green.
+    -   Publish:
+        -   If validation passes, use a zero-copy clone to promote the staged tables into the production schema.
+        -   Promotion is nearly instantaneous because only metadata pointers change
+
+-   [Example]{.ribbon-highlight}: Iceberg's Branching Mechanism
+
+    -   Write:
+        -   Create a branch off the main table:\
+            `CREATE BRANCH feature_run_123 FROM main`
+        -   Run transformations directly on that branch, not on the main dataset.
+    -   Audit:
+        -   Run DQ tests, checks, or manual inspection on the branch.
+        -   The branch reflects a full versioned snapshot of the data.
+    -   Publish:
+        -   If everything passes, “fast-forward” the branch into `main`.
+            -   This is atomic and consistent across all related tables.
+        -   If tests fail, simply delete the branch and start again
+
+-   [Example]{.ribbon-highlight}: Python, Avro Templates, PostgreSQL ([source](https://github.com/LinkedInLearning/data-quality-transactions-ingestions-and-storage-3924005/blob/main/data_platform/etl/batch_postgres_minio_wap_etl.py))\
+    ![](_resources/Production,_Data_Validation.resources/pat-wap-4.png){.lightbox width="532"}
+
+    <Details>
+
+    <Summary>Code</Summary>
+
+    ``` python
+    import fastavro
+    import json
+    import logging
+    import os
+
+    from data_platform.etl.batch_postgres_minio_etl import BatchPostgresMinioETL
+
+
+    class BatchPostgresMinioWriteAuditPublishETL:
+        def __init__(self, bucket_name: str, schema_directory: str):
+            self.logger = logging.getLogger(__name__)
+            self.bucket_name = bucket_name
+            self.schema_directory = schema_directory
+            self.etl = BatchPostgresMinioETL(schema_directory)
+
+        def run_wap(self):
+            tables = self.etl._get_public_tables()
+            self.logger.info(f"Starting Write-Audit-Publish for {len(tables)} tables: {tables}")
+
+            for table in tables:
+                self.logger.info(f"Preparing staging and quarantine tables for '{table}'")
+                self._create_quarantine_table(table)
+                self._create_staging_table(table)
+
+                data, columns = self.etl.extract(table)
+                schema = self.etl._infer_avro_schema(table)
+                primary_key = self._get_primary_key(table)
+
+                self.logger.info(f"Extracted {len(data)} rows from '{table}'")
+
+                for row in data:
+                    record = dict(zip(columns, row))
+                    record = self.etl._convert_timestamps_to_millis(record)
+                    try:
+                        fastavro.validate(record, schema)
+                    except Exception:
+                        self._insert_into_quarantine(table, record, primary_key)
+
+                self.logger.info(f"Populating staging table: '{table}'")
+                self._populate_staging_excluding_quarantine(table, primary_key)
+                self.logger.info(f"Finished '{table}'")
+
+            self.logger.info("Write-Audit-Publish run complete")
+
+        def run_etl(self):
+            tables = self._get_staging_tables()
+            self.logger.info(f"Starting ETL for {len(tables)} tables: {tables}")
+
+            for table in tables:
+                self.logger.info(f"Processing table: {table}")
+                data, columns = self.etl.extract(table)
+
+                # use base-table schema for transform
+                logical_name = table
+                for prefix in ("staging_", "quarantine_"):
+                    if logical_name.startswith(prefix):
+                        logical_name = logical_name[len(prefix):]
+                        break
+
+                transformed_data = self.etl.transform(data, columns, logical_name)
+
+                # keep MinIO object name as the staging/quarantine table
+                self.etl.load(transformed_data, self.bucket_name, table)
+                self.logger.info(f"Successfully processed table: {table}")
+
+            self.logger.info("ETL run complete")
+
+        # def run(self):
+        #     self.run_etl()
+        #     self.run_wap()
+
+        # Quality Checks
+        def avro_compatibility_check(self, table_name, record, schema, primary_key):
+            try:
+                fastavro.validate(record, schema)
+            except Exception:
+                self._insert_into_quarantine(table_name, record, primary_key)
+
+        #########################################
+        # ADD MORE QUALITY CHECK FUNCTIONS HERE #
+        #########################################
+
+        # Utility Functions
+        def _get_primary_key(self, table_name):
+            schema_file = os.path.join(self.schema_directory, f"{table_name}.json")
+            with open(schema_file, 'r') as f:
+                schema = json.load(f)
+
+            # Look through the columns array to find the one with primary_key: true
+            for column in schema.get('columns', []):
+                if column.get('primary_key', False):
+                    return column['name']
+
+            return None  # No primary key found
+
+        def _create_quarantine_table(self, table_name):
+            primary_key = self._get_primary_key(table_name)
+            query = f"""
+            CREATE TABLE IF NOT EXISTS quarantine_{table_name} (
+                LIKE {table_name} INCLUDING DEFAULTS INCLUDING CONSTRAINTS INCLUDING INDEXES
+            );
+            CREATE UNIQUE INDEX IF NOT EXISTS idx_quarantine_{table_name}_{primary_key}
+                ON quarantine_{table_name} ({primary_key});
+            """
+            self.etl.postgres.execute_query(query)
+
+        def _create_staging_table(self, table_name):
+            primary_key = self._get_primary_key(table_name)
+            query = f"""
+            CREATE TABLE IF NOT EXISTS staging_{table_name} (
+                LIKE {table_name} INCLUDING DEFAULTS INCLUDING CONSTRAINTS INCLUDING INDEXES
+            );
+            CREATE UNIQUE INDEX IF NOT EXISTS idx_staging_{table_name}_{primary_key}
+                ON staging_{table_name} ({primary_key});
+            """
+            self.etl.postgres.execute_query(query)
+
+        def _insert_into_quarantine(self, table_name, record, primary_key):
+            primary_value = record[primary_key]
+
+            query = f"""
+            INSERT INTO quarantine_{table_name} 
+            SELECT * FROM {table_name} WHERE {primary_key} = '{primary_value}'
+            ON CONFLICT ({primary_key}) DO NOTHING
+            """
+            self.etl.postgres.execute_query(query)
+
+        def _populate_staging_excluding_quarantine(self, table_name, primary_key):
+            query = f"""
+            INSERT INTO staging_{table_name}
+            SELECT {table_name}.*
+            FROM {table_name}
+            LEFT JOIN quarantine_{table_name}
+            ON quarantine_{table_name}.{primary_key} = {table_name}.{primary_key}
+            WHERE quarantine_{table_name}.{primary_key} IS NULL
+            ON CONFLICT ({primary_key}) DO NOTHING;
+            """
+            self.etl.postgres.execute_query(query)
+
+        def _get_staging_tables(self):
+            self.logger.info("Querying PostgreSQL for staging tables")
+            query = """
+            SELECT
+                table_name
+            FROM
+                information_schema.tables
+            WHERE
+                table_schema = 'public' AND
+                table_name LIKE 'staging_%'
+            """
+            data, _ = self.etl.postgres.execute_query(query)
+
+            if not data:
+                raise ValueError("No tables found in postgres")
+
+            table_names = [row[0] for row in data]
+            return table_names
+    ```
+
+    </Details>
+
+-   [Examples]{.ribbon-highlight}: dlt, Airflow, and dbt
+
+    -   dlt ([source](https://dlthub.com/blog/write-audit-publish-wap))
+        -   Data is first extracted and written to a temporary location, then loaded into a dataframe for auditing, and finally written again to the destination after validation.
+    -   Airflow ([source](https://ghostinthedata.info/posts/2025/2025-05-18-wap-data-pipelines/#:~:text=Enter%20the%20Write%2DAudit%2DPublish,of%20troubleshooting%20and%20emergency%20fixes.))
+        -   WAP is handled at the DAG level. Airflow manages the conditional logic and control flow, while the storage/compute layer performs the actual data reads, audits, and writes.
+    -   dbt ([source](https://www.getdbt.com/blog/testing-is-not-enough-transforming-data-quality-with-write-audit-publish))
+        -   The `sdf build` command abstracts the full WAP workflow by providing:
+            -   Creates `_draft` tables for all transformations.
+            -   Runs dbt tests and validations against the staged data.
+            -   Publish validated data to production without re-running the transformations.
+            -   Incremental models and snapshots work efficiently without losing performance.
+
+### AWAP (Audit–Write–Audit–Publish) {#sec-prod-datval-pat-awap .unnumbered}
+
+![](_resources/Production,_Data_Validation.resources/pat-awap-1.webp){.lightbox width="532"}
+
+-   Includes additional validation logic to perform lightweight verification on the incoming dataset before further processing
+-   Benefits
+    -   Tries ensure high data quality by checking both the input and output datasets via catching errors from sources and transformations,
+    -   Works for both batch and streaming pipelines.
+-   Drawbacks
+    -   Requires higher compute and storage costs,
+    -   Adds pipeline complexity and potentially redundant checks
+    -   Possible streaming delays
+    -   Not completely foolproof since rules can become outdated or trigger false positives
+-   Process
+    -   First Audit (Input Validation):
+        -   Validate the incoming raw data before any extraction.
+        -   Checks may include:
+            -   File format validation (CSV, JSON, Parquet, etc.)
+            -   Schema verification (columns present, correct types)
+            -   Basic metrics like row count, file size, or table size
+        -   Goal: Catch obvious issues early, e.g., missing columns or corrupted files, before spending compute in the further process.
+    -   Write / Transform
+        -   Apply transformations to the data and/or write it to a staging or intermediate location.
+        -   This step is similar to the WAP “Write” step, where we prepare production-ready data while keeping it separate from the live environment.
+    -   Second Audit (Output Validation)
+        -   Validate the transformed data to ensure transformations didn’t introduce errors.
+        -   Checks may include:
+            -   Row-level validations (e.g., no NULLs where not allowed)
+            -   Business rules (e.g., totals, ratios, unique constraints)
+            -   Aggregate metrics (e.g., distinct count, sum, averages)
+        -   Goal: Ensure the transformed dataset meets production standards and business expectations.
+    -   Publish (Promote to Production)
+        -   Only after both audit steps pass:
+            -   Move the validated data to the production environment (Data Lake, Warehouse, or Lakehouse).
+            -   Optionally, create backups of previous production tables for safety.
+
+### TAP (Transform–Audit–Publish) {#sec-prod-datval-pat-tap .unnumbered}
+
+![](_resources/Production,_Data_Validation.resources/pat-tap-1.webp){.lightbox width="432"}
+
+-   A simpler and more cost-effective alternative to WAP
+-   With TB-scale datasets in object stores like S3 or table formats like Delta/Iceberg, WAP's extra I/O operations quickly become expensive.
+    -   Every read, write, and extra file increases storage and metadata overhead, making WAP costly in modern lakehouses designed for object storage rather than traditional warehouses.
+-   Process
+    -   Perform data quality checks directly in-memory during transformation.
+    -   The validated data is then written straight to production, eliminating unnecessary intermediate storage and reducing cloud I/O costs.
+
+### Signal Table Pattern {#sec-prod-datval-pat-sigtab .unnumbered}
+
+![](_resources/Production,_Data_Validation.resources/pat-stp-1.webp){.lightbox width="532"}
+
+-   Trades some safety guarantees for simplicity and speed, while WAP prioritizes data quality and reliability over immediate availability.
+-   Process
+    -   Write directly to the production table.
+    -   Run our audits on production.
+    -   If they pass, publish a signal that lets the downstream know the data is ready
+-   Benefits
+    -   Simpler to implement since there’s no staging table or partition exchange step.
+    -   Faster data availability, reducing latency and helping meet SLAs.
+-   Drawbacks
+    -   Ad hoc queries on production data can see bad or incomplete data if analysts ignore the signal table.
+    -   Less intuitive, as downstream consumers must explicitly wait for the signal table instead of relying on the production table itself.
+    -   Bad data propagation is possible if the contract is violated, leading to costly fixes
 
 ## Pipeline {#sec-prod-datval-pipe .unnumbered}
 
