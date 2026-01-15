@@ -551,7 +551,55 @@
         ```
 
         -   For each pair of locations, is the correlation between location $a$ at time $t$ and location $b$ at time $t + h$
+
         -   [r5to10]{.var-text} is a STFDF (full grid) object. It's coerced, using `as`, into a [xts]{.arg-text} object. Since it's now a multivariate time series object, `acf` will give you cross-correlations.
+
         -   From the acf of all the data, there were a couple interesting locations that had very little cross-correlation between them.
-        -   If there is no autocorrelation between a pair of locations, is it because there's a large distance between those locations? `print(spDists(r5to10[4:10,]@sp), digits=3)`
-            -   Maybe this can give a hint about the appropriate neighborhood size or area
+
+        -   If there is no autocorrelation between a pair of locations, is it because there's a large distance between those locations? Maybe this can give a hint about the appropriate neighborhood size or area
+
+            ``` r
+            library(sf)
+
+            # indices for the low cross-corr locations
+            no_ac_idx <- which(row.names(r5to10@sp) %in% no_ac_locs)
+            # indices for the column names (locations) of the cleaned matrix
+            mat_clean_idx <- which(row.names(r5to10@sp) %in% colnames(mat_pm10_clean))
+            # sample 5 location indicies that aren't low cross-corr locations
+            mat_clean_idx_samp <- sort(sample(mat_clean_idx[-no_ac_idx], 5))
+            # combine sample indicies and low cross-corr indicies
+            mat_clean_idx_comb <- c(no_ac_idx, mat_clean_idx_samp)
+
+
+            # Convert the SpatialPoints to sf
+            sf_locs <- st_as_sf(r5to10[mat_clean_idx_comb,]@sp)
+            # Calculate pairwise distances (in meters by default for geographic coordinates)
+            mat_dist_sf <- st_distance(sf_locs)
+            # Convert to kilometers and round to match your output
+            mat_dist_sf_km <- round(units::set_units(mat_dist_sf, km), 2)
+
+            colnames(mat_dist_sf_km) <- row.names(r5to10[mat_clean_idx_comb,]@sp)
+            rownames(mat_dist_sf_km) <- row.names(r5to10[mat_clean_idx_comb,]@sp)
+            mat_dist_sf_km
+            #> Units: [km]
+            #>         DEBE056 DEBB053 DEUB004 DEBE056 DETH026 DEUB004 DEBW031 DENW068
+            #> DEBE056    0.00   28.07  648.60  235.43  357.82  541.62  198.99  557.63
+            #> DEBB053   28.07    0.00  674.84  256.26  374.67  569.64  221.21  585.50
+            #> DEUB004  648.60  674.84    0.00  441.77  660.90  209.86  579.71  173.85
+            #> DEBE056  235.43  256.26  441.77    0.00  458.62  393.98  292.91  396.71
+            #> DETH026  357.82  374.67  660.90  458.62    0.00  467.91  173.13  500.94
+            #> DEUB004  541.62  569.64  209.86  393.98  467.91    0.00  420.84   36.08
+            #> DEBW031  198.99  221.21  579.71  292.91  173.13  420.84    0.00  446.54
+            #> DENW068  557.63  585.50  173.85  396.71  500.94   36.08  446.54    0.00
+
+            # using sp
+            mat_dist_sp <- round(sp::spDists(r5to10[mat_clean_idx_comb,]@sp), 2)
+            colnames(mat_dist_sp) <- row.names(r5to10[mat_clean_idx_comb,]@sp)
+            rownames(mat_dist_sp) <- row.names(r5to10[mat_clean_idx_comb,]@sp)
+            mat_dist_sp
+            ```
+
+            -   The 3rd column ([DEUB004]{.var-text}) and first two rows ([DEBE056]{.var-text}, [DEBB053]{.var-text}) shows the distances between the low cross-correlation locations. The other locations are included for context.
+            -   The distances for those low cross-correlations location pairs do seem to be quite a bit larger than the other 5 randomly sampled locations when paired with [DEUB004]{.var-text}. So the low cross-correlations are likely due to larger spatial distances between the locations.
+            -   Might be interesting to check the cross-correlation between [DEUB004]{.var-text} and [DETH026]{.var-text} and maybe [DEBW031]{.var-text} just to see how low those cross-correlations are in comparison.
+            -   The [{sp}]{style="color: #990000"} and [{sf}]{style="color: #990000"} numbers are slightly different, because [{sp}]{style="color: #990000"} uses spherical and [{sf}]{style="color: #990000"} uses elliptical distances. The elliptical should be more accurate, but either should be fine for most applications (fraction of a percentage difference)
