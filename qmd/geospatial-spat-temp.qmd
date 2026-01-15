@@ -351,6 +351,133 @@
             -   Mobile sensor measurements (where the sequence is kept, e.g., to derive the speed and direction of the sensor)
             -   Trajectories of tornados where the tornado extent of each time stamp can be reflected by a different polygon
 
+## EDA {#sec-geo-sptemp-eda .unnumbered}
+
+-   [Autocorrelation]{.underline}
+    -   Check characteristics of autocorrelation. Can the analysis be done in a purely spatial manner (a purely spatial model for each time step) or is adding a temporal aspect necessary?
+
+    -   At which time lag (max, avg) does autocorrelation become insignificant?
+
+    -   Is there a distance between pairs of locations at which autocorrelation is insignificant?
+
+    -   [Example]{.ribbon-highlight}: PM10 Pollution ([{gstat}]{style="color: #990000"} [vignette](https://cran.r-project.org/web/packages/gstat/vignettes/st.pdf), section 2)
+
+        ::: panel-tabset
+        ## Data
+
+        ``` r
+        library(spacetime)
+
+        data(air)
+
+        # get rural location time series from 2005 to 2010
+        rural = STFDF(stations, dates, data.frame(PM10 = as.vector(air)))
+        rr = rural[,"2005::2010"]
+        # which series have NAs
+        unsel = which(apply(as(rr, "xts"), 2, function(x) all(is.na(x))))
+        # remove series with NAs
+        r5to10 = rr[-unsel,]
+        ```
+
+        -   [r5to10]{.var-text} is a STFDF (full grid) object
+        -   `r5to10@sp` is a [SpatialPoints]{.arg-text} ([{sp}]{style="color: #990000"}) class object with location names and coordinates
+
+        ## Autocorrelation
+
+        ![](_resources/Geospatial-Spatio-Temporal.resources/krig-eda-ac-ex1-1.png){.lightbox width="532"}
+
+        ``` r
+        # select locations 4, 5, 6, 7
+        rn = row.names(r5to10@sp)[4:7]
+
+        par(mfrow=c(2,2))
+        for (i in rn) {
+          x <- na.omit(as.matrix(r5to10[i])[,1])
+          acf(x, main = i)
+        }
+        ```
+
+        -   For each location, is there correlation between time $t$ and lag $t + h$
+        -   Which lags present autocorrelation?
+
+        ## Cross-(Auto)Correlation
+
+        ![](_resources/Geospatial-Spatio-Temporal.resources/krig-eda-cac-ex1-1.png){.lightbox width="632"}
+
+        ``` r
+        # coerce to xts class
+        xts_pm10 <- as(r5to10, "xts")
+        # extract numeric cols
+        mat_pm10 <- zoo::coredata(xts_pm10)
+        # find and remove cols with NAs > 20%
+        na_cols <- colnames(mat_pm10)[colMeans(is.na(mat_pm10)) > 0.20]
+        mat_pm10_nacols <- mat_pm10[, !colnames(mat_pm10) %in% na_cols]
+        mat_pm10_clean <- na.omit(mat_pm10_nacols)
+        # all data
+        acf(mat_pm10_clean)
+
+        # vs "DEUB004"
+        no_ac_locs <- c("DEUB004", "DEBE056", "DEBB053")
+        mat_pm10_naac <- mat_pm10_clean[, no_ac_locs]
+        acf(mat_pm10_naac)
+        ```
+
+        -   For each pair of locations, is the correlation between location $a$ at time $t$ and location $b$ at time $t + h$
+        -   [r5to10]{.var-text} is a STFDF (full grid) object. It's coerced, using `as`, into a [xts]{.arg-text} object. Since it's now a multivariate time series object, `acf` will give you cross-correlations.
+        -   From the acf of all the data, there were a couple interesting locations that had very little cross-correlation between them.
+        -   When running `acf` for a fairly large number of locations there will be a large number of charts (due to all the combinations). After one chart is rendered, in the R console, it'll ask you to hit enter before it will render the next chart.
+            -   Note that within the cross-correlation charts, the titles some of the location names get cut off.
+
+        ## Pairwise Distance
+
+        If there is no or little autocorrelation between a pair of locations, is it largely because there's a large distance between those locations? Maybe this can give a hint about the appropriate neighborhood size or area
+
+        ``` r
+        library(sf)
+
+        # indices for the low cross-corr locations
+        no_ac_idx <- which(row.names(r5to10@sp) %in% no_ac_locs)
+        # indices for the column names (locations) of the cleaned matrix
+        mat_clean_idx <- which(row.names(r5to10@sp) %in% colnames(mat_pm10_clean))
+        # sample 5 location indices that aren't low cross-corr locations
+        mat_clean_idx_samp <- sort(sample(mat_clean_idx[-no_ac_idx], 5))
+        # combine sample indices and low cross-corr indices
+        mat_clean_idx_comb <- c(no_ac_idx, mat_clean_idx_samp)
+
+
+        # convert the SpatialPoints (sp) to sf
+        sf_locs <- st_as_sf(r5to10[mat_clean_idx_comb,]@sp)
+        # pairwise distances (in meters for geographic coordinates)
+        mat_dist_sf <- st_distance(sf_locs)
+        # convert to kilometers
+        mat_dist_sf_km <- round(units::set_units(mat_dist_sf, km), 2)
+
+        colnames(mat_dist_sf_km) <- row.names(r5to10[mat_clean_idx_comb,]@sp)
+        rownames(mat_dist_sf_km) <- row.names(r5to10[mat_clean_idx_comb,]@sp)
+        mat_dist_sf_km
+        #> Units: [km]
+        #>         DEBE056 DEBB053 DEUB004 DEBE056 DETH026 DEUB004 DEBW031 DENW068
+        #> DEBE056    0.00   28.07  648.60  235.43  357.82  541.62  198.99  557.63
+        #> DEBB053   28.07    0.00  674.84  256.26  374.67  569.64  221.21  585.50
+        #> DEUB004  648.60  674.84    0.00  441.77  660.90  209.86  579.71  173.85
+        #> DEBE056  235.43  256.26  441.77    0.00  458.62  393.98  292.91  396.71
+        #> DETH026  357.82  374.67  660.90  458.62    0.00  467.91  173.13  500.94
+        #> DEUB004  541.62  569.64  209.86  393.98  467.91    0.00  420.84   36.08
+        #> DEBW031  198.99  221.21  579.71  292.91  173.13  420.84    0.00  446.54
+        #> DENW068  557.63  585.50  173.85  396.71  500.94   36.08  446.54    0.00
+
+        # using sp
+        mat_dist_sp <- round(sp::spDists(r5to10[mat_clean_idx_comb,]@sp), 2)
+        colnames(mat_dist_sp) <- row.names(r5to10[mat_clean_idx_comb,]@sp)
+        rownames(mat_dist_sp) <- row.names(r5to10[mat_clean_idx_comb,]@sp)
+        ```
+
+        -   The 3rd column ([DEUB004]{.var-text}) and first two rows ([DEBE056]{.var-text}, [DEBB053]{.var-text}) shows the distances between the low cross-correlation locations. The other locations are included for context.
+        -   The distances for those low cross-correlations location pairs do seem to be quite a bit larger than the other 5 randomly sampled locations when paired with [DEUB004]{.var-text}. So the low cross-correlations are likely due to larger spatial distances between the locations.
+        -   Might be interesting to check the cross-correlation between [DEUB004]{.var-text} and [DETH026]{.var-text} and maybe [DEBW031]{.var-text} just to see how low those cross-correlations are in comparison.
+        -   The [{sp}]{style="color: #990000"} and [{sf}]{style="color: #990000"} numbers are slightly different, because [{sp}]{style="color: #990000"} uses spherical and [{sf}]{style="color: #990000"} uses elliptical distances. The elliptical should be more accurate, but either should be fine for most applications (fraction of a percentage difference)
+        :::
+
 ## Kriging {#sec-geo-sptemp-krig .unnumbered}
 
 ### Misc {#sec-geo-sptemp-krig-misc .unnumbered}
@@ -498,108 +625,3 @@
 -   Further preprocessing steps might be necessary to improve the modelling of this PM10 data set such as for instance a temporal AR-model followed by spatio-temporal residual kriging or using further covariates in a preceding (linear) modelling step.
 -   The selection of a spatio-temporal covariance model should not only be made based on the (weighted) mean squared difference between the empirical and model variogram surfaces (presented in Table 2), but also on conceptional choices and visual
 -   The prediction at an unobserved location with a cluster of observations at one side will be biased towards this cluster and neglect the locations towards the other directions. Similar as the quadrant search in the pure spatial case an octant wise search strategy for the local neighbourhood would solve this limitation. A simpler stepwise approach to define an n-dimensional neighbourhood might already be sufficient in which at first ns spatial neighbours and then from each spatial neighbour nt time instances are selected, such that
--   EDA
-    -   Autocorrelation\
-        ![](_resources/Geospatial-Spatio-Temporal.resources/krig-eda-ac-ex1-1.png){.lightbox width="532"}
-
-        ``` r
-        library(spacetime)
-
-        data(air)
-
-        # get rural location time series from 2005 to 2010
-        rural = STFDF(stations, dates, data.frame(PM10 = as.vector(air)))
-        rr = rural[,"2005::2010"]
-        # which series have NAs
-        unsel = which(apply(as(rr, "xts"), 2, function(x) all(is.na(x))))
-        # remove series with NAs
-        r5to10 = rr[-unsel,]
-        # select locations 4, 5, 6, 7
-        rn = row.names(r5to10@sp)[4:7]
-
-        par(mfrow=c(2,2))
-        for (i in rn) {
-          x <- na.omit(as.matrix(r5to10[i])[,1])
-          acf(x, main = i)
-        }
-        ```
-
-        -   For each location, is there correlation between time $t$ and lag $t + h$
-        -   [r5to10]{.var-text} is a STFDF (full grid) object
-        -   `r5to10@sp` is the sp class object with location names and coordinates
-        -   Which lags present autocorrelation?
-
-    -   Cross-(Auto)Correlation\
-        ![](_resources/Geospatial-Spatio-Temporal.resources/krig-eda-cac-ex1-1.png){.lightbox width="632"}
-
-        ``` r
-        # coerce to xts class
-        xts_pm10 <- as(r5to10, "xts")
-        # extract numeric cols
-        mat_pm10 <- zoo::coredata(xts_pm10)
-        # find and remove cols with NAs > 20%
-        na_cols <- colnames(mat_pm10)[colMeans(is.na(mat_pm10)) > 0.20]
-        mat_pm10_nacols <- mat_pm10[, !colnames(mat_pm10) %in% na_cols]
-        mat_pm10_clean <- na.omit(mat_pm10_nacols)
-        # all data
-        acf(mat_pm10_clean)
-
-        # vs "DEUB004"
-        no_ac_locs <- c("DEUB004", "DEBE056", "DEBB053")
-        mat_pm10_naac <- mat_pm10_clean[, no_ac_locs]
-        acf(mat_pm10_naac)
-        ```
-
-        -   For each pair of locations, is the correlation between location $a$ at time $t$ and location $b$ at time $t + h$
-
-        -   [r5to10]{.var-text} is a STFDF (full grid) object. It's coerced, using `as`, into a [xts]{.arg-text} object. Since it's now a multivariate time series object, `acf` will give you cross-correlations.
-
-        -   From the acf of all the data, there were a couple interesting locations that had very little cross-correlation between them.
-
-        -   If there is no autocorrelation between a pair of locations, is it because there's a large distance between those locations? Maybe this can give a hint about the appropriate neighborhood size or area
-
-            ``` r
-            library(sf)
-
-            # indices for the low cross-corr locations
-            no_ac_idx <- which(row.names(r5to10@sp) %in% no_ac_locs)
-            # indices for the column names (locations) of the cleaned matrix
-            mat_clean_idx <- which(row.names(r5to10@sp) %in% colnames(mat_pm10_clean))
-            # sample 5 location indicies that aren't low cross-corr locations
-            mat_clean_idx_samp <- sort(sample(mat_clean_idx[-no_ac_idx], 5))
-            # combine sample indicies and low cross-corr indicies
-            mat_clean_idx_comb <- c(no_ac_idx, mat_clean_idx_samp)
-
-
-            # Convert the SpatialPoints to sf
-            sf_locs <- st_as_sf(r5to10[mat_clean_idx_comb,]@sp)
-            # Calculate pairwise distances (in meters by default for geographic coordinates)
-            mat_dist_sf <- st_distance(sf_locs)
-            # Convert to kilometers and round to match your output
-            mat_dist_sf_km <- round(units::set_units(mat_dist_sf, km), 2)
-
-            colnames(mat_dist_sf_km) <- row.names(r5to10[mat_clean_idx_comb,]@sp)
-            rownames(mat_dist_sf_km) <- row.names(r5to10[mat_clean_idx_comb,]@sp)
-            mat_dist_sf_km
-            #> Units: [km]
-            #>         DEBE056 DEBB053 DEUB004 DEBE056 DETH026 DEUB004 DEBW031 DENW068
-            #> DEBE056    0.00   28.07  648.60  235.43  357.82  541.62  198.99  557.63
-            #> DEBB053   28.07    0.00  674.84  256.26  374.67  569.64  221.21  585.50
-            #> DEUB004  648.60  674.84    0.00  441.77  660.90  209.86  579.71  173.85
-            #> DEBE056  235.43  256.26  441.77    0.00  458.62  393.98  292.91  396.71
-            #> DETH026  357.82  374.67  660.90  458.62    0.00  467.91  173.13  500.94
-            #> DEUB004  541.62  569.64  209.86  393.98  467.91    0.00  420.84   36.08
-            #> DEBW031  198.99  221.21  579.71  292.91  173.13  420.84    0.00  446.54
-            #> DENW068  557.63  585.50  173.85  396.71  500.94   36.08  446.54    0.00
-
-            # using sp
-            mat_dist_sp <- round(sp::spDists(r5to10[mat_clean_idx_comb,]@sp), 2)
-            colnames(mat_dist_sp) <- row.names(r5to10[mat_clean_idx_comb,]@sp)
-            rownames(mat_dist_sp) <- row.names(r5to10[mat_clean_idx_comb,]@sp)
-            mat_dist_sp
-            ```
-
-            -   The 3rd column ([DEUB004]{.var-text}) and first two rows ([DEBE056]{.var-text}, [DEBB053]{.var-text}) shows the distances between the low cross-correlation locations. The other locations are included for context.
-            -   The distances for those low cross-correlations location pairs do seem to be quite a bit larger than the other 5 randomly sampled locations when paired with [DEUB004]{.var-text}. So the low cross-correlations are likely due to larger spatial distances between the locations.
-            -   Might be interesting to check the cross-correlation between [DEUB004]{.var-text} and [DETH026]{.var-text} and maybe [DEBW031]{.var-text} just to see how low those cross-correlations are in comparison.
-            -   The [{sp}]{style="color: #990000"} and [{sf}]{style="color: #990000"} numbers are slightly different, because [{sp}]{style="color: #990000"} uses spherical and [{sf}]{style="color: #990000"} uses elliptical distances. The elliptical should be more accurate, but either should be fine for most applications (fraction of a percentage difference)
