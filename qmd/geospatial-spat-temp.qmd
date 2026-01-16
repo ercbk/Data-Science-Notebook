@@ -25,6 +25,8 @@
     -   [{]{style="color: #990000"}[stars](https://r-spatial.github.io/stars/){style="color: #990000"}[}]{style="color: #990000"} - **Reading, manipulating, writing and plotting** spatiotemporal arrays (raster and vector data cubes) in 'R', using 'GDAL' bindings provided by 'sf', and 'NetCDF' bindings by 'ncmeta' and 'RNetCDF'
         -   Only handles **full lattice/grid** data
         -   It supercedes the [{]{style="color: #990000"}[spacetime](https://cran.r-project.org/web/packages/spacetime/index.html){style="color: #990000"}[}]{style="color: #990000"}, which extended the shared classes defined in [{sp}]{style="color: #990000"} for spatio-temporal data. [{stars}]{style="color: #990000"} uses PROJ and GDAL through [{sf}]{style="color: #990000"}.
+            -   Easily convert spacetime objects to stars object with `st_as_stars(spacetime_obj)`
+        -   Has [dplyr verb methods](https://r-spatial.github.io/stars/reference/dplyr.html). Seems to require magrittr pipes `(%>%`)
 -   Resources
     -   [SDS, Ch.13](https://r-spatial.org/book/13-Geostatistics.html)
     -   [Geodata and Spatial Regression, Ch. 14](https://ruettenauer.github.io/Geodata_Spatial_Regression/09_spatiotemporal.html)
@@ -362,11 +364,19 @@
 
     -   [Example]{.ribbon-highlight}: PM10 Pollution ([{gstat}]{style="color: #990000"} [vignette](https://cran.r-project.org/web/packages/gstat/vignettes/st.pdf), section 2)
 
-        ::: panel-tabset
+        :::: panel-tabset
         ## Data
 
+        ###### Set-Up
+
         ``` r
-        library(spacetime)
+        pacman::p_load(
+          spacetime,
+          stars,
+          sf,
+          dplyr,
+          ggplot2
+        )
 
         data(air)
 
@@ -382,9 +392,105 @@
         -   [r5to10]{.var-text} is a STFDF (full grid) object
         -   `r5to10@sp` is a [SpatialPoints]{.arg-text} ([{sp}]{style="color: #990000"}) class object with location names and coordinates
 
+        ###### Map
+
+        ::: {layout-ncol="2"}
+        ![](_resources/Geospatial-Spatio-Temporal.resources/eda-ac-ex1-data-1.png){.lightbox group="eda-ac-ex1" width="373"}
+
+        ![](_resources/Geospatial-Spatio-Temporal.resources/eda-ac-ex1-data-2.png){.lightbox group="eda-ac-ex1" width="373"}
+        :::
+
+        <Details>
+
+        <Summary>Code</Summary>
+
+        ``` r
+
+        stars_r5to10 <- st_as_stars(r5to10)
+        # stars has dplyr methods
+        plot_slice <- 
+          slice(stars_r5to10, 
+                index = 3, # 3rd time step, so a location doesn't have NA 
+                along = "time")
+        # country boundary
+        de_sf <- st_as_sf(DE)
+        # states (provinces) boundaries
+        nuts1_sf <- st_as_sf(DE_NUTS1)
+
+        ggplot() +
+          # location points
+          geom_stars(
+            data = plot_slice, 
+            aes(color = PM10), 
+            fill = NA) +
+          scale_color_viridis_c(
+            option = "magma", 
+            na.value = "transparent") +
+          # states
+          geom_sf(
+            data = nuts1_sf, 
+            fill = NA, 
+            color = "black", 
+            size = 0.2, 
+            linetype = "dotted") +
+          # country
+          geom_sf(
+            data = de_sf, 
+            fill = NA, 
+            color = "black", 
+            size = 0.8) +
+          # Ensures coordinates align correctly
+          coord_sf() +
+          labs(
+            title = "PM10 Concentration with Administrative Boundaries",
+            fill = "PM10"
+          ) +
+          theme_minimal()
+
+        # facet multiple time steps
+        plot_slices <- 
+          slice(stars_r5to10, 
+                index = 4:7, 
+                along = "time")
+        plot_slices_sf <- st_as_sf(plot_slices, as_points = TRUE)
+        plot_slices_long <- 
+          plot_slices_sf |> 
+          pivot_longer(cols = !sfc, 
+                       names_to = "time", 
+                       values_to = "PM10")
+
+        ggplot() +
+          geom_sf(
+            data = plot_slices_long, 
+            aes(color = PM10)) +
+          scale_color_viridis_c(
+            option = "magma", 
+            na.value = "transparent") +
+          geom_sf(
+            data = nuts1_sf, 
+            fill = NA, 
+            color = "black", 
+            size = 0.2, 
+            linetype = "dotted") +
+          geom_sf(
+            data = de_sf, 
+            fill = NA, 
+            color = "black", 
+            size = 0.8) +
+          facet_wrap(~time) +
+          coord_sf() +
+          labs(
+            title = "PM10 Concentration with Administrative Boundaries",
+            color = "PM10"
+          ) +
+          theme_minimal()
+        ```
+
+        </Details>
+
         ## Autocorrelation
 
-        ![](_resources/Geospatial-Spatio-Temporal.resources/krig-eda-ac-ex1-1.png){.lightbox width="532"}
+        ![](_resources/Geospatial-Spatio-Temporal.resources/krig-eda-ac-ex1-1.png){.lightbox group="eda-ac-ex1" width="532"}
 
         ``` r
         # select locations 4, 5, 6, 7
@@ -402,7 +508,7 @@
 
         ## Cross-(Auto)Correlation
 
-        ![](_resources/Geospatial-Spatio-Temporal.resources/krig-eda-cac-ex1-1.png){.lightbox width="632"}
+        ![](_resources/Geospatial-Spatio-Temporal.resources/krig-eda-cac-ex1-1.png){.lightbox group="eda-ac-ex1" width="632"}
 
         ``` r
         # coerce to xts class
@@ -431,6 +537,8 @@
         ## Pairwise Distance
 
         If there is no or little autocorrelation between a pair of locations, is it largely because there's a large distance between those locations? Maybe this can give a hint about the appropriate neighborhood size or area
+
+        ###### Distance Matrix
 
         ``` r
         library(sf)
@@ -476,7 +584,68 @@
         -   The distances for those low cross-correlations location pairs do seem to be quite a bit larger than the other 5 randomly sampled locations when paired with [DEUB004]{.var-text}. So the low cross-correlations are likely due to larger spatial distances between the locations.
         -   Might be interesting to check the cross-correlation between [DEUB004]{.var-text} and [DETH026]{.var-text} and maybe [DEBW031]{.var-text} just to see how low those cross-correlations are in comparison.
         -   The [{sp}]{style="color: #990000"} and [{sf}]{style="color: #990000"} numbers are slightly different, because [{sp}]{style="color: #990000"} uses spherical and [{sf}]{style="color: #990000"} uses elliptical distances. The elliptical should be more accurate, but either should be fine for most applications (fraction of a percentage difference)
-        :::
+
+        ###### Map
+
+        ![](_resources/Geospatial-Spatio-Temporal.resources/eda-ac-ex1-dist-viz-1.png){.lightbox group="eda-ac-ex1" width="373"}
+
+        <Details>
+
+        <Summary>Code</Summary>
+
+        ``` r
+        labeled_points <- 
+          st_as_sf(plot_slice, as_points = TRUE) |> 
+          mutate(station = rownames(r5to10@sp@coords)) |> 
+          filter(station %in% c("DEUB004", "DEBE056", "DEBB053"))
+
+        ggplot() +
+          # location points
+          geom_stars(
+            data = plot_slice, 
+            aes(color = PM10), 
+            fill = NA) +
+          scale_color_viridis_c(
+            option = "magma", 
+            na.value = "transparent") +
+          # states
+          geom_sf(
+            data = nuts1_sf, 
+            fill = NA, 
+            color = "black", 
+            size = 0.2, 
+            linetype = "dotted") +
+          # country
+          geom_sf(
+            data = de_sf, 
+            fill = NA, 
+            color = "black", 
+            size = 0.8) +
+          # Ensures coordinates align correctly
+          coord_sf() +
+          # color labelled points differently
+          geom_sf(
+            data = labeled_points, 
+            color = "limegreen", 
+            size = 3, 
+            shape = 21, 
+            fill = "limegreen") +
+          geom_sf_label(
+            data = labeled_points, 
+            aes(label = station),
+            nudge_x = 0.3, 
+            nudge_y = 0.3, 
+            size = 3) +
+          labs(
+            title = "PM10 Concentration with Administrative Boundaries",
+            fill = "PM10") +
+          theme_minimal()        
+        ```
+
+        </Details>
+
+        -   Pretty much on the other side of the country, but there are locations further away. Again, it'd be interesting to look at the cross-correlations between some of the pairs of locations that are just as far or farther away.
+        ::::
 
 ## Kriging {#sec-geo-sptemp-krig .unnumbered}
 
