@@ -445,6 +445,7 @@
         ```
 
         -   Shows missingness and basic descriptive statistics over time for each [station]{.var-text}
+            -   Note that if your data is daily and there's only 1 measurement per day, then all these statistics will the same (duh, but one time I forgot and thought the package was broken)
 -   [Autocorrelation]{.underline}
     -   Check characteristics of autocorrelation. Can the analysis be done in a purely spatial manner (a purely spatial model for each time step) or is adding a temporal aspect necessary?
 
@@ -741,99 +742,144 @@
 ### Misc {#sec-geo-sptemp-krig-misc .unnumbered}
 
 -   Packages
+
     -   [{]{style="color: #990000"}[gstat](https://cran.r-project.org/web/packages/gstat/index.html){style="color: #990000"}[}]{style="color: #990000"} - **OG**; Has idw and various kriging methods.
+
 -   The added value of spatio-temporal kriging lies in the flexibility to not only interpolate at unobserved locations in space, but also at unobserved time instances.
+
     -   This makes spatio-temporal kriging a suitable tool to fill gaps in time series not only based on the time series solely, but also including some of its spatial neighbours.
+
 -   A potential alternative to spatio-temporal kriging is co-kriging.
+
     -   Only feasible if the number of time replicates is (very) small, as the number of cross variograms to be modelled equals the number of pairs of time replicates.
     -   Co-kriging can only interpolate for these time slices, and *not inbetween or beyond them*. It does however provide prediction error covariances, which can help assessing the significance of estimated change parameters
+
 -   The best fits of the respective spatio-temporal models might suggest different variogram families and parameters for the pure spatial and temporal ones.
+
 -   Spatio-Temporal vs Purely Spatial
+
     -   By examining the spatio-temporal variogram plot, you
-        -   [Example]{.ribbon-highlight} (gstat vignette): A temporal lag of one or a few days leads already to a large variability compared to spatial distances of few hundred kilometres, implying that the temporal correlation is too weak to considerably improve the overall prediction.
+        -   [Example]{.ribbon-highlight} (gstat vignette): A temporal lag of one or a few days leads already to a large variability compared to spatial distances of few hundred kilometers, implying that the temporal correlation is too weak to considerably improve the overall prediction.
+
+-   For large datasets
+
+    -   Try local kriging (instead of global kriging) by selecting data within some distance or by specifying [nmax]{.arg-text} (the nearest n observations). (See `krigeST` below)
+
+-   Workflow
+
+    ``` r
+    # calculate sample/empirical variogram
+    vario_samp <- variogramST()
+
+    # specify covariance model
+    mod_cvar <- vgmST()
+
+    # estimate the theoretical variogram
+    vario_mod <- 
+      fit.STVariogram(
+        object = vario_samp,
+        model = mod_cvar
+      )
+
+    # run variogram diagnostics
+    attr(vario_mod, "optim")$value
+    plot(vario_mod)
+    plot(vario_samp, vario_mod, wireframe = T)
+    ```
 
 ### Variogram {#sec-geo-sptemp-krig-var .unnumbered}
 
--   Covariance Models
-    -   See [Geospatial, Modeling \>\> Interpolation \>\> Kriging \>\> Variograms](geospatial-modeling.qmd#sec-geo-gmod-interp-krig-vario){style="color: green"} \>\> Terms for descriptions of sill, nugget, and range.
-    -   [Separable]{.underline}
-        -   Covariance Function: $C_{\text{sep}} = C_s(h)C_t(u)$
-        -   Variogram: $\gamma_{\text{sep}}(h, u) = \text{sill} \cdot (\bar \gamma_s (h) + \bar \gamma_t(u) - \bar\gamma_s(h)\bar\gamma_t(u))$
-            -   $h$ is the spatial step and $u$ is the time step
-            -   $\bar \gamma_s$ and $\bar \gamma_t$ are standardized spatial and temporal variograms with separate *nugget* effects and (joint) *sill* of 1
-        -   `vgmST(stModel = "separable", space, time, sill)`
-        -   Has a strong computational advantage in the setting where each spatial location has an observation at each temporal instance ([STFDF]{.arg-text} without [NA]{.arg-text}s)
-    -   [Product-Sum]{.underline}
-        -   Covariance Function: $C_{\text{ps}}(h,u) = kC_s(h)C_t(u) + C_s(h) + C_t(u)$
-            -   With $k \gt 0$ (Don't confuse this with the kappa anisotropy correction below)
-        -   Variogram:\
-            $$
-            \begin{align}
-            \gamma_{\text{ps}}(h,u) = \;&(k \cdot \text{sill}_t + 1)\gamma_s(h) + \\
-            &(k \cdot \text{sill}_s + 1)\gamma_t(h) -\\
-            &k\gamma_s(h)\gamma_t(u)
-            \end{align}
-            $$
-        -   `vgmST(stModel = "productSum", space, time, k)`
-    -   [Metric]{.underline}
-        -   Assumes identical spatial and temporal covariance functions except for spatio-temporal anisotropy
-            -   i.e. Requires both spatial and temporal models use the same family. (e.g. spherical-spherical)
-        -   Covariance Function: $C_m(h,u) = C_{\text{joint}}(\sqrt{h^2 + (\kappa \cdot u)^2})$
-            -   $C_{\text{joint}}$ says that the spatial, temporal, and spatio-temporal distances are treated equally.
-            -   $\kappa$ is the **anisotropy correction**.
-                -   It's in space/time units so multiplying it times the time step, $u$, converts time into distance. This allows spatial distance and temporal "distance" to be used together in the euclidean distance calculation
-                -   e.g. $\kappa = 189 \frac{\text{km}}{\text{day}}$ says that 1 day is equivalent to 189 km.
-        -   Variogram: $\gamma_m(h,u) = \gamma_{\text{joint}}(\sqrt{h^2 + (\kappa \cdot u)^2})$
-            -   $\gamma_{\text{joint}}$ is any known variogram tha may generate a nugget effect
-        -   `vgmST("metric", joint, stAni)`
-            -   [stAni]{.arg-text}: The anisotropy correction ($\kappa$) which is given in spatial unit per temporal unit (commonly m/s). For estimating this input, see `estiStAni` below.
-    -   [Sum-Metric]{.underline}
-        -   A combination of spatial, temporal and a metric model including an anisotropy correction parameter, $\kappa$
-        -   Covariance Function: $C_{sm}(h,u) = C_s(h) + C_t(u) + C_{\text{joint}}(\sqrt{h^2 + (\kappa \cdot u)^2})$
-        -   Variogram: $\gamma_{sm}(h,u) = \gamma_s(h) + \gamma_t(u) + \gamma_{\text{joint}}(\sqrt{h^2 + (\kappa \cdot u)^2})$
-            -   Where $\gamma_s$, $\gamma_t$, and $\gamma_{\text{joint}}$ are spatial, temporal and joint variograms with separate nugget-effects
-        -   `vgmST("sumMetric", space, time, joint, stAni)`
-    -   [Simple Sum-Metric]{.underline}
-        -   Removes the nugget effects from the three variograms in the Sum-Metric model
-        -   Variogram: $\gamma_{\text{sm}}(h,u) = \text{nug} \cdot \mathbb{1}_{h\gt0\; \vee \; u\gt0} + \gamma_s(h) + \gamma_t(u) + \gamma_{\text{joint}}(\sqrt{h^2 + (\kappa \cdot u)^2})$
-            -   Think the nugget indicator says only include the nuggect effect if h or u is greater than 0.
-        -   `vgmST("simpleSumMetric", space, time, joint, nugget, stAni)`
--   Weighting Options for `fit.variogram`\
-    ![](_resources/Geospatial-Spatio-Temporal.resources/krig-wgt-methods1.png){.lightbox width="382"}
-    -   Controls the weighing of the residuals between empirical and model surface
-    -   **tl;dr** Even though 6 is the default, 7 seems like a sound statistical choice unless the data/problem makes another method make more sense.
-    -   Adding Weights narrows down the spatial and temporal distances and introduces a cutoff.
-        -   This ensures that the model is fitted to the differences over space and time actually used in the interpolation, and reduces the risk of overfitting the variogram model to large distances not used for prediction.
-    -   To increase numerical stability, it is advisable to use weights that do not change with the current model fit. (?)
-    -   Terms
-        -   $N_j$ is the number of location pairs for bin $j$
-        -   $h_j$ is the mean spatial distance for bin $j$
-        -   $u_j$ is the mean temporal distance for bin $j$
-    -   Methods
-        -   Primarily two sets of methods:
-            -   *Equal-Bin* - Have a 1 in the numerator which means only the denominator contributes
-                -   Each lag bin contributes roughly equally to the objective function, regardless of how many point pairs went into estimating that bin.
-                -   Consider with small datasets where $N_j$ does not vary much across bins or when a balanced structure is called for.
-            -   *Precision-Weighted* - Have $N_j$ in the numerator
-                -   Assumes bins with more location pairs provide more reliable empirical variogram estimates
-                -   Parameter estimates tend to be more stable and less sensitive to small, noisy bins.
-                -   Consider with moderate to large datasets with substantial variation in $N_j$
-        -   [fit.method = 6]{.arg-text} (default) - No weights
-        -   1 and 3: Greater importance is placed on *longer* pairwise distance bins
-        -   2 and 10: Involve weights based on the fitted variogram that might lead to bad convergence properties of the parameter estimates.
-        -   7 and 11: Recommended to include the value of [sfAni]{.arg-text} otherwise it'll use the actual fitted spatio-temporal anisotropy which can lead the model to not converge.
-            -   `estiStAni` can be used to estimate the [stAni]{.arg-text} value
-            -   The spatio-temporal analog to the commonly used spatial weighting
-            -   Denominator referred to as the *metric distance* which is similar to the what's used in the metric covariance model
-            -   7 puts higher confidence in lags filled with many pairs of spatio-temporal locations, but respects to some degree the need of an accurate model for short distances, as these short distances are the main source of information in the prediction step
-        -   3, 4, and 5: Kept for compatibility reasons with the purely spatial `fit.variogram` function
-        -   8 downweights more heaviliy the large pairwise distance bins (prioritizes small distance pairwise locations)
-        -   9 downweights more heavily the large pairwise time-distance bins (prioritizes small time-distance pairwise locations)
--   Anisotropy Estimation Heuristics using `estiStAni`
-    -   [method = "linear"]{.arg-text} - Rescales a linear model
-    -   [method = "range"]{.arg-text} - Estimates equal ranges
-    -   [method = "vgm"]{.arg-text} - Rescales a pure spatial variogram
-    -   [method = "metric"]{.arg-text} - Estimates a complete spatio-temporal metric variogram model and returns its spatio-temporal anisotropy parameter.
+-   `vgmST`
+    -   Covariance Models
+        -   See [Geospatial, Modeling \>\> Interpolation \>\> Kriging \>\> Variograms](geospatial-modeling.qmd#sec-geo-gmod-interp-krig-vario){style="color: green"} \>\> Terms for descriptions of sill, nugget, and range.
+        -   [Separable]{.underline}
+            -   Covariance Function: $C_{\text{sep}} = C_s(h)C_t(u)$
+            -   Variogram: $\gamma_{\text{sep}}(h, u) = \text{sill} \cdot (\bar \gamma_s (h) + \bar \gamma_t(u) - \bar\gamma_s(h)\bar\gamma_t(u))$
+                -   $h$ is the spatial step and $u$ is the time step
+                -   $\bar \gamma_s$ and $\bar \gamma_t$ are standardized spatial and temporal variograms with separate *nugget* effects and (joint) *sill* of 1
+            -   `vgmST(stModel = "separable", space, time, sill)`
+            -   Has a strong computational advantage in the setting where each spatial location has an observation at each temporal instance ([STFDF]{.arg-text} without [NA]{.arg-text}s)
+        -   [Product-Sum]{.underline}
+            -   Covariance Function: $C_{\text{ps}}(h,u) = kC_s(h)C_t(u) + C_s(h) + C_t(u)$
+                -   With $k \gt 0$ (Don't confuse this with the kappa anisotropy correction below)
+            -   Variogram:\
+                $$
+                \begin{align}
+                \gamma_{\text{ps}}(h,u) = \;&(k \cdot \text{sill}_t + 1)\gamma_s(h) + \\
+                &(k \cdot \text{sill}_s + 1)\gamma_t(h) -\\
+                &k\gamma_s(h)\gamma_t(u)
+                \end{align}
+                $$
+            -   `vgmST(stModel = "productSum", space, time, k)`
+        -   [Metric]{.underline}
+            -   Assumes identical spatial and temporal covariance functions except for spatio-temporal anisotropy
+                -   i.e. Requires both spatial and temporal models use the same family. (e.g. spherical-spherical)
+            -   Covariance Function: $C_m(h,u) = C_{\text{joint}}(\sqrt{h^2 + (\kappa \cdot u)^2})$
+                -   $C_{\text{joint}}$ says that the spatial, temporal, and spatio-temporal distances are treated equally.
+                -   $\kappa$ is the **anisotropy correction**.
+                    -   It's in space/time units so multiplying it times the time step, $u$, converts time into distance. This allows spatial distance and temporal "distance" to be used together in the euclidean distance calculation
+                    -   e.g. $\kappa = 189 \frac{\text{km}}{\text{day}}$ says that 1 day is equivalent to 189 km.
+            -   Variogram: $\gamma_m(h,u) = \gamma_{\text{joint}}(\sqrt{h^2 + (\kappa \cdot u)^2})$
+                -   $\gamma_{\text{joint}}$ is any known variogram tha may generate a nugget effect
+            -   `vgmST("metric", joint, stAni)`
+                -   [stAni]{.arg-text}: The anisotropy correction ($\kappa$) which is given in spatial unit per temporal unit (commonly m/s). For estimating this input, see `estiStAni` below.
+        -   [Sum-Metric]{.underline}
+            -   A combination of spatial, temporal and a metric model including an anisotropy correction parameter, $\kappa$
+            -   Covariance Function: $C_{sm}(h,u) = C_s(h) + C_t(u) + C_{\text{joint}}(\sqrt{h^2 + (\kappa \cdot u)^2})$
+            -   Variogram: $\gamma_{sm}(h,u) = \gamma_s(h) + \gamma_t(u) + \gamma_{\text{joint}}(\sqrt{h^2 + (\kappa \cdot u)^2})$
+                -   Where $\gamma_s$, $\gamma_t$, and $\gamma_{\text{joint}}$ are spatial, temporal and joint variograms with separate nugget-effects
+            -   `vgmST("sumMetric", space, time, joint, stAni)`
+        -   [Simple Sum-Metric]{.underline}
+            -   Removes the nugget effects from the three variograms in the Sum-Metric model
+            -   Variogram: $\gamma_{\text{sm}}(h,u) = \text{nug} \cdot \mathbb{1}_{h\gt0\; \vee \; u\gt0} + \gamma_s(h) + \gamma_t(u) + \gamma_{\text{joint}}(\sqrt{h^2 + (\kappa \cdot u)^2})$
+                -   Think the nugget indicator says only include the nuggect effect if h or u is greater than 0.
+            -   `vgmST("simpleSumMetric", space, time, joint, nugget, stAni)`
+-   `variogramST`
+    -   [cutoff]{.arg-text} - Spatial separation distance up to which point pairs are included in semivariance estimates
+        -   Default: The length of the diagonal of the box spanning the data is divided by three.
+    -   [tlags]{.arg-text} - Integer; Time lags to consider (See docs for STIDF)
+    -   [twindow]{.arg-text} - Controls the temporal window used for temporal distance calculations.
+        -   This avoids the need of huge temporal distance matrices. The default uses twice the number as the average difference goes into the temporal cutoff.
+    -   [width]{.arg-text} - The width of subsequent distance intervals into which data point pairs are grouped for semivariance estimates
+        -   Default: The [cutoff]{.arg-text} is divided into 15 equal lags
+    -   [cores]{.arg-text} - Compute in parallel
+-   `fit.StVariogram`
+    -   Weighting Options\
+        ![](_resources/Geospatial-Spatio-Temporal.resources/krig-wgt-methods1.png){.lightbox width="382"}
+        -   Controls the weighing of the residuals between empirical and model surface
+        -   **tl;dr** Even though 6 is the default, 7 seems like a sound statistical choice unless the data/problem makes another method make more sense.
+        -   Adding Weights narrows down the spatial and temporal distances and introduces a cutoff.
+            -   This ensures that the model is fitted to the differences over space and time actually used in the interpolation, and reduces the risk of overfitting the variogram model to large distances not used for prediction.
+        -   To increase numerical stability, it is advisable to use weights that do not change with the current model fit. (?)
+        -   Terms
+            -   $N_j$ is the number of location pairs for bin $j$
+            -   $h_j$ is the mean spatial distance for bin $j$
+            -   $u_j$ is the mean temporal distance for bin $j$
+        -   Methods
+            -   Primarily two sets of methods:
+                -   *Equal-Bin* - Have a 1 in the numerator which means only the denominator contributes
+                    -   Each lag bin contributes roughly equally to the objective function, regardless of how many point pairs went into estimating that bin.
+                    -   Consider with small datasets where $N_j$ does not vary much across bins or when a balanced structure is called for.
+                -   *Precision-Weighted* - Have $N_j$ in the numerator
+                    -   Assumes bins with more location pairs provide more reliable empirical variogram estimates
+                    -   Parameter estimates tend to be more stable and less sensitive to small, noisy bins.
+                    -   Consider with moderate to large datasets with substantial variation in $N_j$
+            -   [fit.method = 6]{.arg-text} (default) - No weights
+            -   1 and 3: Greater importance is placed on *longer* pairwise distance bins
+            -   2 and 10: Involve weights based on the fitted variogram that might lead to bad convergence properties of the parameter estimates.
+            -   7 and 11: Recommended to include the value of [sfAni]{.arg-text} otherwise it'll use the actual fitted spatio-temporal anisotropy which can lead the model to not converge.
+                -   `estiStAni` can be used to estimate the [stAni]{.arg-text} value
+                -   The spatio-temporal analog to the commonly used spatial weighting
+                -   Denominator referred to as the *metric distance* which is similar to the what's used in the metric covariance model
+                -   7 puts higher confidence in lags filled with many pairs of spatio-temporal locations, but respects to some degree the need of an accurate model for short distances, as these short distances are the main source of information in the prediction step
+            -   3, 4, and 5: Kept for compatibility reasons with the purely spatial `fit.variogram` function
+            -   8 downweights more heaviliy the large pairwise distance bins (prioritizes small distance pairwise locations)
+            -   9 downweights more heavily the large pairwise time-distance bins (prioritizes small time-distance pairwise locations)
+    -   Anisotropy Estimation Heuristics using `estiStAni`
+        -   [method = "linear"]{.arg-text} - Rescales a linear model
+        -   [method = "range"]{.arg-text} - Estimates equal ranges
+        -   [method = "vgm"]{.arg-text} - Rescales a pure spatial variogram
+        -   [method = "metric"]{.arg-text} - Estimates a complete spatio-temporal metric variogram model and returns its spatio-temporal anisotropy parameter.
 -   Diagnostics
     -   `plot` - Shows the sample and fitted variogram surfaces next to each other as colored level plots.
         -   [wireframe = TRUE]{.arg-text} creates a wireframe plot
@@ -875,6 +921,7 @@
     -   [computeVar = TRUE]{.arg-text} returns prediction variances
         -   [fullCovariance = TRUE]{.arg-text} returns the full covariance matrix
     -   [bufferNmax = 1]{.arg-text} (default) is used to increase the search radius for neighbors (e.g. 2 would be double the default radius.)
+        -   A larger neighbourhood is evaluated within the covariance model and the strongest correlated [nmax]{.arg-text} neighbours are selected
         -   If the prediction variances are large, then this parameter should help by gathering more data points.
     -   [nmax]{.arg-text} - The maximum number of neighboring locations for a spatio-temporal local neighbourhood
 -   Raw vignette notes (wip)
