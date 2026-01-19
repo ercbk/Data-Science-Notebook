@@ -65,6 +65,20 @@
                 -   A vertical correlation (no anisotropy) would start at the bottom of the line and be parallel to the z-axis (time)
             -   If you are measuring something that doesn't move—like soil quality at a specific GPS coordinate—the time correlation is vertical
             -   With a pollution plume, the time correlation will "tilt" because pollution values will be more similar in different locations as time increases.
+-   [**UNIX Time**]{style="color: #009499"} - The number of seconds between a particular time and the UNIX epoch, which is January the 1st 1970 GMT.
+    -   Should have 10 digits. If it has 13, then milliseconds are also included.
+
+    -   Convert to POSIXlt
+
+        ``` r
+        data$TIME <- 
+          as.POSIXlt(as.numeric(substr(
+            paste(data$generation_time), start = 1, stope = 10)), 
+            origin = "1970-01-01")
+        ```
+
+        -   `substr` is subsetting the 1st 10 digits
+        -   `paste` is converting the numeric to a string. I'd try `as.charater`.
 
 ## Grid Layouts {#sec-geo-sptemp-grlay .unnumbered}
 
@@ -125,6 +139,20 @@
         -   Polygons: Values reflect aggregates (e.g., sums, or averages) over the polygon (SpatialPolygonsDataFrame, SpatialPolygons)
         -   Grids: Values can be point data or aggregates over the cell.
     -   `stConstruct` creates "a [STFDF]{.arg-text} (full lattice/full grid) object if all space and time combinations occur only once, or else an object of class [STIDF]{.arg-text} (irregular grid), which might be coerced into other representations."
+    -   Latitude and Longitude to using [{sp}]{style="color: #990000"}
+        -   [Example]{.ribbon-highlight}: ([source](https://www.r-bloggers.com/2015/08/spatio-temporal-kriging-in-r/))
+
+            ``` r
+            # Create a SpatialPointsDataFrame
+            coordinates(df) <- ~ LON + LAT
+            projection(df) <- CRS("+init=epsg:4326")
+
+            # Transform into Mercator Projection
+            # SpatialPointsDataFrame with coordinates in meters.
+            ozone.UTM <- spTransform(df, CRS("+init=epsg:3395"))
+            # SpatialPoints
+            ozoneSP <- SpatialPoints(ozone.UTM@coords, CRS("+init=epsg:3395")) 
+            ```
 -   [Long]{.underline} - The full spatio-temporal information (i.e. response value) is held in a single column, and location and time are also single columns.
     -   [Example]{.ribbon-highlight}: Private capital stock (?)
 
@@ -355,8 +383,35 @@
 
 ## EDA {#sec-geo-sptemp-eda .unnumbered}
 
--   Also see [EDA, Time Series](eda-time-series.qmd#sec-eda-ts){style="color: green"}
--   General
+-   [Misc]{.underline}
+
+    -   Also see [EDA, Time Series](eda-time-series.qmd#sec-eda-ts){style="color: green"}
+    -   Check for duplicate locations:
+        -   Kriging cannot handle duplicate locations and returns an error, generally in the form of a “singular matrix”.
+
+        -   [Examples]{.ribbon-highlight}:
+
+            ``` r
+            dupl <- sp::zerodist(spatialpoints_obj)
+
+            # sf
+            dup <- duplicated(st_coordinates(sf_obj))
+            log_mat <- st_equals(sf_obj)
+
+            # terra (or w/spatraster, spatvector)
+            d <- distance(lon_lat_mat)
+            log_mat <- which(d == 0, arr.ind = TRUE)
+
+            # base r
+            dup_indices <- duplicated(df[, c("lat", "long")])
+
+            # within a tolerance
+            # Find points within 0.01 distance
+            dup_pairs <- st_is_within_distance(sf_obj, dist = 0.01, sparse = FALSE)
+            ```
+
+-   [General]{.underline}
+
     -   [Example]{.ribbon-highlight}: [{gglinedensity}]{style="color: #990000"}\
         ![](_resources/Geospatial-Spatio-Temporal.resources/eda-gglinedens-1.png){.lightbox width="432"}
 
@@ -446,7 +501,9 @@
 
         -   Shows missingness and basic descriptive statistics over time for each [station]{.var-text}
             -   Note that if your data is daily and there's only 1 measurement per day, then all these statistics will the same (duh, but one time I forgot and thought the package was broken)
+
 -   [Autocorrelation]{.underline}
+
     -   Check characteristics of autocorrelation. Can the analysis be done in a purely spatial manner (a purely spatial model for each time step) or is adding a temporal aspect necessary?
 
     -   At which time lag (max, avg) does autocorrelation become insignificant?
