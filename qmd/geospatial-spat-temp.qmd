@@ -831,7 +831,7 @@
     # specify covariance model
     mod_cvar <- vgmST()
 
-    # estimate the theoretical variogram
+    # fit variogram model
     vario_mod <- 
       fit.STVariogram(
         object = vario_samp,
@@ -846,132 +846,151 @@
 
 ### Variogram {#sec-geo-sptemp-krig-var .unnumbered}
 
--   `vgmST`
-    -   Covariance Models
-        -   See [Geospatial, Modeling \>\> Interpolation \>\> Kriging \>\> Variograms](geospatial-modeling.qmd#sec-geo-gmod-interp-krig-vario){style="color: green"} \>\> Terms for descriptions of sill, nugget, and range.
-        -   [Separable]{.underline}
-            -   Covariance Function: $C_{\text{sep}} = C_s(h)C_t(u)$
-            -   Variogram: $\gamma_{\text{sep}}(h, u) = \text{sill} \cdot (\bar \gamma_s (h) + \bar \gamma_t(u) - \bar\gamma_s(h)\bar\gamma_t(u))$
-                -   $h$ is the spatial step and $u$ is the time step
-                -   $\bar \gamma_s$ and $\bar \gamma_t$ are standardized spatial and temporal variograms with separate *nugget* effects and (joint) *sill* of 1
-            -   `vgmST(stModel = "separable", space, time, sill)`
-            -   Has a strong computational advantage in the setting where each spatial location has an observation at each temporal instance ([STFDF]{.arg-text} without [NA]{.arg-text}s)
-        -   [Product-Sum]{.underline}
-            -   Covariance Function: $C_{\text{ps}}(h,u) = kC_s(h)C_t(u) + C_s(h) + C_t(u)$
-                -   With $k \gt 0$ (Don't confuse this with the kappa anisotropy correction below)
-            -   Variogram:\
-                $$
-                \begin{align}
-                \gamma_{\text{ps}}(h,u) = \;&(k \cdot \text{sill}_t + 1)\gamma_s(h) + \\
-                &(k \cdot \text{sill}_s + 1)\gamma_t(h) -\\
-                &k\gamma_s(h)\gamma_t(u)
-                \end{align}
-                $$
-            -   `vgmST(stModel = "productSum", space, time, k)`
-        -   [Metric]{.underline}
-            -   Assumes identical spatial and temporal covariance functions except for spatio-temporal anisotropy
-                -   i.e. Requires both spatial and temporal models use the same family. (e.g. spherical-spherical)
-            -   Covariance Function: $C_m(h,u) = C_{\text{joint}}(\sqrt{h^2 + (\kappa \cdot u)^2})$
-                -   $C_{\text{joint}}$ says that the spatial, temporal, and spatio-temporal distances are treated equally.
-                -   $\kappa$ is the **anisotropy correction**.
-                    -   It's in space/time units so multiplying it times the time step, $u$, converts time into distance. This allows spatial distance and temporal "distance" to be used together in the euclidean distance calculation
-                    -   e.g. $\kappa = 189 \frac{\text{km}}{\text{day}}$ says that 1 day is equivalent to 189 km.
-            -   Variogram: $\gamma_m(h,u) = \gamma_{\text{joint}}(\sqrt{h^2 + (\kappa \cdot u)^2})$
-                -   $\gamma_{\text{joint}}$ is any known variogram tha may generate a nugget effect
-            -   `vgmST("metric", joint, stAni)`
-                -   [stAni]{.arg-text}: The anisotropy correction ($\kappa$) which is given in spatial unit per temporal unit (commonly m/s). For estimating this input, see `estiStAni` below.
-        -   [Sum-Metric]{.underline}
-            -   A combination of spatial, temporal and a metric model including an anisotropy correction parameter, $\kappa$
-            -   Covariance Function: $C_{sm}(h,u) = C_s(h) + C_t(u) + C_{\text{joint}}(\sqrt{h^2 + (\kappa \cdot u)^2})$
-            -   Variogram: $\gamma_{sm}(h,u) = \gamma_s(h) + \gamma_t(u) + \gamma_{\text{joint}}(\sqrt{h^2 + (\kappa \cdot u)^2})$
-                -   Where $\gamma_s$, $\gamma_t$, and $\gamma_{\text{joint}}$ are spatial, temporal and joint variograms with separate nugget-effects
-            -   `vgmST("sumMetric", space, time, joint, stAni)`
-        -   [Simple Sum-Metric]{.underline}
-            -   Removes the nugget effects from the three variograms in the Sum-Metric model
-            -   Variogram: $\gamma_{\text{sm}}(h,u) = \text{nug} \cdot \mathbb{1}_{h\gt0\; \vee \; u\gt0} + \gamma_s(h) + \gamma_t(u) + \gamma_{\text{joint}}(\sqrt{h^2 + (\kappa \cdot u)^2})$
-                -   Think the nugget indicator says only include the nuggect effect if h or u is greater than 0.
-            -   `vgmST("simpleSumMetric", space, time, joint, nugget, stAni)`
--   `variogramST`
-    -   [cutoff]{.arg-text} - Spatial separation distance up to which point pairs are included in semivariance estimates
-        -   Default: The length of the diagonal of the box spanning the data is divided by three.
-    -   [tlags]{.arg-text} - Integer; Time lags to consider (See docs for STIDF)
-    -   [twindow]{.arg-text} - Controls the temporal window used for temporal distance calculations.
-        -   This avoids the need of huge temporal distance matrices. The default uses twice the number as the average difference goes into the temporal cutoff.
-    -   [width]{.arg-text} - The width of subsequent distance intervals into which data point pairs are grouped for semivariance estimates
-        -   Default: The [cutoff]{.arg-text} is divided into 15 equal lags
-    -   [cores]{.arg-text} - Compute in parallel
--   `fit.StVariogram`
-    -   Weighting Options\
-        ![](_resources/Geospatial-Spatio-Temporal.resources/krig-wgt-methods1.png){.lightbox width="382"}
-        -   Controls the weighing of the residuals between empirical and model surface
-        -   **tl;dr** Even though 6 is the default, 7 seems like a sound statistical choice unless the data/problem makes another method make more sense.
-        -   Adding Weights narrows down the spatial and temporal distances and introduces a cutoff.
-            -   This ensures that the model is fitted to the differences over space and time actually used in the interpolation, and reduces the risk of overfitting the variogram model to large distances not used for prediction.
-        -   To increase numerical stability, it is advisable to use weights that do not change with the current model fit. (?)
-        -   Terms
-            -   $N_j$ is the number of location pairs for bin $j$
-            -   $h_j$ is the mean spatial distance for bin $j$
-            -   $u_j$ is the mean temporal distance for bin $j$
-        -   Methods
-            -   Primarily two sets of methods:
-                -   *Equal-Bin* - Have a 1 in the numerator which means only the denominator contributes
-                    -   Each lag bin contributes roughly equally to the objective function, regardless of how many point pairs went into estimating that bin.
-                    -   Consider with small datasets where $N_j$ does not vary much across bins or when a balanced structure is called for.
-                -   *Precision-Weighted* - Have $N_j$ in the numerator
-                    -   Assumes bins with more location pairs provide more reliable empirical variogram estimates
-                    -   Parameter estimates tend to be more stable and less sensitive to small, noisy bins.
-                    -   Consider with moderate to large datasets with substantial variation in $N_j$
-            -   [fit.method = 6]{.arg-text} (default) - No weights
-            -   1 and 3: Greater importance is placed on *longer* pairwise distance bins
-            -   2 and 10: Involve weights based on the fitted variogram that might lead to bad convergence properties of the parameter estimates.
-            -   7 and 11: Recommended to include the value of [sfAni]{.arg-text} otherwise it'll use the actual fitted spatio-temporal anisotropy which can lead the model to not converge.
-                -   `estiStAni` can be used to estimate the [stAni]{.arg-text} value
-                -   The spatio-temporal analog to the commonly used spatial weighting
-                -   Denominator referred to as the *metric distance* which is similar to the what's used in the metric covariance model
-                -   7 puts higher confidence in lags filled with many pairs of spatio-temporal locations, but respects to some degree the need of an accurate model for short distances, as these short distances are the main source of information in the prediction step
-            -   3, 4, and 5: Kept for compatibility reasons with the purely spatial `fit.variogram` function
-            -   8 downweights more heaviliy the large pairwise distance bins (prioritizes small distance pairwise locations)
-            -   9 downweights more heavily the large pairwise time-distance bins (prioritizes small time-distance pairwise locations)
-    -   Anisotropy Estimation Heuristics using `estiStAni`
-        -   [method = "linear"]{.arg-text} - Rescales a linear model
-        -   [method = "range"]{.arg-text} - Estimates equal ranges
-        -   [method = "vgm"]{.arg-text} - Rescales a pure spatial variogram
-        -   [method = "metric"]{.arg-text} - Estimates a complete spatio-temporal metric variogram model and returns its spatio-temporal anisotropy parameter.
--   Diagnostics
-    -   `plot` - Shows the sample and fitted variogram surfaces next to each other as colored level plots.
-        -   [wireframe = TRUE]{.arg-text} creates a wireframe plot
-        -   [diff = TRUE]{.arg-text} plots the difference between the sample and fitted variogram surfaces.
-            -   Helps to better identify structural shortcomings of the selected model
-    -   Convergence output from `optim`
-        -   [method = "L-BFGS-B"]{.arg-text} is the default. It uses a limited-memory modification of the BFGS quasi-Newton method, and has been said not the be as *robust* as "BFGS" which is supposed to be the gold standard ([thread](https://bsky.app/profile/vdveenb.bsky.social/post/3mb2ff75rh22i)). So if you have issues, "BFGS" may be worth a try.
+#### `variogramST`
 
-        -   Get these by accessing the [optim.out]{.arg-text} attribute from `fit.StVariogram`
+-   Fits the Empirical/Experimental Variogram
+-   Evidently fitting this object can take a crazy amount of time even with moderately sized datasets. So, it's recommended to **utilize the parallelization option** ([cores]{.arg-text})
+    -   In this [article](https://www.r-bloggers.com/2015/08/spatio-temporal-kriging-in-r/), he used a dataset with 6734 rows, and the dude ran it overnight. He didn't use the [core]{.arg-text} argument though. It was published 2015, so it might not have been available.
+-   [cutoff]{.arg-text} - Spatial separation distance up to which point pairs are included in semivariance estimates
+    -   Default: The length of the diagonal of the box spanning the data is divided by three.
+-   [tlags]{.arg-text} - Integer; Time lags to consider (See docs for STIDF)
+-   [twindow]{.arg-text} - Controls the temporal window used for temporal distance calculations.
+    -   This avoids the need of huge temporal distance matrices. The default uses twice the number as the average difference goes into the temporal cutoff.
+-   [width]{.arg-text} - The width of subsequent distance intervals into which data point pairs are grouped for semivariance estimates
+    -   Default: The [cutoff]{.arg-text} is divided into 15 equal lags
+-   [cores]{.arg-text} - Compute in parallel
 
-            ``` r
-            fit_var <- fit.StVariogram(...)
-            attr_opt <- attributes(fit_var)$optim.out
-            ```
+#### `vgmST`
 
-        -   [\$convergence]{.arg-text} - The convergence code (guessing this just binary: converged or not converged (`attr_opt$convergence`)
+-   Specifies the variogram model function.
+-   [Misc]{.underline}
+    -   See [Geospatial, Modeling \>\> Interpolation \>\> Kriging \>\> Variograms](geospatial-modeling.qmd#sec-geo-gmod-interp-krig-vario){style="color: green"} \>\> Terms for descriptions of sill, nugget, and range.
+    -   For `vgm`, you can just use `vgm("exponential")` and not worry about setting parameters like sill, nugget, etc. This might also be the case with `vgmST`. (See [Geospatial, Models \>\> Interpolation \>\> Kriging \>\> Variograms](geospatial-modeling.qmd#sec-geo-gmod-interp-krig-vario){style="color: green"}\>\> Example 1)
+    -   For [space]{.arg-text} and [time]{.arg-text} arguments, `vgm` is used to specify those models
+-   [Covariance Models]{.underline}
+    -   [Separable]{.underline}
+        -   Covariance Function: $C_{\text{sep}} = C_s(h)C_t(u)$
+        -   Variogram: $\gamma_{\text{sep}}(h, u) = \text{sill} \cdot (\bar \gamma_s (h) + \bar \gamma_t(u) - \bar\gamma_s(h)\bar\gamma_t(u))$
+            -   $h$ is the spatial step and $u$ is the time step
+            -   $\bar \gamma_s$ and $\bar \gamma_t$ are standardized spatial and temporal variograms with separate *nugget* effects and (joint) *sill* of 1
+        -   `vgmST(stModel = "separable", space, time, sill)`
+        -   Has a strong computational advantage in the setting where each spatial location has an observation at each temporal instance ([STFDF]{.arg-text} without [NA]{.arg-text}s)
+    -   [Product-Sum]{.underline}
+        -   Covariance Function: $C_{\text{ps}}(h,u) = kC_s(h)C_t(u) + C_s(h) + C_t(u)$
+            -   With $k \gt 0$ (Don't confuse this with the kappa anisotropy correction below)
+        -   Variogram:\
+            $$
+            \begin{align}
+            \gamma_{\text{ps}}(h,u) = \;&(k \cdot \text{sill}_t + 1)\gamma_s(h) + \\
+            &(k \cdot \text{sill}_s + 1)\gamma_t(h) -\\
+            &k\gamma_s(h)\gamma_t(u)
+            \end{align}
+            $$
+        -   `vgmST(stModel = "productSum", space, time, k)`
+    -   [Metric]{.underline}
+        -   Assumes identical spatial and temporal covariance functions except for spatio-temporal anisotropy
+            -   i.e. Requires both spatial and temporal models use the same family. (e.g. spherical-spherical)
+        -   Covariance Function: $C_m(h,u) = C_{\text{joint}}(\sqrt{h^2 + (\kappa \cdot u)^2})$
+            -   $C_{\text{joint}}$ says that the spatial, temporal, and spatio-temporal distances are treated equally.
+            -   $\kappa$ is the **anisotropy correction**.
+                -   It's in space/time units so multiplying it times the time step, $u$, converts time into distance. This allows spatial distance and temporal "distance" to be used together in the euclidean distance calculation
+                -   e.g. $\kappa = 189 \frac{\text{km}}{\text{day}}$ says that 1 day is equivalent to 189 km.
+        -   Variogram: $\gamma_m(h,u) = \gamma_{\text{joint}}(\sqrt{h^2 + (\kappa \cdot u)^2})$
+            -   $\gamma_{\text{joint}}$ is any known variogram tha may generate a nugget effect
+        -   `vgmST("metric", joint, stAni)`
+            -   [stAni]{.arg-text}: The anisotropy correction ($\kappa$) which is given in spatial unit per temporal unit (commonly m/s). For estimating this input, see `estiStAni` below.
+    -   [Sum-Metric]{.underline}
+        -   A combination of spatial, temporal and a metric model including an anisotropy correction parameter, $\kappa$
+        -   Covariance Function: $C_{sm}(h,u) = C_s(h) + C_t(u) + C_{\text{joint}}(\sqrt{h^2 + (\kappa \cdot u)^2})$
+        -   Variogram: $\gamma_{sm}(h,u) = \gamma_s(h) + \gamma_t(u) + \gamma_{\text{joint}}(\sqrt{h^2 + (\kappa \cdot u)^2})$
+            -   Where $\gamma_s$, $\gamma_t$, and $\gamma_{\text{joint}}$ are spatial, temporal and joint variograms with separate nugget-effects
+        -   `vgmST("sumMetric", space, time, joint, stAni)`
+    -   [Simple Sum-Metric]{.underline}
+        -   Removes the nugget effects from the three variograms in the Sum-Metric model
+        -   Variogram: $\gamma_{\text{sm}}(h,u) = \text{nug} \cdot \mathbb{1}_{h\gt0\; \vee \; u\gt0} + \gamma_s(h) + \gamma_t(u) + \gamma_{\text{joint}}(\sqrt{h^2 + (\kappa \cdot u)^2})$
+            -   Think the nugget indicator says only include the nuggect effect if h or u is greater than 0.
+        -   `vgmST("simpleSumMetric", space, time, joint, nugget, stAni)`
 
-        -   [\$message]{.arg-text} - Probably gives more details about "not converged" or maybe the time, eps, etc.
+#### `fit.StVariogram`
 
-        -   [\$value]{.arg-text} - The mean of the (weighted) squared deviations (loss function) between sample and fitted variogram surface.
+-   Fits the variogram model using the empirical variogram (`variogramST`) and variogram model specification (`vgmST`)
+-   `extractPar(model)` can be used to extract the estimated parameters from the variogram model
+-   Weighting Options\
+    ![](_resources/Geospatial-Spatio-Temporal.resources/krig-wgt-methods1.png){.lightbox width="382"}
+    -   Controls the weighing of the residuals between empirical and model surface
+    -   **tl;dr** Even though 6 is the default, 7 seems like a sound statistical choice unless the data/problem makes another method make more sense.
+    -   Adding Weights narrows down the spatial and temporal distances and introduces a cutoff.
+        -   This ensures that the model is fitted to the differences over space and time actually used in the interpolation, and reduces the risk of overfitting the variogram model to large distances not used for prediction.
+    -   To increase numerical stability, it is advisable to use weights that do not change with the current model fit. (?)
+    -   Terms
+        -   $N_j$ is the number of location pairs for bin $j$
+        -   $h_j$ is the mean spatial distance for bin $j$
+        -   $u_j$ is the mean temporal distance for bin $j$
+    -   Methods
+        -   Primarily two sets of methods:
+            -   *Equal-Bin* - Have a 1 in the numerator which means only the denominator contributes
+                -   Each lag bin contributes roughly equally to the objective function, regardless of how many point pairs went into estimating that bin.
+                -   Consider with small datasets where $N_j$ does not vary much across bins or when a balanced structure is called for.
+            -   *Precision-Weighted* - Have $N_j$ in the numerator
+                -   Assumes bins with more location pairs provide more reliable empirical variogram estimates
+                -   Parameter estimates tend to be more stable and less sensitive to small, noisy bins.
+                -   Consider with moderate to large datasets with substantial variation in $N_j$
+        -   [fit.method = 6]{.arg-text} (default) - No weights
+        -   1 and 3: Greater importance is placed on *longer* pairwise distance bins
+        -   2 and 10: Involve weights based on the fitted variogram that might lead to bad convergence properties of the parameter estimates.
+        -   7 and 11: Recommended to include the value of [sfAni]{.arg-text} otherwise it'll use the actual fitted spatio-temporal anisotropy which can lead the model to not converge.
+            -   `estiStAni` can be used to estimate the [stAni]{.arg-text} value
+            -   The spatio-temporal analog to the commonly used spatial weighting
+            -   Denominator referred to as the *metric distance* which is similar to the what's used in the metric covariance model
+            -   7 puts higher confidence in lags filled with many pairs of spatio-temporal locations, but respects to some degree the need of an accurate model for short distances, as these short distances are the main source of information in the prediction step
+        -   3, 4, and 5: Kept for compatibility reasons with the purely spatial `fit.variogram` function
+        -   8 downweights more heaviliy the large pairwise distance bins (prioritizes small distance pairwise locations)
+        -   9 downweights more heavily the large pairwise time-distance bins (prioritizes small time-distance pairwise locations)
+-   Anisotropy Estimation Heuristics using `estiStAni`
+    -   [method = "linear"]{.arg-text} - Rescales a linear model
+    -   [method = "range"]{.arg-text} - Estimates equal ranges
+    -   [method = "vgm"]{.arg-text} - Rescales a pure spatial variogram
+    -   [method = "metric"]{.arg-text} - Estimates a complete spatio-temporal metric variogram model and returns its spatio-temporal anisotropy parameter.
 
-            -   Think this is weighted Mean Squared Error (wMSE)
-    -   Check the estimated parameters against the parameter boundaries and starting values
-        -   Be prepared to set upper and lower parameter boundaries if, for example, the sill parameters returned are negative.
-        -   Starting values can affect the results (hitting local optima) or even success of the optimization
-        -   Using a starting value grid search might better asses the sensitivity of the estimates.
-        -   Starting values can in most cases be read from the sample variogram.
-        -   Parameters of the spatial and temporal variograms can be assessed from the spatio-temporal surface fixing the counterpart at 0.
-            -   Example: Inspection of the ranges of the variograms in the temporal domain, suggests that any station more than at most 6 days apart does not meaningfully contribute
-        -   The overall spatio-temporal sill including the nugget can be deducted from the plateau that a nicely behaving sample variogram reaches for ’large’ spatial and temporal distances.
-    -   In some cases, you should rescale spatial and temporal distances to ranges similar to the ones of sills and nuggets using the parameter [parscale]{.arg-text}.
-        -   [control = list(parscale=...)]{.arg-text} - Input a vector of the same length as the number of parameters to be optimized (See `optim` docs for details)
-        -   See vignette for an example. They used the simple sum-metric model to obtain starting values for the full sum-metric model, and that improved the convergence speed of the more complex model.
-            -   There is a note in the discussion section about how this resulted in the more complex model being essentially the same as the simple model, but they tried other starting values and still ended up with the same result. So don't freak if you get the same model.
-        -   In most applications, a change of 1 in the sills will have a stronger influence on the variogram surface than a change of 1 in the ranges.
+#### Diagnostics
+
+-   `plot` - Shows the sample and fitted variogram surfaces next to each other as colored level plots.
+    -   [wireframe = TRUE]{.arg-text} creates a wireframe plot
+    -   [diff = TRUE]{.arg-text} plots the difference between the sample and fitted variogram surfaces.
+        -   Helps to better identify structural shortcomings of the selected model
+-   Convergence output from `optim`
+    -   [method = "L-BFGS-B"]{.arg-text} is the default. It uses a limited-memory modification of the BFGS quasi-Newton method, and has been said not the be as *robust* as "BFGS" which is supposed to be the gold standard ([thread](https://bsky.app/profile/vdveenb.bsky.social/post/3mb2ff75rh22i)). So if you have issues, "BFGS" may be worth a try.
+
+    -   Get these by accessing the [optim.out]{.arg-text} attribute from `fit.StVariogram`
+
+        ``` r
+        fit_var <- fit.StVariogram(...)
+        attr_opt <- attributes(fit_var)$optim.out
+        ```
+
+    -   [\$convergence]{.arg-text} - The convergence code (guessing this just binary: converged or not converged (`attr_opt$convergence`)
+
+    -   [\$message]{.arg-text} - Probably gives more details about "not converged" or maybe the time, eps, etc.
+
+    -   [\$value]{.arg-text} - The mean of the (weighted) squared deviations (loss function) between sample and fitted variogram surface.
+
+        -   Think this is weighted Mean Squared Error (wMSE)
+-   Check the estimated parameters against the parameter boundaries and starting values
+    -   Be prepared to set upper and lower parameter boundaries if, for example, the sill parameters returned are negative.
+    -   Starting values can affect the results (hitting local optima) or even success of the optimization
+    -   Using a starting value grid search might better asses the sensitivity of the estimates.
+    -   Starting values can in most cases be read from the sample variogram.
+    -   Parameters of the spatial and temporal variograms can be assessed from the spatio-temporal surface fixing the counterpart at 0.
+        -   Example: Inspection of the ranges of the variograms in the temporal domain, suggests that any station more than at most 6 days apart does not meaningfully contribute
+    -   The overall spatio-temporal sill including the nugget can be deducted from the plateau that a nicely behaving sample variogram reaches for ’large’ spatial and temporal distances.
+-   In some cases, you should rescale spatial and temporal distances to ranges similar to the ones of sills and nuggets using the parameter [parscale]{.arg-text}.
+    -   [control = list(parscale=...)]{.arg-text} - Input a vector of the same length as the number of parameters to be optimized (See `optim` docs for details)
+    -   See vignette for an example. They used the simple sum-metric model to obtain starting values for the full sum-metric model, and that improved the convergence speed of the more complex model.
+        -   There is a note in the discussion section about how this resulted in the more complex model being essentially the same as the simple model, but they tried other starting values and still ended up with the same result. So don't freak if you get the same model.
+    -   In most applications, a change of 1 in the sills will have a stronger influence on the variogram surface than a change of 1 in the ranges.
+
+<!-- -->
+
 -   `krigeST`
     -   A joint distance is formulated in the same manner as the metric covariance model, and then used to find a subset of data with k-NN for a prediction location. The interpolation performs iteratively for each spatiotemporal prediction location with that local subset of data.
         -   Other methods (staged search) and (octant search) are briefly described in the vignette but not implemented in [{gstat}]{style="color: #990000"}
