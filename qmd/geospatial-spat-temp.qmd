@@ -46,6 +46,20 @@
 -   Notes from
     -   [spacetime: Spatio-Temporal Data in R](https://cran.r-project.org/web/packages/spacetime/vignettes/jss816.pdf) - It's been superceded by [{stars}]{style="color: #990000"}, but there didn't seem to be much about working with vector data in [{stars}]{style="color: #990000"} vignettes. So, it seemed like a better place to start for a beginner, and I think the concepts might transfer since the packages were created by the same people. Some packages still use sp and spacetime, so it could be useful in using with those packages
     -   [Spatio-Temporal Interpolation using gstat](https://cran.r-project.org/web/packages/gstat/vignettes/spatio-temporal-kriging.pdf)
+-   Recommended Workflow ([source](https://www.youtube.com/watch?v=P18CZinoKos&list=WL&index=2))
+    -   Go from simple analysis to complex (analysis) to get a feel for your data first. A lot of times, you probably will not need to do a spatio-temporal analysis at all.
+    -   Steps
+        1.  Run univariate/multivariate analysis while ignoring space and time variables
+        2.  Aggregate over locations (e.g. average across all time points for each location). Then run spatial analysis (e.g. spatial regression, kriging, etc.).
+            -   Looking for patterns, hotspots, etc.
+            -   `group_by(location) |> summarize(median_val = median(val))`
+            -   e.g. min, mean, median, or max depending on the project
+        3.  Aggregate over time (e.g. average across all locations for each time point). Then run time series analysis (e.g. moving average, arima, etc.).
+            -   Looking trend, seasonality, shocks, etc.
+            -   `group_by(date) |> summarize(max_val = max(val))`
+        4.  Select interesting or important locations (e.g. top sales store, crime hotspot) and run a time series analysis on that location's data
+        5.  Select interesting or important time points (e.g. holiday, noon) and run a spatial analysis on that time point
+        6.  Run a spatio-temporal analysis
 
 ## Terms {#sec-geo-sptemp-terms .unnumbered}
 
@@ -383,416 +397,514 @@
 
 ## EDA {#sec-geo-sptemp-eda .unnumbered}
 
--   [Misc]{.underline}
+### Misc {#sec-geo-sptemp-eda-misc .unnumbered}
 
-    -   Also see [EDA, Time Series](eda-time-series.qmd#sec-eda-ts){style="color: green"}
-    -   Check for duplicate locations:
-        -   Kriging cannot handle duplicate locations and returns an error, generally in the form of a “singular matrix”.
+-   Also see [EDA, Time Series](eda-time-series.qmd#sec-eda-ts){style="color: green"}
+-   Check for duplicate locations:
+    -   Kriging cannot handle duplicate locations and returns an error, generally in the form of a “singular matrix”.
 
-        -   [Examples]{.ribbon-highlight}:
-
-            ``` r
-            dupl <- sp::zerodist(spatialpoints_obj)
-
-            # sf
-            dup <- duplicated(st_coordinates(sf_obj))
-            log_mat <- st_equals(sf_obj)
-
-            # terra (or w/spatraster, spatvector)
-            d <- distance(lon_lat_mat)
-            log_mat <- which(d == 0, arr.ind = TRUE)
-
-            # base r
-            dup_indices <- duplicated(df[, c("lat", "long")])
-
-            # within a tolerance
-            # Find points within 0.01 distance
-            dup_pairs <- st_is_within_distance(sf_obj, dist = 0.01, sparse = FALSE)
-            ```
-
--   [General]{.underline}
-
-    -   [Example]{.ribbon-highlight}: [{gglinedensity}]{style="color: #990000"}\
-        ![](_resources/Geospatial-Spatio-Temporal.resources/eda-gglinedens-1.png){.lightbox width="432"}
+    -   [Examples]{.ribbon-highlight}:
 
         ``` r
-        pacman::p_load(
-          spacetime,
-          dplyr,
-          gglinedensity,
-          ggplot2
-        )
+        dupl <- sp::zerodist(spatialpoints_obj)
 
-        data(air)
+        # sf
+        dup <- duplicated(st_coordinates(sf_obj))
+        log_mat <- st_equals(sf_obj)
 
-        rural = STFDF(stations, dates, data.frame(PM10 = as.vector(air)))
-        rr = rural[,"2005::2010"]
-        unsel = which(apply(as(rr, "xts"), 2, function(x) all(is.na(x))))
-        r5to10 = rr[-unsel,]
+        # terra (or w/spatraster, spatvector)
+        d <- distance(lon_lat_mat)
+        log_mat <- which(d == 0, arr.ind = TRUE)
 
-        pm10_tbl <- as_tibble(as.data.frame(r5to10)) |> 
-          rename(station = sp.ID, date = time, pm10 = PM10) |> 
-          mutate(date = as.Date(date)) |> 
-          select(date, station, pm10)
+        # base r
+        dup_indices <- duplicated(df[, c("lat", "long")])
 
-        summary(pm10_tbl)
-        #>       date               station           pm10        
-        #>  Min.   :2005-01-01   DESH001: 1826   Min.   :  0.560  
-        #>  1st Qu.:2006-04-02   DENI063: 1826   1st Qu.:  9.275  
-        #>  Median :2007-07-02   DEUB038: 1826   Median : 13.852  
-        #>  Mean   :2007-07-02   DEBE056: 1826   Mean   : 16.261  
-        #>  3rd Qu.:2008-10-01   DEBE032: 1826   3rd Qu.: 20.333  
-        #>  Max.   :2009-12-31   DEHE046: 1826   Max.   :269.079  
-        #>                       (Other):85822   NA's   :21979 
-
-        ggplot(
-          pm10_tbl, 
-          aes(x = date, 
-              y = pm10,
-              group = station)) +
-          stat_line_density(
-            bins = 75, 
-            drop = FALSE, 
-            na.rm = TRUE) + 
-          scale_y_continuous(breaks = seq.int(0, 250, 50)) +
-          theme_notebook()
+        # within a tolerance
+        # Find points within 0.01 distance
+        dup_pairs <- st_is_within_distance(sf_obj, dist = 0.01, sparse = FALSE)
         ```
 
-        -   With a bunch of time series, it's difficult to distinguish a primary trend to the data (e.g. in a spaghettil line chart). This density gives us a sense of that trend.
-        -   The summary says the median is around 14 and the max is around 270.
-        -   This density gives a sense of the seasonality and the trend of most of the locations.
+### General {#sec-geo-sptemp-eda-gen .unnumbered}
 
-    -   [Example]{.ribbon-highlight}: [{daiquiri}]{style="color: #990000"}\
+-   [Example]{.ribbon-highlight}: Days per Location\
+    ![](_resources/Geospatial-Spatio-Temporal.resources/eda-gen-ex-days-per-station.png){.lightbox width="532"}
 
-        ::: {layout-ncol="2"}
-        ![](_resources/Geospatial-Spatio-Temporal.resources/eda-daiquiri-miss-1.png){.lightbox group="eda-daiq" width="332"}
+    ``` r
+    library(dplyr); library(ggplot2)
 
-        ![](_resources/Geospatial-Spatio-Temporal.resources/eda-daiquiri-max-1.png){.lightbox group="eda-daiq" width="332"}
-        :::
+    data(DE_RB_2005, package = "gstat")
+    class(DE_RB_2005)
+    #> [1] "STSDF"
 
-        ``` r
-        library(spacetime); library(dplyr); library(daiquiri)
+    tibble(station_index = DE_RB_2005@index[,1]) |> 
+      count(station_index) |> 
+      ggplot(aes(x = station_index, y = n)) +
+      geom_col(fill = "#2c3e50") + 
+      scale_x_continuous(breaks = seq.int(0, length(unique(DE_RB_2005@index[,1])), 10)) +
+      ylab("Number of Days") +
+      ggtitle("Reported Days per Station") +
+      theme_notebook()
 
-        data(air)
+    # station names for some indexes w/low number of days
+    row.names(DE_RB_2005@sp)[c(4, 16, 52, 67, 68, 69)]
+    #> [1] "DEUB038"   "DEUB039"   "DEUB026"   "DEHE052.1" "DEHE042.1" "DEHE060"
+    ```
 
-        rural = STFDF(stations, dates, data.frame(PM10 = as.vector(air)))
-        rr = rural[,"2005::2010"]
-        unsel = which(apply(as(rr, "xts"), 2, function(x) all(is.na(x))))
-        r5to10 = rr[-unsel,]
+-   [Example]{.ribbon-highlight}: [{gglinedensity}]{style="color: #990000"}\
+    ![](_resources/Geospatial-Spatio-Temporal.resources/eda-gglinedens-1.png){.lightbox width="432"}
 
-        pm10_tbl <- as_tibble(as.data.frame(r5to10)) |> 
-          rename(station = sp.ID, date = time, pm10 = PM10) |> 
-          mutate(date = as.Date(date)) |> 
-          select(date, station, pm10)
+    ``` r
+    pacman::p_load(
+      spacetime,
+      dplyr,
+      gglinedensity,
+      ggplot2
+    )
 
-        fts <- 
-          field_types(
-            station = ft_strata(),
-            date = ft_timepoint(includes_time = FALSE),
-            pm10 = ft_numeric()
-          )
+    data(air)
 
-        daiq_pm10 <- 
-          daiquiri_report(
-            pm10_tbl,
-            fts
-          )
-        ```
+    rural <- STFDF(
+      sp = stations, 
+      time = dates, 
+      data = data.frame(PM10 = as.vector(air))
+    )
+    rr <- rural[,"2005::2010"]
 
-        -   Shows missingness and basic descriptive statistics over time for each [station]{.var-text}
-            -   Note that if your data is daily and there's only 1 measurement per day, then all these statistics will the same (duh, but one time I forgot and thought the package was broken)
+    # remove station ts w/all NAs
+    unsel <- which(apply(
+      as(rr, "xts"), 
+      2, 
+      function(x) all(is.na(x)))
+    )
+    r5to10 <- rr[-unsel,]
 
--   [Autocorrelation]{.underline}
+    pm10_tbl <- as_tibble(as.data.frame(r5to10)) |> 
+      rename(station = sp.ID, date = time, pm10 = PM10) |> 
+      mutate(date = as.Date(date)) |> 
+      select(date, station, pm10)
 
-    -   Check characteristics of autocorrelation. Can the analysis be done in a purely spatial manner (a purely spatial model for each time step) or is adding a temporal aspect necessary?
+    summary(pm10_tbl)
+    #>       date               station           pm10        
+    #>  Min.   :2005-01-01   DESH001: 1826   Min.   :  0.560  
+    #>  1st Qu.:2006-04-02   DENI063: 1826   1st Qu.:  9.275  
+    #>  Median :2007-07-02   DEUB038: 1826   Median : 13.852  
+    #>  Mean   :2007-07-02   DEBE056: 1826   Mean   : 16.261  
+    #>  3rd Qu.:2008-10-01   DEBE032: 1826   3rd Qu.: 20.333  
+    #>  Max.   :2009-12-31   DEHE046: 1826   Max.   :269.079  
+    #>                       (Other):85822   NA's   :21979 
 
+    ggplot(
+      pm10_tbl, 
+      aes(x = date, 
+          y = pm10,
+          group = station)) +
+      stat_line_density(
+        bins = 75, 
+        drop = FALSE, 
+        na.rm = TRUE) + 
+      scale_y_continuous(breaks = seq.int(0, 250, 50)) +
+      theme_notebook()
+    ```
+
+    -   With a bunch of time series, it's difficult to distinguish a primary trend to the data (e.g. in a spaghettil line chart). This density gives us a sense of that trend.
+    -   The summary says the median is around 14 and the max is around 270.
+    -   This density gives a sense of the seasonality and the trend of most of the locations.
+
+-   [Example]{.ribbon-highlight}: [{daiquiri}]{style="color: #990000"}\
+
+    ::: {layout-ncol="2"}
+    ![](_resources/Geospatial-Spatio-Temporal.resources/eda-daiquiri-miss-1.png){.lightbox group="eda-daiq" width="332"}
+
+    ![](_resources/Geospatial-Spatio-Temporal.resources/eda-daiquiri-max-1.png){.lightbox group="eda-daiq" width="332"}
+    :::
+
+    ``` r
+    library(spacetime); library(dplyr); library(daiquiri)
+
+    data(air)
+
+    rural <- STFDF(
+      sp = stations, 
+      time = dates, 
+      data = data.frame(PM10 = as.vector(air))
+    )
+    rr <- rural[,"2005::2010"]
+
+    # remove station ts w/all NAs
+    unsel <- which(apply(
+      as(rr, "xts"), 
+      2, 
+      function(x) all(is.na(x)))
+    )
+    r5to10 <- rr[-unsel,]
+
+    pm10_tbl <- as_tibble(as.data.frame(r5to10)) |> 
+      rename(station = sp.ID, date = time, pm10 = PM10) |> 
+      mutate(date = as.Date(date)) |> 
+      select(date, station, pm10)
+
+    fts <- 
+      field_types(
+        station = ft_strata(),
+        date = ft_timepoint(includes_time = FALSE),
+        pm10 = ft_numeric()
+      )
+
+    daiq_pm10 <- 
+      daiquiri_report(
+        pm10_tbl,
+        fts
+      )
+    ```
+
+    -   Shows missingness and basic descriptive statistics over time for each [station]{.var-text}
+        -   Note that if your data is daily and there's only 1 measurement per day, then all these statistics will the same (duh, but one time I forgot and thought the package was broken)
+
+### Autocorrelation {#sec-geo-sptemp-eda-ac .unnumbered}
+
+-   Check characteristics of autocorrelation. Can the analysis be done in a purely spatial manner (a purely spatial model for each time step) or is adding a temporal aspect necessary?
+
+-   [Autocorrelation Function (ACF)]{.underline}
+
+    -   For each location, is there correlation between time $t$ and lag $t + h$
+    -   Does autocorrelation rapidly or gradually decrease?
+        -   If gradually, then the series isn't stationary and probably needs differencing (See [EDA, Time Series \>\> Stationarity](eda-time-series.qmd#sec-eda-ts-station){style="color: green"})
+    -   Is there a scalloped shape to autocorrelation?
+        -   If so, it might need seasonal differencing.
     -   At which time lag (max, avg) does autocorrelation become insignificant?
 
-    -   Is there a distance between pairs of locations at which autocorrelation is insignificant?
+-   [Partial Autocorrelation Function (PACF)]{.underline}
 
-    -   [Example]{.ribbon-highlight}: PM10 Pollution ([{gstat}]{style="color: #990000"} [vignette](https://cran.r-project.org/web/packages/gstat/vignettes/st.pdf), section 2)
+    -   Are there significant spikes in the PACF?
+        -   Could indicate the frequency of the seasonality?
 
-        :::: panel-tabset
-        ## Data
+-   [Cross-Correlations]{.underline}
 
-        ###### Set-Up
+    -   For each pair of locations, is there autocorrelation between location $a$ at time $t$ and location $b$ at time $t + h$
 
-        ``` r
-        pacman::p_load(
-          spacetime,
-          stars,
-          sf,
-          dplyr,
-          ggplot2
-        )
+    -   Cross-correlations can be asymmetric and they do *not* have to 1 at lag 0 like autocorrelations
 
-        data(air)
+        -   If you're looking at rainfall at two locations, strong correlation when upstream location A leads downstream location B by 2 hours, but weak correlation when B "leads" A, tells you about the direction of storm movement and typical travel time.
+        -   The strength of the asymmetry itself (how different the two plots look) can indicate how strong or consistent these directional relationships are in your data.
 
-        # get rural location time series from 2005 to 2010
-        rural = STFDF(stations, dates, data.frame(PM10 = as.vector(air)))
-        rr = rural[,"2005::2010"]
-        # which series have NAs
-        unsel = which(apply(as(rr, "xts"), 2, function(x) all(is.na(x))))
-        # remove series with NAs
-        r5to10 = rr[-unsel,]
-        ```
+    -   Potential Meaning Behind Strong Asymmetry:
 
-        -   [r5to10]{.var-text} is a STFDF (full grid) object
-        -   `r5to10@sp` is a [SpatialPoints]{.arg-text} ([{sp}]{style="color: #990000"}) class object with location names and coordinates
+        -   *Directional or causal relationships*: If the cross-correlation is stronger when A leads B (positive lags in A vs B plot) than when B leads A, this suggests A might influence B more than the reverse. This doesn't prove causation, but it's often consistent with one variable driving changes in the other.
 
-        ###### Map
+        <!-- -->
 
-        ::: {layout-ncol="2"}
-        ![](_resources/Geospatial-Spatio-Temporal.resources/eda-ac-ex1-data-1.png){.lightbox group="eda-ac-ex1" width="373"}
+        -   *Different response times*: The asymmetry can reveal that one location responds to shared drivers faster than the other, or that the propagation time of some influence differs depending on direction.
 
-        ![](_resources/Geospatial-Spatio-Temporal.resources/eda-ac-ex1-data-2.png){.lightbox group="eda-ac-ex1" width="373"}
-        :::
+        <!-- -->
 
-        <Details>
+        -   *Lead-lag relationships*: Strong asymmetry with a clear peak at a non-zero lag indicates one series systematically precedes the other, which can be important for forecasting or understanding the physical mechanisms at play.
 
-        <Summary>Code</Summary>
+    -   Is there a approximate distance between many pairs of locations at which autocorrelation is insignificant?
 
-        ``` r
+-   [Example]{.ribbon-highlight}: PM10 Pollution ([{gstat}]{style="color: #990000"} [vignette](https://cran.r-project.org/web/packages/gstat/vignettes/st.pdf), section 2)
 
-        stars_r5to10 <- st_as_stars(r5to10)
-        # stars has dplyr methods
-        plot_slice <- 
-          slice(stars_r5to10, 
-                index = 3, # 3rd time step, so a location doesn't have NA 
-                along = "time")
-        # country boundary
-        de_sf <- st_as_sf(DE)
-        # states (provinces) boundaries
-        nuts1_sf <- st_as_sf(DE_NUTS1)
+    :::: panel-tabset
+    ## Data
 
-        ggplot() +
-          # location points
-          geom_stars(
-            data = plot_slice, 
-            aes(color = PM10), 
-            fill = NA) +
-          scale_color_viridis_c(
-            option = "magma", 
-            na.value = "transparent") +
-          # states
-          geom_sf(
-            data = nuts1_sf, 
-            fill = NA, 
-            color = "black", 
-            size = 0.2, 
-            linetype = "dotted") +
-          # country
-          geom_sf(
-            data = de_sf, 
-            fill = NA, 
-            color = "black", 
-            size = 0.8) +
-          # Ensures coordinates align correctly
-          coord_sf() +
-          labs(
-            title = "PM10 Concentration with Administrative Boundaries",
-            fill = "PM10"
-          ) +
-          theme_minimal()
+    ###### Set-Up
 
-        # facet multiple time steps
-        plot_slices <- 
-          slice(stars_r5to10, 
-                index = 4:7, 
-                along = "time")
-        plot_slices_sf <- st_as_sf(plot_slices, as_points = TRUE)
-        plot_slices_long <- 
-          plot_slices_sf |> 
-          pivot_longer(cols = !sfc, 
-                       names_to = "time", 
-                       values_to = "PM10")
+    ``` r
+    pacman::p_load(
+      spacetime,
+      stars,
+      sf,
+      dplyr,
+      ggplot2
+    )
 
-        ggplot() +
-          geom_sf(
-            data = plot_slices_long, 
-            aes(color = PM10)) +
-          scale_color_viridis_c(
-            option = "magma", 
-            na.value = "transparent") +
-          geom_sf(
-            data = nuts1_sf, 
-            fill = NA, 
-            color = "black", 
-            size = 0.2, 
-            linetype = "dotted") +
-          geom_sf(
-            data = de_sf, 
-            fill = NA, 
-            color = "black", 
-            size = 0.8) +
-          facet_wrap(~time) +
-          coord_sf() +
-          labs(
-            title = "PM10 Concentration with Administrative Boundaries",
-            color = "PM10"
-          ) +
-          theme_minimal()
-        ```
+    data(air)
 
-        </Details>
+    # get rural location time series from 2005 to 2010
+    rural <- STFDF(
+      sp = stations, 
+      time = dates, 
+      data = data.frame(PM10 = as.vector(air))
+    )
+    rr <- rural[,"2005::2010"]
 
-        ## Autocorrelation
+    # remove station ts w/all NAs
+    unsel <- which(apply(
+      as(rr, "xts"), 
+      2, 
+      function(x) all(is.na(x)))
+    )
+    r5to10 <- rr[-unsel,]
+    ```
 
-        ![](_resources/Geospatial-Spatio-Temporal.resources/krig-eda-ac-ex1-1.png){.lightbox group="eda-ac-ex1" width="532"}
+    -   [r5to10]{.var-text} is a STFDF (full grid) object
+    -   `r5to10@sp` is a [SpatialPoints]{.arg-text} ([{sp}]{style="color: #990000"}) class object with location names and coordinates
 
-        ``` r
-        # select locations 4, 5, 6, 7
-        rn = row.names(r5to10@sp)[4:7]
+    ###### Map
 
-        par(mfrow=c(2,2))
-        for (i in rn) {
-          x <- na.omit(as.matrix(r5to10[i])[,1])
-          acf(x, main = i)
-        }
-        ```
+    ::: {layout-ncol="2"}
+    ![](_resources/Geospatial-Spatio-Temporal.resources/eda-ac-ex1-data-1.png){.lightbox group="eda-ac-ex1" width="373"}
 
-        -   For each location, is there correlation between time $t$ and lag $t + h$
-        -   Which lags present autocorrelation?
+    ![](_resources/Geospatial-Spatio-Temporal.resources/eda-ac-ex1-data-2.png){.lightbox group="eda-ac-ex1" width="373"}
+    :::
 
-        ## Cross-(Auto)Correlation
+    <Details>
 
-        ![](_resources/Geospatial-Spatio-Temporal.resources/krig-eda-cac-ex1-1.png){.lightbox group="eda-ac-ex1" width="632"}
+    <Summary>Code</Summary>
 
-        ``` r
-        # coerce to xts class
-        xts_pm10 <- as(r5to10, "xts")
-        # extract numeric cols
-        mat_pm10 <- zoo::coredata(xts_pm10)
-        # find and remove cols with NAs > 20%
-        na_cols <- colnames(mat_pm10)[colMeans(is.na(mat_pm10)) > 0.20]
-        mat_pm10_nacols <- mat_pm10[, !colnames(mat_pm10) %in% na_cols]
-        mat_pm10_clean <- na.omit(mat_pm10_nacols)
-        # all data
-        acf(mat_pm10_clean)
+    ``` r
 
-        # vs "DEUB004"
-        no_ac_locs <- c("DEUB004", "DEBE056", "DEBB053")
-        mat_pm10_naac <- mat_pm10_clean[, no_ac_locs]
-        acf(mat_pm10_naac)
-        ```
+    stars_r5to10 <- st_as_stars(r5to10)
+    # stars has dplyr methods
+    plot_slice <- 
+      slice(stars_r5to10, 
+            index = 3, # 3rd time step, so a location doesn't have NA 
+            along = "time")
+    # country boundary
+    de_sf <- st_as_sf(DE)
+    # states (provinces) boundaries
+    nuts1_sf <- st_as_sf(DE_NUTS1)
 
-        -   For each pair of locations, is there autocorrelation between location $a$ at time $t$ and location $b$ at time $t + h$
-        -   [r5to10]{.var-text} is a STFDF (full grid) object. It's coerced, using `as`, into a [xts]{.arg-text} object. Since it's now a multivariate time series object, `acf` will give you cross-correlations.
-        -   From the acf of all the data, there were a couple interesting locations that had very little cross-correlation between them.
-        -   When running `acf` for a fairly large number of locations there will be a large number of charts (due to all the combinations). After one chart is rendered, in the R console, it'll ask you to hit enter before it will render the next chart.
-            -   Note that within the cross-correlation charts, the titles of some of the location names get cut off.
+    ggplot() +
+      # location points
+      geom_stars(
+        data = plot_slice, 
+        aes(color = PM10), 
+        fill = NA) +
+      scale_color_viridis_c(
+        option = "magma", 
+        na.value = "transparent") +
+      # states
+      geom_sf(
+        data = nuts1_sf, 
+        fill = NA, 
+        color = "black", 
+        size = 0.2, 
+        linetype = "dotted") +
+      # country
+      geom_sf(
+        data = de_sf, 
+        fill = NA, 
+        color = "black", 
+        size = 0.8) +
+      # Ensures coordinates align correctly
+      coord_sf() +
+      labs(
+        title = "PM10 Concentration with Administrative Boundaries",
+        fill = "PM10"
+      ) +
+      theme_minimal()
 
-        ## Pairwise Distance
+    # facet multiple time steps
+    plot_slices <- 
+      slice(stars_r5to10, 
+            index = 4:7, 
+            along = "time")
+    plot_slices_sf <- st_as_sf(plot_slices, as_points = TRUE)
+    plot_slices_long <- 
+      plot_slices_sf |> 
+      pivot_longer(cols = !sfc, 
+                   names_to = "time", 
+                   values_to = "PM10")
 
-        If there is no or little autocorrelation between a pair of locations, is it largely because there's a large distance between those locations? Maybe this can give a hint about the appropriate neighborhood size or area
+    ggplot() +
+      geom_sf(
+        data = plot_slices_long, 
+        aes(color = PM10)) +
+      scale_color_viridis_c(
+        option = "magma", 
+        na.value = "transparent") +
+      geom_sf(
+        data = nuts1_sf, 
+        fill = NA, 
+        color = "black", 
+        size = 0.2, 
+        linetype = "dotted") +
+      geom_sf(
+        data = de_sf, 
+        fill = NA, 
+        color = "black", 
+        size = 0.8) +
+      facet_wrap(~time) +
+      coord_sf() +
+      labs(
+        title = "PM10 Concentration with Administrative Boundaries",
+        color = "PM10"
+      ) +
+      theme_minimal()
+    ```
 
-        ###### Distance Matrix
+    </Details>
 
-        ``` r
-        # select low cross-corr locations and random locations
-        # indices for the low cross-corr locations
-        no_ac_idx <- which(row.names(r5to10@sp) %in% no_ac_locs)
-        # indices for the column names (locations) of the cleaned matrix
-        mat_clean_idx <- which(row.names(r5to10@sp) %in% colnames(mat_pm10_clean))
-        # sample 5 location indices that aren't low cross-corr locations
-        mat_clean_idx_samp <- sort(sample(mat_clean_idx[-no_ac_idx], 5))
-        # combine sample indices and low cross-corr indices
-        mat_clean_idx_comb <- c(no_ac_idx, mat_clean_idx_samp)
+    ## Autocorrelation
+
+    ![](_resources/Geospatial-Spatio-Temporal.resources/krig-eda-ac-ex1-1.png){.lightbox group="eda-ac-ex1" width="532"}
+
+    ``` r
+    # select locations 4, 5, 6, 7
+    rn = row.names(r5to10@sp)[4:7]
+
+    par(mfrow=c(2,2))
+    for (i in rn) {
+      x <- na.omit(r5to10[i,]$PM10)
+      acf(x, main = i)
+    }
+    ```
+
+    -   There does seem to be a gradual-ness and scalloped pattern with these locations.
+    -   Looks like at around lag 20, autocorrelation is not significant for most of these locations
+
+    ## Partial Autocorrelation
+
+    ![](_resources/Geospatial-Spatio-Temporal.resources/eda-ac-ex1-pacf-1.png){.lightbox width="532"}
+
+    ``` r
+    par(mfrow=c(2,2))
+    for (i in rn) {
+      x <- na.omit(r5to10[i,]$PM10)
+      pacf(x, main = i)
+    }        
+    ```
+
+    -   We see one or two significant spikes at each location, but nothing that would indicate a consistent seasonality among the locations.
+
+    ## Cross-(Auto)Correlation
+
+    ![](_resources/Geospatial-Spatio-Temporal.resources/krig-eda-cac-ex1-1.png){.lightbox group="eda-ac-ex1" width="632"}
+
+    ``` r
+    # coerce to xts class
+    xts_pm10 <- as(r5to10, "xts")
+    # extract numeric cols
+    mat_pm10 <- zoo::coredata(xts_pm10)
+    # find and remove cols with NAs > 20%
+    na_cols <- colnames(mat_pm10)[colMeans(is.na(mat_pm10)) > 0.20]
+    mat_pm10_nacols <- mat_pm10[, !colnames(mat_pm10) %in% na_cols]
+    mat_pm10_clean <- na.omit(mat_pm10_nacols)
+    # all data
+    acf(mat_pm10_clean)
+
+    # vs "DEUB004"
+    no_ac_locs <- c("DEUB004", "DEBE056", "DEBB053")
+    mat_pm10_naac <- mat_pm10_clean[, no_ac_locs]
+    acf(mat_pm10_naac)
+    ```
+
+    -   [r5to10]{.var-text} is a STFDF (full grid) object. It's coerced, using `as`, into a [xts]{.arg-text} object. Since it's now a multivariate time series object, `acf` will give you cross-correlations.
+    -   From the acf of all the data, there were a couple interesting locations that had very little cross-correlation between them.
+    -   When running `acf` for a fairly large number of locations there will be a large number of charts (due to all the combinations). After one chart is rendered, in the R console, it'll ask you to hit enter before it will render the next chart.
+        -   Note that within the cross-correlation charts, the titles of some of the location names get cut off.
+
+    ## Pairwise Distance
+
+    If there is no or little autocorrelation between a pair of locations, is it largely because there's a large distance between those locations? Maybe this can give a hint about the appropriate neighborhood size or area
+
+    ###### Distance Matrix
+
+    ``` r
+    # select low cross-corr locations and random locations
+    # indices for the low cross-corr locations
+    no_ac_idx <- which(row.names(r5to10@sp) %in% no_ac_locs)
+    # indices for the column names (locations) of the cleaned matrix
+    mat_clean_idx <- which(row.names(r5to10@sp) %in% colnames(mat_pm10_clean))
+    # sample 5 location indices that aren't low cross-corr locations
+    mat_clean_idx_samp <- sort(sample(mat_clean_idx[-no_ac_idx], 5))
+    # combine sample indices and low cross-corr indices
+    mat_clean_idx_comb <- c(no_ac_idx, mat_clean_idx_samp)
 
 
-        # convert the SpatialPoints (sp) to sf
-        sf_locs <- st_as_sf(r5to10[mat_clean_idx_comb,]@sp)
-        # pairwise distances (in meters for geographic coordinates)
-        mat_dist_sf <- st_distance(sf_locs)
-        # convert to kilometers
-        mat_dist_sf_km <- round(units::set_units(mat_dist_sf, km), 2)
+    # convert the SpatialPoints (sp) to sf
+    sf_locs <- st_as_sf(r5to10[mat_clean_idx_comb,]@sp)
+    # pairwise distances (in meters for geographic coordinates)
+    mat_dist_sf <- st_distance(sf_locs)
+    # convert to kilometers
+    mat_dist_sf_km <- round(units::set_units(mat_dist_sf, km), 2)
 
-        colnames(mat_dist_sf_km) <- row.names(r5to10[mat_clean_idx_comb,]@sp)
-        rownames(mat_dist_sf_km) <- row.names(r5to10[mat_clean_idx_comb,]@sp)
-        mat_dist_sf_km
-        #> Units: [km]
-        #>         DEBE056 DEBB053 DEUB004 DEBE056 DETH026 DEUB004 DEBW031 DENW068
-        #> DEBE056    0.00   28.07  648.60  235.43  357.82  541.62  198.99  557.63
-        #> DEBB053   28.07    0.00  674.84  256.26  374.67  569.64  221.21  585.50
-        #> DEUB004  648.60  674.84    0.00  441.77  660.90  209.86  579.71  173.85
-        #> DEBE056  235.43  256.26  441.77    0.00  458.62  393.98  292.91  396.71
-        #> DETH026  357.82  374.67  660.90  458.62    0.00  467.91  173.13  500.94
-        #> DEUB004  541.62  569.64  209.86  393.98  467.91    0.00  420.84   36.08
-        #> DEBW031  198.99  221.21  579.71  292.91  173.13  420.84    0.00  446.54
-        #> DENW068  557.63  585.50  173.85  396.71  500.94   36.08  446.54    0.00
+    colnames(mat_dist_sf_km) <- row.names(r5to10[mat_clean_idx_comb,]@sp)
+    rownames(mat_dist_sf_km) <- row.names(r5to10[mat_clean_idx_comb,]@sp)
+    mat_dist_sf_km
+    #> Units: [km]
+    #>         DEBE056 DEBB053 DEUB004 DEBE056 DETH026 DEUB004 DEBW031 DENW068
+    #> DEBE056    0.00   28.07  648.60  235.43  357.82  541.62  198.99  557.63
+    #> DEBB053   28.07    0.00  674.84  256.26  374.67  569.64  221.21  585.50
+    #> DEUB004  648.60  674.84    0.00  441.77  660.90  209.86  579.71  173.85
+    #> DEBE056  235.43  256.26  441.77    0.00  458.62  393.98  292.91  396.71
+    #> DETH026  357.82  374.67  660.90  458.62    0.00  467.91  173.13  500.94
+    #> DEUB004  541.62  569.64  209.86  393.98  467.91    0.00  420.84   36.08
+    #> DEBW031  198.99  221.21  579.71  292.91  173.13  420.84    0.00  446.54
+    #> DENW068  557.63  585.50  173.85  396.71  500.94   36.08  446.54    0.00
 
-        # using sp
-        mat_dist_sp <- round(sp::spDists(r5to10[mat_clean_idx_comb,]@sp), 2)
-        colnames(mat_dist_sp) <- row.names(r5to10[mat_clean_idx_comb,]@sp)
-        rownames(mat_dist_sp) <- row.names(r5to10[mat_clean_idx_comb,]@sp)
-        ```
+    # using sp
+    mat_dist_sp <- round(sp::spDists(r5to10[mat_clean_idx_comb,]@sp), 2)
+    colnames(mat_dist_sp) <- row.names(r5to10[mat_clean_idx_comb,]@sp)
+    rownames(mat_dist_sp) <- row.names(r5to10[mat_clean_idx_comb,]@sp)
+    ```
 
-        -   The 3rd column ([DEUB004]{.var-text}) and first two rows ([DEBE056]{.var-text}, [DEBB053]{.var-text}) shows the distances between the low cross-correlation locations. The other locations are included for context.
-        -   The distances for those low cross-correlations location pairs do seem to be quite a bit larger than the other 5 randomly sampled locations when paired with [DEUB004]{.var-text}. So the low cross-correlations are likely due to larger spatial distances between the locations.
-        -   Might be interesting to check the cross-correlation between [DEUB004]{.var-text} and [DETH026]{.var-text} and maybe [DEBW031]{.var-text} just to see how low those cross-correlations are in comparison.
-        -   The [{sp}]{style="color: #990000"} and [{sf}]{style="color: #990000"} numbers are slightly different, because [{sp}]{style="color: #990000"} uses spherical and [{sf}]{style="color: #990000"} uses elliptical distances. The elliptical should be more accurate, but either should be fine for most applications (fraction of a percentage difference)
+    -   The 3rd column ([DEUB004]{.var-text}) and first two rows ([DEBE056]{.var-text}, [DEBB053]{.var-text}) shows the distances between the low cross-correlation locations. The other locations are included for context.
+    -   The distances for those low cross-correlations location pairs do seem to be quite a bit larger than the other 5 randomly sampled locations when paired with [DEUB004]{.var-text}. So the low cross-correlations are likely due to larger spatial distances between the locations.
+    -   Might be interesting to check the cross-correlation between [DEUB004]{.var-text} and [DETH026]{.var-text} and maybe [DEBW031]{.var-text} just to see how low those cross-correlations are in comparison.
+    -   The [{sp}]{style="color: #990000"} and [{sf}]{style="color: #990000"} numbers are slightly different, because [{sp}]{style="color: #990000"} uses spherical and [{sf}]{style="color: #990000"} uses elliptical distances. The elliptical should be more accurate, but either should be fine for most applications (fraction of a percentage difference)
 
-        ###### Map
+    ###### Map
 
-        ![](_resources/Geospatial-Spatio-Temporal.resources/eda-ac-ex1-dist-viz-1.png){.lightbox group="eda-ac-ex1" width="373"}
+    ![](_resources/Geospatial-Spatio-Temporal.resources/eda-ac-ex1-dist-viz-1.png){.lightbox group="eda-ac-ex1" width="373"}
 
-        <Details>
+    <Details>
 
-        <Summary>Code</Summary>
+    <Summary>Code</Summary>
 
-        ``` r
-        labeled_points <- 
-          st_as_sf(plot_slice, as_points = TRUE) |> 
-          mutate(station = rownames(r5to10@sp@coords)) |> 
-          filter(station %in% c("DEUB004", "DEBE056", "DEBB053"))
+    ``` r
+    labeled_points <- 
+      st_as_sf(plot_slice, as_points = TRUE) |> 
+      mutate(station = rownames(r5to10@sp@coords)) |> 
+      filter(station %in% c("DEUB004", "DEBE056", "DEBB053"))
 
-        ggplot() +
-          # location points
-          geom_stars(
-            data = plot_slice, 
-            aes(color = PM10), 
-            fill = NA) +
-          scale_color_viridis_c(
-            option = "magma", 
-            na.value = "transparent") +
-          # states
-          geom_sf(
-            data = nuts1_sf, 
-            fill = NA, 
-            color = "black", 
-            size = 0.2, 
-            linetype = "dotted") +
-          # country
-          geom_sf(
-            data = de_sf, 
-            fill = NA, 
-            color = "black", 
-            size = 0.8) +
-          # Ensures coordinates align correctly
-          coord_sf() +
-          # color labelled points differently
-          geom_sf(
-            data = labeled_points, 
-            color = "limegreen", 
-            size = 3, 
-            shape = 21, 
-            fill = "limegreen") +
-          geom_sf_label(
-            data = labeled_points, 
-            aes(label = station),
-            nudge_x = 0.3, 
-            nudge_y = 0.3, 
-            size = 3) +
-          labs(
-            title = "PM10 Concentration with Administrative Boundaries",
-            fill = "PM10") +
-          theme_minimal()        
-        ```
+    ggplot() +
+      # location points
+      geom_stars(
+        data = plot_slice, 
+        aes(color = PM10), 
+        fill = NA) +
+      scale_color_viridis_c(
+        option = "magma", 
+        na.value = "transparent") +
+      # states
+      geom_sf(
+        data = nuts1_sf, 
+        fill = NA, 
+        color = "black", 
+        size = 0.2, 
+        linetype = "dotted") +
+      # country
+      geom_sf(
+        data = de_sf, 
+        fill = NA, 
+        color = "black", 
+        size = 0.8) +
+      # Ensures coordinates align correctly
+      coord_sf() +
+      # color labelled points differently
+      geom_sf(
+        data = labeled_points, 
+        color = "limegreen", 
+        size = 3, 
+        shape = 21, 
+        fill = "limegreen") +
+      geom_sf_label(
+        data = labeled_points, 
+        aes(label = station),
+        nudge_x = 0.3, 
+        nudge_y = 0.3, 
+        size = 3) +
+      labs(
+        title = "PM10 Concentration with Administrative Boundaries",
+        fill = "PM10") +
+      theme_minimal()        
+    ```
 
-        </Details>
+    </Details>
 
-        -   Pretty much on the other side of the country, but there are locations further away. Again, it'd be interesting to look at the cross-correlations between some of the pairs of locations that are just as far or farther away.
-        ::::
+    -   Pretty much on the other side of the country, but there are locations further away. Again, it'd be interesting to look at the cross-correlations between some of the pairs of locations that are just as far or farther away.
+    ::::
 
 ## Kriging {#sec-geo-sptemp-krig .unnumbered}
 
@@ -846,7 +958,7 @@
 
 ### Variogram {#sec-geo-sptemp-krig-var .unnumbered}
 
-#### `variogramST`
+#### `variogramST` {#sec-geo-sptemp-krig-var-vst .unnumbered}
 
 -   Fits the Empirical/Experimental Variogram
 -   Evidently fitting this object can take a crazy amount of time even with moderately sized datasets. So, it's recommended to **utilize the parallelization option** ([cores]{.arg-text})
@@ -952,7 +1064,7 @@
     -   [method = "vgm"]{.arg-text} - Rescales a pure spatial variogram
     -   [method = "metric"]{.arg-text} - Estimates a complete spatio-temporal metric variogram model and returns its spatio-temporal anisotropy parameter.
 
-#### Diagnostics
+#### Diagnostics {#sec-geo-sptemp-krig-var-diag .unnumbered}
 
 -   `plot` - Shows the sample and fitted variogram surfaces next to each other as colored level plots.
     -   [wireframe = TRUE]{.arg-text} creates a wireframe plot
@@ -988,21 +1100,23 @@
     -   See vignette for an example. They used the simple sum-metric model to obtain starting values for the full sum-metric model, and that improved the convergence speed of the more complex model.
         -   There is a note in the discussion section about how this resulted in the more complex model being essentially the same as the simple model, but they tried other starting values and still ended up with the same result. So don't freak if you get the same model.
     -   In most applications, a change of 1 in the sills will have a stronger influence on the variogram surface than a change of 1 in the ranges.
--   `krigeST`
-    -   A joint distance is formulated in the same manner as the metric covariance model, and then used to find a subset of data with k-NN for a prediction location. The interpolation performs iteratively for each spatiotemporal prediction location with that local subset of data.
-        -   Other methods (staged search) and (octant search) are briefly described in the vignette but not implemented in [{gstat}]{style="color: #990000"}
-    -   `krigeST(formula, data, modelList, newdata)`
-        -   [data]{.arg-text} - Original dataset (used to fit `variogramST`)
-        -   [modelList]{.arg-text} - Object returned from `fit.StVariogram`
-        -   [newdata]{.arg-text} - An ST object with prediction/simulation locations in space and time
-            -   Should contain attribute columns with the independent variables (if present).
-        -   [computeVar = TRUE]{.arg-text} - Returns prediction variances
-            -   [fullCovariance = TRUE]{.arg-text} - Returns the full covariance matrix
-        -   [bufferNmax = 1]{.arg-text} (default) - Used to increase the search radius for neighbors (e.g. 2 would be double the default radius.)
-            -   A larger neighbourhood is evaluated within the covariance model and the strongest correlated [nmax]{.arg-text} neighbours are selected
-            -   If the prediction variances are large, then this parameter should help by gathering more data points.
-        -   [nmax]{.arg-text} - The maximum number of neighboring locations for a spatio-temporal local neighbourhood
-    -   `stplot(preds)` will plot the results
+
+### Interpolate {#sec-geo-sptemp-krig-inter .unnumbered}
+
+-   A joint distance is formulated in the same manner as the metric covariance model, and then used to find a subset of data with k-NN for a prediction location. The interpolation performs iteratively for each spatiotemporal prediction location with that local subset of data.
+    -   Other methods (staged search) and (octant search) are briefly described in the vignette but not implemented in [{gstat}]{style="color: #990000"}
+-   `krigeST(formula, data, modelList, newdata)`
+    -   [data]{.arg-text} - Original dataset (used to fit `variogramST`)
+    -   [modelList]{.arg-text} - Object returned from `fit.StVariogram`
+    -   [newdata]{.arg-text} - An ST object with prediction/simulation locations in space and time
+        -   Should contain attribute columns with the independent variables (if present).
+    -   [computeVar = TRUE]{.arg-text} - Returns prediction variances
+        -   [fullCovariance = TRUE]{.arg-text} - Returns the full covariance matrix
+    -   [bufferNmax = 1]{.arg-text} (default) - Used to increase the search radius for neighbors (e.g. 2 would be double the default radius.)
+        -   A larger neighbourhood is evaluated within the covariance model and the strongest correlated [nmax]{.arg-text} neighbours are selected
+        -   If the prediction variances are large, then this parameter should help by gathering more data points.
+    -   [nmax]{.arg-text} - The maximum number of neighboring locations for a spatio-temporal local neighbourhood
+-   `stplot(preds)` will plot the results
 -   Raw vignette notes (wip)
     -   Regular measurements over time (i.e. hourly, daily) motivate regular binning intervals of the same temporal resolution. Nevertheless, flexible binning boundaries can be passed for spatial and temporal dimensions. This allows for instance to use smaller bins at small distances and larger ones for large distances
     -   we could have fitted the spatial variogram for each day separately using observations from that day only. However, given the small number of observation stations, this produced unstable variograms for several days and we decided to use the single spatial variogram derived from all spatio-temporal locations treating time slices as uncorrelated copies of the spatial random field.
