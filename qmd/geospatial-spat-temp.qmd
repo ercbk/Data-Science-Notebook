@@ -429,6 +429,10 @@
 -   [Example]{.ribbon-highlight}: Days per Location\
     ![](_resources/Geospatial-Spatio-Temporal.resources/eda-gen-ex-days-per-station.png){.lightbox width="532"}
 
+    <Details>
+
+    <Summary>Code</Summary>
+
     ``` r
     library(dplyr); library(ggplot2)
 
@@ -450,10 +454,16 @@
     #> [1] "DEUB038"   "DEUB039"   "DEUB026"   "DEHE052.1" "DEHE042.1" "DEHE060"
     ```
 
+    </Details>
+
     -   If there's there are locations with few observations on too many days, this can result in volatile variograms.
 
 -   [Example]{.ribbon-highlight}: [{gglinedensity}]{style="color: #990000"}\
     ![](_resources/Geospatial-Spatio-Temporal.resources/eda-gglinedens-1.png){.lightbox width="432"}
+
+    <Details>
+
+    <Summary>Code</Summary>
 
     ``` r
     pacman::p_load(
@@ -508,6 +518,8 @@
       theme_notebook()
     ```
 
+    </Details>
+
     -   With a bunch of time series, it's difficult to distinguish a primary trend to the data (e.g. in a spaghettil line chart). This density gives us a sense of that trend.
     -   The summary says the median is around 14 and the max is around 270.
     -   This density gives a sense of the seasonality and the trend of most of the locations.
@@ -519,6 +531,10 @@
 
     ![](_resources/Geospatial-Spatio-Temporal.resources/eda-daiquiri-max-1.png){.lightbox group="eda-daiq" width="332"}
     :::
+
+    <Details>
+
+    <Summary>Code</Summary>
 
     ``` r
     library(spacetime); library(dplyr); library(daiquiri)
@@ -558,6 +574,8 @@
         fts
       )
     ```
+
+    </Details>
 
     -   Shows missingness and basic descriptive statistics over time for each [station]{.var-text}
         -   Note that if your data is daily and there's only 1 measurement per day, then all these statistics will the same (duh, but one time I forgot and thought the package was broken)
@@ -900,15 +918,90 @@
 ### Spatial Dependence {#sec-geo-sptemp-eda-spdep .unnumbered}
 
 -   Is there meaningful spatial correlation at all (relative to noise)?
+
     -   Spatio-temporal variograms can appear structured even when spatial dependence is negligible—especially when temporal correlation is strong. So, we need to test whether spatial dependence exits independently.
     -   If there were no spatial correlation, then for almost all spatial lags (i.e. pure nugget behavior), semi-variance is constant.
     -   With spatial correlation, there should be a monotonic increase as distance increases which eventually plateaus.
         -   Tells us that spatial dependence is not drowned out by temporal variability
+
 -   On what distance scale does spatial correlation operate?
+
     -   At what distance does the variogram level off (i.e. range)?
     -   In general does this distance suggest a State-wide spatial dependence? County-wide? Region-wide? etc.
+
 -   Is the spatial structure smooth or erratic?
+
 -   Is fitting a full spatio-temporal variogram likely to succeed?
+
+-   [Example]{.ribbon-highlight}:
+
+    ::: panel-tabset
+    ## Sample Time Instances
+
+    ``` r
+    library(gstat)
+
+    vec_time <- sample(
+      x = dim(r5to10)[2],
+      size = 100
+    )
+
+    ls_samp <- lapply(
+      vec_time,
+      function(i) {
+        x = r5to10[,i]
+        x$time_index = i
+        rownames(x$coords) = NULL
+        x
+      }
+    )
+
+    spdf_samp <- do.call(
+      what = rbind,
+      args = ls_samp
+    )
+    ```
+
+    -   The data, r5to10, is PM10 measurements across 53 measurement stations in Germany. See [EDA \>\> Autocorrelation](geospatial-spat-temp.qmd#sec-geo-sptemp-eda-ac){style="color: green"} \>\> Example 1 for details on this data.
+    -   There are 53 locations, so `choose(53, 2)` says there 1,378 location pairs per time slice. Therefore, sampling 100 time instances means there are 13,780 pairs overall used to calculate this empirical variogram.
+    -   While this seems like a lot of data, it doesn't fundamentally give us more *spatial* information about the area. Whether we sample 100 or use all the time slice to calculate the empirical variogram, the salient spatial variable is the number of locations which is just 53.
+    -   More time slices gives less variance (smoother line) to our model's estimate of the psill and range, but doesn't make it more accurate in terms of true "population" values. To increase the accuracy, we'd need more locations taking PM10 measurements.
+
+    ## Fit Variogram Model
+
+    ![](_resources/Geospatial-Spatio-Temporal.resources/eda-spdep-ex1-vario-1.png){.lightbox width="432"}
+
+    ``` r
+    vario_samp <- 
+      variogram(
+        object = PM10 ~ time_index,
+        locations = spdf_samp[!is.na(spdf_samp$PM10),],
+        dX = 0
+      )
+
+    mod_vario_samp_exp <- 
+      fit.variogram(
+        object = vario_samp, 
+        model = vgm(
+          psill = 100,
+          model = "Exp",
+          range = 200
+        )
+      )
+
+    mod_vario_samp_exp
+    #>   model    psill    range
+    #> 1   Exp 48.92291 51.20898
+
+    plot(
+      x = vario_samp, 
+      mod_vario_samp_exp, 
+      plot.numbers = TRUE
+    )
+    ```
+
+    -   Thoughts
+    :::
 
 ## Kriging {#sec-geo-sptemp-krig .unnumbered}
 
