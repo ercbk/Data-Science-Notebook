@@ -939,7 +939,12 @@
     ## Sample Time Instances
 
     ``` r
-    library(gstat)
+    pacman::p_load(
+      spacetime,
+      gstat,
+      tidyverse,
+      futurize
+    )
 
     vec_time <- sample(
       x = dim(r5to10)[2],
@@ -1004,7 +1009,219 @@
     )
     ```
 
-    -   thoughts
+    -   The spatial variogram on the left uses 100 time slices (i.e. 100 days) and the one on the right uses 300.
+    -   The one on the left looks more unstable in the region (small distance pairs) where the range is estimated.
+        -   Monotonicity is broken where the third bin has a lower semi-variance than the second bin.
+        -   There is a large jump in semi-variance between the first and second bin.
+    -   In the one on right, monotonicity is restored and a smaller jump from bin 1 to bin 2 which results in a flatter fitted curve.
+    -   [dX = 0]{.arg-text} because including pairs from different time slices might have these effects:
+        -   If temporal correlation is weak, short-distance bins inflate
+        -   The estimated “spatial” range shrinks artificially
+        -   The sill and nugget lose spatial interpretation
+
+    ## Block Bootstrapping
+
+    -   Fitting variograms a few different times with a few difference numbers of slices resulted in substantially different variograms making it difficult to gain a feel for the partial sill and range parameters. Applying the block bootstrap should give a better sense of the range of starting values for each of those parameters.
+    -   From the autocorrelation EDA example, there does seem to be some pretty strong autocorrelation present, so using the block version of bootstrapping makes sense. Probably could make blocks up to around 21 days judging by the ACFs, but I just went with 14 days here.
+        -   Note that cross-correlations are more of spatio-temporal calculation. Setting dX = 0, means we're modeling spatial dependence *within* time slices and then pooling, so the ACF is more appropriate to base our block length off of.
+
+    ###### Block Bootstrap the Partial Sill and Range
+
+    <Details>
+
+    <Summary>Code</Summary>
+
+    ``` r
+    # ---------- Functions ---------- #
+
+    estim_params_vgm <-  # <1>
+      function(idx_time_resamp,
+               dat) {
+
+        ls_dat <- lapply(
+          idx_time_resamp, 
+          function(i) {
+            x <- dat[, i]
+            x$time_index <- i
+            rownames(x@coords) <- NULL
+            x
+          }
+        )
+
+        spdf <- do.call(rbind, ls_dat)
+        spdf <- spdf[!is.na(spdf$PM10), ]
+
+        vario_exp <- variogram(
+          PM10 ~ time_index,
+          spdf,
+          dX = 0
+        )
+
+        vario_mod <- try(
+          fit.variogram(
+            vario_exp, 
+            vgm(psill = 100, 
+                "Exp", 
+                range = 200)),
+          silent = TRUE
+        )
+
+        if (inherits(vario_mod, "try-error"))
+          return(c(NA, NA))
+
+        tibble(
+          psill = vario_mod$psill,
+          range = vario_mod$range
+        )
+      }
+
+    make_block_indices <- 
+      function(n_time, 
+               time_slices, 
+               block_length, 
+               n_samples) {
+      mat_idxs <- matrix(NA, nrow = n_samples, ncol = time_slices)
+
+      for (r in seq_len(n_samples)) { # <2>
+        idx <- integer(0)
+
+        while (length(idx) < time_slices) { # <3>
+          start <- sample(
+            1:(n_time - block_length + 1),
+            size = 1
+          )
+          idx <- c(idx, start:(start + block_length - 1))
+        }
+
+        mat_idxs[r, ] <- idx[seq_len(time_slices)]
+      }
+      return(mat_idxs)
+    }
+
+
+
+    # ---------- Run it ---------- # 
+    # <4>
+    time_slices <- 300 # 300 days
+    block_length <- 14 # 2 weeks
+    n_samples <- 200 # 200 resamples
+
+    block_idxs <- make_block_indices(
+      n_time = dim(r5to10)[2],
+      time_slices = time_slices,
+      block_length = block_length,
+      n_samples = n_samples
+    )
+
+    plan(future.mirai::mirai_multisession, workers = 10L)
+
+    tib_vario_params <- purrr::map(
+      asplit(block_idxs, 1),
+      \(x) {
+        estim_params_vgm(x, dat = r5to10)
+      }
+    ) |> 
+      futurize() |> 
+      list_rbind()
+
+    mirai::daemons(0)
+    ```
+
+    1.  The basically just functionalizes the script in the previous tab and extracts the psill and range parameters from the variogram model
+    2.  words
+    3.  words
+    4.  A matrix is created with `make_block_indices` where each row is indices of PM10 observations. Each row of that matrix is fed into `estim_parmas_vgm` where a variogram model is fit. The parameters of model run are collected in a tibble
+
+    </Details>
+
+    ###### Results
+
+    ``` r
+    summary(tib_vario_params)
+    #>      psill            range       
+    #>  Min.   : 22.43   Min.   : 27.00  
+    #>  1st Qu.: 40.79   1st Qu.: 53.54  
+    #>  Median : 50.84   Median : 68.48  
+    #>  Mean   : 55.30   Mean   : 73.89  
+    #>  3rd Qu.: 62.64   3rd Qu.: 87.91  
+    #>  Max.   :160.85   Max.   :357.72
+
+    sd(tib_vario_params$psill)
+    #> [1] 21.50009
+    sd(tib_vario_params$range)
+    #> [1] 32.32091
+    ```
+
+    -   We have medians less than means, so skew is present
+    -   The variance of each distribution is quite large.
+
+    ###### Visualize
+
+    ![](_resources/Geospatial-Spatio-Temporal.resources/eda-spdep-ex1-boot-1.png){.lightbox width="532"}
+
+    <Details>
+
+    <Summary>Code</Summary>
+
+    ``` r
+    library(ggdist); library(patchwork)
+
+    notebook_colors <- unname(swatches::read_ase(here::here("palettes/Forest Floor.ase")))
+
+    tib_plot <- 
+      tib_vario_params |> 
+      pivot_longer(cols = everything(), names_to = "parameter") |> 
+      group_split(parameter)
+
+    psill_plot <- ggplot(
+      data = tib_plot[[1]],
+      aes(y = parameter, 
+          x = value, 
+          fill = parameter)) +
+      stat_slab(
+        aes(thickness = after_stat(pdf*n)), 
+        scale = 0.7) +
+      stat_dotsinterval(
+        side = "bottom", 
+        scale = 0.7, 
+        slab_linewidth = NA) +
+      scale_x_continuous(position = "top") +
+      scale_fill_manual(values = notebook_colors[[4]]) +
+      xlab("Semi-Variance") +
+      guides(fill = "none") +
+      theme_notebook(
+        axis.title.y = element_blank(),
+        panel.border = element_rect(color = "#FFFDF9FF", 
+                                    fill = "#FFFDF9FF", 
+                                    linewidth = 1.5))
+
+    range_plot <- ggplot(
+      data = tib_plot[[2]],
+      aes(y = parameter, 
+          x = value, 
+          fill = parameter)) +
+      stat_slab(
+        aes(thickness = after_stat(pdf*n)), 
+        scale = 0.7) +
+      stat_dotsinterval(
+        side = "bottom", 
+        scale = 0.7, 
+        slab_linewidth = NA) +
+      scale_fill_manual(values = notebook_colors[[8]]) +
+      xlab("Distance (km)") +
+      guides(fill = "none") +
+      theme_notebook(
+        axis.title.y = element_blank(),
+        panel.border = element_rect(color = "#FFFDF9FF", 
+                                    fill = "#FFFDF9FF", 
+                                    linewidth = 1.5))
+    psill_plot/range_plot
+    ```
+
+    </Details>
+
+    -   Both parameter distributions are right-skewed with some outliers
+    -   So if we were to create a grid a starting values, it could be pretty wide.
     ::::
 
 ## Kriging {#sec-geo-sptemp-krig .unnumbered}
