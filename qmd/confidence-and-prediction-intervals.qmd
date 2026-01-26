@@ -244,7 +244,7 @@
         -   Only use out-of-sample estimates to produce the interval
         -   Estimate the uncertainty of the sample using the residuals from a separate set of models built with cross-validation
 
--   [Example]{.ribbon-highlight}: Group CI ([source](https://www.tidyverse.org/blog/2025/04/rsample-1-3-0/))
+-   [Example 1]{.ribbon-highlight}: Group CI ([source](https://www.tidyverse.org/blog/2025/04/rsample-1-3-0/))
 
     ::: panel-tabset
     ## Data
@@ -331,6 +331,131 @@
     #> 5 item_03 weekday   1.01      1.02    1.04    0.1 percentile
     #> 6 item_03 weekend   0.970     0.990   1.01    0.1 percentile    
     ```
+    :::
+
+-   [Example 2]{.ribbon-highlight}: Block Bootstrap ([Geospatial, Spatio-Temporal \>\> EDA \>\> Spatial Dependence](geospatial-spat-temp.qmd#sec-geo-sptemp-eda-spdep){style="color: green"} \>\> Example 1). Used for time series.
+
+    ::: panel-tabset
+    ## Full Length
+
+    Each bootstrap replicate uses all time points, reordered in time blocks
+
+    ``` r
+    make_block_indices <- 
+      function(n_time, 
+               block_length, 
+               n_samples) {
+      n_blocks <- ceiling(n_time / block_length) # <1>
+      inds <- matrix(NA, nrow = n_samples, ncol = n_time) # <2>
+
+      for (r in seq_len(n_samples)) {
+        block_starts <- sample(              # <3>
+          1:(n_time - block_length + 1),
+          size = n_blocks,
+          replace = TRUE
+        )
+
+        idx <- unlist(
+          lapply(block_starts, function(s) 
+            s:(s + block_length - 1)) # <4>
+        )[1:n_time]
+
+        inds[r, ] <- idx
+      }
+
+      inds
+    }
+
+    # ---------- Run it ---------- # 
+    block_length <- 14 # 2 weeks
+    n_samples <- 200 # 200 resamples
+
+    block_idxs <- make_block_indices(
+      n_time = dim(r5to10)[2],        # full length of time series
+      block_length = block_length,
+      n_samples = n_samples           # number of bootstrap replicates
+    )
+
+    plan(future.mirai::mirai_multisession, workers = 10L)
+
+    tib_vario_params <- purrr::map(
+      asplit(block_idxs, 1),
+      \(x) {
+        estim_params_vgm(x, dat = r5to10) # stat function
+      }
+    ) |> 
+      futurize() |> 
+      list_rbind()
+
+    mirai::daemons(0)    
+    ```
+
+    1.  Computes how many blocks are needed to cover all time points (i.e. length of 1 row) — [n_time]{.var-text} = 1826, [block_length]{.var-text} = 14 → [n_blocks]{.var-text} ≈ 131
+    2.  Each row is one bootstrap replicate and has the length of the entire time series
+    3.  Randomly samples (w/replacement) starting points (indices) for time blocks. Potential starting points range between 1 and the (last time point minus the block length) — i.e. the farthest time point that could potentially be chosen is the one that allows for a full time block length.
+    4.  Builds the blocks — starting point to (starting point + [block_length]{.var-text}). `[1:n_time]` trims the vector to exactly [n_time]{.var-text} indices. [n_block]{.var-text} is rounded-up by `ceiling`, so there's potential lengths greater than [n_time]{.var-text}.
+
+    ## Fixed Length
+
+    Each bootstrap replicate uses only fixed number of time points; e.g. 300 time points
+
+    ``` r
+    make_block_indices <- 
+      function(n_time, 
+               time_slices, 
+               block_length, 
+               n_samples) {
+
+      stopifnot(block_length <= n_time)
+      mat_idxs <- matrix(NA, nrow = n_samples, ncol = time_slices) # <1>
+
+      for (r in seq_len(n_samples)) { # <2>
+        idx <- integer(0)
+
+        while (length(idx) < time_slices) { # <3>
+          start <- sample(
+            1:(n_time - block_length + 1), # <4>
+            size = 1
+          )
+          idx <- c(idx, seq.int(start, length.out = block_length))
+        }
+
+        mat_idxs[r, ] <- idx[seq_len(time_slices)] # <5>
+      }
+      return(mat_idxs)
+    }
+
+    # ---------- Run it ---------- # 
+    time_slices <- 300 # 300 days
+    block_length <- 14 # 2 weeks
+    n_samples <- 200 # 200 resamples
+
+    block_idxs <- make_block_indices(
+      n_time = dim(r5to10)[2],        # full length of time series
+      time_slices = time_slices,      # fixed length of each replicate
+      block_length = block_length,
+      n_samples = n_samples           # number of bootstrap replicates
+    )
+
+    plan(future.mirai::mirai_multisession, workers = 10L)
+
+    tib_vario_params <- purrr::map(
+      asplit(block_idxs, 1),
+      \(x) {
+        estim_params_vgm(x, dat = r5to10) # stat function
+      }
+    ) |> 
+      futurize() |> 
+      list_rbind()
+
+    mirai::daemons(0)
+    ```
+
+    1.  Each row is one bootstrap replicate and has a fixed length determined by the value of [time_slices]{.var-text}
+    2.  Iterates through the number of bootstrap replicates
+    3.  Creates one block in one loop. We do not know in advance how many blocks are needed. Therefore, blocks are added until we reach *at least* the number of indices determined by the value of [time_slices]{.var-text}
+    4.  See explanation in first tab
+    5.  Truncates to exactly the number of indices specified by [time_slices]{.var-text}, and ensures each replicate has identical sample size.
     :::
 
 ## Conformal Prediction Intervals {#sec-cipi-conf .unnumbered}
