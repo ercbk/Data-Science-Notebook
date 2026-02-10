@@ -980,6 +980,74 @@
         -   i.e. argument values in the typical R udf syntax (`function(x = val1)`)
         -   Can use other UDFs as values which is demonstrated by [inner = "square"]{.arg-text}
 
+## Parallelization {#sec-r-dt-para .unnumbered}
+
+-   [Example]{.ribbon-highlight}: [{future}]{style="color: #990000"} and [{mirai}]{style="color: #990000"} ([source](https://mastodon.social/@eliocamp/116045037997944692))
+
+    ::: panel-tabset
+    ## Helpers
+
+    ###### Async Functions
+
+    ``` r
+    async_future <- function(...) {
+      tasks <- list(future::future(..., envir = parent.frame(1)))
+      class(tasks) <- "tasks_future"
+      tasks
+    }
+
+    async_mirai <- function(...) {
+      tasks <- list(mirai::mirai(..., parent.frame(1)))
+      class(tasks) <- "tasks_mirai"
+      tasks
+    }    
+    ```
+
+    ###### Collect Methods
+
+    ``` r
+    collect_async <- function(x) {
+      UseMethod("collect_async")
+    }
+
+    collect_async.default <- function(x) x
+
+    collect_async.tasks_future <- function(x) {
+      lapply(x, future::value) |>
+        unlist()
+    }
+
+    collect_async.tasks_mirai <- function(x) {
+      mirai::collect_mirai(x)
+    }
+
+    collect_async.data.table <- function(data) {
+      data[, names(.SD) := lapply(.SD, collect_async)][]
+    }    
+    ```
+
+    -   There are default, tasks_future, tasks_mirai, and data.table methods
+    -   Not sure exactly how this works, but I'm guessing the data.table method gets called first and then either the future or mirai methods.
+
+    ## Usage
+
+    `long` refers to a long-running function that we want to parallelize
+
+    ``` r
+     data |>  # <1>
+        _[, .(x = async_future(long(x))), by = .(group1, group2)] |>
+        collect_async()
+
+     data |>  # <2>
+      _[, .(x = list(future::future(long(x)))), by = .(group1, group2)] |> 
+      _[, x := future::value(x[[1]]), by = .(group1, group2)] |> 
+      _[]
+    ```
+
+    1.  With Helpers
+    2.  Without Helpers
+    :::
+
 ## Recipes {#sec-r-dt-rec .unnumbered}
 
 -   Operations covered in this section

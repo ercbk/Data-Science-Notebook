@@ -1034,7 +1034,8 @@
     ## Sample Time Instances
 
     -   The data, r5to10, is PM10 measurements across 53 measurement stations in Germany. See [EDA \>\> Autocorrelation](geospatial-spat-temp.qmd#sec-geo-sptemp-eda-ac){style="color: green"} \>\> Example 1 for details on this data.
-    -   Spatial variograms are analyzed and bootstrap distributions for the partial sill and range are calculated. These could give us a potential range of starting values if we use the same model (exponential) in the spatio-temporal variogram.
+    -   Pooled spatial variograms are analyzed. Spatial dependence is calculated per sampled time instance and pooled across all sampled time instances.
+    -   Bootstrap distributions for the partial sill and range are calculated. These could give us a potential range of starting values if we use the same model (exponential) in the spatio-temporal variogram.
 
     ``` r
     pacman::p_load(
@@ -1070,7 +1071,7 @@
     -   For each time instance, the [STFDF]{.arg-text} is subsetted by that day. Then that day is added to a new variable, [time_index]{.var-text}.
     -   Each element of [ls_samp]{.var-text} is a [SpatialPointsDataFrame]{.arg-text} and `rbind` combines the elements into one [SpatialPointsDataFrame]{.arg-text}
 
-    ## Fit Variogram Model
+    ## Pooled Spatial Variogram Model
 
     ::: {layout-ncol="2"}
     ![100](_resources/Geospatial-Spatio-Temporal.resources/eda-spdep-ex1-vario-1.png){.lightbox group="eda-spdep-ex1" width="432"}
@@ -1388,11 +1389,26 @@
     -   In this [article](https://www.r-bloggers.com/2015/08/spatio-temporal-kriging-in-r/), he used a dataset with 6734 rows, and the dude ran it overnight. He didn't use the [core]{.arg-text} argument though. It was published 2015, so it might not have been available.
 -   [cutoff]{.arg-text} - Spatial separation distance up to which point pairs are included in semivariance estimates
     -   Default: The length of the diagonal of the box spanning the data is divided by three.
--   [tlags]{.arg-text} - Integer; Time lags to consider (See docs for STIDF)
+-   [tlags]{.arg-text} - Time lags to consider. Default is [0:15]{.arg-text}
+    -   For [STIDF]{.arg-text} data, the argument [tunit]{.arg-text} is recommended (and only used in the case of STIDF) to set the temporal unit of the [tlags]{.arg-text}.
+    -   The number of time lags is multiplied by the number of spatial bins to get the total bins. So the fewer the better, if the situation allows it. Fewer might also reduce computation time.
+    -   Seems like days are typical time unit is spatio-temporal data, so 15 lags might be a lot depending on what's being measured.
+    -   Using the ACFs to get an idea
 -   [twindow]{.arg-text} - Controls the temporal window used for temporal distance calculations.
-    -   This avoids the need of huge temporal distance matrices. The default uses twice the number as the average difference goes into the temporal cutoff.
+    -   This avoids the need of huge temporal distance matrices. The default uses twice the number as the average difference goes into the temporal cutoff. (I think this means *twice* the max of tlags)
+        -   Reduces unnecessary pair construction
+        -   Lowers memory use
+        -   Therefore, speeding up computation
+    -   The function will create time-distance pairs that aren't necessary
+        -   Example: STFDF
+            -   If time = Jan 1, 2, 3, 4, 5, 6 and tlags is set to 0:3
+            -   By default, the function will create the distance pair 1,6 even though a lag of at most 3 days is all we care about.
+            -   Setting [twindow = 3]{.arg-text} makes sure pairs like (1,6) aren't created.
+    -   For [STFDF]{.arg-text} cases, setting [twindow = max(tlags)]{.arg-text} makes sense because any less and not all the desired tlags pairs get created and any more is meaningless because those pairs won't be used in the semi-variance calculations.
+    -   For [STIDF]{.arg-text} cases, maybe there's something like Jan 3.5 which represents noon on that day and you want the pair (0, 3.5) created where max(tlags) = 3. Not sure if that pair would be included in the semi-variance calculation or not though. Might require a special [tunits]{.arg-text} specification or transformation or something.
 -   [width]{.arg-text} - The width of subsequent distance intervals into which data point pairs are grouped for semivariance estimates
     -   Default: The [cutoff]{.arg-text} is divided into 15 equal lags
+    -   Also see [Geospatial, Kriging \>\> Bin Width](geospatial-kriging.qmd#sec-geo-krig-bw){style="color: green"}
 -   [cores]{.arg-text} - Compute in parallel
 
 #### `vgmST` {#sec-geo-sptemp-krig-var-vgmst .unnumbered}
@@ -1518,11 +1534,11 @@
     -   [\$message]{.arg-text} - Probably gives more details about "not converged" or maybe the time, eps, etc.
 
     -   [\$value]{.arg-text} - The mean of the (weighted) squared deviations (loss function) between sample and fitted variogram surface. (aka Weighted Mean Squared Error (wMSE))
+-   Check the estimated parameters against the parameter boundaries and starting values
+    -   Be prepared to set upper and lower parameter boundaries if, for example, the sill parameters returned are negative.
 
 #### Convergence Help {#sec-geo-sptemp-krig-var-convh .unnumbered}
 
--   Check the estimated parameters against the parameter boundaries and starting values
-    -   Be prepared to set upper and lower parameter boundaries if, for example, the sill parameters returned are negative.
 -   Starting values can affect the results (hitting local optima) or even success of the optimization
     -   Using a starting value grid search might better asses the sensitivity of the estimates.
     -   Starting values can in most cases be read from the sample variogram.
@@ -1556,8 +1572,10 @@
     -   we could have fitted the spatial variogram for each day separately using observations from that day only. However, given the small number of observation stations, this produced unstable variograms for several days and we decided to use the single spatial variogram derived from all spatio-temporal locations treating time slices as uncorrelated copies of the spatial random field.
     -   A temporal lag of one or a few days leads already to a large variability compared to spatial distances of few hundred kilometres, implying that the temporal correlation is too weak to considerably improve the overall prediction.
     -   Further preprocessing steps might be necessary to improve the modelling of this PM10 data set such as for instance a temporal AR-model followed by spatio-temporal residual kriging or using further covariates in a preceding (linear) modelling step.
-    -    Parameters of the spatial and temporal variograms can be assessed from the spatio-temporal surface fixing the counterpart at 0. (Done the spatial. How to do the temporal?)
+    -   Parameters of the spatial and temporal variograms can be assessed from the spatio-temporal surface fixing the counterpart at 0. (Done the spatial. How to do the temporal?)
     -   The prediction at an unobserved location with a cluster of observations at one side will be biased towards this cluster and neglect the locations towards the other directions. Similar as the quadrant search in the pure spatial case an octant wise search strategy for the local neighbourhood would solve this limitation. A simpler stepwise approach to define an n-dimensional neighbourhood might already be sufficient in which at first ns spatial neighbours and then from each spatial neighbour nt time instances are selected, such that
+    -   Starting values can in most cases be read from the sample variogram
+        -   need to see if a st empirical variogram can be plotted (or printed?) and what can actually be gleaned from it
 -   st vig
     -   spatio-temporal variogram settings
         -   width = 20, cutoff = 200 → \~10 spatial bins
@@ -1591,3 +1609,37 @@
         # wireframe
         plot(var,list(separable_Vgm, prodSumModel_Vgm, metric_Vgm, sumMetric_Vgm, SimplesumMetric_Vgm),all=T,wireframe=T)
         ```
+-   statninja vid
+    -   vid 3 on st vig
+        -   Empirical variogram
+            -   cutoff and tlags specified
+            -   heatmap - plot(vario)
+                -   The shades of color are too hard to distinguish to get any sort of quality numeric estimate
+            -   line plot - plot(vario, map = FALSE)
+                -   100 semi-variance (no spdep) at lag 4 at around 40km
+                -   Should 40 km be our spatial range starting value and 4 be out time range starting value?
+        -   Metric Model
+            -   starting values: psill, range, nugget = 0, stAni
+            -   heatmap - plot(vario, mod)
+                -   shows much more variability in the time axis than the spatial one
+                    -   really smooths out the colors in the spatial dimension.
+                -   Don't really like it as a way to tell how well it fits the empirical variogram
+            -   no line chart
+        -   Separable
+            -   starting values: sill (overall) and psill, range, nugget (for time and space models)
+                -   weird that the psill and nugget add to 1 but the sill is set to 100
+            -   fit - boundaries (lower and upper) set - five parameters
+            -   heatmap comparison w/metric
+                -   less smoothing which better captures the empircal vario
+            -   3d wireframe comparison
+                -   pretty difficult to make any kind of judgement either way
+            -   no line chart
+        -   specialized prediction plot looks mostly uninformative (weird ordering, no polys)
+    -   vid 4 fires
+        -   convex hull
+        -   time only variogram
+        -   make sure there's no kappa in the separable model
+        -   starting values
+            -   cutoff max?/2 of spdist
+            -   range
+            -   siil as var
