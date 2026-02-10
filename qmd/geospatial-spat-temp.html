@@ -3384,12 +3384,13 @@ Code
 </ul></li>
 <li><p><span class="ribbon-highlight">Example</span>:</p>
 <div class="tabset-margin-container"></div><div class="panel-tabset">
-<ul class="nav nav-tabs" role="tablist"><li class="nav-item" role="presentation"><a class="nav-link active" id="tabset-4-1-tab" data-bs-toggle="tab" data-bs-target="#tabset-4-1" role="tab" aria-controls="tabset-4-1" aria-selected="true" href="">Sample Time Instances</a></li><li class="nav-item" role="presentation"><a class="nav-link" id="tabset-4-2-tab" data-bs-toggle="tab" data-bs-target="#tabset-4-2" role="tab" aria-controls="tabset-4-2" aria-selected="false" href="">Fit Variogram Model</a></li><li class="nav-item" role="presentation"><a class="nav-link" id="tabset-4-3-tab" data-bs-toggle="tab" data-bs-target="#tabset-4-3" role="tab" aria-controls="tabset-4-3" aria-selected="false" href="">Block Bootstrapping</a></li></ul>
+<ul class="nav nav-tabs" role="tablist"><li class="nav-item" role="presentation"><a class="nav-link active" id="tabset-4-1-tab" data-bs-toggle="tab" data-bs-target="#tabset-4-1" role="tab" aria-controls="tabset-4-1" aria-selected="true" href="">Sample Time Instances</a></li><li class="nav-item" role="presentation"><a class="nav-link" id="tabset-4-2-tab" data-bs-toggle="tab" data-bs-target="#tabset-4-2" role="tab" aria-controls="tabset-4-2" aria-selected="false" href="">Pooled Spatial Variogram Model</a></li><li class="nav-item" role="presentation"><a class="nav-link" id="tabset-4-3-tab" data-bs-toggle="tab" data-bs-target="#tabset-4-3" role="tab" aria-controls="tabset-4-3" aria-selected="false" href="">Block Bootstrapping</a></li></ul>
 <div class="tab-content">
 <div id="tabset-4-1" class="tab-pane active" role="tabpanel" aria-labelledby="tabset-4-1-tab">
 <ul>
 <li>The data, r5to10, is PM10 measurements across 53 measurement stations in Germany. See <a href="../qmd/geospatial-spat-temp.html#sec-geo-sptemp-eda-ac" style="color: green">EDA &gt;&gt; Autocorrelation</a> &gt;&gt; Example 1 for details on this data.</li>
-<li>Spatial variograms are analyzed and bootstrap distributions for the partial sill and range are calculated. These could give us a potential range of starting values if we use the same model (exponential) in the spatio-temporal variogram.</li>
+<li>Pooled spatial variograms are analyzed. Spatial dependence is calculated per sampled time instance and pooled across all sampled time instances.</li>
+<li>Bootstrap distributions for the partial sill and range are calculated. These could give us a potential range of starting values if we use the same model (exponential) in the spatio-temporal variogram.</li>
 </ul>
 <div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb22"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb22-1"><a href="#cb22-1" aria-hidden="true" tabindex="-1"></a>pacman<span class="sc">::</span><span class="fu">p_load</span>(</span>
 <span id="cb22-2"><a href="#cb22-2" aria-hidden="true" tabindex="-1"></a>  spacetime,</span>
@@ -3769,14 +3770,37 @@ Code
 <ul>
 <li>Default: The length of the diagonal of the box spanning the data is divided by three.</li>
 </ul></li>
-<li><span class="arg-text">tlags</span> - Integer; Time lags to consider (See docs for STIDF)</li>
+<li><span class="arg-text">tlags</span> - Time lags to consider. Default is <span class="arg-text">0:15</span>
+<ul>
+<li>For <span class="arg-text">STIDF</span> data, the argument <span class="arg-text">tunit</span> is recommended (and only used in the case of STIDF) to set the temporal unit of the <span class="arg-text">tlags</span>.</li>
+<li>The number of time lags is multiplied by the number of spatial bins to get the total bins. So the fewer the better, if the situation allows it. Fewer might also reduce computation time.</li>
+<li>Seems like days are typical time unit is spatio-temporal data, so 15 lags might be a lot depending on what’s being measured.</li>
+<li>Using the ACFs to get an idea</li>
+</ul></li>
 <li><span class="arg-text">twindow</span> - Controls the temporal window used for temporal distance calculations.
 <ul>
-<li>This avoids the need of huge temporal distance matrices. The default uses twice the number as the average difference goes into the temporal cutoff.</li>
+<li>This avoids the need of huge temporal distance matrices. The default uses twice the number as the average difference goes into the temporal cutoff. (I think this means <em>twice</em> the max of tlags)
+<ul>
+<li>Reduces unnecessary pair construction</li>
+<li>Lowers memory use</li>
+<li>Therefore, speeding up computation</li>
+</ul></li>
+<li>The function will create time-distance pairs that aren’t necessary
+<ul>
+<li>Example: STFDF
+<ul>
+<li>If time = Jan 1, 2, 3, 4, 5, 6 and tlags is set to 0:3</li>
+<li>By default, the function will create the distance pair 1,6 even though a lag of at most 3 days is all we care about.</li>
+<li>Setting <span class="arg-text">twindow = 3</span> makes sure pairs like (1,6) aren’t created.</li>
+</ul></li>
+</ul></li>
+<li>For <span class="arg-text">STFDF</span> cases, setting <span class="arg-text">twindow = max(tlags)</span> makes sense because any less and not all the desired tlags pairs get created and any more is meaningless because those pairs won’t be used in the semi-variance calculations.</li>
+<li>For <span class="arg-text">STIDF</span> cases, maybe there’s something like Jan 3.5 which represents noon on that day and you want the pair (0, 3.5) created where max(tlags) = 3. Not sure if that pair would be included in the semi-variance calculation or not though. Might require a special <span class="arg-text">tunits</span> specification or transformation or something.</li>
 </ul></li>
 <li><span class="arg-text">width</span> - The width of subsequent distance intervals into which data point pairs are grouped for semivariance estimates
 <ul>
 <li>Default: The <span class="arg-text">cutoff</span> is divided into 15 equal lags</li>
+<li>Also see <a href="../qmd/geospatial-kriging.html#sec-geo-krig-bw" style="color: green">Geospatial, Kriging &gt;&gt; Bin Width</a></li>
 </ul></li>
 <li><span class="arg-text">cores</span> - Compute in parallel</li>
 </ul>
@@ -3966,15 +3990,15 @@ Code
 <li><p><span class="arg-text">$message</span> - Probably gives more details about “not converged” or maybe the time, eps, etc.</p></li>
 <li><p><span class="arg-text">$value</span> - The mean of the (weighted) squared deviations (loss function) between sample and fitted variogram surface. (aka Weighted Mean Squared Error (wMSE))</p></li>
 </ul></li>
+<li>Check the estimated parameters against the parameter boundaries and starting values
+<ul>
+<li>Be prepared to set upper and lower parameter boundaries if, for example, the sill parameters returned are negative.</li>
+</ul></li>
 </ul>
 </section>
 <section id="sec-geo-sptemp-krig-var-convh" class="level4 unnumbered">
 <h4 class="unnumbered anchored" data-anchor-id="sec-geo-sptemp-krig-var-convh">Convergence Help</h4>
 <ul>
-<li>Check the estimated parameters against the parameter boundaries and starting values
-<ul>
-<li>Be prepared to set upper and lower parameter boundaries if, for example, the sill parameters returned are negative.</li>
-</ul></li>
 <li>Starting values can affect the results (hitting local optima) or even success of the optimization
 <ul>
 <li>Using a starting value grid search might better asses the sensitivity of the estimates.</li>
@@ -4032,6 +4056,10 @@ Code
 <li>Further preprocessing steps might be necessary to improve the modelling of this PM10 data set such as for instance a temporal AR-model followed by spatio-temporal residual kriging or using further covariates in a preceding (linear) modelling step.</li>
 <li>Parameters of the spatial and temporal variograms can be assessed from the spatio-temporal surface fixing the counterpart at 0. (Done the spatial. How to do the temporal?)</li>
 <li>The prediction at an unobserved location with a cluster of observations at one side will be biased towards this cluster and neglect the locations towards the other directions. Similar as the quadrant search in the pure spatial case an octant wise search strategy for the local neighbourhood would solve this limitation. A simpler stepwise approach to define an n-dimensional neighbourhood might already be sufficient in which at first ns spatial neighbours and then from each spatial neighbour nt time instances are selected, such that</li>
+<li>Starting values can in most cases be read from the sample variogram
+<ul>
+<li>need to see if a st empirical variogram can be plotted (or printed?) and what can actually be gleaned from it</li>
+</ul></li>
 </ul></li>
 <li>st vig
 <ul>
@@ -4065,6 +4093,68 @@ Code
 <span id="cb29-8"><a href="#cb29-8" aria-hidden="true" tabindex="-1"></a></span>
 <span id="cb29-9"><a href="#cb29-9" aria-hidden="true" tabindex="-1"></a><span class="co"># wireframe</span></span>
 <span id="cb29-10"><a href="#cb29-10" aria-hidden="true" tabindex="-1"></a><span class="fu">plot</span>(var,<span class="fu">list</span>(separable_Vgm, prodSumModel_Vgm, metric_Vgm, sumMetric_Vgm, SimplesumMetric_Vgm),<span class="at">all=</span>T,<span class="at">wireframe=</span>T)</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div></li>
+</ul></li>
+<li>statninja vid
+<ul>
+<li>vid 3 on st vig
+<ul>
+<li>Empirical variogram
+<ul>
+<li>cutoff and tlags specified</li>
+<li>heatmap - plot(vario)
+<ul>
+<li>The shades of color are too hard to distinguish to get any sort of quality numeric estimate</li>
+</ul></li>
+<li>line plot - plot(vario, map = FALSE)
+<ul>
+<li>100 semi-variance (no spdep) at lag 4 at around 40km</li>
+<li>Should 40 km be our spatial range starting value and 4 be out time range starting value?</li>
+</ul></li>
+</ul></li>
+<li>Metric Model
+<ul>
+<li>starting values: psill, range, nugget = 0, stAni</li>
+<li>heatmap - plot(vario, mod)
+<ul>
+<li>shows much more variability in the time axis than the spatial one
+<ul>
+<li>really smooths out the colors in the spatial dimension.</li>
+</ul></li>
+<li>Don’t really like it as a way to tell how well it fits the empirical variogram</li>
+</ul></li>
+<li>no line chart</li>
+</ul></li>
+<li>Separable
+<ul>
+<li>starting values: sill (overall) and psill, range, nugget (for time and space models)
+<ul>
+<li>weird that the psill and nugget add to 1 but the sill is set to 100</li>
+</ul></li>
+<li>fit - boundaries (lower and upper) set - five parameters</li>
+<li>heatmap comparison w/metric
+<ul>
+<li>less smoothing which better captures the empircal vario</li>
+</ul></li>
+<li>3d wireframe comparison
+<ul>
+<li>pretty difficult to make any kind of judgement either way</li>
+</ul></li>
+<li>no line chart</li>
+</ul></li>
+<li>specialized prediction plot looks mostly uninformative (weird ordering, no polys)</li>
+</ul></li>
+<li>vid 4 fires
+<ul>
+<li>convex hull</li>
+<li>time only variogram</li>
+<li>make sure there’s no kappa in the separable model</li>
+<li>starting values
+<ul>
+<li>cutoff max?/2 of spdist</li>
+<li>range</li>
+<li>siil as var</li>
+</ul></li>
+</ul></li>
 </ul></li>
 </ul>
 
