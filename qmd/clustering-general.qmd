@@ -369,8 +369,8 @@
     -   Inefficient in distinguishing between groups of unbalanced sizes. See Packages \>\> {pivmet} which uses consensus clustering to help mitigate this.
 -   Arguments
     -   [nstart]{.arg-text} - Number of times to run the algorithm. The run with the lowest total within cluster SSE (in feature space) will be returned
--   [{tidyclust}]{style="color: #990000"}
-    -   [Example 1]{.ribbon-highlight}: Mixed K-Means
+-   [Examples]{.underline}
+    -   [Example 1]{.ribbon-highlight}: Mixed K-Means, [{tidyclust}]{style="color: #990000"}
 
         -   Model and Extract Centroids
 
@@ -452,6 +452,368 @@
             ```
 
             -   See [Cluster Descriptions](clustering-general.qmd#sec-clust-gen-clustdesc){style="color: green"} \>\> Scatter for the output
+
+        -   [Example 3]{.ribbon-highlight}: PCA + K-Means
+
+            ::: panel-tabset
+            ## Data
+
+            The Ames, Iowa real estate dataset
+
+            ``` r
+            pacman::p_load(
+              dplyr,
+              ggplot2
+            )
+
+            notebook_colors <- unname(swatches::read_ase(here::here("palettes/Forest Floor.ase")))
+
+            data(ames, package = "modeldata")
+
+            tib_ames_clean <- 
+              ames |> 
+              select(where(is.numeric), -starts_with("Year"), -Longitude, -Latitude) |>
+              janitor::clean_names() |> 
+              mutate(across(everything(), ~as.numeric(scale(.x))))
+
+            glimpse(tib_ames_clean)
+            #> Rows: 2,930
+            #> Columns: 29
+            #> $ lot_frontage       <dbl> 2.48816746, 0.66724154, 0.69709278, 1.05530772, 0.48813407, 0.60753905, -0.4969…
+            #> $ lot_area           <dbl> 2.74391236, 0.18706533, 0.52272448, 0.12843602, 0.46726775, -0.02156364, -0.663…
+            #> $ mas_vnr_area       <dbl> 0.06103563, -0.56594277, 0.03864354, -0.56594277, -0.56594277, -0.45398234, -0.…
+            #> $ bsmt_fin_sf_1      <dbl> -0.97497145, 0.81604193, -1.42272479, -1.42272479, -0.52721810, -0.52721810, -0…
+            #> $ bsmt_fin_sf_2      <dbl> -0.2938681, 0.5574871, -0.2938681, -0.2938681, -0.2938681, -0.2938681, -0.29386…
+            #> $ bsmt_unf_sf        <dbl> -0.26862520, -0.65766778, -0.34825380, 1.10553692, -0.96025646, -0.53481223, 0.…
+            #> $ total_bsmt_sf      <dbl> 0.065184701, -0.383827454, 0.629851503, 2.400955004, -0.279511498, -0.284046975…
+            #> $ first_flr_sf       <dbl> 1.26678711, -0.67252822, 0.43237117, 2.42527284, -0.59087284, -0.59597630, 0.45…
+            #> $ second_flr_sf      <dbl> -0.7830517, -0.7830517, -0.7830517, -0.7830517, 0.8532859, 0.7995972, -0.783051…
+            #> $ gr_liv_area        <dbl> 0.309212281, -1.194223205, -0.337660619, 1.207317164, 0.255800757, 0.206345643,…
+            #> $ bsmt_full_bath     <dbl> 1.0841906, -0.8214353, -0.8214353, 1.0841906, -0.8214353, -0.8214353, 1.0841906…
+            #> $ bsmt_half_bath     <dbl> -0.2491777, -0.2491777, -0.2491777, -0.2491777, -0.2491777, -0.2491777, -0.2491…
+            #> $ full_bath          <dbl> -1.0246180, -1.0246180, -1.0246180, 0.7838945, 0.7838945, 0.7838945, 0.7838945,…
+            #> $ half_bath          <dbl> -0.7550738, -0.7550738, 1.2344642, 1.2344642, 1.2344642, 1.2344642, -0.7550738,…
+            #> $ bedroom_abv_gr     <dbl> 0.1760642, -1.0320576, 0.1760642, 0.1760642, 0.1760642, 0.1760642, -1.0320576, …
+            #> $ kitchen_abv_gr     <dbl> -0.2072561, -0.2072561, -0.2072561, -0.2072561, -0.2072561, -0.2072561, -0.2072…
+            #> $ tot_rms_abv_grd    <dbl> 0.3541063, -0.9173783, -0.2816360, 0.9898486, -0.2816360, 0.3541063, -0.2816360…
+            #> $ fireplaces         <dbl> 2.1618110, -0.9249854, -0.9249854, 2.1618110, 0.6184128, 0.6184128, -0.9249854,…
+            #> $ garage_cars        <dbl> 0.3071569, -1.0066675, -1.0066675, 0.3071569, 0.3071569, 0.3071569, 0.3071569, …
+            #> $ garage_area        <dbl> 0.25717905, 1.19589661, -0.74659815, 0.22929635, 0.04341168, -0.01235372, 0.508…
+            #> $ wood_deck_sf       <dbl> 0.9199643, 0.3659983, 2.3681895, -0.7419335, 0.9357919, 2.1070341, -0.7419335, …
+            #> $ open_porch_sf      <dbl> 0.21437202, -0.70437244, -0.17090791, -0.70437244, -0.20054483, -0.17090791, -0…
+            #> $ enclosed_porch     <dbl> -0.3587768, -0.3587768, -0.3587768, -0.3587768, -0.3587768, -0.3587768, 2.29171…
+            #> $ three_season_porch <dbl> -0.1031167, -0.1031167, -0.1031167, -0.1031167, -0.1031167, -0.1031167, -0.1031…
+            #> $ screen_porch       <dbl> -0.2853057, 1.8542134, -0.2853057, -0.2853057, -0.2853057, -0.2853057, -0.28530…
+            #> $ pool_area          <dbl> -0.06302029, -0.06302029, -0.06302029, -0.06302029, -0.06302029, -0.06302029, -…
+            #> $ misc_val           <dbl> -0.08940702, -0.08940702, 21.98197299, -0.08940702, -0.08940702, -0.08940702, -…
+            #> $ mo_sold            <dbl> -0.44798097, -0.07958798, -0.07958798, -0.81637397, -1.18476697, -0.07958798, -…
+            #> $ sale_price         <dbl> 0.428155666, -0.948794572, -0.110106700, 0.791169819, 0.113960657, 0.184059942,…
+            ```
+
+            -   Thoughts
+
+            ## PCA
+
+            ![](_resources/Clustering.resources/kmeans-ex3-scree.png){.lightbox group="kmeans-ex3" width="632"}
+
+            ``` r
+            res_pca <- prcomp(tib_ames_clean)
+
+            # Examine PCA results
+            summary(res_pca)
+            #> Importance of components:
+            #>                           PC1    PC2     PC3     PC4     PC5    PC6     PC7     PC8     PC9    PC10    PC11    PC12
+            #> Standard deviation     2.4863 1.7095 1.40974 1.22278 1.12376 1.0662 1.04472 1.02899 1.00785 0.98740 0.97548 0.95180
+            #> Proportion of Variance 0.2132 0.1008 0.06853 0.05156 0.04355 0.0392 0.03764 0.03651 0.03503 0.03362 0.03281 0.03124
+            #> Cumulative Proportion  0.2132 0.3139 0.38246 0.43402 0.47756 0.5168 0.55440 0.59091 0.62594 0.65956 0.69237 0.72361
+            #>                           PC13    PC14    PC15    PC16    PC17    PC18    PC19    PC20    PC21   PC22    PC23
+            #> Standard deviation     0.94808 0.94242 0.91673 0.89735 0.83861 0.79782 0.78170 0.75752 0.68673 0.6506 0.56640
+            #> Proportion of Variance 0.03099 0.03063 0.02898 0.02777 0.02425 0.02195 0.02107 0.01979 0.01626 0.0146 0.01106
+            #> Cumulative Proportion  0.75460 0.78523 0.81421 0.84198 0.86623 0.88817 0.90925 0.92903 0.94529 0.9599 0.97095
+            #>                           PC24    PC25    PC26    PC27    PC28    PC29
+            #> Standard deviation     0.52549 0.42321 0.41130 0.34717 0.30648 0.05873
+            #> Proportion of Variance 0.00952 0.00618 0.00583 0.00416 0.00324 0.00012
+            #> Cumulative Proportion  0.98048 0.98665 0.99249 0.99664 0.99988 1.00000
+
+            # Scree plot to decide how many PCs to keep
+            tib_scree <- tibble(
+              pc = paste0("PC", 1:ncol(tib_ames_clean)),
+              variance = (res_pca$sdev^2 / sum(res_pca$sdev^2)) * 100,
+              cum_var = cumsum(variance)
+            )
+
+            ggplot(tib_scree, 
+                   aes(x = factor(pc, levels = pc), 
+                       y = variance,
+                       label = paste0(round(cum_var, 1), "%"))) +
+              geom_bar(stat = "identity", fill = notebook_colors[[2]]) +
+              geom_line(aes(group = 1), color = notebook_colors[[5]]) +
+              geom_point(color = notebook_colors[[5]], size = 3) +
+              geom_label(vjust = 0, nudge_y = 0.75) +
+              labs(title = "Scree Plot", 
+                   x = "Principal Component", 
+                   y = "% Variance Explained") +
+              theme_notebook(axis.text.x = element_text(angle = 45, hjust = 1))
+
+
+            # Keep top k principal components 
+            # Choose components that explain ~80-90% of variance
+            n_components <- which(summary(res_pca)$importance[3,] >= 0.90)[[1]]
+            mat_pca_sub <- res_pca$x[, 1:n_components]
+            mat_pca_dist <- dist(mat_pca_sub)
+            ```
+
+            -   Thoughts
+
+            ## K-Means
+
+            ``` r
+            set.seed(2026)
+
+            tib_clust_stats <- purrr::map(2:n_components, \(k) {
+              res_km <- kmeans(mat_pca_sub, centers = k, iter.max = 20, nstart = 25)
+              tib_cs <- 
+                fpc::cluster.stats(mat_pca_dist, res_km$cluster)[c("cluster.number", "within.cluster.ss", "avg.silwidth", "ch")] |> 
+                as_tibble() |> 
+                mutate(db_idx = clusterSim::index.DB(x = mat_pca_sub, 
+                                                     cl = res_km$cluster)$DB)
+              return(tib_cs)
+            }) |> 
+              purrr::list_rbind()
+
+            head(tib_clust_stats)
+            #> # A tibble: 6 × 5
+            #>   cluster.number within.cluster.ss avg.silwidth    ch db_idx
+            #>            <int>             <dbl>        <dbl> <dbl>  <dbl>
+            #> 1              2            65977.        0.168  499.   2.42
+            #> 2              3            61327.        0.153  380.   2.53
+            #> 3              4            58092.        0.128  321.   2.45
+            #> 4              5            55236.        0.133  291.   2.22
+            #> 5              6            52865.        0.138  270.   1.98
+            #> 6              7            50230.        0.145  262.   1.86
+
+            # Perform k-means clustering on PC space
+            k <- tib_clust_stats |> 
+              filter(ch == max(ch)) |> 
+              pull(cluster.number)
+
+            res_kmeans <- kmeans(
+              mat_pca_sub, 
+              centers = k, 
+              nstart = 25
+            )
+
+            tib_ames_clust <- 
+              ames |> 
+              select(where(is.numeric), -starts_with("Year"), -Longitude, -Latitude) |> 
+              janitor::clean_names() |> 
+              mutate(
+                cluster = factor(res_kmeans$cluster),
+                pc1 = res_pca$x[, 1],
+                pc2 = res_pca$x[, 2]
+              )
+
+            # cluster sizes
+            table(res_kmeans$cluster)
+            #>    1    2 
+            #> 1202 1728 
+            ```
+
+            -   Thoughts
+
+            ## Visualizations
+
+            ###### Clusters in PC Space
+
+            ![](_resources/Clustering.resources/kmeans-ex3-clust-pc.png){.lightbox group="kmeans-ex3" width="532"}
+
+            <Details>
+
+            <Summary>Code</Summary>
+
+            ``` r
+            ggplot(tib_ames_clust, 
+                   aes(x = pc1, 
+                       y = pc2, 
+                       color = cluster)) +
+              geom_point(size = 2, alpha = 0.6) +
+              stat_ellipse(level = 0.95, linewidth = 1) +
+              labs(title = "Ames, Iowa Properties",
+                   subtitle = "Clustered in Principal Component Space",
+                   x = paste0("PC1 (", round(tib_scree$variance[1], 1), "% var)"),
+                   y = paste0("PC2 (", round(tib_scree$variance[2], 1), "% var)")) +
+              theme_notebook(
+                legend.position = "bottom",
+                palette.color.discrete = notebook_colors[c(7, 9)])
+            ```
+
+            </Details>
+
+            -   Thoughts
+
+            ###### Biplot
+
+            ![](_resources/Clustering.resources/kmeans-ex3-biplot.png){.lightbox group="kmeans-ex3" width="632"}
+
+            <Details>
+
+            <Summary>Code</Summary>
+
+            ``` r
+            tib_sects <-   
+              as_tibble(res_pca$rotation[, 1:2], rownames = "variable") |> 
+              janitor::clean_names() |> 
+              mutate(sects = case_when(
+                pc1 >= 0 ~ "right",
+                pc1 < 0 & pc2 < 0 ~ "lower",
+                pc1 < 0 & pc2 >= 0 ~ "upper"
+              ))
+            table(tib_sects$sects)
+            #> lower right upper 
+            #>    10     3    16 
+
+
+            tib_biplot <- tib_sects |>
+              group_by(sects) |>
+              mutate(row_id = row_number()) |>
+              ungroup() |>
+              mutate(
+                group = case_when(
+                  # Group 1
+                  sects == "lower" & row_id <= 2 ~ 1,
+                  sects == "upper" & row_id <= 3 ~ 1,
+                  # Group 2
+                  sects == "lower" & between(row_id, 3, 4) ~ 2,
+                  sects == "upper" & between(row_id, 4, 6) ~ 2,
+                  # Group 3
+                  sects == "lower" & between(row_id, 5, 6) ~ 3,
+                  sects == "upper" & between(row_id, 7, 9) ~ 3,
+                  # Group 4
+                  sects == "lower" & between(row_id, 7, 8) ~ 4,
+                  sects == "upper" & between(row_id, 10, 12) ~ 4,
+                  # Group 5
+                  sects == "lower" & between(row_id, 9, 10) ~ 5,
+                  sects == "upper" & between(row_id, 13, 15) ~ 5,
+                  # Group 6
+                  sects == "upper" & row_id == 16 ~ 6,
+                  sects == "right" & row_id <= 3 ~ 6,
+                  TRUE ~ NA_real_
+                )
+              ) |>
+              select(-row_id) |>
+              filter(!is.na(group))
+
+            # scale arrows for visibility
+            arrow_scale <- 5
+
+            ggplot(tib_ames_clust, 
+                   aes(x = pc1, 
+                       y = pc2, 
+                       color = cluster)) +
+              geom_point(alpha = 0.1, size = 1) +
+              geom_segment(data = tib_biplot, 
+                           aes(x = 0, 
+                               y = 0, 
+                               xend = pc1 * arrow_scale, 
+                               yend = pc2 * arrow_scale),
+                           arrow = arrow(length = unit(0.3, "cm")),
+                           color = "black", 
+                           linewidth = 0.8,
+                           inherit.aes = FALSE) +
+              ggrepel::geom_text_repel(
+                data = tib_biplot,
+                aes(x = pc1 * arrow_scale, 
+                    y = pc2 * arrow_scale, 
+                    label = variable),
+                color = "black", 
+                size = 4, 
+                fontface = "bold") +
+              facet_wrap(~group) +
+              labs(title = "Biplot: Clusters + Original Variable Loadings",
+                   subtitle = "Arrows show how original variables relate to PC1 and PC2") +
+              theme_notebook(
+                legend.position = "bottom",
+                palette.color.discrete = notebook_colors[c(7, 9)])
+            ```
+
+            </Details>
+
+            -   Thoughts
+
+            ###### Cluster Profiles
+
+            ![](_resources/Clustering.resources/kmeans-ex3-clust-profiles.png){.lightbox group="kmeans-ex3" width="532"}
+
+            <Details>
+
+            <Summary>Code</Summary>
+
+            ``` r
+            # take the medians of variables for each cluster
+            # calculate the percent difference of those medians between clusters
+            # select the top 8 variables
+            tib_key_vars <- tib_ames_clust |>
+              select(-pc1, -pc2) |> 
+              group_by(cluster) |>
+              summarize(across(where(is.numeric), median), .groups = "drop") |> 
+              tidyr::pivot_longer(
+                cols = where(is.numeric),
+                names_to = "variable", 
+                values_to = "value"
+              ) |> 
+              tidyr::pivot_wider(
+                names_from = "cluster", 
+                values_from = "value"
+              ) |>
+              mutate(pct_diff_cluster = abs((`1` - `2`) / `1`)) |> 
+              slice_max(pct_diff_cluster, n = 8)
+
+
+            tib_ames_clust |> 
+              group_by(cluster) |> 
+              summarize(med_sale_price = median(sale_price),
+                        med_lot_area = median(lot_area),
+                        med_bedrooms = median(bedroom_abv_gr))
+            #> # A tibble: 2 × 4
+            #>   cluster med_sale_price med_lot_area med_bedrooms
+            #>   <fct>            <dbl>        <dbl>        <dbl>
+            #> 1 1               226000       10912.            3
+            #> 2 2               136400        8450             3
+
+            key_vars <- tib_key_vars$variable
+            tib_profile <- tib_ames_clust |> 
+              select(all_of(key_vars), cluster) |> 
+              tidyr::pivot_longer(
+                cols = -cluster,
+                names_to = "variable",
+                values_to = "value"
+              )
+
+            ggplot(tib_profile, 
+                   aes(x = cluster, 
+                       y = value, 
+                       fill = cluster)) +
+              geom_boxplot(median.color = notebook_colors[2],
+                           median.linewidth = 1.25,
+                           box.color = NA) +
+              labs(title = "Cluster Profiles on Key Original Features",
+                   x = "Cluster", 
+                   y = "Value") +
+              facet_wrap(~variable, 
+                         scales = "free_y", 
+                         ncol = 4) +
+              theme_notebook(
+                axis.text.x = element_blank(),
+                axis.ticks.x = element_blank(),
+                strip.text = element_text(size = 14),
+                legend.position = "bottom",
+                palette.color.discrete = notebook_colors[c(7, 9)])
+            ```
+
+            </Details>
+
+            -   Thoughts
+            :::
 
 ## DBSCAN {#sec-clust-gen-dbscan .unnumbered}
 
