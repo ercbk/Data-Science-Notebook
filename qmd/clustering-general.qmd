@@ -467,11 +467,9 @@
               dplyr,
               ggplot2
             )
-
             notebook_colors <- unname(swatches::read_ase(here::here("palettes/Forest Floor.ase")))
 
             data(ames, package = "modeldata")
-
             tib_ames_clean <- 
               ames |> 
               select(where(is.numeric), -starts_with("Year"), -Longitude, -Latitude) |>
@@ -513,7 +511,7 @@
             ```
 
             -   Data gets standardized for PCA
-            -   Other transformations such as square root for discrete variables and logging for skewed contiuous variables are recommended but I didn't worry about that here. (See [Feature Reduction, General \>\> PCA \>\> Preprocessing](feature-reduction-general.qmd#sec-featred-gen-pca-proc))
+            -   Other transformations such as square root for discrete variables and logging for skewed contiuous variables are recommended, but I didn't worry about that here. (See [Feature Reduction, General \>\> PCA \>\> Preprocessing](feature-reduction-general.qmd#sec-featred-gen-pca-proc){style="color: green"})
 
             ## PCA
 
@@ -559,14 +557,13 @@
               theme_notebook(axis.text.x = element_text(angle = 45, hjust = 1))
 
 
-            # Keep top k principal components 
-            # Choose components that explain ~80-90% of variance
+            # Choose enough components that explain ~80-90% of variance
             n_components <- which(summary(res_pca)$importance[3,] >= 0.90)[[1]]
             mat_pca_sub <- res_pca$x[, 1:n_components]
             mat_pca_dist <- dist(mat_pca_sub)
             ```
 
-            -   By looking at the `summary` or the scree plot, we can see that PC1 only accounts around 21.3% of the variance and begins to level off around PC8.
+            -   By looking at the `summary` or the scree plot, we can see that PC1 only accounts around 21.3% of the variance, and it begins to level off around PC8.
             -   This is disappointing as PCA doesn't seem to have been able to reduce our number of predictors very much. I'm going to keep enough PCs that amount to 90% of the information which means 19 PCs.
 
             ## K-Means
@@ -574,11 +571,18 @@
             ``` r
             set.seed(2026)
 
+            # fit model for each k and collect stats
             tib_clust_stats <- purrr::map(2:n_components, \(k) {
               res_km <- kmeans(mat_pca_sub, centers = k, iter.max = 20, nstart = 25)
               tib_cs <- 
-                fpc::cluster.stats(mat_pca_dist, res_km$cluster)[c("cluster.number", "within.cluster.ss", "avg.silwidth", "ch")] |> 
+                fpc::cluster.stats(
+                  mat_pca_dist, 
+                  res_km$cluster)[c("cluster.number", 
+                                    "within.cluster.ss", 
+                                    "avg.silwidth", 
+                                    "ch")] |> 
                 as_tibble() |> 
+                # Davies-Bouldin
                 mutate(db_idx = clusterSim::index.DB(x = mat_pca_sub, 
                                                      cl = res_km$cluster)$DB)
               return(tib_cs)
@@ -596,26 +600,30 @@
             #> 5              6            52865.        0.138  270.   1.98
             #> 6              7            50230.        0.145  262.   1.86
 
-            # Perform k-means clustering on PC space
+            # Select final k based on Calinski-Harabasz
             k <- tib_clust_stats |> 
               filter(ch == max(ch)) |> 
               pull(cluster.number)
 
+            # fit final model
             res_kmeans <- kmeans(
               mat_pca_sub, 
               centers = k, 
               nstart = 25
             )
 
-            tib_ames_clust <- 
-              ames |> 
-              select(where(is.numeric), -starts_with("Year"), -Longitude, -Latitude) |> 
+            # add Cluster assingments and PCs to original data
+            tib_ames_clust <- ames |> 
+              select(
+                where(is.numeric), 
+                -starts_with("Year"), 
+                -Longitude, 
+                -Latitude) |> 
               janitor::clean_names() |> 
               mutate(
                 cluster = factor(res_kmeans$cluster),
                 pc1 = res_pca$x[, 1],
-                pc2 = res_pca$x[, 2]
-              )
+                pc2 = res_pca$x[, 2])
 
             # cluster sizes
             table(res_kmeans$cluster)
@@ -624,8 +632,8 @@
             ```
 
             -   From my reading, the Calinski-Harabasz Index, Silhouette Coefficient, or Davies-Bouldin Index work best with K-Means ([See Diagnostics, Clustering \>\> Spherical/Centroid based](diagnostics-clustering.qmd#sec-diag-clust-sphcent){style="color: green"})
-                -   Not sure, if these values are the same as described in that notebook section. I don't think it matters too much in this case though seeing as their was apparent separation possible given the data (See next section) and only 1 reasonable $k$ (2).
-            -   Try to find a simple plug and play cluster diagnostic package is difficult. None seem to have been written recently (or with decent documentation), and most require you to use the same package to perform the clustering.
+                -   Not sure, if these values are the same as described in that notebook section. I don't think it matters too much in this case though after seeing that there really wasn't any separation possible given the data (See next section) and only 1 reasonable $k$ (2).
+            -   Trying to find a simple plug and play cluster diagnostic package is difficult. None seem to have been written recently (or with decent documentation), and most require you to use the same package to perform the clustering.
 
             ## Visualizations
 
@@ -668,6 +676,7 @@
             <Summary>Code</Summary>
 
             ``` r
+            # create 3 sections in the scatter plot
             tib_sects <-   
               as_tibble(res_pca$rotation[, 1:2], rownames = "variable") |> 
               janitor::clean_names() |> 
@@ -680,7 +689,8 @@
             #> lower right upper 
             #>    10     3    16 
 
-
+            # partition a little of each section to create 6 groups
+            # for facetting in the biplot
             tib_biplot <- tib_sects |>
               group_by(sects) |>
               mutate(row_id = row_number()) |>
@@ -705,7 +715,7 @@
                   # Group 6
                   sects == "upper" & row_id == 16 ~ 6,
                   sects == "right" & row_id <= 3 ~ 6,
-                  TRUE ~ NA_real_
+                  TRUE ~ NA
                 )
               ) |>
               select(-row_id) |>
