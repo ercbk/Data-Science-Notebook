@@ -7,7 +7,7 @@
     -   [Databases, Engineering \>\> Data Quality](db-engineering.qmd#sec-db-eng-datqual){style="color: green"}
     -   [Job, Organizational and Team Development \>\> Developing a Data Stack \>\> Data Reliability](job-organizational-and-team-development.qmd#sec-job-orgdev-devdatplat-datrel){style="color: green"}
 -   Packages
-    -   [{]{style="color: #990000"}[pointblank](https://github.com/rich-iannone/pointblank){style="color: #990000"}[}]{style="color: #990000"} - This is a heavy-duty package that helps you validate all aspects of datatsets with extensive reporting capabilities.
+    -   [{]{style="color: #990000"}[pointblank](https://github.com/rich-iannone/pointblank){style="color: #990000"}[}]{style="color: #990000"}, [{]{style="color: goldenrod"}[pointblank](https://posit-dev.github.io/pointblank/){style="color: goldenrod"}[}]{style="color: goldenrod"} - This is a heavy-duty package that helps you validate all aspects of datatsets with extensive reporting capabilities.
     -   [{]{style="color: #990000"}[validate](https://cran.r-project.org/web/packages/validate/index.html){style="color: #990000"}[}]{style="color: #990000"} ([Ebook](https://data-cleaning.github.io/validate/))- Data Validation Infrastructure
         -   Declare data validation rules and data quality indicators; confront data with them and analyze or visualize the results.
     -   [{]{style="color: #990000"}[dataquieR](https://dataquality.qihs.uni-greifswald.de/){style="color: #990000"}[}]{style="color: #990000"} ([JOSS](https://joss.theoj.org/papers/10.21105/joss.06581)) - Designed for observational data in healthcare or epidemiological studies or studies in other social sciences (e.g. economics). Enables extensive, highly standardized, and accessible data quality assessments related to data integrity (such as data type errors or duplicates), completeness (for example, missing values), consistency (for instance, range violations or contradictions), and accuracy (such as time trends or examiner effects) on tabular form data.
@@ -533,67 +533,323 @@
 
 ## {pointblank} {#sec-prod-datval-pb .unnumbered}
 
--   Python
-    -   [Example]{.ribbon-highlight}: ([source](https://github.com/ivelasq/2025-06-25_marketing-demo/blob/c9f3145d827e184835a71ca820895c7158cf02c3/etl.qmd#L66))
+### Misc
 
-        ``` python
-        import pointblank as pb
-        import polars as pl
+-   [R Docs](https://rstudio.github.io/pointblank/), [Python Docs](https://posit-dev.github.io/pointblank/)
+-   Notes from [Video: How to use {pointblank} to understand, validate, and document your data](https://www.youtube.com/watch?v=abvgK9VU7z0&list=WL&index=1&t=218s) ([repo](https://github.com/rich-iannone/pointblank-workshop))
+-   Validation Function Patterns
+    -   `col_vals_*` says check values within a column
+    -   `rows_*` says check entire rows of the dataset
+    -   `col_is_*` says check the type/class of the column
+-   Other Validation Functions
+    -   `col_exists` - Checks if a column exists in the dataset
+    -   `col_schema_match` ([Doc](https://rstudio.github.io/pointblank/reference/col_schema_match.html)) - Checks the structure of the table (many options)
+    -   `row_count_match` - Checks that the dataset has a certain number of rows
+    -   `col_count_match` - Checks that the dataset has a certain number of columns
+    -   `tbl_match` ([Doc](https://rstudio.github.io/pointblank/reference/tbl_match.html)) - Checks whether the target table matches a comparison table
+    -   `conjointly` ([Doc](https://rstudio.github.io/pointblank/reference/conjointly.html)) - Checks whether test units at each index (typically each row) all pass multiple validations
+    -   `serially` ([Doc](https://rstudio.github.io/pointblank/reference/serially.html)) - Allows for a series of tests to run in sequence before either culminating in a final validation step or simply exiting the series. This construction allows for pre-testing that may make sense before a validation step.
+    -   `specially` ([Doc](https://rstudio.github.io/pointblank/reference/specially.html)) - Performs a specialized validation with a user-defined function
+-   Report Glossary
+    -   STEP: The name of the validation function used for the validation step and the step number.
+    -   COLUMNS: The names of the target columns used in the validation step (if applicable).
+    -   VALUES: The values used in the validation step, where applicable; this could be as literal values, as column names, an expression, etc.
+    -   TBL: Indicates whether any there were any changes to the target table just prior to interrogation. A rightward arrow from a small circle indicates that there was no mutation of the table. An arrow from a circle to a purple square indicates that 'preconditions' were used to modify the target table. An arrow from a circle to a half-filled circle indicates that the target table has been 'segmented'.
+    -   EVAL: A symbol that denotes the success of interrogation evaluation for each step. A checkmark indicates no issues with evaluation. A warning sign indicates that a warning occurred during evaluation. An explosion symbol indicates that evaluation failed due to an error. Hover over the symbol for details on each condition.
+    -   UNITS: The total number of test units for the validation step (these are the atomic units of testing which depend on the type of validation).
+    -   PASS: On top is the absolute number of passing test units and below that is the fraction of passing test units over the total number of test units.
+    -   FAIL: On top is the absolute number of failing test units and below that is the fraction of failing test units over the total number of test units.
+    -   W, S, N: Indicators that show whether the *warn*, *stop*, or *notify* states were entered; unset states appear as dashes, states that are set with thresholds appear as unfilled circles when not entered and filled when thresholds are exceeded (colors for W, S, and N are amber, red, and blue)
+    -   EXT: A column that provides buttons to download data extracts as CSV files for row-based validation steps having failing test units. Buttons only appear when there is data to collect.
+-   General Function Arguments
+    -   [na_pass = TRUE]{.arg-text} (default [FALSE]{.arg-text}) says allow NAs to pass without tripping a fail
+-   Functions can also be used directly on a data object without initiating an agent
+    -   Uses a default failure threshold of 1 and when tripped, throws an error.
 
-        salesforce_data = pl.read_csv("salesforce_leads_snowflake.csv")
+    -   [Example]{.ribbon-highlight}:
 
-        def log_error():
-            """Custom action to log validation errors"""
-            metadata = pb.get_action_metadata()
-            print(f"❌  ERROR: Critical validation failure in step '{metadata['step']}'!")
-
-        def validate_salesforce_data(
-            data: pl.DataFrame,
-            tbl_name: str = "Salesforce",
-            label: str = "Lead Data",
-        ) -> pb.Validate:
-            validation = (
-                pb.Validate(
-                    data=data,
-                    tbl_name=tbl_name,
-                    label=f"{tbl_name} {label}",
-                    thresholds=pb.Thresholds(0.01, 0.02, 0.05),
-                    actions=pb.Actions(error=log_error),
-                    brief=True,
-                )
-                .col_vals_not_null(
-                  columns=pb.ends_with("_id")
-               )
-                .col_vals_not_null(
-                  columns=pb.ends_with("_name")
-               )
-               .col_vals_not_null(
-                columns="company"
-               )
-                .col_vals_regex(
-                  columns="email",
-                  pattern="^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\\.[a-zA-Z]{2,}$"
-               )
-                .col_vals_between(
-                    columns=["opportunity_value", "lead_score"], left=0, right=100
-                )
-                .rows_distinct(columns_subset="lead_id")
-                    .col_vals_gt(
-                    columns=["annual_revenue", "employees"], value=0
-                )
-               .col_vals_in_set(
-                  columns="lead_source",
-                  set=["Web", "Event", "Social Media"]
-               )
-                # Removed the redundant .col_vals_in_set for lead_source
-                .interrogate()
-            )
-            return validation
-
-        validation_result = validate_salesforce_data(data=salesforce_data_clean)
-
-        print("Above error threshold?", validation_result.above_threshold(level="error"))
-        if validation_result.above_threshold(level="error"):
-            print("RAISING ERROR NOW!")
-            raise ValueError("VALIDATION FAILED - STOPPING RENDER!")
+        ``` r
+        small_table |> col_vals_between(columns = a, left = 0, right = 10)
         ```
+-   Using values other than *literal* values
+    -   Other columns (e.g. [a]{.var-text} and [d]{.var-text})
+
+        ``` r
+        col_vals_between(
+          columns = c,
+          left = vars(a), right = vars(d),
+          na_pass = TRUE
+        )
+        ```
+
+    -   Other tables (e.g. same number of columns as the penguin dataset)
+
+        ``` r
+        small_table |> col_count_match(count = palmerpenguins::penguins)
+        ```
+-   Send results in an email
+    -   [Example]{.ribbon-highlight}: [{blastula}]{style="color: #990000"}
+
+        ``` r
+        if (any(x_list_3$notify)) {
+
+          email_create(agent_3) |>
+            blastula::smtp_send(
+              from = "sender@email.com",
+              to = "recipient@email.com",
+              credentials = creds_file(file = "email_secret")
+            )
+        }
+        ```
+-   Customize Report
+    -   [Examples]{.ribbon-highlight}
+
+        ``` r
+        # change title
+        agent_3 |> get_agent_report(title = "The **3rd** Example")
+
+        # change row order
+        agent_3 |> get_agent_report(arrange_by = "severity")
+
+        # remove steps without failures
+        agent_3 |> get_agent_report(arrange_by = "severity", keep = "fail_states")
+
+        # change language
+        agent_3 |> get_agent_report(lang = "de")
+        ```
+
+### Basic Workflow
+
+1.  The creation of an 'agent' (this is the main data collection and reporting object)
+
+    ``` r
+    # Create the agent with `create_agent()`; the `tbl` is given to the agent
+    agent_1 <- 
+      create_agent(
+        tbl = pointblank::small_table, # toy dataset from pkg
+        tbl_name = "small_table",
+        label = "Workshop agent No. 1",
+      )
+
+    # Printing the `agent` will print the report with the default options
+    agent_1
+    ```
+
+2.  The declaration of validation steps using validation functions (as many as you need)
+
+    ``` r
+    agent_1 <-
+      agent_1 |>
+      # check greater than, equal to
+      col_vals_gte(columns = d, value = 0) |>
+      # check vals are in a set
+      col_vals_in_set(columns = f, set = c("low", "mid", "high")) |>
+      # check types/classes
+      col_is_logical(columns = e) |>
+      col_is_numeric(columns = d) |>
+      col_is_character(columns = c(b, f)) |>
+      # check no duplicate rows
+      rows_distinct()
+    ```
+
+3.  The interrogation of the data (here the agent finally carries out the validation tasks)\
+    ![](_resources/Production,_Data_Validation.resources/pb-wkflw-1.png){.lightbox width="432"}
+
+    ``` r
+    agent_1 <- agent_1 |> interrogate()
+    agent_1 # to render report
+    ```
+
+### Operations
+
+-   [Set Test Failure Thresholds]{.underline}
+    -   Global Thresholds (i.e. all tests)
+
+        ``` r
+        # Create an `action_levels` object with the namesake function.
+        al <- 
+          action_levels(
+              warn_at = 0.15,
+              stop_at = 0.25,
+            notify_at = 0.35
+          )
+        ```
+
+        -   Says notify me if 35% of the test units fail in any test
+
+    -   Local Thresholds (i.e. an individual test)
+
+        ``` r
+        col_vals_between(
+          columns = d,
+          left = 0,
+          right = 4000,
+          actions = action_levels(
+            warn_at = 1,           
+            stop_at = 3,           
+            notify_at = 5          
+          )
+        )
+        ```
+
+        -   Setting `actions` at the individual validation step. This time, using absolute threshold values (e.g., a single test unit failing triggers the `warn` state)
+-   [Getting data extracts for failed rows]{.underline}
+    -   From agent
+
+        ``` r
+        get_data_extracts(agent = agent_3)
+        get_data_extracts(agent = agent_3, i = 9)
+        ```
+
+        -   Outputs a list of tibbles/dataframes with the rows that failed that particular validations step
+            -   The first table in the list has the list of step failures
+        -   [i]{.arg-text}: Says just output this particular validation steps tibble of failed rows
+-   [Getting sundered data]{.underline}
+    -   Allows you to get the "usable" data (i.e. data that passed all the checks) after it's been interr ogated
+
+    -   Other Output Options
+
+        -   `type = "fail"` - The 'fail' data piece (rows with at least one failing test unit across the same series of validations)
+        -   `type = "combined"` - All the data with *a new column that labels each row as passing or failing* across validation steps (the labels can be customized).
+
+    -   [Example]{.ribbon-highlight}:
+
+        ``` r
+        agent_4 <-
+          create_agent(
+            tbl = small_table,
+            tbl_name = "small_table",
+            label = "Workshop agent No. 4"
+          ) |>
+          col_vals_gt(columns = d, value = 1000) |>
+          col_vals_between(
+            columns = c,
+            left = vars(a), right = vars(d), # Using values in columns, not literal vals
+            na_pass = TRUE
+          ) |>
+          interrogate()
+
+        agent_4 |> get_sundered_data(type = "combined", pass_fail = c(TRUE, FALSE))
+        #> # A tibble: 13 × 9
+        #>    date_time           date           a b             c      d e     f     .pb_combined
+        #>    <dttm>              <date>     <int> <chr>     <dbl>  <dbl> <lgl> <chr> <lgl>       
+        #>  1 2016-01-04 11:00:00 2016-01-04     2 1-bcd-345     3  3423. TRUE  high  TRUE        
+        #>  2 2016-01-04 00:32:00 2016-01-04     3 5-egh-163     8 10000. TRUE  low   TRUE        
+        #>  3 2016-01-05 13:32:00 2016-01-05     6 8-kdg-938     3  2343. TRUE  high  FALSE       
+        #>  4 2016-01-06 17:23:00 2016-01-06     2 5-jdo-903    NA  3892. FALSE mid   TRUE        
+        #>  5 2016-01-09 12:36:00 2016-01-09     8 3-ldm-038     7   284. TRUE  low   FALSE       
+        #>  6 2016-01-11 06:15:00 2016-01-11     4 2-dhe-923     4  3291. TRUE  mid   TRUE        
+        #>  7 2016-01-15 18:46:00 2016-01-15     7 1-knw-093     3   843. TRUE  high  FALSE       
+        #>  8 2016-01-17 11:27:00 2016-01-17     4 5-boe-639     2  1036. FALSE low   FALSE       
+        #>  9 2016-01-20 04:30:00 2016-01-20     3 5-bce-642     9   838. FALSE high  FALSE       
+        #> 10 2016-01-20 04:30:00 2016-01-20     3 5-bce-642     9   838. FALSE high  FALSE       
+        #> 11 2016-01-26 20:07:00 2016-01-26     4 2-dmx-010     7   834. TRUE  low   FALSE       
+        #> 12 2016-01-28 02:51:00 2016-01-28     2 7-dmx-010     8   108. FALSE low   FALSE       
+        #> 13 2016-01-30 11:23:00 2016-01-30     1 3-dka-303    NA  2230. TRUE  high  TRUE 
+        ```
+
+        -   Custom values ([TRUE]{.var-text}, [FALSE]{.var-text}) instead of [pass]{.var-text}, [fail]{.var-text} are used in the indicator column, [.pb_combined]{.var-text}
+-   [Get interrogation metadata]{.underline}
+    -   The *x-list* can be constrained to a particular validation step (by supplying the step number to the [i]{.arg-text} argument), or, we can get the information for all validation steps by leaving [i]{.arg-text} unspecified.
+
+    -   [Example]{.ribbon-highlight}
+
+        ``` r
+        x_list_3 <- agent_3 |> get_agent_x_list()
+        x_list_3
+        #> ── The x-list for `small_table` ────────────────────────────────────────────────────────────────────────────────────────────── ALL STEPS ──
+        #> $time_start $time_end (POSIXct [1])
+        #> $label $tbl_name $tbl_src $tbl_src_details (chr [1])
+        #> $tbl (spec_tbl_df, tbl_df, tbl, and data.frame)
+        #> $col_names $col_types (chr [8])
+        #> $i $type $columns $values $label $briefs (mixed [10])
+        #> $eval_error $eval_warning (lgl [10])
+        #> $capture_stack (list [10])
+        #> $n $n_passed $n_failed $f_passed $f_failed (num [10])
+        #> $warn $stop $notify (lgl [10])
+        #> $validation_set (tbl_df [10, 35])
+        #> $lang (chr [1])
+        #> $report_object (gt_tbl)
+        #> $email_object (blastula_message)
+        #> $report_html $report_html_small (chr [1])
+        #> ───────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+
+        # fraction of passing test units in each validation step
+        x_list_3$f_passed
+
+        # create custom tibble with the desired elements
+        dplyr::tibble(
+          step   = x_list_3$i,
+          warn   = x_list_3$warn,
+          stop   = x_list_3$stop,
+          notify = x_list_3$notify
+        )
+        ```
+
+        -   Printing the object gives a breakdown of the elements within
+
+### Examples
+
+-   [Example]{.ribbon-highlight}: ([source](https://github.com/ivelasq/2025-06-25_marketing-demo/blob/c9f3145d827e184835a71ca820895c7158cf02c3/etl.qmd#L66))
+
+    ``` python
+    import pointblank as pb
+    import polars as pl
+
+    salesforce_data = pl.read_csv("salesforce_leads_snowflake.csv")
+
+    def log_error():
+        """Custom action to log validation errors"""
+        metadata = pb.get_action_metadata()
+        print(f"❌  ERROR: Critical validation failure in step '{metadata['step']}'!")
+
+    def validate_salesforce_data(
+        data: pl.DataFrame,
+        tbl_name: str = "Salesforce",
+        label: str = "Lead Data",
+    ) -> pb.Validate:
+        validation = (
+            pb.Validate(
+                data=data,
+                tbl_name=tbl_name,
+                label=f"{tbl_name} {label}",
+                thresholds=pb.Thresholds(0.01, 0.02, 0.05),
+                actions=pb.Actions(error=log_error),
+                brief=True,
+            )
+            .col_vals_not_null(
+              columns=pb.ends_with("_id")
+           )
+            .col_vals_not_null(
+              columns=pb.ends_with("_name")
+           )
+           .col_vals_not_null(
+            columns="company"
+           )
+            .col_vals_regex(
+              columns="email",
+              pattern="^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\\.[a-zA-Z]{2,}$"
+           )
+            .col_vals_between(
+                columns=["opportunity_value", "lead_score"], left=0, right=100
+            )
+            .rows_distinct(columns_subset="lead_id")
+                .col_vals_gt(
+                columns=["annual_revenue", "employees"], value=0
+            )
+           .col_vals_in_set(
+              columns="lead_source",
+              set=["Web", "Event", "Social Media"]
+           )
+            # Removed the redundant .col_vals_in_set for lead_source
+            .interrogate()
+        )
+        return validation
+
+    validation_result = validate_salesforce_data(data=salesforce_data_clean)
+
+    print("Above error threshold?", validation_result.above_threshold(level="error"))
+    if validation_result.above_threshold(level="error"):
+        print("RAISING ERROR NOW!")
+        raise ValueError("VALIDATION FAILED - STOPPING RENDER!")
+    ```
