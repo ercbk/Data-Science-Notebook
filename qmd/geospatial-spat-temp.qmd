@@ -695,7 +695,24 @@
         -   *Lead-lag relationships*: Strong asymmetry with a clear peak at a non-zero lag indicates one series systematically precedes the other, which can be important for forecasting or understanding the physical mechanisms at play.
     -   Is there a approximate distance between many pairs of locations at which autocorrelation is insignificant?
 
--   [Example]{.ribbon-highlight}: PM10 Pollution ([{gstat}]{style="color: #990000"} [vignette](https://cran.r-project.org/web/packages/gstat/vignettes/st.pdf), section 2)
+-   [Pooled Temporal Variogram]{.underline}
+
+    -   A pooled temporal variogram is computed by holding space fixed and pooling squared temporal differences across spatial locations.
+    -   It can be used with spatio-temporal data to estimate the strength of temporal dependence of various time differences.
+        -   We can also use to get reasonable starting values for the time portions of spatio-temporal variogram models (e.g. separable, metric, product-sum, etc.)
+    -   Let $Y_{s,t}$ denote the observation at location $s = 1,\dots,S$ and time $t = 1,\dots,T$.
+    -   The pooled estimator is:\
+        $$
+        \hat{\gamma}(h_t) = \frac{1}{2 N_k(h_t)} \sum_{k=1}^{K} \sum_{s=1}^{S}
+        \left( Y_{s,t} - Y_{s,t+u} \right)^2        
+        $$
+        -   $h_t$ is a temporal bin
+        -   $N_k(h_t)$ is the number of valid (not NA) time difference pairs in that temporal bin
+        -   $K$ is the number of time difference pairs
+        -   $S$ is number of spatial locations
+        -   $u$ is temporal separation
+
+-   [Example 1]{.ribbon-highlight}: PM10 Pollution ([{gstat}]{style="color: #990000"} [vignette](https://cran.r-project.org/web/packages/gstat/vignettes/st.pdf), section 2)
 
     :::: panel-tabset
     ## Data
@@ -999,6 +1016,262 @@
 
     -   Pretty much on the other side of the country, but there are locations further away. Again, it'd be interesting to look at the cross-correlations between some of the pairs of locations that are just as far or farther away.
     ::::
+
+-   [Example 2]{.ribbon-highlight}: Pooled Temporal Variogram
+
+    ::::: panel-tabset
+    ## Data
+
+    This is the PM10 air pollution dataset for Germany that's from [{spacetime}]{style="color: #990000"} and used in many of my examples.
+
+    The goal is to find starting values for temporal `vgm` portions spatio-temporal variogram models.
+
+    ``` r
+    pacman::p_load(
+      ebtools, # pooled_temporal_variogram
+      ggplot2,
+      patchwork,
+      gstat
+    )
+
+    data(air, package = "spacetime")
+
+    keep_cols <- dates >= as.Date("2005-01-01") &
+      dates <= as.Date("2010-12-31")
+
+    air_sub <- air[, keep_cols]
+
+    # Remove locations with all NAs
+    keep_rows <- rowSums(!is.na(air_sub)) > 0
+    air_sub <- air_sub[keep_rows, ]
+
+    # add dates as column names
+    keep_dates <- as.character(dates[keep_cols])
+    colnames(air_sub) <- keep_dates
+    ```
+
+    -   `pooled_temporal_variogram` is from [my personal package](https://ercbk.github.io/ebtools/) and requires a space-time matrix with date or datetime strings as column names.
+
+    ## Pooled Temporal Variogram
+
+    ![](_resources/Geospatial-Spatio-Temporal.resources/eda-tdep-vario-bws.png){.lightbox group="eda-tdep-ex2" width="682"}
+
+    ``` r
+    ls_vario_time <- purrr::map(
+      c(7, 14, 21), # 1wk, 2wks, 3wks
+      \(x) {
+        pooled_temporal_variogram(
+          Y = air_sub,
+          bin_width = x,
+          max_time_diff = 375 # slightly more than a year in case there's noise
+        )
+      }
+    )
+
+    ls_plots <- purrr::map2(
+      ls_vario_time,
+      c(7, 14, 21),
+      \(vario_obj, binwidth) {
+        ggplot(vario_obj, 
+               aes(x = dist, y = gamma)) +
+          geom_point(color = "#59754D") +
+          geom_line(color = "#59754D") +
+          expand_limits(y = 60:110) +
+          labs(
+            x = "Time Difference (days)",
+            y = "Semivariance",
+            title = "Pooled Temporal Variogram",
+            subtitle = glue::glue("With bin width of {binwidth} days")
+          ) +
+          theme_notebook() +
+          theme(panel.grid.minor = element_line())
+      }
+    )
+
+    ls_plots[[1]] + ls_plots[[2]] + ls_plots[[3]]    
+    ```
+
+    -   **tl;dr MY RANGE ESTIMATION WAS BAD.** The main issue I think was that I didn't extend the y-axis to zero in my plots which zoomed me into the data. It caused me to over-interpret the pattern which led me to estimate a larger range. Turns out that the variogram model sees the data as FLAT which leads to a much smaller range. When you see the plots in the next section you can kind of see where it's coming from, and honestly with air pollution, a small range makes more intuitive sense to me.
+        -   **My nugget and sill estimations (and some other stuff) were pretty good at least (for some models).**
+        -   I'm leaving this interpretation here, because it might be helpful to look back upon for when there is an actual pattern in my data.
+    -   Using a bin width 7 is best for nugget estimation and initial detection of any patterns (e.g. seasonality)
+        -   My nugget estimation: \~68 units
+            -   So probably some micro-scale variation or measurment error present
+    -   Using a bin width 14 and 21 is best for sill and range estimation
+        -   Refinement of interpretation of any patterns
+        -   Sill estimation: \~103 units
+        -   Range estimation options:
+            -   Use the bump: \~220 days
+            -   Treat the bump as an anomaly: \~120 days
+    -   The rapid rise and leveling indicates strong short-term temporal dependence
+    -   The bump could indicate some seasonality. It begins at around 200 days and lasts until around 300 days.
+        -   The (temporal) variogram assumes stationarity. So, if strong enough, it could substantially bias the estimation.
+        -   Perhaps some seasonal differencing may be useful
+        -   Internally subtract location-wise mean or seasonal mean (rows in the matrix)
+    -   The nugget-sill ratio: 68/103 = 0.66 which is quite high
+        -   Interpretation:
+            -   High day-to-day variability
+                -   Since roughly two-thirds of the total variance is unstructured at the resolution of the sampling
+            -   Weak persistence after short lags
+                -   i.e. variable de-autocorrelates quickly after a 2 or 3 weeks
+            -   This is realistic for air pollution
+        -   Reasons
+            -   Pollution levels are driven by episodic events (traffic, wind shifts, industrial emissions, weather fronts)
+            -   Day-to-day meteorological forcing is highly variable and not strongly autocorrelated
+            -   PM10 responds quickly to local conditions and doesn't "persist" the way a slower variable like soil organic matter or groundwater depth might
+    -   The dip after \~275 days suggests one of:
+        -   Finite sample noise (most likely)
+        -   Seasonality (annual structure)
+            -   Potentially correct as the bump is at the tail
+        -   Not enough pairs
+            -   There are more than enough, so this ain't it
+
+    ## Fit Variogram Models
+
+    ###### Without Nugget
+
+    ::: {layout-ncol="3"}
+    ![Exponential](_resources/Geospatial-Spatio-Temporal.resources/eda-tdep-ex2-mod-exp.png){.lightbox group="eda-tdep-ex2" width="382"}
+
+    ![Spherical](_resources/Geospatial-Spatio-Temporal.resources/eda-tdep-ex2-mod-sph.png){.lightbox group="eda-tdep-ex2" width="382"}
+
+    ![Matern](_resources/Geospatial-Spatio-Temporal.resources/eda-tdep-ex2-mod-mat.png){.lightbox group="eda-tdep-ex2" width="382"}
+    :::
+
+    ``` r
+    mod_vario_time_exp <- fit.variogram(
+      object = ls_vario_time[[1]],
+      model = vgm(
+        model = "Exp",
+        psill = 35, # units; 103-68
+        range = 120 # days
+      )
+    )
+
+    mod_vario_time_exp
+    #>   model    psill    range
+    #> 1   Exp 93.56833 2.669963
+
+    plot(
+      x = ls_vario_time[[1]],
+      mod_vario_time_exp
+    )
+
+    mod_vario_time_sph <- fit.variogram(
+      object = ls_vario_time[[1]],
+      model = vgm(
+        model = "Sph",
+        psill = 35, # units; 103-68
+        range = 120 # days
+      )
+    )
+    mod_vario_time_sph
+    #>   model    psill    range
+    #> 1   Sph 92.40597 6.379134
+
+    plot(
+      x = ls_vario_time[[1]],
+      mod_vario_time_sph
+    )
+
+
+    mod_vario_time_mat <- fit.variogram(
+      object = ls_vario_time[[1]],
+      model = vgm(
+        model = "Mat",
+        psill = 35, # units; 103-68
+        range = 120, # days,
+        kappa = 0.12
+      )
+    )
+
+    mod_vario_time_mat
+    #>   model    psill    range kappa
+    #> 1   Mat 100.2906 14.42514  0.12
+
+    plot(
+      x = ls_vario_time[[1]],
+      mod_vario_time_mat
+    )
+    ```
+
+    -   I used the finer bin width (7 days) variogram, because there are still plenty of time difference pairs for semivariance estimation and there's no danger of overfitting these models.
+    -   There are many models avaiable in gstat, but a lot are for specialized situations and the rest errored or didn't converge. I didn't investigate why some errored or didn't converge, so I just ended up with these three.
+
+    ###### With Nugget
+
+    ::: {layout-ncol="3"}
+    ![Exponential](_resources/Geospatial-Spatio-Temporal.resources/eda-tdep-ex2-mod-exp-nug.png){.lightbox group="eda-tdep-ex2" width="382"}
+
+    ![Spherical](_resources/Geospatial-Spatio-Temporal.resources/eda-tdep-ex2-mod-sph-nug.png){.lightbox group="eda-tdep-ex2" width="382"}
+
+    ![Matern](_resources/Geospatial-Spatio-Temporal.resources/eda-tdep-ex2-mod-mat-nug.png){.lightbox group="eda-tdep-ex2" width="382"}
+    :::
+
+    ``` r
+    mod_vario_time_exp_nug <- fit.variogram(
+      object = ls_vario_time[[1]],
+      model = vgm(
+        model = "Exp",
+        psill = 35, # units; 103-68
+        range = 2, # days
+        nugget = 68
+      )
+    )
+
+    mod_vario_time_exp_nug
+    #>   model    psill    range
+    #> 1   Nug 45.06836 0.000000
+    #> 2   Exp 52.17817 5.894366
+
+    plot(
+      x = ls_vario_time[[1]],
+      mod_vario_time_exp_nug,
+    )
+
+    mod_vario_time_sph_nug <- fit.variogram(
+      object = ls_vario_time[[1]],
+      model = vgm(
+        model = "Sph",
+        psill = 35, # units; 103-68
+        range = 120, # days
+        nugget = 68
+      )
+    )
+    mod_vario_time_sph_nug
+    #>   model    psill    range
+    #> 1   Nug 55.59087  0.00000
+    #> 2   Sph 39.97869 16.10447
+
+    plot(
+      x = ls_vario_time[[1]],
+      mod_vario_time_sph_nug
+    )
+
+    mod_vario_time_mat_nug <- fit.variogram(
+      object = ls_vario_time[[1]],
+      model = vgm(
+        model = "Mat",
+        psill = 35, # units; 103-68
+        range = 120, # days,
+        kappa = 0.12,
+        nugget = 68
+      )
+    )
+
+    mod_vario_time_mat_nug
+    #>   model    psill    range kappa
+    #> 1   Nug   0.0000  0.00000  0.00
+    #> 2   Mat 100.2906 14.42514  0.12
+
+    plot(
+      x = ls_vario_time[[1]],
+      mod_vario_time_mat_nug
+    )    
+    ```
+
+    -   words
+    :::::
 
 ### Spatial Dependence {#sec-geo-sptemp-eda-spdep .unnumbered}
 
