@@ -4,6 +4,41 @@
 
 -   Packages
     -   [{]{style="color: #990000"}[apache.sedona](https://github.com/apache/sedona/tree/master/R){style="color: #990000"}[}]{style="color: #990000"} - Sparklyr extension for processing geospatial data
+        -   [Example]{.ribbon-highlight}: Larger-than-memory spatial/KNN join
+
+            <Details>
+
+            <Summary>Code</Summary>
+
+            ``` python
+            import sedona.db
+
+            sd = sedona.db.connect()
+            sd.options.memory_limit = "3g"
+            sd.options.memory_pool_type = "fair"
+
+            url = "https://github.com/geoarrow/geoarrow-data/releases/download/v0.2.0/microsof"
+            sd.read_parquet(url).to_view("buildings")
+            sd.sql("""
+                SELECT ROW_NUMBER() OVER () AS building_id, geometry
+                FROM buildings
+            """).to_parquet("buildings_idx.parquet")
+
+            sd.sql("""
+                SELECT
+                    l.building_id,
+                    r.building_id AS nearest_building_id,
+                    l.geometry AS geometry,
+                    ST_Distance(l.geometry, r.geometry) AS dist
+                FROM "buildings_idx.parquet" AS l
+                JOIN "buildings_idx.parquet" AS r
+                ON l.building_id <> r.building_id
+            """)
+            ```
+
+            -   Requires setting a memory limit
+
+            </Details>
     -   [{]{style="color: #990000"}[chopin](https://docs.ropensci.org/chopin/){style="color: #990000"}[}]{style="color: #990000"} - Automates parallelization in spatial operations with chopin functions as well as sf/terra functions.
         -   Raster resolution: Suggests 100 meters as a threshold. Rasters with resolution *coarser than 100 meters* and a few layers would be better for the direct call of `exactextractr::exact_extract`.
         -   Set `sf::sf_use_s2(FALSE)` - Works best with two-dimensional (planar) geometries. Running any chopin functions at spherical or three-dimensional (e.g., including M/Z dimensions) geometries may produce incorrect or unexpected results.

@@ -1661,6 +1661,57 @@
     plot(vario_samp, vario_mod, wireframe = T)
     ```
 
+-   Starting Values
+
+    -   I don't think any starting values for parameters have to be set unless the model fails to converge.
+
+    -   Use estimates from pooled marginal variograms
+
+        -   See [EDA \>\> Temporal Dependence](geospatial-spat-temp.qmd#sec-geo-sptemp-eda-ac){style="color: green"} \>\> Example 2
+        -   See [EDA \>\> Spatial Dependence](geospatial-spat-temp.qmd#sec-geo-sptemp-eda-spdep){style="color: green"} \>\> Example 1
+
+    -   Others I've seen
+
+        -   Cutoff
+            -   Spatial ([source](https://www.youtube.com/watch?v=iJdbAGb9I_E&list=WL&index=6&pp=iAQBsAgC))
+
+                ``` r
+                cutoff <- 0.5 * max(
+                  x = sp::spDists(
+                    x = sp::coordinates(
+                      # SpatialGridDataFrame; Month is actually a date
+                      obj = sgdf_fires[sgdf_fires$Month == min(sgdf_fires$Month), ]
+                    )
+                  )
+                )
+                ```
+
+                -   The default is essentially this is divided by 3 instead of 2 (I think).
+                -   Not sure why he's filtering by the minimum date
+
+            -   Temporal ([source](https://www.youtube.com/watch?v=iJdbAGb9I_E&list=WL&index=6&pp=iAQBsAgC))
+
+                ``` r
+                # SpatialGridDataFrame; Month is actually a date
+                cutoff <- diff(range(spdf_month$Month)) / 2
+                ```
+
+                -   The range of date values was very large (maybe 10 years) in this example. So I think it's too long, but probably a reasonable starting point.
+                -   Dude said fitting the model took too long, so runtime should also be a consideration.
+        -   Sill
+            -   Overall ([source](https://www.youtube.com/watch?v=iJdbAGb9I_E&list=WL&index=6&pp=iAQBsAgC))
+
+                ``` r
+                # sample variance
+                var(STIDF_fires@data$Fires)
+                ```
+
+                -   Where [Fires]{.var-text} is the response variable (count)
+        -   Nugget
+            -   Use marginal psill ([source](https://www.youtube.com/watch?v=iJdbAGb9I_E&list=WL&index=6&pp=iAQBsAgC)): `fit.variogram_space$psill`
+                -   He used this for both temporal and space `vgm` models in `vgmST`
+                -   If you didn't fit the nugget in your marginal models and don't want to go back and do that, then I guess this is an option.
+
 ### Variogram {#sec-geo-sptemp-krig-var .unnumbered}
 
 #### Description
@@ -1719,6 +1770,7 @@
 -   [Misc]{.underline}
     -   See [Geospatial, Modeling \>\> Interpolation \>\> Kriging \>\> Variograms](geospatial-modeling.qmd#sec-geo-krig-vario){style="color: green"} \>\> Terms for descriptions of sill, nugget, and range.
     -   For `vgm`, you can just use `vgm("exponential")` and not worry about setting parameters like sill, nugget, etc. This might also be the case with `vgmST`. (See [Geospatial, Models \>\> Interpolation \>\> Kriging \>\> Variograms](geospatial-modeling.qmd#sec-geo-krig-vario){style="color: green"}\>\> Example 1)
+        -   You don't have to specify model types in each vgm for time and space. I think it fits them all and chooses the best one.
     -   For [space]{.arg-text} and [time]{.arg-text} arguments, `vgm` is used to specify those models
 -   [Covariance Models]{.underline}
     -   [Separable]{.underline}
@@ -1816,10 +1868,15 @@
 
 -   "The selection of a spatio-temporal covariance model should not only be made based on the (weighted) mean squared difference between the empirical and model variogram surfaces (`attributes(fit_vario)$value`), but also on conceptional choices and visual judgement of the fits. (`plot(emp_vario, c(fit_vario1, fit_vario2, fit_vario3), wireframe = TRUE, all = TRUE)`) "
 -   `plot` - Shows the sample and fitted variogram surfaces next to each other as colored level plots. ([Docs](https://cran.r-project.org/web/packages/gstat/refman/gstat.html#plot.gstatVariogram))
+    -   The 3-D wireframe charts aren't good for comparison. Maybe if they were interactive (rotation, zoom) and created using a more modern package, they'd be more useful.
+    -   With heatmaps, I'm able to distinguish really bad fitting models from other models, but comparison is difficult if the fit of the models is similar.
+    -   The multi-line chart is the best at comparing fits (IMO).
     -   [wireframe = TRUE]{.arg-text} creates a wireframe plot
+    -   [map = TRUE]{.arg-text} (default) creates a heatmap of time vs space.
+        -   [FALSE]{.arg-text} creates a multi-line chart
     -   [diff = TRUE]{.arg-text} plots the difference between the sample and fitted variogram surfaces.
         -   Helps to better identify structural shortcomings of the selected model
-    -   [all = TRUE]{.arg-text} plots sample and model variogram(s) in single wireframes
+    -   [all = TRUE]{.arg-text} plots sample and model variogram(s)
 -   Convergence output from `optim`
     -   [method = "L-BFGS-B"]{.arg-text} is the default. It uses a limited-memory modification of the BFGS quasi-Newton method, and has been said not the be as *robust* as "BFGS" which is supposed to be the gold standard ([thread](https://bsky.app/profile/vdveenb.bsky.social/post/3mb2ff75rh22i)). So if you have issues, "BFGS" may be worth a try.
 
@@ -1899,68 +1956,3 @@
         # wireframe
         plot(var,list(separable_Vgm, prodSumModel_Vgm, metric_Vgm, sumMetric_Vgm, SimplesumMetric_Vgm),all=T,wireframe=T)
         ```
--   statninja vid
-    -   vid 3 on st vig
-        -   Empirical variogram
-            -   cutoff and tlags specified
-            -   heatmap - plot(vario)
-                -   The shades of color are too hard to distinguish to get any sort of quality numeric estimate
-            -   line plot - plot(vario, map = FALSE)
-                -   100 semi-variance (no spdep) at lag 4 at around 40km
-                -   Should 40 km be our spatial range starting value and 4 be out time range starting value?
-        -   Metric Model
-            -   starting values: psill, range, nugget = 0, stAni
-            -   heatmap - plot(vario, mod)
-                -   shows much more variability in the time axis than the spatial one
-                    -   really smooths out the colors in the spatial dimension.
-                -   Don't really like it as a way to tell how well it fits the empirical variogram
-            -   no line chart
-        -   Separable
-            -   starting values: sill (overall) and psill, range, nugget (for time and space models)
-                -   weird that the psill and nugget add to 1 but the sill is set to 100
-            -   fit - boundaries (lower and upper) set - five parameters
-            -   heatmap comparison w/metric
-                -   less smoothing which better captures the empircal vario
-            -   3d wireframe comparison
-                -   pretty difficult to make any kind of judgement either way
-            -   no line chart
-        -   specialized prediction plot looks mostly uninformative (weird ordering, no polys)
-    -   vid 4 fires
-        -   convex hull
-        -   time only variogram
-        -   Marginal variogram starting values
-            -   spatial cutoff
-
-                ``` r
-                cutoff <- 0.5 * max(
-                  x = sp::spDists(
-                    x = sp::coordinates(
-                      # SpatialGridDataFrame
-                      obj = sgdf_fires[sgdf_fires$Month == min(sgdf_fires$Month), ]
-                    )
-                  )
-                )
-                ```
-
-            -   temporal cutoff
-
-                ``` r
-                cutoff <- diff(range(spdf_month$Month)) / 2
-                ```
-
-                -   I don't think this was a sensible value. I believe the dates were aggregated to months, but the x-axis looked like days was used by the variogram function. I think this value was in the thousands. So, is it plausible there's temporal dependencies in the thousands of days or months range? I don't think so.
-                    -   Maybe if you're trying to take into account some kind of el nino effect?
-
-            -   Both widths are cutoff / 10
-        -   vgmST
-            -   doesn't specify model types in each vgm for time and space
-                -   The chosen models are the same as the marginal ones he fit. I feel like he took this result and fit marginal ones after the fact but whatever.
-            -   Sets the nugget for each model *and* an overall nugget
-                -   uses the psill value of each mariginal variogram
-                -   chooses min between two as the overall nugget
-            -   overall siil set as the var of the response (count): `var(STIDF_fires@data$Fires)`
-                -   This was actually the exact overall sill estimated by the model
-            -   sets k = 15 which is the weighting of the product in the product-sum model
-                -   dumb since he's fitting a separable model
-                -   maybe he thinks it's for the matern in case of the marginal models chooses matern which is wrong.
-            -   evidently this function does some optimatization, because range and nugget estimates for each of time and space are available from the object and also a sill estimate
