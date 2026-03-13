@@ -2092,7 +2092,7 @@ window.Quarto = {
           <li class="sidebar-item">
   <div class="sidebar-item-container"> 
   <a href="../qmd/surveys-census-data.html" class="sidebar-item-text sidebar-link">
- <span class="menu-text">Census Data</span></a>
+ <span class="menu-text">Census and Other Surveys</span></a>
   </div>
 </li>
           <li class="sidebar-item">
@@ -2208,6 +2208,7 @@ window.Quarto = {
   <li><a href="#sec-alg-ml-knn-misc" id="toc-sec-alg-ml-knn-misc" class="nav-link" data-scroll-target="#sec-alg-ml-knn-misc">Misc</a></li>
   <li><a href="#sec-alg-ml-knn-ann" id="toc-sec-alg-ml-knn-ann" class="nav-link" data-scroll-target="#sec-alg-ml-knn-ann">Approximate Nearest Neighbor (ANN)</a></li>
   </ul></li>
+  <li><a href="#sec-alg-ml-mars" id="toc-sec-alg-ml-mars" class="nav-link" data-scroll-target="#sec-alg-ml-mars">Multivariate Adaptive Regression Splines (MARS)</a></li>
   <li><a href="#sec-alg-ml-trees" id="toc-sec-alg-ml-trees" class="nav-link" data-scroll-target="#sec-alg-ml-trees"><span class="header-section-number">1.1</span> Trees</a>
   <ul>
   <li><a href="#sec-alg-ml-trees-dt" id="toc-sec-alg-ml-trees-dt" class="nav-link" data-scroll-target="#sec-alg-ml-trees-dt"><span class="header-section-number">1.1.1</span> Decision Trees</a></li>
@@ -2653,6 +2654,181 @@ K(x,y) = (\alpha \cdot x^Ty + c )^d
 </ul>
 </section>
 </section>
+<section id="sec-alg-ml-mars" class="level2 unnumbered">
+<h2 class="unnumbered anchored" data-anchor-id="sec-alg-ml-mars">Multivariate Adaptive Regression Splines (MARS)</h2>
+<ul>
+<li><p>Misc</p>
+<ul>
+<li>Packages
+<ul>
+<li><span style="color: #990000">{</span><a href="https://cran.r-project.org/web/packages/earth/index.html" style="color: #990000">earth</a><span style="color: #990000">}</span> - The primary R package for MARS; “earth” stands for <strong>E</strong>nhanced <strong>A</strong>daptive <strong>R</strong>egression <strong>T</strong>hrough <strong>H</strong>inges.
+<ul>
+<li>Supports regression and classification (binomial and multinomial)</li>
+<li>Includes built-in variable importance via the <code>evimp()</code> function</li>
+<li>Compatible with <span style="color: #990000">{caret}</span> and <span style="color: #990000">{tidymodels}</span> workflows via the <code>"earth"</code> engine</li>
+</ul></li>
+<li><span style="color: #990000">{</span><a href="https://cran.r-project.org/web/packages/mda/index.html" style="color: #990000">mda</a><span style="color: #990000">}</span> - Mixture and Flexible Discriminant Analysis; contains the original <code>mars()</code> function but <span style="color: #990000">{earth}</span> is generally preferred</li>
+</ul></li>
+<li>Resources
+<ul>
+<li><a href="https://link.springer.com/book/10.1007/978-1-4614-6849-3">Applied Predictive Modeling, Ch. 7</a> - Kuhn &amp; Johnson cover MARS in the context of nonlinear regression</li>
+</ul></li>
+</ul></li>
+<li><p><u>Process</u></p>
+<ul>
+<li><p>MARS builds a model by searching for breakpoints (knots) in the predictor space and fitting piecewise linear segments defined by <strong>hinge functions</strong> (also called <em>reflected pairs</em>):<br>
+<a href="_resources/Algorithms,_ML.resources/mars-hinge-functions.png" class="lightbox" data-gallery="quarto-lightbox-gallery-8"><img src="_resources/Algorithms,_ML.resources/mars-hinge-functions.png" class="img-fluid" width="632"></a></p>
+<p><span class="math display">\[
+h(x - t) = \max(0,\, x - t), \quad h(t - x) = \max(0,\, t - x)
+\]</span></p>
+<p>where <span class="math inline">\(t\)</span> is a knot location. The model is a weighted sum of these basis functions:</p>
+<p><span class="math display">\[
+\hat{y} = \beta_0 + \sum_{m=1}^{M} \beta_m B_m(\mathbf{x})
+\]</span></p>
+<ul>
+<li><span class="math inline">\(B_m(\mathbf{x})\)</span> is the <span class="math inline">\(m\)</span>-th basis function, which may be a single hinge or a product of hinges (for interactions)</li>
+<li><span class="math inline">\(\beta_m\)</span> are coefficients estimated by ordinary least squares</li>
+</ul></li>
+<li><p>The algorithm proceeds in two phases:<br>
+<a href="_resources/Algorithms,_ML.resources/mars-forward-vs-pruned.png" class="lightbox" data-gallery="quarto-lightbox-gallery-9"><img src="_resources/Algorithms,_ML.resources/mars-forward-vs-pruned.png" class="img-fluid" width="632"></a></p>
+<ol type="1">
+<li><p><strong>Forward pass</strong> — Greedily adds pairs of reflected hinge functions (and their products) to the model, choosing the predictor and knot location that most reduces the residual sum of squares at each step. The model is deliberately over-fit.</p>
+<ul>
+<li>MARS nests linear regression as a special case when no knots are placed; it reduces to OLS if the forward pass finds no useful breakpoints</li>
+</ul></li>
+<li><p><strong>Backward pruning (GCV)</strong> — Basis functions are removed one at a time using <strong>Generalized Cross-Validation (GCV)</strong> as the criterion, retaining only those that improve out-of-sample predictive performance.</p>
+<p><span class="math display">\[
+\text{GCV} = \frac{\text{RSS}/n}{\left(1 - \tilde{M}/n\right)^2}
+\]</span></p>
+<ul>
+<li><span class="math inline">\(\tilde{M}\)</span> is an effective degrees-of-freedom penalty that accounts for both the number of basis functions and the number of knots searched during the forward pass</li>
+<li>The penalty discourages the model from keeping too many knots even if RSS decreases</li>
+</ul></li>
+</ol></li>
+</ul></li>
+<li><p><u>Interactions</u></p>
+<ul>
+<li><p>Interactions are modeled by multiplying two or more hinge functions together, e.g.:</p>
+<p><span class="math display">\[
+B_m(\mathbf{x}) = h(x_1 - t_1) \cdot h(x_2 - t_2)
+\]</span></p></li>
+<li><p>The maximum interaction degree is controlled by the <span class="arg-text">degree</span> argument in <span style="color: #990000">{earth}</span> (<span class="arg-text">degree = 1</span> forces an additive model, <span class="arg-text">degree = 2</span> allows pairwise interactions, etc.)</p></li>
+<li><p>At <span class="arg-text">degree = 1</span>, MARS is roughly equivalent to a piecewise-linear GAM with automatically placed knots</p></li>
+<li><p>Higher degrees can capture complex response surfaces but increase the risk of over-fitting</p></li>
+</ul></li>
+<li><p><u>Hyperparameters</u></p>
+<ol type="1">
+<li><span class="arg-text">nk</span> — Maximum number of basis functions in the forward pass (default: <code>min(200, max(20, 2 * ncol(x) + 1))</code>); a larger value allows a richer forward model before pruning</li>
+<li><span class="arg-text">degree</span> — Maximum degree of interaction among hinge functions (default: <code>1</code>); <span class="arg-text">degree = 2</span> is a common choice for allowing pairwise interactions</li>
+<li><span class="arg-text">thresh</span> — Forward-pass stopping threshold; a term is added only if it reduces GCV by more than this fraction (default: <code>0.001</code>)</li>
+<li><span class="arg-text">nprune</span> — Maximum number of terms (including the intercept) retained after pruning; can be tuned via cross-validation</li>
+<li><span class="arg-text">penalty</span> — GCV penalty per knot (default: <code>2</code> for <span class="arg-text">degree = 1</span>, <code>3</code> for <span class="arg-text">degree &gt; 1</span>); higher values encourage sparser models</li>
+</ol></li>
+<li><p><u>Variable Importance</u></p>
+<ul>
+<li><code>earth::evimp()</code> reports importance based on two criteria:
+<ul>
+<li><span class="arg-text">nsubsets</span> — number of model subsets (during backward pruning) in which a predictor appears; higher = more consistently useful</li>
+<li><span class="arg-text">gcv / rss</span> — reduction in GCV or RSS attributable to each predictor</li>
+</ul></li>
+<li>Variables involved in interaction terms contribute importance through all terms in which they appear</li>
+</ul></li>
+<li><p><u>Comparison with Related Methods</u></p>
+<ul>
+<li>MARS vs.&nbsp;GAM: MARS automatically selects knots and interactions; GAM uses smooth splines per predictor and requires manual interaction specification
+<ul>
+<li>MARS is better when the relationship involves abrupt changes or threshold effects better captured by piecewise linearity and in a higher-dimensional settings where manual interaction specification is impractical.</li>
+</ul></li>
+<li>MARS vs.&nbsp;Decision Trees: Both are piecewise and perform implicit variable selection, but MARS produces continuous, linear-between-knots fits rather than step functions, and is generally smoother</li>
+</ul></li>
+<li><p><span class="ribbon-highlight">Example</span>: Predicting fuel efficiency (<code>mpg</code>) from car attributes using the <code>mtcars</code> dataset</p>
+<div class="tabset-margin-container"></div><div class="panel-tabset">
+<ul class="nav nav-tabs" role="tablist"><li class="nav-item" role="presentation"><a class="nav-link active" id="tabset-2-1-tab" data-bs-toggle="tab" data-bs-target="#tabset-2-1" role="tab" aria-controls="tabset-2-1" aria-selected="true" href="">Data and Model</a></li><li class="nav-item" role="presentation"><a class="nav-link" id="tabset-2-2-tab" data-bs-toggle="tab" data-bs-target="#tabset-2-2" role="tab" aria-controls="tabset-2-2" aria-selected="false" href="">Variable Importance</a></li><li class="nav-item" role="presentation"><a class="nav-link" id="tabset-2-3-tab" data-bs-toggle="tab" data-bs-target="#tabset-2-3" role="tab" aria-controls="tabset-2-3" aria-selected="false" href="">Tidymodels Workflow</a></li></ul>
+<div class="tab-content">
+<div id="tabset-2-1" class="tab-pane active" role="tabpanel" aria-labelledby="tabset-2-1-tab">
+<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb4"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb4-1"><a href="#cb4-1" aria-hidden="true" tabindex="-1"></a><span class="fu">library</span>(earth)</span>
+<span id="cb4-2"><a href="#cb4-2" aria-hidden="true" tabindex="-1"></a><span class="fu">library</span>(dplyr)</span>
+<span id="cb4-3"><a href="#cb4-3" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb4-4"><a href="#cb4-4" aria-hidden="true" tabindex="-1"></a><span class="fu">data</span>(mtcars)</span>
+<span id="cb4-5"><a href="#cb4-5" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb4-6"><a href="#cb4-6" aria-hidden="true" tabindex="-1"></a>mars_mod <span class="ot">&lt;-</span> <span class="fu">earth</span>(</span>
+<span id="cb4-7"><a href="#cb4-7" aria-hidden="true" tabindex="-1"></a>  mpg <span class="sc">~</span> .,</span>
+<span id="cb4-8"><a href="#cb4-8" aria-hidden="true" tabindex="-1"></a>  <span class="at">data    =</span> mtcars,</span>
+<span id="cb4-9"><a href="#cb4-9" aria-hidden="true" tabindex="-1"></a>  <span class="at">degree  =</span> <span class="dv">2</span>,      <span class="co"># allow pairwise interactions</span></span>
+<span id="cb4-10"><a href="#cb4-10" aria-hidden="true" tabindex="-1"></a>  <span class="at">nprune  =</span> <span class="dv">10</span>      <span class="co"># retain at most 10 terms after pruning</span></span>
+<span id="cb4-11"><a href="#cb4-11" aria-hidden="true" tabindex="-1"></a>)</span>
+<span id="cb4-12"><a href="#cb4-12" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb4-13"><a href="#cb4-13" aria-hidden="true" tabindex="-1"></a><span class="fu">summary</span>(mars_mod)</span>
+<span id="cb4-14"><a href="#cb4-14" aria-hidden="true" tabindex="-1"></a><span class="co">#&gt; Call: earth(formula=mpg~., data=mtcars, degree=2, nprune=10)</span></span>
+<span id="cb4-15"><a href="#cb4-15" aria-hidden="true" tabindex="-1"></a><span class="co">#&gt;</span></span>
+<span id="cb4-16"><a href="#cb4-16" aria-hidden="true" tabindex="-1"></a><span class="co">#&gt;                     coefficients</span></span>
+<span id="cb4-17"><a href="#cb4-17" aria-hidden="true" tabindex="-1"></a><span class="co">#&gt; (Intercept)            28.539583</span></span>
+<span id="cb4-18"><a href="#cb4-18" aria-hidden="true" tabindex="-1"></a><span class="co">#&gt; h(hp-110)              -0.065974</span></span>
+<span id="cb4-19"><a href="#cb4-19" aria-hidden="true" tabindex="-1"></a><span class="co">#&gt; h(110-hp)               0.156288</span></span>
+<span id="cb4-20"><a href="#cb4-20" aria-hidden="true" tabindex="-1"></a><span class="co">#&gt; h(wt-3.215)            -5.763648</span></span>
+<span id="cb4-21"><a href="#cb4-21" aria-hidden="true" tabindex="-1"></a><span class="co">#&gt; h(3.215-wt)             3.101606</span></span>
+<span id="cb4-22"><a href="#cb4-22" aria-hidden="true" tabindex="-1"></a><span class="co">#&gt; h(hp-110)*h(wt-3.215)   0.018827</span></span>
+<span id="cb4-23"><a href="#cb4-23" aria-hidden="true" tabindex="-1"></a><span class="co">#&gt;</span></span>
+<span id="cb4-24"><a href="#cb4-24" aria-hidden="true" tabindex="-1"></a><span class="co">#&gt; Selected 6 of 22 terms, and 3 of 10 predictors (nprune=10)</span></span>
+<span id="cb4-25"><a href="#cb4-25" aria-hidden="true" tabindex="-1"></a><span class="co">#&gt; Termination condition: GRSq changed by less than 0.001 at 22 terms</span></span>
+<span id="cb4-26"><a href="#cb4-26" aria-hidden="true" tabindex="-1"></a><span class="co">#&gt; Importance: wt, hp, ...</span></span>
+<span id="cb4-27"><a href="#cb4-27" aria-hidden="true" tabindex="-1"></a><span class="co">#&gt; Number of terms at each degree of interaction: 1 4 1</span></span>
+<span id="cb4-28"><a href="#cb4-28" aria-hidden="true" tabindex="-1"></a><span class="co">#&gt; GCV 5.21    RSS 98.6    GRSq 0.889    RSq 0.933</span></span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
+<ul>
+<li><span class="arg-text">degree = 2</span> allows the model to discover pairwise interactions (e.g., <span class="var-text">hp × wt</span>)</li>
+<li>The printed model shows each retained hinge function and its coefficient</li>
+<li><span class="arg-text">nprune</span> caps the number of terms after backward pruning; tune this via cross-validation for best generalization</li>
+</ul>
+</div>
+<div id="tabset-2-2" class="tab-pane" role="tabpanel" aria-labelledby="tabset-2-2-tab">
+<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb5"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb5-1"><a href="#cb5-1" aria-hidden="true" tabindex="-1"></a><span class="fu">evimp</span>(mars_mod)</span>
+<span id="cb5-2"><a href="#cb5-2" aria-hidden="true" tabindex="-1"></a><span class="co">#&gt;    nsubsets   gcv    rss</span></span>
+<span id="cb5-3"><a href="#cb5-3" aria-hidden="true" tabindex="-1"></a><span class="co">#&gt; wt        5  100.0  100.0</span></span>
+<span id="cb5-4"><a href="#cb5-4" aria-hidden="true" tabindex="-1"></a><span class="co">#&gt; hp        4   60.3   57.1</span></span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
+<ul>
+<li><span class="var-text">nsubsets</span>: Number of pruning-stage model subsets in which the variable appeared — higher indicates the predictor was consistently retained</li>
+<li><span class="var-text">gcv</span> / <span class="var-text">rss</span>: Percentage of total GCV/RSS reduction attributable to each variable (scaled so the top variable = 100)</li>
+</ul>
+</div>
+<div id="tabset-2-3" class="tab-pane" role="tabpanel" aria-labelledby="tabset-2-3-tab">
+<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb6"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb6-1"><a href="#cb6-1" aria-hidden="true" tabindex="-1"></a><span class="fu">library</span>(tidymodels)</span>
+<span id="cb6-2"><a href="#cb6-2" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb6-3"><a href="#cb6-3" aria-hidden="true" tabindex="-1"></a>mars_spec <span class="ot">&lt;-</span> <span class="fu">mars</span>(</span>
+<span id="cb6-4"><a href="#cb6-4" aria-hidden="true" tabindex="-1"></a>  <span class="at">num_terms    =</span> <span class="fu">tune</span>(),</span>
+<span id="cb6-5"><a href="#cb6-5" aria-hidden="true" tabindex="-1"></a>  <span class="at">prod_degree  =</span> <span class="fu">tune</span>(),</span>
+<span id="cb6-6"><a href="#cb6-6" aria-hidden="true" tabindex="-1"></a>  <span class="at">prune_method =</span> <span class="st">"backward"</span></span>
+<span id="cb6-7"><a href="#cb6-7" aria-hidden="true" tabindex="-1"></a>) <span class="sc">|&gt;</span></span>
+<span id="cb6-8"><a href="#cb6-8" aria-hidden="true" tabindex="-1"></a>  <span class="fu">set_engine</span>(<span class="st">"earth"</span>) <span class="sc">|&gt;</span></span>
+<span id="cb6-9"><a href="#cb6-9" aria-hidden="true" tabindex="-1"></a>  <span class="fu">set_mode</span>(<span class="st">"regression"</span>)</span>
+<span id="cb6-10"><a href="#cb6-10" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb6-11"><a href="#cb6-11" aria-hidden="true" tabindex="-1"></a>mars_wf <span class="ot">&lt;-</span> <span class="fu">workflow</span>() <span class="sc">|&gt;</span></span>
+<span id="cb6-12"><a href="#cb6-12" aria-hidden="true" tabindex="-1"></a>  <span class="fu">add_formula</span>(mpg <span class="sc">~</span> .) <span class="sc">|&gt;</span></span>
+<span id="cb6-13"><a href="#cb6-13" aria-hidden="true" tabindex="-1"></a>  <span class="fu">add_model</span>(mars_spec)</span>
+<span id="cb6-14"><a href="#cb6-14" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb6-15"><a href="#cb6-15" aria-hidden="true" tabindex="-1"></a>mars_grid <span class="ot">&lt;-</span> <span class="fu">grid_regular</span>(</span>
+<span id="cb6-16"><a href="#cb6-16" aria-hidden="true" tabindex="-1"></a>  <span class="fu">num_terms</span>(<span class="at">range =</span> <span class="fu">c</span>(<span class="dv">3</span>, <span class="dv">15</span>)),</span>
+<span id="cb6-17"><a href="#cb6-17" aria-hidden="true" tabindex="-1"></a>  <span class="fu">prod_degree</span>(<span class="at">range =</span> <span class="fu">c</span>(<span class="dv">1</span>, <span class="dv">2</span>)),</span>
+<span id="cb6-18"><a href="#cb6-18" aria-hidden="true" tabindex="-1"></a>  <span class="at">levels =</span> <span class="dv">5</span></span>
+<span id="cb6-19"><a href="#cb6-19" aria-hidden="true" tabindex="-1"></a>)</span>
+<span id="cb6-20"><a href="#cb6-20" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb6-21"><a href="#cb6-21" aria-hidden="true" tabindex="-1"></a>mars_res <span class="ot">&lt;-</span> <span class="fu">tune_grid</span>(</span>
+<span id="cb6-22"><a href="#cb6-22" aria-hidden="true" tabindex="-1"></a>  mars_wf,</span>
+<span id="cb6-23"><a href="#cb6-23" aria-hidden="true" tabindex="-1"></a>  <span class="at">resamples =</span> <span class="fu">vfold_cv</span>(mtcars, <span class="at">v =</span> <span class="dv">5</span>),</span>
+<span id="cb6-24"><a href="#cb6-24" aria-hidden="true" tabindex="-1"></a>  <span class="at">grid      =</span> mars_grid,</span>
+<span id="cb6-25"><a href="#cb6-25" aria-hidden="true" tabindex="-1"></a>  <span class="at">metrics   =</span> <span class="fu">metric_set</span>(rmse, rsq)</span>
+<span id="cb6-26"><a href="#cb6-26" aria-hidden="true" tabindex="-1"></a>)</span>
+<span id="cb6-27"><a href="#cb6-27" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb6-28"><a href="#cb6-28" aria-hidden="true" tabindex="-1"></a><span class="fu">show_best</span>(mars_res, <span class="at">metric =</span> <span class="st">"rmse"</span>)</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
+<ul>
+<li><span class="arg-text">num_terms</span> corresponds to <span class="arg-text">nprune</span> in <span style="color: #990000">{earth}</span></li>
+<li><span class="arg-text">prod_degree</span> corresponds to <span class="arg-text">degree</span> (max interaction order)</li>
+<li><span class="arg-text">prune_method = “backward”</span> uses the default GCV-based backward pruning</li>
+</ul>
+</div>
+</div>
+</div></li>
+</ul>
+</section>
 <section id="sec-alg-ml-trees" class="level2" data-number="1.1">
 <h2 data-number="1.1" class="anchored" data-anchor-id="sec-alg-ml-trees"><span class="header-section-number">1.1</span> Trees</h2>
 <ul>
@@ -2746,7 +2922,7 @@ K(x,y) = (\alpha \cdot x^Ty + c )^d
 </ul></li>
 <li><span style="color: #990000">{</span><a href="https://cran.r-project.org/web/packages/stan4bart/index.html" style="color: #990000">stan4bart</a><span style="color: #990000">}</span> - Fits <strong>semiparametric linear and multilevel models</strong> with non-parametric additive Bayesian additive regression tree (BART)</li>
 <li><span style="color: #990000">{</span><a href="https://stochtree.ai/R_docs/pkgdown/" style="color: #990000">stochtree</a><span style="color: #990000">}</span> - <strong>Stochastic tree ensembles</strong> (i.e.&nbsp;BART, XBART) for supervised learning and causal inference.<br>
-<a href="_resources/Algorithms,_ML.resources/stochtree-comp-1.png" class="lightbox" data-gallery="quarto-lightbox-gallery-8"><img src="_resources/Algorithms,_ML.resources/stochtree-comp-1.png" class="img-fluid" width="382"></a></li>
+<a href="_resources/Algorithms,_ML.resources/stochtree-comp-1.png" class="lightbox" data-gallery="quarto-lightbox-gallery-10"><img src="_resources/Algorithms,_ML.resources/stochtree-comp-1.png" class="img-fluid" width="382"></a></li>
 <li><span style="color: #990000">{</span><a href="https://cran.r-project.org/web/packages/VCBART/index.html" style="color: #990000">VCBART</a><span style="color: #990000">}</span> - Fit <strong>Varying Coefficient Models</strong> with Bayesian Additive Regression Tree</li>
 </ul></li>
 </ul>
@@ -2841,7 +3017,7 @@ K(x,y) = (\alpha \cdot x^Ty + c )^d
 </section>
 <section id="sec-alg-ml-trees-rf" class="level3" data-number="1.1.2">
 <h3 data-number="1.1.2" class="anchored" data-anchor-id="sec-alg-ml-trees-rf"><span class="header-section-number">1.1.2</span> Random Forest</h3>
-<p><a href="./_resources/Algorithms,_ML.resources/1-1NOc1NgQOeXaJ48AMh-Djg.png" class="lightbox" data-gallery="quarto-lightbox-gallery-9"><img src="./_resources/Algorithms,_ML.resources/1-1NOc1NgQOeXaJ48AMh-Djg.png" class="img-fluid" width="532"></a></p>
+<p><a href="./_resources/Algorithms,_ML.resources/1-1NOc1NgQOeXaJ48AMh-Djg.png" class="lightbox" data-gallery="quarto-lightbox-gallery-11"><img src="./_resources/Algorithms,_ML.resources/1-1NOc1NgQOeXaJ48AMh-Djg.png" class="img-fluid" width="532"></a></p>
 <ul>
 <li>Several independent decision trees are fit. Each tree uses sampled-with-replacement (bootstrapped) data. At each node within the tree, the outcome space is split according to a random subset of features (mtry) in <span class="math inline">\(X\)</span>. Predictions are averaged or chosen by majority vote.</li>
 <li>When we ‘’drop down’’ a new point <span class="math inline">\(x\)</span>, it will end up in a leaf for each tree. A leaf is a set with observations <span class="math inline">\(i\)</span> and taking the average over all <span class="math inline">\(y_i\)</span> in that leaf gives the prediction for one tree. These predictions are then averaged to give the final result. Thus, for a given <span class="math inline">\(x\)</span> if you want to predict the conditional mean of <span class="math inline">\(Y\)</span> given that <span class="math inline">\(x\)</span>, you:
@@ -2932,7 +3108,7 @@ K(x,y) = (\alpha \cdot x^Ty + c )^d
 </section>
 <section id="sec-alg-ml-trees-distree" class="level3" data-number="1.1.4">
 <h3 data-number="1.1.4" class="anchored" data-anchor-id="sec-alg-ml-trees-distree"><span class="header-section-number">1.1.4</span> Distributional Trees/Forests</h3>
-<p><a href="./_resources/Algorithms,_ML.resources/distforest-motivation.png" class="lightbox" data-gallery="quarto-lightbox-gallery-10"><img src="./_resources/Algorithms,_ML.resources/distforest-motivation.png" class="img-fluid" width="632"></a></p>
+<p><a href="./_resources/Algorithms,_ML.resources/distforest-motivation.png" class="lightbox" data-gallery="quarto-lightbox-gallery-12"><img src="./_resources/Algorithms,_ML.resources/distforest-motivation.png" class="img-fluid" width="632"></a></p>
 <ul>
 <li>Blends the distributional modeling of gamlss (additive, nonlinear,&nbsp; location, scale, shape) and the abrupt-change detection, additive + multiplicative effects capability, inclusion of interaction effects of decision trees / random forests. For regression trees, estimating all the distributional parameters instead of just the mean makes calculating the uncertainty easier.
 <ul>
@@ -2971,11 +3147,11 @@ K(x,y) = (\alpha \cdot x^Ty + c )^d
 <img src="./_resources/Algorithms,_ML.resources/unknown_filename.34.png" class="img-fluid"> :
 <ol type="1">
 <li><p>Solve for the MLE of the mean and calculate the value:<br>
-<a href="./_resources/Algorithms,_ML.resources/unknown_filename.3.png" class="lightbox" data-gallery="quarto-lightbox-gallery-11"><img src="./_resources/Algorithms,_ML.resources/unknown_filename.3.png" class="img-fluid" width="171"></a></p></li>
+<a href="./_resources/Algorithms,_ML.resources/unknown_filename.3.png" class="lightbox" data-gallery="quarto-lightbox-gallery-13"><img src="./_resources/Algorithms,_ML.resources/unknown_filename.3.png" class="img-fluid" width="171"></a></p></li>
 <li><p>Solve for the MLE of the variance and calculate the value:<br>
-<a href="./_resources/Algorithms,_ML.resources/unknown_filename.4.png" class="lightbox" data-gallery="quarto-lightbox-gallery-12"><img src="./_resources/Algorithms,_ML.resources/unknown_filename.4.png" class="img-fluid" width="176"></a></p></li>
+<a href="./_resources/Algorithms,_ML.resources/unknown_filename.4.png" class="lightbox" data-gallery="quarto-lightbox-gallery-14"><img src="./_resources/Algorithms,_ML.resources/unknown_filename.4.png" class="img-fluid" width="176"></a></p></li>
 <li><p>We’re calculating a score for each value of the outcome variable so we can remove the summation symbol from the derivative of the log-likelihood function w.r.t. the mean. This leaves us with the mean score function:<br>
-<a href="./_resources/Algorithms,_ML.resources/unknown_filename.5.png" class="lightbox" data-gallery="quarto-lightbox-gallery-13"><img src="./_resources/Algorithms,_ML.resources/unknown_filename.5.png" class="img-fluid" width="163"></a></p></li>
+<a href="./_resources/Algorithms,_ML.resources/unknown_filename.5.png" class="lightbox" data-gallery="quarto-lightbox-gallery-15"><img src="./_resources/Algorithms,_ML.resources/unknown_filename.5.png" class="img-fluid" width="163"></a></p></li>
 <li><p>Same thing but with the derivative of the log-likelihood function w.r.t. the variance:<br>
 <img src="./_resources/Algorithms,_ML.resources/unknown_filename.35.png" class="img-fluid"></p></li>
 </ol></li>
@@ -2985,7 +3161,7 @@ K(x,y) = (\alpha \cdot x^Ty + c )^d
 <li>CTree is permutation test based
 <ol type="1">
 <li><p>Each test statistic vector, T, for 1,…,l predictors and n observations is calculated by:<br>
-<a href="./_resources/Algorithms,_ML.resources/unknown_filename.2.png" class="lightbox" data-gallery="quarto-lightbox-gallery-14"><img src="./_resources/Algorithms,_ML.resources/unknown_filename.2.png" class="img-fluid" width="169"></a></p>
+<a href="./_resources/Algorithms,_ML.resources/unknown_filename.2.png" class="lightbox" data-gallery="quarto-lightbox-gallery-16"><img src="./_resources/Algorithms,_ML.resources/unknown_filename.2.png" class="img-fluid" width="169"></a></p>
 <ul>
 <li>where<br>
 <img src="./_resources/Algorithms,_ML.resources/unknown_filename.37.png" class="img-fluid">
@@ -3021,7 +3197,7 @@ K(x,y) = (\alpha \cdot x^Ty + c )^d
 </ul></li>
 <li>Using this quadratic method, c is Chi-Square test statistic.</li>
 </ul></li>
-<li><a href="./_resources/Algorithms,_ML.resources/unknown_filename.45.png" class="lightbox" data-gallery="quarto-lightbox-gallery-15"><img src="./_resources/Algorithms,_ML.resources/unknown_filename.45.png" width="179" height="25"></a>
+<li><a href="./_resources/Algorithms,_ML.resources/unknown_filename.45.png" class="lightbox" data-gallery="quarto-lightbox-gallery-17"><img src="./_resources/Algorithms,_ML.resources/unknown_filename.45.png" width="179" height="25"></a>
 <ul>
 <li>For the maximum method, c is Normal test statistic (partykit::ctree.pdf)</li>
 <li>no idea why the numerator has one “k” and the bottom has “kk.” Maybe it’s a typo.</li>
@@ -3029,7 +3205,7 @@ K(x,y) = (\alpha \cdot x^Ty + c )^d
 </ul></li>
 <li><p>Find the p-value associated with each predictor’s c statistic</p>
 <ul>
-<li><a href="./_resources/Algorithms,_ML.resources/unknown_filename.49.png" class="lightbox" data-gallery="quarto-lightbox-gallery-16"><img src="./_resources/Algorithms,_ML.resources/unknown_filename.49.png" width="118" height="6"></a>
+<li><a href="./_resources/Algorithms,_ML.resources/unknown_filename.49.png" class="lightbox" data-gallery="quarto-lightbox-gallery-18"><img src="./_resources/Algorithms,_ML.resources/unknown_filename.49.png" width="118" height="6"></a>
 <ul>
 <li>This says the p-value, P, is the probability,<br>
 <img src="./_resources/Algorithms,_ML.resources/unknown_filename.47.png" class="img-fluid">
@@ -3046,7 +3222,7 @@ K(x,y) = (\alpha \cdot x^Ty + c )^d
 <li>MOB stands for model based method
 <ul>
 <li>Uses a M-Fluctuation test to test for an “instability” by calculating a supLM test statistic. An instability is what’s interpreted from a p-value &lt; 0.05</li>
-<li><a href="./_resources/Algorithms,_ML.resources/unknown_filename.50.png" class="lightbox" data-gallery="quarto-lightbox-gallery-17"><img src="./_resources/Algorithms,_ML.resources/unknown_filename.50.png" width="119" height="13"></a>
+<li><a href="./_resources/Algorithms,_ML.resources/unknown_filename.50.png" class="lightbox" data-gallery="quarto-lightbox-gallery-19"><img src="./_resources/Algorithms,_ML.resources/unknown_filename.50.png" width="119" height="13"></a>
 <ul>
 <li><img src="./_resources/Algorithms,_ML.resources/unknown_filename.51.png" class="img-fluid">
 <ul>
@@ -3062,7 +3238,7 @@ K(x,y) = (\alpha \cdot x^Ty + c )^d
 <li>is called “its variance function.”</li>
 </ul></li>
 </ul></li>
-<li><a href="./_resources/Algorithms,_ML.resources/unknown_filename.53.png" class="lightbox" data-gallery="quarto-lightbox-gallery-18"><img src="./_resources/Algorithms,_ML.resources/unknown_filename.53.png" width="144" height="23"></a>
+<li><a href="./_resources/Algorithms,_ML.resources/unknown_filename.53.png" class="lightbox" data-gallery="quarto-lightbox-gallery-20"><img src="./_resources/Algorithms,_ML.resources/unknown_filename.53.png" width="144" height="23"></a>
 <ul>
 <li><img src="./_resources/Algorithms,_ML.resources/unknown_filename.56.png" class="img-fluid">
 <ul>
@@ -3073,7 +3249,7 @@ K(x,y) = (\alpha \cdot x^Ty + c )^d
 <ul>
 <li>says the scores are ordered from highest to lowest (aka anti-rank) according to the predictor variable, Zj, values</li>
 </ul></li>
-<li><a href="./_resources/Algorithms,_ML.resources/unknown_filename.54.png" class="lightbox" data-gallery="quarto-lightbox-gallery-19"><img src="./_resources/Algorithms,_ML.resources/unknown_filename.54.png" class="img-fluid" width="159"></a></li>
+<li><a href="./_resources/Algorithms,_ML.resources/unknown_filename.54.png" class="lightbox" data-gallery="quarto-lightbox-gallery-21"><img src="./_resources/Algorithms,_ML.resources/unknown_filename.54.png" class="img-fluid" width="159"></a></li>
 <li>covariance matrix</li>
 </ul></li>
 </ul></li>
@@ -3136,21 +3312,21 @@ K(x,y) = (\alpha \cdot x^Ty + c )^d
 </ul></li>
 <li>Sum all tree weights, wit, for that training observation and divide by the number of trees to get the forest-weight for that training observation.
 <ul>
-<li><a href="./_resources/Algorithms,_ML.resources/unknown_filename.41.png" class="lightbox" data-gallery="quarto-lightbox-gallery-20"><img src="./_resources/Algorithms,_ML.resources/unknown_filename.41.png" class="img-fluid" width="119"></a>
+<li><a href="./_resources/Algorithms,_ML.resources/unknown_filename.41.png" class="lightbox" data-gallery="quarto-lightbox-gallery-22"><img src="./_resources/Algorithms,_ML.resources/unknown_filename.41.png" class="img-fluid" width="119"></a>
 <ul>
 <li>Where Ti is the total trees that use that training observation in its learning sample.</li>
 <li>So the forest weight is the average weight per tree for that training observation</li>
 </ul></li>
 <li>In the paper, this process is described by a more compact notation:
 <ul>
-<li><a href="./_resources/Algorithms,_ML.resources/unknown_filename.58.png" class="lightbox" data-gallery="quarto-lightbox-gallery-21"><img src="./_resources/Algorithms,_ML.resources/unknown_filename.58.png" width="194" height="32"></a></li>
+<li><a href="./_resources/Algorithms,_ML.resources/unknown_filename.58.png" class="lightbox" data-gallery="quarto-lightbox-gallery-23"><img src="./_resources/Algorithms,_ML.resources/unknown_filename.58.png" width="194" height="32"></a></li>
 <li>The numerator in the end part of this equation indicates whether the bth terminal node, Bb, contains the training observation, zi, and the new observation, z, for tree, t.</li>
 <li><img src="./_resources/Algorithms,_ML.resources/unknown_filename.40.png" class="img-fluid"> is the number of observations in that terminal node</li>
 </ul></li>
 </ul></li>
 <li>The paper describes predictions being calculated by a weighted MLE as it did for a single tree, but for forests it didn’t explicitly give an “in practice” description of process.
 <ul>
-<li><a href="./_resources/Algorithms,_ML.resources/unknown_filename.png" class="lightbox" data-gallery="quarto-lightbox-gallery-22"><img src="./_resources/Algorithms,_ML.resources/unknown_filename.png" class="img-fluid" width="129"></a>
+<li><a href="./_resources/Algorithms,_ML.resources/unknown_filename.png" class="lightbox" data-gallery="quarto-lightbox-gallery-24"><img src="./_resources/Algorithms,_ML.resources/unknown_filename.png" class="img-fluid" width="129"></a>
 <ul>
 <li>Each parameter that has been calculated for each terminal node of each tree has a subset of the learning data associated with it. The forest weight-likelihood products of each observation are summed over this subset. The parameter with the largest sum is chosen as the prediction.
 <ul>
@@ -3162,7 +3338,7 @@ K(x,y) = (\alpha \cdot x^Ty + c )^d
 </ul></li>
 </ul></li>
 <li><span style="color: #990000">{<a href="https://github.com/lorismichel/drf">drf</a>}</span> (<a href="https://cran.r-project.org/web/packages/drf/index.html">Paper</a>)<br>
-<a href="./_resources/Algorithms,_ML.resources/1-A8OQlRYAyAQ0d6gmSAIEJA.png" class="lightbox" data-gallery="quarto-lightbox-gallery-23"><img src="./_resources/Algorithms,_ML.resources/1-A8OQlRYAyAQ0d6gmSAIEJA.png" class="img-fluid" width="332"></a>
+<a href="./_resources/Algorithms,_ML.resources/1-A8OQlRYAyAQ0d6gmSAIEJA.png" class="lightbox" data-gallery="quarto-lightbox-gallery-25"><img src="./_resources/Algorithms,_ML.resources/1-A8OQlRYAyAQ0d6gmSAIEJA.png" class="img-fluid" width="332"></a>
 <ul>
 <li>Notes from <a href="https://towardsdatascience.com/drf-a-random-forest-for-almost-everything-625fa5c3bcb8">DRF: A Random Forest for (almost) everything</a></li>
 <li>Papers
@@ -3217,22 +3393,22 @@ K(x,y) = (\alpha \cdot x^Ty + c )^d
 <section id="sec-alg-ml-boost-gbm" class="level3" data-number="1.2.1">
 <h3 data-number="1.2.1" class="anchored" data-anchor-id="sec-alg-ml-boost-gbm"><span class="header-section-number">1.2.1</span> Gradient boosted machines (GBM)</h3>
 <ol type="1">
-<li><p>Choose a differentiable loss function, ρ, such as <a href="./_resources/Algorithms,_ML.resources/unknown_filename.6.png" class="lightbox" data-gallery="quarto-lightbox-gallery-24"><img src="./_resources/Algorithms,_ML.resources/unknown_filename.6.png" class="img-fluid" width="171"></a></p>
+<li><p>Choose a differentiable loss function, ρ, such as <a href="./_resources/Algorithms,_ML.resources/unknown_filename.6.png" class="lightbox" data-gallery="quarto-lightbox-gallery-26"><img src="./_resources/Algorithms,_ML.resources/unknown_filename.6.png" class="img-fluid" width="171"></a></p>
 <ul>
 <li>In gradient boosting, 1/n is exchanged for 1/2, to make it differentiable. The mean of the loss function, SSE in this case, calculated over all observations for a model is called the “empirical risk” which is what boosting is trying to minimize.</li>
 </ul></li>
 <li><p>Calculate the negative gradient, aka first derivative. For regression trees, this turns out to be<br>
-<a href="./_resources/Algorithms,_ML.resources/unknown_filename.7.png" class="lightbox" data-gallery="quarto-lightbox-gallery-25"><img src="./_resources/Algorithms,_ML.resources/unknown_filename.7.png" class="img-fluid" width="102"></a></p>
+<a href="./_resources/Algorithms,_ML.resources/unknown_filename.7.png" class="lightbox" data-gallery="quarto-lightbox-gallery-27"><img src="./_resources/Algorithms,_ML.resources/unknown_filename.7.png" class="img-fluid" width="102"></a></p>
 <ul>
 <li>which is just the residuals. Pg 360 of The Elements of Statistical Learning has other loss functions and their negative gradients. Classification uses a multinomial deviance loss function.</li>
 </ul></li>
 <li><p>Initialize using the optimal constant model, which is just a single terminal node tree. Think this means the initial predictions are just mean of the target,<br>
-<a href="./_resources/Algorithms,_ML.resources/unknown_filename.8.png" class="lightbox" data-gallery="quarto-lightbox-gallery-26"><img src="./_resources/Algorithms,_ML.resources/unknown_filename.8.png" class="img-fluid" width="128"></a></p></li>
+<a href="./_resources/Algorithms,_ML.resources/unknown_filename.8.png" class="lightbox" data-gallery="quarto-lightbox-gallery-28"><img src="./_resources/Algorithms,_ML.resources/unknown_filename.8.png" class="img-fluid" width="128"></a></p></li>
 <li><p>Calculate the negative gradient vector (residuals), r, by plugging in the predicted values.</p></li>
 <li><p>Fit a regression tree with the residuals, r, as the target variable. The mean of the residuals for that region (terminal node) is the <em>prediction</em>,<br>
 <img src="./_resources/Algorithms,_ML.resources/unknown_filename.20.png" class="img-fluid"> .</p></li>
 <li><p>Add the predicted residuals vector to the initial predictions vector,<br>
-<a href="./_resources/Algorithms,_ML.resources/unknown_filename.9.png" class="lightbox" data-gallery="quarto-lightbox-gallery-27"><img src="./_resources/Algorithms,_ML.resources/unknown_filename.9.png" class="img-fluid" width="103"></a></p>
+<a href="./_resources/Algorithms,_ML.resources/unknown_filename.9.png" class="lightbox" data-gallery="quarto-lightbox-gallery-29"><img src="./_resources/Algorithms,_ML.resources/unknown_filename.9.png" class="img-fluid" width="103"></a></p>
 <ul>
 <li>to get the next set of predictions to feed into the negative gradient equation.</li>
 </ul></li>
@@ -3289,7 +3465,7 @@ K(x,y) = (\alpha \cdot x^Ty + c )^d
 <li>Regularization: It penalizes more complex models through both LASSO (L1) and Ridge (L2) regularization to prevent overfitting.
 <ul>
 <li>Regularization function<br>
-<a href="./_resources/Algorithms,_ML.resources/ql_25f93bc332e446028404fe9ff18e9293_l3.png" class="lightbox" data-gallery="quarto-lightbox-gallery-28"><img src="./_resources/Algorithms,_ML.resources/ql_25f93bc332e446028404fe9ff18e9293_l3.png" width="162" height="15"></a>
+<a href="./_resources/Algorithms,_ML.resources/ql_25f93bc332e446028404fe9ff18e9293_l3.png" class="lightbox" data-gallery="quarto-lightbox-gallery-30"><img src="./_resources/Algorithms,_ML.resources/ql_25f93bc332e446028404fe9ff18e9293_l3.png" width="162" height="15"></a>
 <ul>
 <li>This function gets minimized during training</li>
 <li>T is the total number of trees</li>
@@ -3323,7 +3499,7 @@ K(x,y) = (\alpha \cdot x^Ty + c )^d
 <ul>
 <li>tl;dr - Same as GBM except instead of fitting a tree model to the residuals, you’re fitting many types of small models (few predictors). Best small model updates the predictions after each iteration.</li>
 <li>The goal is to minimize empirical risk<br>
-<a href="./_resources/Algorithms,_ML.resources/unknown_filename.21.png" class="lightbox" data-gallery="quarto-lightbox-gallery-29"><img src="./_resources/Algorithms,_ML.resources/unknown_filename.21.png" class="img-fluid" width="141"></a>
+<a href="./_resources/Algorithms,_ML.resources/unknown_filename.21.png" class="lightbox" data-gallery="quarto-lightbox-gallery-31"><img src="./_resources/Algorithms,_ML.resources/unknown_filename.21.png" class="img-fluid" width="141"></a>
 <ul>
 <li>where<br>
 <img src="./_resources/Algorithms,_ML.resources/unknown_filename.22.png" class="img-fluid">
@@ -3349,10 +3525,10 @@ K(x,y) = (\alpha \cdot x^Ty + c )^d
 <li>For glmboost, the offset is the mean of the outcome variable. I’d guess it’s probably the same for gamboost.</li>
 </ul></li>
 <li><p>Compute the negative gradient vector:<br>
-<a href="./_resources/Algorithms,_ML.resources/unknown_filename.28.png" class="lightbox" data-gallery="quarto-lightbox-gallery-30"><img src="./_resources/Algorithms,_ML.resources/unknown_filename.28.png" width="160" height="25"></a></p>
+<a href="./_resources/Algorithms,_ML.resources/unknown_filename.28.png" class="lightbox" data-gallery="quarto-lightbox-gallery-32"><img src="./_resources/Algorithms,_ML.resources/unknown_filename.28.png" width="160" height="25"></a></p>
 <ul>
 <li>For the first iteration, m = 1 and<br>
-<a href="./_resources/Algorithms,_ML.resources/unknown_filename.27.png" class="lightbox" data-gallery="quarto-lightbox-gallery-31"><img src="./_resources/Algorithms,_ML.resources/unknown_filename.27.png" class="img-fluid" width="120"></a></li>
+<a href="./_resources/Algorithms,_ML.resources/unknown_filename.27.png" class="lightbox" data-gallery="quarto-lightbox-gallery-33"><img src="./_resources/Algorithms,_ML.resources/unknown_filename.27.png" class="img-fluid" width="120"></a></li>
 </ul></li>
 <li><p>Fit each baselearner to the negative gradient vector.</p>
 <ul>
