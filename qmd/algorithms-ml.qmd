@@ -307,7 +307,7 @@
 
 ## Multivariate Adaptive Regression Splines (MARS) {#sec-alg-ml-mars .unnumbered}
 
--   Misc
+-   [Misc]{.underline}
 
     -   Packages
         -   [{]{style="color: #990000"}[earth](https://cran.r-project.org/web/packages/earth/index.html){style="color: #990000"}[}]{style="color: #990000"} - The primary R package for MARS; "earth" stands for **E**nhanced **A**daptive **R**egression **T**hrough **H**inges.
@@ -316,7 +316,18 @@
             -   Supports variance models for heteroscedastic data via the [varmod.method]{.arg-text} argument (see [Variance Models]{.underline} below)
             -   Compatible with [{tidymodels}]{style="color: #990000"} workflows via the `"earth"` engine
     -   Resources
+        -   [Multivariate Adaptive Regression Splines](https://www.jstor.org/stable/2241837) - Original Friedman (1991) paper introducing MARS
+        -   [The Elements of Statistical Learning, Ch. 9.4](https://hastie.su.domains/ElemStatLearn/) - Hastie, Tibshirani & Friedman; accessible introduction to MARS
         -   [Applied Predictive Modeling, Ch. 7](https://link.springer.com/book/10.1007/978-1-4614-6849-3) - Kuhn & Johnson cover MARS in the context of nonlinear regression
+    -   Notes from
+        -   [Notes on the earth package](http://www.milbo.org/doc/earth-notes.pdf) - [{earth}]{style="color: #990000"} vignette ; comprehensive reference for arguments, internals, cross-validation, and FAQs
+        -   [Variance models in earth](http://www.milbo.org/doc/earth-varmod.pdf) - [{earth}]{style="color: #990000"} vignette on prediction intervals and variance models
+    -   Kuhn recommends bagging these models ([source](https://topepo.github.io/caret/miscellaneous-model-functions.html#bagged-mars-and-fda))
+    -   Comparison with Related Methods
+        -   MARS vs. GAM: MARS automatically selects knots and interactions; GAM uses smooth splines per predictor and requires manual interaction specification
+            -   MARS is better when the relationship involves abrupt changes or threshold effects better captured by piecewise linearity and in a higher-dimensional settings where manual interaction specification is impractical.
+            -   The smoother fit and lack of regression terms reduces variance when compared to MARS, but ignoring variable interactions can worsen the bias.
+        -   MARS vs. Decision Trees: Both are piecewise and perform implicit variable selection, but MARS produces continuous, linear-between-knots fits rather than step functions, and is generally smoother
 
 -   [Process]{.underline}
 
@@ -340,23 +351,18 @@
         ![](_resources/Algorithms,_ML.resources/mars-forward-vs-pruned.png){.lightbox width="632"}
 
         1.  **Forward pass** — Greedily adds pairs of reflected hinge functions (and their products) to the model, choosing the predictor and knot location that most reduces the residual sum of squares at each step. The model is deliberately over-fit.
-
             -   MARS nests linear regression as a special case when no knots are placed; it reduces to OLS if the forward pass finds no useful breakpoints
             -   The forward pass stops when any of the following conditions is met:
                 -   The maximum number of terms [nk]{.arg-text} is reached
-                -   Adding a term changes R² by less than `0.001` (controlled by [thresh]{.arg-text})
-                -   R² reaches `0.999` or higher
-                -   GRSq drops below `−10` (a pathologically poor penalized fit)
+                -   Adding a term changes R² by less than [0.001]{.arg-text} (controlled by [thresh]{.arg-text})
+                -   R² reaches [0.999]{.arg-text} or higher
+                -   GRSq drops below [−10]{.arg-text} (a pathologically poor penalized fit)
                 -   No new term can increase R² (numerical accuracy limit)
-
-        2.  **Backward pruning (GCV)** — More precisely called the *pruning* pass; `"backward"` stepwise deletion is the default but other methods are available via [pmethod]{.arg-text} (e.g., `"cv"` for cross-validation-based selection).
-
+        2.  **Backward pruning (GCV)** — More precisely called the *pruning* pass; [backward]{.arg-text} stepwise deletion is the default but other methods are available via [pmethod]{.arg-text} (e.g., [cv]{.arg-text} for cross-validation-based selection).
             -   Algorithm
 
                 -   Basis functions are removed one at a time, saving the RSS, GCV, and term set for every submodel down to the intercept alone.
-
                 -   The submodel with the best GCV is selected as the final model.
-
                 -   Coefficients are then estimated by OLS on the final basis matrix.
 
             -   Generalized Cross-Validation
@@ -397,32 +403,32 @@
 
 -   [Hyperparameters]{.underline}
 
-    1.  [nk]{.arg-text}: Maximum number of terms in the forward pass (default: `min(200, max(20, 2 * ncol(x))) + 1`)
-        -   if the termination condition printed by [{earth}]{style="color: #990000"} reads `Reached maximum number of terms`, consider increasing [nk]{.arg-text} — the forward pass may have stopped too early.
+    1.  [nk]{.arg-text}: Maximum number of terms in the forward pass (default: `min(200, max(20, 2 * ncol(x))) + 1)`
+        -   if the termination condition printed by [{earth}]{style="color: #990000"} reads [Reached maximum number of terms]{.arg-text}, consider increasing [nk]{.arg-text} — the forward pass may have stopped too early.
         -   Note: it is generally better to use a large [nk]{.arg-text} and control model size with [nprune]{.arg-text} than to use a small [nk]{.arg-text} directly, because the pruning pass can pick from any generated term while the forward pass is greedy
-    2.  [degree]{.arg-text}: Maximum degree of interaction among hinge functions (default: `1`);
+    2.  [degree]{.arg-text}: Maximum degree of interaction among hinge functions (default: [1]{.arg-text});
         -   [degree = 2]{.arg-text} is a common choice for allowing pairwise interactions
-    3.  [thresh]{.arg-text}: Forward-pass stopping threshold; a term is added only if it reduces R² by more than this fraction (default: `0.001`)
-        -   Set to `0` to disable most stopping conditions except [nk]{.arg-text} and numerical limits.
+    3.  [thresh]{.arg-text}: Forward-pass stopping threshold; a term is added only if it reduces R² by more than this fraction (default: [0.001]{.arg-text})
+        -   Set to [0]{.arg-text} to disable most stopping conditions except [nk]{.arg-text} and numerical limits.
     4.  [nprune]{.arg-text} — *Maximum* number of terms (including the intercept) retained after pruning
-    5.  [penalty]{.arg-text} — GCV penalty per knot (default: `2` for [degree = 1]{.arg-text}, `3` for [degree \> 1]{.arg-text}); higher values encourage sparser models
-        -   The forward pass also stops if GRSq drops below `−10`; set [penalty = -1]{.arg-text} to disable this GRSq floor
+    5.  [penalty]{.arg-text} — GCV penalty per knot (default: [2]{.arg-text} for [degree = 1]{.arg-text}, [3]{.arg-text} for [degree \> 1]{.arg-text}); higher values encourage sparser models
+        -   The forward pass also stops if GRSq drops below [−10]{.arg-text}; set [penalty = -1]{.arg-text} to disable this GRSq floor
         -   Default is equivalent to selection by AIC
-    6.  [pmethod]{.arg-text} — Pruning method (default: `"backward"`); `"cv"` selects the number of terms by cross-validation rather than GCV; requires [nfold]{.arg-text} to be set
+    6.  [pmethod]{.arg-text} — Pruning method (default: [backward]{.arg-text}); [cv]{.arg-text} selects the number of terms by cross-validation rather than GCV; requires [nfold]{.arg-text} to be set
     7.  [nfold]{.arg-text} / [ncross]{.arg-text} — Number of cross-validation folds and repetitions; used when [pmethod = "cv"]{.arg-text} or when building variance models.
         -   Use [ncross]{.arg-text} ≥ 30 for stable variance model estimates.
-        -   Use [keepxy = TRUE]{.arg-text} to enable cross-validation plots via `plot.earth()`
+        -   Use [keepxy = TRUE]{.arg-text} to enable cross-validation plots via `plot.earth`
     8.  [linpreds]{.arg-text} — Names or indices of predictors to force into the model linearly (no hinge)
         -   Useful when a predictor is known or suspected to have a linear relationship with the response
 
 -   [Variable Importance]{.underline}
 
-    -   `earth::evimp()` reports importance based on two criteria:
-        -   nsubsets: The number of model subsets (during backward pruning) in which a predictor appears; this is the criterion used by `summary.earth()` to rank predictors; higher = more consistently retained
-        -   gcv: The net reduction in GCV attributable to the predictor across all subsets it appears in; scaled so the largest value = 100. Can be negative if adding the variable worsened the GCV-penalized fit more often than it helped
-        -   rss: Same as gcv but using RSS instead; generally more stable than gcv
-    -   A `>` printed next to a gcv or rss value means the criterion *increased* (worsened) when that variable was added, i.e., the gcv/rss ranking disagrees with the nsubsets ranking
-    -   Predictors listed as `-unused` appeared in the forward pass but were dropped during pruning; pass `trim = FALSE` to `evimp()` to show them
+    -   `evimp` reports importance based on three criteria:
+        -   [nsubsets]{.arg-text}: The number of model subsets (during backward pruning) in which a predictor appears; this is the criterion used by `summary.earth` to rank predictors; higher = more consistently retained
+        -   [gcv]{.arg-text}: The net reduction in GCV attributable to the predictor across all subsets it appears in; scaled so the largest value = 100. Can be negative if adding the variable worsened the GCV-penalized fit more often than it helped
+        -   [rss]{.arg-text}: Same as [gcv]{.arg-text} but using RSS instead; generally more stable than [gcv]{.arg-text}
+    -   A [\>]{.arg-text} printed next to a [gcv]{.arg-text} or [rss]{.arg-text} value means the criterion *increased* (worsened) when that variable was added, i.e., the [gcv]{.arg-text}/[rss]{.arg-text} ranking disagrees with the [nsubsets]{.arg-text} ranking
+    -   Predictors listed as [-unused]{.arg-text} appeared in the forward pass but were dropped during pruning; pass [trim = FALSE]{.arg-text} to `evimp` to show them
     -   Issues
         -   Variables involved in interaction terms get credit for the full interaction term — this means interaction predictors are weighted more heavily than additive ones, which may overstate their individual importance
         -   Collinear predictors can mask each other (MARS will somewhat arbitrarily pick one);
@@ -431,9 +437,11 @@
 
 -   [Uncertainty Quantification]{.underline}
 
-    -   By default, [{earth}]{style="color: #990000"} does not produce prediction intervals. The [varmod.method]{.arg-text} argument tells `earth()` to fit a secondary **variance model** on the residuals of the main MARS model, enabling heteroscedastic prediction intervals.
+    -   By default, [{earth}]{style="color: #990000"} does not produce prediction intervals. The [varmod.method]{.arg-text} argument tells `earth` to fit a secondary **variance model** on the residuals of the main MARS model, enabling heteroscedastic prediction intervals.
 
-    -   The variance model works by regressing the absolute residuals of the main model on the fitted values: (e.g. linear model)
+        -   Cross-validation is required to estimate model variance for prediction intervals; specify [nfold]{.arg-text} and [ncross]{.arg-text} (recommended: [ncross]{.arg-text} ≥ 30) when using [varmod.method]{.arg-text}
+
+    -   The variance model works by regressing the absolute residuals of the main model on the fitted values: (e.g. linear model). (This is technically the Residual Model, see below)
 
         ``` r
         lm(abs(residuals) ~ predict(earth.model))
@@ -444,61 +452,128 @@
 
     -   Getting CIs/PIs
 
-        -   Confidence intervals: The uncertainty in the mean predicted response due to model variance alone; use `interval = "cint"`
-        -   Prediction intervals: The uncertainty for a single future observation; adds irreducible error on top of model variance, so they are always wider than confidence intervals; use `interval = "pint"`
+        -   Confidence intervals: The uncertainty in the mean predicted response due to model variance alone; use [interval = "cint"]{.arg-text}
+        -   Prediction intervals: The uncertainty for a single future observation; adds irreducible error on top of model variance, so they are always wider than confidence intervals; use [interval = "pint"]{.arg-text}
 
-    -   Model options
+    -   [varmod.method]{.arg-text} options (i.e. regression model used in residual model)
 
-        -   `"lm"`: Linear regression on absolute residuals vs. fitted values
+        -   ["lm"]{.arg-text}: Linear regression on absolute residuals vs. fitted values
             -   Assumes standard deviation increases linearly with the response; good default choice
-        -   `"rlm"`: Robust linear regression; produces narrower intervals by down-weighting outlying residuals, but can underestimate error variance when errors are mostly Gaussian
-        -   `"gam"`: Allows non-linear variance trends; more flexible but more prone to overfitting on the residuals
-        -   `"earth"`: Uses a MARS model for the residual model; no IRLS iteration
-        -   `"power"`: Estimates a power-of-the-mean model: $\sigma = \text{intercept} + \text{coef} \cdot \hat{y}^{\,\text{exponent}}$
+        -   ["rlm"]{.arg-text}: Robust linear regression; produces narrower intervals by down-weighting outlying residuals, but can underestimate error variance when errors are mostly Gaussian
+        -   ["gam"]{.arg-text}: Allows non-linear variance trends; more flexible but more prone to overfitting on the residuals
+        -   ["earth"]{.arg-text}: Uses a MARS model for the residual model; no IRLS iteration
+        -   ["power"]{.arg-text}: Estimates a power-of-the-mean model: $\sigma = \text{intercept} + \text{coef} \cdot \hat{y}^{\,\text{exponent}}$
             -   Useful when the response is strictly positive and variance scales with the mean (e.g., Poisson: exponent ≈ 0.5, Gamma: exponent ≈ 1)
             -   The exponent can also be fixed manually via [varmod.exponent]{.arg-text} if known
-        -   `"const"`: Assumes homoscedastic errors; no IRLS needed
-        -   **General rule**: prefer non-`x.` methods (e.g., `"lm"`) which model variance as a function of the fitted response $\hat{y}$. Use `x.` variants (e.g., `"x.lm"`) only when the response is non-monotonic and variance has a many-to-one (multimapped) relationship with $\hat{y}$ that cannot be captured by modeling variance as a function of the fitted values alone
+        -   ["const"]{.arg-text}: Assumes homoscedastic errors; no IRLS needed
+        -   General Rules:
+            -   Prefer non-[x.]{.arg-text} methods (e.g., ["lm"]{.arg-text}) which model variance as a function of the fitted response $\hat{y}$.
+            -   Use [x.]{.arg-text} variants (e.g., ["x.lm"]{.arg-text}) only when the response is non-monotonic and variance has a many-to-one (multimapped) relationship with $\hat{y}$ that cannot be captured by modeling variance as a function of the fitted values alone\
+                ![](_resources/Algorithms,_ML.resources/mars-multimapping-1.png){width="232"}
 
-    -   Cross-validation is required to estimate model variance for prediction intervals; specify [nfold]{.arg-text} and [ncross]{.arg-text} (recommended: `ncross` ≥ 30) when using [varmod.method]{.arg-text}
+    -   Extracting the Residual Model and Variance Model
+
+        -   The Residual Submodel is the regression of the absolute residuals on the fitted value
+            -   `summary(earth.mod$varmod$residmod)` will the display the residual model directly
+        -   The Variance Model is a wrapper for the residual submodel. It provides summary and plot methods, and takes care of rescaling absolute residuals to standard deviations and clamping to [min.sd]{.arg-text}
+            -   Where `min.sd <- 0.1 * mean(sd(residuals))` and [0.1]{.arg-text} can be changed via [varmod.clamp]{.arg-text}
+
+            -   `summary(earth.mod$varmod)` will display the variance model directly
 
     -   Checking the variance model
 
         -   In the residuals plot, the lowess line should stay approximately on the center axis and residuals should be dispersed roughly symmetrically — asymmetric spread suggests the assumption of symmetric errors may be violated
-        -   The `summary()` of a variance model reports `iter.rsq` — the R² of the weighted residual model. Low values are normal and expected due to noisy residuals; this does not mean the variance model is useless
-        -   The `response values in prediction interval` table in `summary()` is a sanity check of interval coverage on training data; it is highly recommended to also check this on held-out data via `summary(earth.mod, newdata = ...)`
-        -   A `<` symbol next to a coverage percentage in the summary table (e.g., `88<` for the 90% interval) flags undercoverage and hints at possible overfitting in the variance model
+            -   [which = 3]{.arg-text} plots a loess red line
 
-    -   [Example]{.ribbon-highlight}
+            -   [which = 5]{.arg-text} or [9]{.arg-text} plots a robust linear regression line
+
+                -   Slope included with [info = TRUE]{.arg-text}
+
+            -   [versus = ""]{.arg-text} plots Residuals vs Predictors
+
+                -   Heteroskedacity may not show in the overall Residuals vs Fitted but show up in Residuals vs Predictor
+
+            -   [versus="b:"]{.arg-text} plots Residuals against the MARS basis functions
+
+            -   [Example]{.ribbon-highlight}:\
+                ![](_resources/Algorithms,_ML.resources/mars-resid-plots-1.png){.lightbox width="582"}
+
+                ``` r
+                # residuals vs fitted
+                plot(earth.mod, which = 3, level = .95)
+                # standardized residuals vs fitted
+                plot(earth.mod, which = 3, standardize = TRUE)
+                ```
+
+                -   Left: Absolute Residuals vs. Fitted
+                    -   The darker grayish band shows the confidence limits; the wider pink band shows the prediction limits
+                    -   The pale blue line is the mean of the out-of-fold predictions ([oof.meanfit]{.arg-text}) from the cross-validation. In this example the line is close to the center line, indicating that the mean out-of-fold predictions generated by the fold models approximately match those of the final model on all the data
+                    -   If we used [info=TRUE]{.arg-text} (see below), the displayed Spearman correlation would be 0.38, confirming that there is correlation between the absolute residuals and the fitted values, i.e., the raw residuals are heteroscedastic.
+                -   Right: Standardized Residuals vs. Fitted
+                    -   The red line remains close to the center line, so indicates that the model is a good fit to the training data. (The center line corresponds to the predicted fit.)
+                    -   Set [info = TRUE]{.arg-text} to get the Spearman Rank Correlation of absolute residuals with fitted values.
+                        -   This is a measure of heteroscedasticity: the correlation will be positive if the residuals tend to increase as the fitted values increase. Similarly, a negative correlation would indicate decreasing variance (much less common). Remember that this correlation is subject to sampling variation.
+                        -   In this example, the spearman correlation is 0.05 which is small. It indicates virtually no heteroscedasticity of the residuals after standardization.
+        -   `summary` of a variance model reports [iter.rsq]{.arg-text} — the R² of the weighted residual model.
+            -   Low values are normal and expected due to noisy residuals; this does not mean the variance model is useless
+        -   The [response values in prediction interval]{.arg-text} table in `summary` is a sanity check of interval coverage on training data
+            -   It is highly recommended to also check this on held-out data via [summary(earth.mod, newdata = ...)]{.arg-text}
+        -   A [\<]{.arg-text} symbol next to a coverage percentage in the summary table (e.g., [88\<]{.arg-text} for the 90% interval) flags undercoverage and hints at possible overfitting in the variance model
+
+    -   [Example]{.ribbon-highlight}: Prediction Intervales
 
         ``` r
         set.seed(1)
+        data(ozone1)
+
         earth.mod <- earth(O3 ~ temp, data = ozone1,
                            nfold = 10, ncross = 30,
                            varmod.method = "lm")
 
-        # 95% prediction intervals on new data
-        predict(earth.mod, newdata = ozone1[1:3, ], interval = "pint", level = .95)
+        predict(earth.mod, 
+                newdata = ozone1[1:3, ], 
+                interval = "pint", 
+                level = .95)
         #>    fit    lwr    upr
         #> 1 4.75 -0.748  10.24
         #> 2 5.53 -0.365  11.43
         #> 3 6.95  0.325  13.57
 
-        # plot fit with shaded prediction bands
-        plotmo(earth.mod, pt.col = 1, level = .95)
+        # response vs predictor
+        plotmo(earth.mod, 
+               pt.col = 1, 
+               level = .95)
+
+        # or manually
+        predict <- predict(
+          earth.mod, 
+          newdata = ozone1, 
+          interval = "pint", 
+          level = .95
+        )
+        # x values have to be ordered to plot lines correctly
+        order <- order(ozone1$temp)
+        temp <- ozone1$temp[order]
+        O3 <- ozone1$O3[order]
+        predict <- predict[order,]
+        in.interval <- O3 >= predict$lwr & O3 <= predict$upr
+        plot(temp, O3, 
+             pch=20, 
+             col=ifelse(in.interval, "black", "red"),
+             main=sprintf(
+               "Prediction intervals\n%.0f%% of the training points are in the estimated 95%% band",
+               100 * sum(in.interval) / length(O3)
+             )
+         )
+        lines(temp, predict$fit) # regression curve
+        lines(temp, predict$lwr, lty=2) # lower prediction intervals
+        lines(temp, predict$upr, lty=2) # upper prediction intervals
         ```
 
-        -   The `stddev of predictions` table in `summary()` gives the estimated standard deviation formula (e.g., `1.562 + 0.262 * O3`); the `iter.stderr%` column shows coefficient uncertainty as a percentage of the coefficient — formal t-tests are not justified here due to the iterative estimation
+        -   The [stddev of predictions]{.arg-text} table in `summary` gives the estimated standard deviation formula (e.g., [1.562 + 0.262 \* O3]{.arg-text}); the [iter.stderr%]{.arg-text} column shows coefficient uncertainty as a percentage of the coefficient — formal t-tests are not justified here due to the iterative estimation
         -   Prediction intervals can be negative for responses that are strictly non-negative (e.g., ozone concentration cannot be below zero); interpret the lower bound sensibly in such cases
 
--   [Comparison with Related Methods]{.underline}
-
-    -   MARS vs. GAM: MARS automatically selects knots and interactions; GAM uses smooth splines per predictor and requires manual interaction specification
-        -   MARS is better when the relationship involves abrupt changes or threshold effects better captured by piecewise linearity and in a higher-dimensional settings where manual interaction specification is impractical.
-        -   The smoother fit and lack of regression terms reduces variance when compared to MARS, but ignoring variable interactions can worsen the bias.
-    -   MARS vs. Decision Trees: Both are piecewise and perform implicit variable selection, but MARS produces continuous, linear-between-knots fits rather than step functions, and is generally smoother
-
--   [Example]{.ribbon-highlight}: Predicting fuel efficiency (`mpg`) from car attributes using the `mtcars` dataset
+-   [Example]{.ribbon-highlight}: Predicting fuel efficiency ([mpg]{.var-text}) from car attributes using the [mtcars]{.var-text} dataset
 
     ::: panel-tabset
     ## Data and Model
@@ -532,14 +607,16 @@
     ```
 
     -   The printed model shows *each* retained hinge function and its coefficient
-    -   The pruned model retained just 3 of 12 candidate terms, using only 2 of 10 predictors — disp (displacement) and carb (carburetors) — well below the nprune = 10 cap, suggesting the signal in mtcars is concentrated in very few variables.
-    -   The knot at `disp = 145` divides the displacement effect into two regimes:
-        -   Below the knot (`h(145-disp)`): As displacement decreases below 145, `mpg` increases by about 0.157 per unit — smaller engines get meaningfully better mileage in this range.
+    -   The pruned model retained just 3 of 12 candidate terms, using only 2 of 10 predictors — [disp]{.var-text} (displacement) and [carb]{.var-text} (carburetors) — well below the [nprune = 10]{.arg-text} cap, suggesting the signal in [mtcars]{.var-text} is concentrated in very few variables.
+    -   The termination condition [GRSq -10 at 12 terms]{.arg-text} means the forward pass hit [{earth}]{style="color: #990000"}'s built-in GRSq floor — additional terms were actively degrading the penalized fit. This applies to the forward pass only and is distinct from the final pruned model's GRSq of 0.828
+    -   The knot at [disp = 145]{.arg-text} divides the displacement effect into two regimes:
+        -   Below the knot ([h(145-disp)]{.arg-text}): As displacement decreases below 145, [mpg]{.var-text} increases by about 0.157 per unit — smaller engines get meaningfully better mileage in this range.
 
-        -   Above the knot (`h(disp-145) * carb`): An interaction term kicks in where higher displacement *combined* with more carburetors is associated with lower `mpg` (−0.006 per unit of the product). The penalty is modest per unit but compounds across both dimensions.
-    -   GRSq is
-        -   Formula: (1-gcv) / gcv.null
-            -   `gcv.null` is the GCV of an intercept-only model
+        -   Above the knot ([h(disp-145) \* carb]{.arg-text}): An interaction term kicks in where higher displacement *combined* with more carburetors is associated with lower [mpg]{.var-text} (−0.006 per unit of the product). The penalty is modest per unit but compounds across both dimensions.
+    -   GRSq is the GCV-penalized analogue of R²
+        -   Formula: [1 - gcv / gcv.null]{.arg-text}
+            -   [gcv.null]{.arg-text} is the GCV of an intercept-only model
+        -   Unlike R², GRSq is not bounded at 0 and can go negative when the complexity penalty outweighs any reduction in RSS; after the pruning pass the final model will always have a non-negative GRSq
 
     ## Variable Importance
 
@@ -550,8 +627,9 @@
     #> carb        1  45.2   43.6
     ```
 
-    -   [nsubsets]{.var-text}: Number of pruning-stage model subsets in which the variable appeared — higher indicates the predictor was consistently retained
-    -   [gcv]{.var-text} / [rss]{.var-text}: Percentage of total GCV/RSS reduction attributable to each variable (scaled so the top variable = 100)
+    -   [nsubsets]{.arg-text}: Number of pruning-stage model subsets in which the variable appeared — higher indicates the predictor was consistently retained
+    -   [gcv]{.arg-text} / [rss]{.arg-text}: Percentage of total GCV/RSS reduction attributable to each variable (scaled so the top variable = 100)
+    -   [disp]{.var-text} dominates, appearing in both retained subsets and accounting for 100% of the scaled GCV reduction; [carb]{.var-text} contributes only through the interaction term and is correspondingly less important
 
     ## Tidymodels Workflow
 
