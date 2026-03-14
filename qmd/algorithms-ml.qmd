@@ -599,7 +599,7 @@
 
 ### Examples {#sec-alg-ml-mars-exs .unnumbered}
 
--   [Example]{.ribbon-highlight}: Predicting fuel efficiency ([mpg]{.var-text}) from car attributes using the [mtcars]{.var-text} dataset
+-   [Example 1]{.ribbon-highlight}: Predicting fuel efficiency ([mpg]{.var-text}) from car attributes using the [mtcars]{.var-text} dataset
 
     ::: panel-tabset
     ## Data and Model
@@ -687,6 +687,14 @@
     )
 
     show_best(mars_res, metric = "rmse")
+    #> # A tibble: 5 × 8
+    #>   num_terms prod_degree .metric .estimator  mean     n std_err .config         
+    #>       <int>       <int> <chr>   <chr>      <dbl> <int>   <dbl> <chr>           
+    #> 1         3           2 rmse    standard    2.97     5   0.185 pre0_mod02_post0
+    #> 2         6           2 rmse    standard    2.97     5   0.184 pre0_mod04_post0
+    #> 3         9           2 rmse    standard    2.97     5   0.184 pre0_mod06_post0
+    #> 4        12           2 rmse    standard    2.97     5   0.184 pre0_mod08_post0
+    #> 5        15           2 rmse    standard    2.97     5   0.184 pre0_mod10_post0
     ```
 
     -   [num_terms]{.arg-text} corresponds to [nprune]{.arg-text} in [{earth}]{style="color: #990000"}
@@ -720,10 +728,51 @@
     at$tuning_result
     #>    nprune learner_param_vals  x_domain regr.rmse
     #>     <int>             <list>    <list>     <num>
-    #> 1:      7          <list[3]> <list[1]>  3.01...
+    #> 1:      3          <list[3]> <list[1]>  2.471102
     ```
 
     -   The learner is provided by [{mlr3extralearners}]{style="color: #990000"} as [regr.earth]{.arg-text}, which wraps `earth::earth` directly — all [{earth}]{style="color: #990000"} hyperparameters are available via `learner$param_set$ids`
     -   `to_tune(3, 15)` marks [nprune]{.arg-text} as a tuning parameter with integer range 3–15; `auto_tuner` wraps the learner and resampling into a single trainable object
     -   `at$tuning_result` returns the best hyperparameter configuration found; the trained model on the full task is accessible via `at$learner$model`
     :::
+
+-   [Example 2]{.ribbon-highlight}: Forecasting
+
+    ``` r
+    library(tidymodels)
+    library(modeltime)
+    library(tidyverse)
+    library(timetk)
+
+    # 1. Prepare Data
+    # Let's assume your data has 'date' and 'value' columns
+    splits <- initial_time_split(your_data, prop = 0.8)
+
+    # 2. Define the MARS Model (using parsnip/earth)
+    model_spec_mars <- mars(mode = "regression") %>%
+        set_engine("earth")
+
+    # 3. Create a Recipe (The "convenient" feature engineering)
+    # This replaces the need for manual lag loops
+    recipe_spec <- recipe(value ~ date, data = training(splits)) %>%
+        step_timeseries_signature(date) %>% # Generates month, year, day, etc.
+        step_rm(date) # Remove original date so MARS only sees numeric features
+
+    # 4. Create a Workflow & Fit
+    workflow_fit_mars <- workflow() %>%
+        add_recipe(recipe_spec) %>%
+        add_model(model_spec_mars) %>%
+        fit(training(splits))
+
+    # 5. Forecast h-steps ahead
+    # This is the function you were looking for! 
+    # h = "12 months" or h = 12 (numeric)
+    forecast_tbl <- modeltime_table(workflow_fit_mars) %>%
+        modeltime_forecast(
+            h           = "12 months", 
+            actual_data = your_data
+        )
+
+    # 6. Visualize
+    forecast_tbl %>% plot_modeltime_forecast()
+    ```
