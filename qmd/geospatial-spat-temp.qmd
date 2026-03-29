@@ -1664,56 +1664,92 @@
     plot(vario_samp, vario_mod, wireframe = T)
     ```
 
--   Starting Values
+### Starting Values
 
-    -   I don't think any starting values for parameters have to be set unless the model fails to converge.
+-   I don't think any starting values for parameters have to be set unless the model fails to converge. Failures (convergence, singular) aren't rare though.
 
-    -   Use estimates from pooled marginal variograms
+-   Use estimates from pooled marginal variograms
 
-        -   See [EDA \>\> Temporal Dependence](geospatial-spat-temp.qmd#sec-geo-sptemp-eda-ac){style="color: green"} \>\> Example 2
-        -   See [EDA \>\> Spatial Dependence](geospatial-spat-temp.qmd#sec-geo-sptemp-eda-spdep){style="color: green"} \>\> Example 1
+    -   See [EDA \>\> Temporal Dependence](geospatial-spat-temp.qmd#sec-geo-sptemp-eda-ac){style="color: green"} \>\> Example 2
+    -   See [EDA \>\> Spatial Dependence](geospatial-spat-temp.qmd#sec-geo-sptemp-eda-spdep){style="color: green"} \>\> Example 1
 
-    -   Others I've seen
+-   Apply a heuristic
 
-        -   Cutoff
-            -   Spatial ([source](https://www.youtube.com/watch?v=iJdbAGb9I_E&list=WL&index=6&pp=iAQBsAgC))
+    -   `nugget = 0.15 * max(vario_samp$gamma)`: Assume nugget is a smallish fraction of total variance
+    -   `psill = 0.85 * max(vario_samp$gamma)`: The remainder from nugget calculation
+    -   `range = 0.25 * max(vario_samp$dist)`: Assume the variogram reaches its sill somewhere in the first quarter of the distance range
 
-                ``` r
-                cutoff <- 0.5 * max(
-                  x = sp::spDists(
-                    x = sp::coordinates(
-                      # SpatialGridDataFrame; Month is actually a date
-                      obj = sgdf_fires[sgdf_fires$Month == min(sgdf_fires$Month), ]
-                    )
-                  )
+-   Others I've seen
+
+    -   Cutoff
+        -   Spatial ([source](https://www.youtube.com/watch?v=iJdbAGb9I_E&list=WL&index=6&pp=iAQBsAgC))
+
+            ``` r
+            cutoff <- 0.5 * max(
+              x = sp::spDists(
+                x = sp::coordinates(
+                  # SpatialGridDataFrame; Month is actually a date
+                  obj = sgdf_fires[sgdf_fires$Month == min(sgdf_fires$Month), ]
                 )
-                ```
+              )
+            )
+            ```
 
-                -   The default is essentially this is divided by 3 instead of 2 (I think).
-                -   Not sure why he's filtering by the minimum date
+            -   The default is essentially this is divided by 3 instead of 2 (I think).
+            -   Not sure why he's filtering by the minimum date
 
-            -   Temporal ([source](https://www.youtube.com/watch?v=iJdbAGb9I_E&list=WL&index=6&pp=iAQBsAgC))
+        -   Temporal ([source](https://www.youtube.com/watch?v=iJdbAGb9I_E&list=WL&index=6&pp=iAQBsAgC))
 
-                ``` r
-                # SpatialGridDataFrame; Month is actually a date
-                cutoff <- diff(range(spdf_month$Month)) / 2
-                ```
+            ``` r
+            # SpatialGridDataFrame; Month is actually a date
+            cutoff <- diff(range(spdf_month$Month)) / 2
+            ```
 
-                -   The range of date values was very large (maybe 10 years) in this example. So I think it's too long, but probably a reasonable starting point.
-                -   Dude said fitting the model took too long, so runtime should also be a consideration.
-        -   Sill
-            -   Overall ([source](https://www.youtube.com/watch?v=iJdbAGb9I_E&list=WL&index=6&pp=iAQBsAgC))
+            -   The range of date values was very large (maybe 10 years) in this example. So I think it's too long, but probably a reasonable starting point.
+            -   Dude said fitting the model took too long, so runtime should also be a consideration.
+    -   Sill
+        -   Overall ([source](https://www.youtube.com/watch?v=iJdbAGb9I_E&list=WL&index=6&pp=iAQBsAgC))
 
-                ``` r
-                # sample variance
-                var(STIDF_fires@data$Fires)
-                ```
+            ``` r
+            # sample variance
+            var(STIDF_fires@data$Fires)
+            ```
 
-                -   Where [Fires]{.var-text} is the response variable (count)
-        -   Nugget
-            -   Use marginal psill ([source](https://www.youtube.com/watch?v=iJdbAGb9I_E&list=WL&index=6&pp=iAQBsAgC)): `fit.variogram_space$psill`
-                -   He used this for both temporal and space `vgm` models in `vgmST`
-                -   If you didn't fit the nugget in your marginal models and don't want to go back and do that, then I guess this is an option.
+            -   Where [Fires]{.var-text} is the response variable (count)
+
+        -   Use the median of the outer third of bins
+
+            ``` r
+            outer_bins  <- vario_samp$gamma[vario_samp$dist > quantile(vario_samp$dist, 0.67)]
+            sill_start  <- median(outer_bins)
+            ```
+    -   Partial Sill (psill)
+        -   Use sill and nugget starting values
+
+            ``` r
+            psill_start <- max(sill_start - nugget_start, sill_start * 0.5)
+            ```
+    -   Nugget
+        -   Use marginal psill ([source](https://www.youtube.com/watch?v=iJdbAGb9I_E&list=WL&index=6&pp=iAQBsAgC)): `fit.variogram_space$psill`
+
+            -   He used this for both temporal and space `vgm` models in `vgmST`
+            -   If you didn't fit the nugget in your marginal models and don't want to go back and do that, then I guess this is an option.
+
+        -   Extrapolate from the two shortest-distance bins
+
+            ``` r
+            nugget_start <- max(0,
+              vario_samp$gamma[1] - diff(vario_samp$gamma[1:2]) /
+              diff(vario_samp$dist[1:2]) * vario_samp$dist[1]
+            )
+            ```
+    -   Range
+        -   Use the distance where gamma first exceeds 95% of the estimated sill
+
+            ``` r
+            range_start <- vario_samp$dist[which(vario_samp$gamma >= 0.95 * sill_start)[1]]
+            range_start <- ifelse(is.na(range_start), dist_max * 0.3, range_start)
+            ```
 
 ### Variogram {#sec-geo-sptemp-krig-var .unnumbered}
 
