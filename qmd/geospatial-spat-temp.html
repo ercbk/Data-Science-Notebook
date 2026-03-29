@@ -2227,6 +2227,7 @@ window.Quarto = {
   <li><a href="#sec-geo-sptemp-krig" id="toc-sec-geo-sptemp-krig" class="nav-link" data-scroll-target="#sec-geo-sptemp-krig">Kriging</a>
   <ul>
   <li><a href="#sec-geo-sptemp-krig-misc" id="toc-sec-geo-sptemp-krig-misc" class="nav-link" data-scroll-target="#sec-geo-sptemp-krig-misc">Misc</a></li>
+  <li><a href="#starting-values" id="toc-starting-values" class="nav-link" data-scroll-target="#starting-values">Starting Values</a></li>
   <li><a href="#sec-geo-sptemp-krig-var" id="toc-sec-geo-sptemp-krig-var" class="nav-link" data-scroll-target="#sec-geo-sptemp-krig-var">Variogram</a>
   <ul>
   <li><a href="#description" id="toc-description" class="nav-link" data-scroll-target="#description">Description</a></li>
@@ -4120,13 +4121,22 @@ Code
 <span id="cb30-15"><a href="#cb30-15" aria-hidden="true" tabindex="-1"></a><span class="fu">attr</span>(vario_mod, <span class="st">"optim"</span>)<span class="sc">$</span>value</span>
 <span id="cb30-16"><a href="#cb30-16" aria-hidden="true" tabindex="-1"></a><span class="fu">plot</span>(vario_mod)</span>
 <span id="cb30-17"><a href="#cb30-17" aria-hidden="true" tabindex="-1"></a><span class="fu">plot</span>(vario_samp, vario_mod, <span class="at">wireframe =</span> T)</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div></li>
-<li><p>Starting Values</p>
+</ul>
+</section>
+<section id="starting-values" class="level3">
+<h3 class="anchored" data-anchor-id="starting-values">Starting Values</h3>
 <ul>
-<li><p>I don’t think any starting values for parameters have to be set unless the model fails to converge.</p></li>
+<li><p>I don’t think any starting values for parameters have to be set unless the model fails to converge. Failures (convergence, singular) aren’t rare though.</p></li>
 <li><p>Use estimates from pooled marginal variograms</p>
 <ul>
 <li>See <a href="../qmd/geospatial-spat-temp.html#sec-geo-sptemp-eda-ac" style="color: green">EDA &gt;&gt; Temporal Dependence</a> &gt;&gt; Example 2</li>
 <li>See <a href="../qmd/geospatial-spat-temp.html#sec-geo-sptemp-eda-spdep" style="color: green">EDA &gt;&gt; Spatial Dependence</a> &gt;&gt; Example 1</li>
+</ul></li>
+<li><p>Apply a heuristic</p>
+<ul>
+<li><code>nugget = 0.15 * max(vario_samp$gamma)</code>: Assume nugget is a smallish fraction of total variance</li>
+<li><code>psill = 0.85 * max(vario_samp$gamma)</code>: The remainder from nugget calculation</li>
+<li><code>range = 0.25 * max(vario_samp$dist)</code>: Assume the variogram reaches its sill somewhere in the first quarter of the distance range</li>
 </ul></li>
 <li><p>Others I’ve seen</p>
 <ul>
@@ -4161,15 +4171,33 @@ Code
 <ul>
 <li>Where <span class="var-text">Fires</span> is the response variable (count)</li>
 </ul></li>
+<li><p>Use the median of the outer third of bins</p>
+<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb34"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb34-1"><a href="#cb34-1" aria-hidden="true" tabindex="-1"></a>outer_bins  <span class="ot">&lt;-</span> vario_samp<span class="sc">$</span>gamma[vario_samp<span class="sc">$</span>dist <span class="sc">&gt;</span> <span class="fu">quantile</span>(vario_samp<span class="sc">$</span>dist, <span class="fl">0.67</span>)]</span>
+<span id="cb34-2"><a href="#cb34-2" aria-hidden="true" tabindex="-1"></a>sill_start  <span class="ot">&lt;-</span> <span class="fu">median</span>(outer_bins)</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div></li>
+</ul></li>
+<li>Partial Sill (psill)
+<ul>
+<li><p>Use sill and nugget starting values</p>
+<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb35"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb35-1"><a href="#cb35-1" aria-hidden="true" tabindex="-1"></a>psill_start <span class="ot">&lt;-</span> <span class="fu">max</span>(sill_start <span class="sc">-</span> nugget_start, sill_start <span class="sc">*</span> <span class="fl">0.5</span>)</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div></li>
 </ul></li>
 <li>Nugget
 <ul>
-<li>Use marginal psill (<a href="https://www.youtube.com/watch?v=iJdbAGb9I_E&amp;list=WL&amp;index=6&amp;pp=iAQBsAgC">source</a>): <code>fit.variogram_space$psill</code>
+<li><p>Use marginal psill (<a href="https://www.youtube.com/watch?v=iJdbAGb9I_E&amp;list=WL&amp;index=6&amp;pp=iAQBsAgC">source</a>): <code>fit.variogram_space$psill</code></p>
 <ul>
 <li>He used this for both temporal and space <code>vgm</code> models in <code>vgmST</code></li>
 <li>If you didn’t fit the nugget in your marginal models and don’t want to go back and do that, then I guess this is an option.</li>
 </ul></li>
+<li><p>Extrapolate from the two shortest-distance bins</p>
+<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb36"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb36-1"><a href="#cb36-1" aria-hidden="true" tabindex="-1"></a>nugget_start <span class="ot">&lt;-</span> <span class="fu">max</span>(<span class="dv">0</span>,</span>
+<span id="cb36-2"><a href="#cb36-2" aria-hidden="true" tabindex="-1"></a>  vario_samp<span class="sc">$</span>gamma[<span class="dv">1</span>] <span class="sc">-</span> <span class="fu">diff</span>(vario_samp<span class="sc">$</span>gamma[<span class="dv">1</span><span class="sc">:</span><span class="dv">2</span>]) <span class="sc">/</span></span>
+<span id="cb36-3"><a href="#cb36-3" aria-hidden="true" tabindex="-1"></a>  <span class="fu">diff</span>(vario_samp<span class="sc">$</span>dist[<span class="dv">1</span><span class="sc">:</span><span class="dv">2</span>]) <span class="sc">*</span> vario_samp<span class="sc">$</span>dist[<span class="dv">1</span>]</span>
+<span id="cb36-4"><a href="#cb36-4" aria-hidden="true" tabindex="-1"></a>)</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div></li>
 </ul></li>
+<li>Range
+<ul>
+<li><p>Use the distance where gamma first exceeds 95% of the estimated sill</p>
+<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb37"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb37-1"><a href="#cb37-1" aria-hidden="true" tabindex="-1"></a>range_start <span class="ot">&lt;-</span> vario_samp<span class="sc">$</span>dist[<span class="fu">which</span>(vario_samp<span class="sc">$</span>gamma <span class="sc">&gt;=</span> <span class="fl">0.95</span> <span class="sc">*</span> sill_start)[<span class="dv">1</span>]]</span>
+<span id="cb37-2"><a href="#cb37-2" aria-hidden="true" tabindex="-1"></a>range_start <span class="ot">&lt;-</span> <span class="fu">ifelse</span>(<span class="fu">is.na</span>(range_start), dist_max <span class="sc">*</span> <span class="fl">0.3</span>, range_start)</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div></li>
 </ul></li>
 </ul></li>
 </ul>
@@ -4458,12 +4486,12 @@ Code
 <li>“The selection of a spatio-temporal covariance model should not only be made based on the (weighted) mean squared difference between the empirical and model variogram surfaces (<code>attributes(fit_vario)$value</code>), but also on conceptional choices and visual judgement of the fits.
 <ul>
 <li><p>e.g.</p>
-<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb34"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb34-1"><a href="#cb34-1" aria-hidden="true" tabindex="-1"></a><span class="fu">plot</span>(</span>
-<span id="cb34-2"><a href="#cb34-2" aria-hidden="true" tabindex="-1"></a>  emp_vario, </span>
-<span id="cb34-3"><a href="#cb34-3" aria-hidden="true" tabindex="-1"></a>  <span class="fu">c</span>(fit_vario1, fit_vario2, fit_vario3), </span>
-<span id="cb34-4"><a href="#cb34-4" aria-hidden="true" tabindex="-1"></a>  <span class="at">wireframe =</span> <span class="cn">TRUE</span>, </span>
-<span id="cb34-5"><a href="#cb34-5" aria-hidden="true" tabindex="-1"></a>  <span class="at">all =</span> <span class="cn">TRUE</span></span>
-<span id="cb34-6"><a href="#cb34-6" aria-hidden="true" tabindex="-1"></a>)</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div></li>
+<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb38"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb38-1"><a href="#cb38-1" aria-hidden="true" tabindex="-1"></a><span class="fu">plot</span>(</span>
+<span id="cb38-2"><a href="#cb38-2" aria-hidden="true" tabindex="-1"></a>  emp_vario, </span>
+<span id="cb38-3"><a href="#cb38-3" aria-hidden="true" tabindex="-1"></a>  <span class="fu">c</span>(fit_vario1, fit_vario2, fit_vario3), </span>
+<span id="cb38-4"><a href="#cb38-4" aria-hidden="true" tabindex="-1"></a>  <span class="at">wireframe =</span> <span class="cn">TRUE</span>, </span>
+<span id="cb38-5"><a href="#cb38-5" aria-hidden="true" tabindex="-1"></a>  <span class="at">all =</span> <span class="cn">TRUE</span></span>
+<span id="cb38-6"><a href="#cb38-6" aria-hidden="true" tabindex="-1"></a>)</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div></li>
 </ul></li>
 <li><code>plot</code> - Shows the sample and fitted variogram surfaces next to each other as colored level plots. (<a href="https://cran.r-project.org/web/packages/gstat/refman/gstat.html#plot.gstatVariogram">Docs</a>)
 <ul>
@@ -4485,8 +4513,8 @@ Code
 <ul>
 <li><p><span class="arg-text">method = “L-BFGS-B”</span> is the default. It uses a limited-memory modification of the BFGS quasi-Newton method, and has been said not the be as <em>robust</em> as “BFGS” which is supposed to be the gold standard (<a href="https://bsky.app/profile/vdveenb.bsky.social/post/3mb2ff75rh22i">thread</a>). So if you have issues, “BFGS” may be worth a try.</p></li>
 <li><p>Get these by accessing the <span class="arg-text">optim.out</span> attribute from <code>fit.StVariogram</code></p>
-<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb35"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb35-1"><a href="#cb35-1" aria-hidden="true" tabindex="-1"></a>fit_var <span class="ot">&lt;-</span> <span class="fu">fit.StVariogram</span>(...)</span>
-<span id="cb35-2"><a href="#cb35-2" aria-hidden="true" tabindex="-1"></a>attr_opt <span class="ot">&lt;-</span> <span class="fu">attributes</span>(fit_var)<span class="sc">$</span>optim.out</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div></li>
+<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb39"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb39-1"><a href="#cb39-1" aria-hidden="true" tabindex="-1"></a>fit_var <span class="ot">&lt;-</span> <span class="fu">fit.StVariogram</span>(...)</span>
+<span id="cb39-2"><a href="#cb39-2" aria-hidden="true" tabindex="-1"></a>attr_opt <span class="ot">&lt;-</span> <span class="fu">attributes</span>(fit_var)<span class="sc">$</span>optim.out</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div></li>
 <li><p><span class="arg-text">$convergence</span> - The convergence code (guessing this just binary: converged or not converged (<code>attr_opt$convergence</code>)</p></li>
 <li><p><span class="arg-text">$message</span> - Probably gives more details about “not converged” or maybe the time, eps, etc.</p></li>
 <li><p><span class="arg-text">$value</span> - The mean of the (weighted) squared deviations (loss function) between sample and fitted variogram surface. (aka Weighted Mean Squared Error (wMSE))</p></li>
@@ -4577,18 +4605,18 @@ Code
 <li>From <a href="https://www.r-bloggers.com/2015/08/spatio-temporal-kriging-in-r/">post</a>
 <ul>
 <li><p>Empircal variogram heatmap</p>
-<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb36"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb36-1"><a href="#cb36-1" aria-hidden="true" tabindex="-1"></a><span class="fu">plot</span>(var,<span class="at">map=</span>T) </span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div></li>
+<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb40"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb40-1"><a href="#cb40-1" aria-hidden="true" tabindex="-1"></a><span class="fu">plot</span>(var,<span class="at">map=</span>T) </span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div></li>
 <li><p><code>fit.StVariogram</code> model comparison</p>
-<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb37"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb37-1"><a href="#cb37-1" aria-hidden="true" tabindex="-1"></a><span class="co"># empirical vs model multi-line chart</span></span>
-<span id="cb37-2"><a href="#cb37-2" aria-hidden="true" tabindex="-1"></a><span class="co"># maybe use a par(c(4,2)) and loop</span></span>
-<span id="cb37-3"><a href="#cb37-3" aria-hidden="true" tabindex="-1"></a><span class="co"># maybe list + all = T will do it; might also need par</span></span>
-<span id="cb37-4"><a href="#cb37-4" aria-hidden="true" tabindex="-1"></a><span class="fu">plot</span>(var,separable_Vgm,<span class="at">map=</span>F) </span>
-<span id="cb37-5"><a href="#cb37-5" aria-hidden="true" tabindex="-1"></a></span>
-<span id="cb37-6"><a href="#cb37-6" aria-hidden="true" tabindex="-1"></a><span class="co"># error (needs a loop and table)</span></span>
-<span id="cb37-7"><a href="#cb37-7" aria-hidden="true" tabindex="-1"></a><span class="fu">attr</span>(SimplesumMetric_Vgm, <span class="st">"MSE"</span>)</span>
-<span id="cb37-8"><a href="#cb37-8" aria-hidden="true" tabindex="-1"></a></span>
-<span id="cb37-9"><a href="#cb37-9" aria-hidden="true" tabindex="-1"></a><span class="co"># wireframe</span></span>
-<span id="cb37-10"><a href="#cb37-10" aria-hidden="true" tabindex="-1"></a><span class="fu">plot</span>(var,<span class="fu">list</span>(separable_Vgm, prodSumModel_Vgm, metric_Vgm, sumMetric_Vgm, SimplesumMetric_Vgm),<span class="at">all=</span>T,<span class="at">wireframe=</span>T)</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div></li>
+<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb41"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb41-1"><a href="#cb41-1" aria-hidden="true" tabindex="-1"></a><span class="co"># empirical vs model multi-line chart</span></span>
+<span id="cb41-2"><a href="#cb41-2" aria-hidden="true" tabindex="-1"></a><span class="co"># maybe use a par(c(4,2)) and loop</span></span>
+<span id="cb41-3"><a href="#cb41-3" aria-hidden="true" tabindex="-1"></a><span class="co"># maybe list + all = T will do it; might also need par</span></span>
+<span id="cb41-4"><a href="#cb41-4" aria-hidden="true" tabindex="-1"></a><span class="fu">plot</span>(var,separable_Vgm,<span class="at">map=</span>F) </span>
+<span id="cb41-5"><a href="#cb41-5" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb41-6"><a href="#cb41-6" aria-hidden="true" tabindex="-1"></a><span class="co"># error (needs a loop and table)</span></span>
+<span id="cb41-7"><a href="#cb41-7" aria-hidden="true" tabindex="-1"></a><span class="fu">attr</span>(SimplesumMetric_Vgm, <span class="st">"MSE"</span>)</span>
+<span id="cb41-8"><a href="#cb41-8" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb41-9"><a href="#cb41-9" aria-hidden="true" tabindex="-1"></a><span class="co"># wireframe</span></span>
+<span id="cb41-10"><a href="#cb41-10" aria-hidden="true" tabindex="-1"></a><span class="fu">plot</span>(var,<span class="fu">list</span>(separable_Vgm, prodSumModel_Vgm, metric_Vgm, sumMetric_Vgm, SimplesumMetric_Vgm),<span class="at">all=</span>T,<span class="at">wireframe=</span>T)</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div></li>
 </ul></li>
 </ul>
 
