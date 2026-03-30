@@ -598,7 +598,7 @@
 
 -   pivoting
 
-    -   [Example]{.ribbon-highlight}:
+    -   [Example]{.ribbon-highlight}: Longer then Wider to get summary stats
 
         ``` r
         # orignal data
@@ -642,6 +642,49 @@
         ```
 
         -   From [Surveys, Analysis \>\> {srvyr}](surveys-analysis.qmd#sec-surveys-anal-srvyr){style="color: green"} \>\> Example: Basic \>\> Calculate Statistics
+
+    -   [Example]{.ribbon-highlight}: Getting summary stats from a bootstrap ([source](geospatial-spat-temp.qmd#sec-geo-sptemp-eda-spdep){style="color: green"})
+
+        ``` r
+        glimpse(tib_vario_params_full)
+        #> Rows: 800
+        #> Columns: 5
+        #> $ model  <chr> "Exp", "Exp", "Exp", "Exp", "Exp", "Exp", "Exp", "Exp", "Exp", "Exp", "Exp", "Exp", "Exp", "Exp", "Exp", "Exp", "E…
+        #> $ psill  <dbl> 0.00000000, 48.88668906, 2.48298863, 54.88367262, 0.43667054, 37.97496376, 6.74322437, 52.79899060, 5.85824919, 10…
+        #> $ range  <dbl> 0.00000, 60.65142, 0.00000, 190.36510, 0.00000, 93.55377, 0.00000, 93.04786, 0.00000, 420.41984, 0.00000, 65.58953…
+        #> $ nugget <dbl> 0.00000000, 0.00000000, 2.48298863, 2.48298863, 0.43667054, 0.43667054, 6.74322437, 6.74322437, 5.85824919, 5.8582…
+        #> $ sse    <dbl> 1157.14444, 1157.14444, 78.41177, 78.41177, 64.51906, 64.51906, 311.39062, 311.39062, 91.79619, 91.79619, 3530.525…
+
+        tib_vario_params_full |>
+          group_by(model) |>
+          mutate(id = row_number()) |>
+          ungroup() |>
+          tidyr::pivot_wider(
+            id_cols = id,
+            names_from = model,
+            values_from = c(psill, range, nugget, sse)
+          ) |> 
+          select(-id) |> 
+          summary()
+        #>    psill_Exp        psill_Mat        range_Exp        range_Mat        nugget_Exp       nugget_Mat        sse_Exp        
+        #>  Min.   :  0.00   Min.   :  0.00   Min.   :  0.00   Min.   :  0.00   Min.   : 0.000   Min.   : 0.000   Min.   :   25.46  
+        #>  1st Qu.:  1.44   1st Qu.:  1.44   1st Qu.:  0.00   1st Qu.:  0.00   1st Qu.: 0.000   1st Qu.: 0.000   1st Qu.:  103.65  
+        #>  Median : 17.33   Median : 17.33   Median : 16.82   Median : 16.82   Median : 1.436   Median : 1.436   Median :  222.35  
+        #>  Mean   : 30.80   Mean   : 30.80   Mean   : 56.88   Mean   : 56.88   Mean   : 2.061   Mean   : 2.061   Mean   :  816.32  
+        #>  3rd Qu.: 54.47   3rd Qu.: 54.47   3rd Qu.: 92.10   3rd Qu.: 92.10   3rd Qu.: 3.421   3rd Qu.: 3.421   3rd Qu.:  635.05  
+        #>  Max.   :247.73   Max.   :247.73   Max.   :726.32   Max.   :726.32   Max.   :10.441   Max.   :10.441   Max.   :13901.50  
+        #>     sse_Mat        
+        #>  Min.   :   25.46  
+        #>  1st Qu.:  103.65  
+        #>  Median :  222.35  
+        #>  Mean   :  816.32  
+        #>  3rd Qu.:  635.05  
+        #>  Max.   :13901.50    
+        ```
+
+        -   Without the id variable you get list columns instead of numerics
+
+        -   Within each model type ("Exp" and "Mat"), you create a row index, then widen based on that index.
 
 -   `complete`
 
@@ -750,29 +793,60 @@
     )
     ```
 
--   `pmap` - To iterate by element across each list
+-   `pmap`
 
-    ``` r
-    # e.g. alg_list <- list(elastic_net = elast_est, rf = rf_est)
-    lol <- list(alg_list, grid_list, n_iter_list)
+    -   [Example]{.ribbon-highlight}: Iterate through the rows of a tibble ([source](geospatial-spat-temp.qmd#sec-geo-sptemp-eda-spdep){style="color: green"})
 
-    # Setting up multiple RandomSearchCV objects, 1 for each algorithm
-    # Collecting them in the inner-loop list
-    inner_loop <- 
-      purrr::pmap(lol, 
-                  function(alg, grid, n_iter) {
-                    sk_ms$RandomizedSearchCV(
-                      estimator = alg,
-                      param_distributions = grid,
-                      n_iter = n_iter,
-                      scoring = 'neg_mean_absolute_error',
-                      cv = inner_cv,
-                      n_jobs = -1L,
-                      pre_dispatch = '2*n_jobs',
-                      refit = TRUE)
-                  }
-      )
-    ```
+        ``` r
+        df_mods_nug <- expand.grid(
+          mod_type = c("Exp", "Sph", "Mat"),
+          is_nug = c(TRUE, FALSE),
+          stringsAsFactors = FALSE,
+          KEEP.OUT.ATTRS = FALSE
+        ) |>
+          as_tibble() |> 
+          mutate(
+            vario_samp = list(vario_samp),
+            gamma_max = gamma_max,
+            dist_max = dist_max,
+          )
+
+        tib_vario_mods <- purrr::pmap(
+          df_mods_nug,
+          fit_vario_mod
+        ) |> 
+          purrr::list_rbind()
+        ```
+
+        -   With other map functions, the recommendation is to use a lambda function if you want to be explicit, but it doesn't seem work so well when iterating using a df and pmap.
+
+        -   Note that I've given the variable names in the input tibble the same names as the arguments in the `fit_vario_mod` function. Not certain if that's necessary, but it might be.
+
+            -   Or maybe you could use different names if the order of the columns matched the order of the arguments in the function.
+
+    -   [Example]{.ribbon-highlight}: Iterate by element across each list ([source](https://github.com/ercbk/nested-cross-validation-comparison/blob/d0016e1cb08640749cadad2addf1ce824c7802da/duration-experiment/raschka/nested-cv-retic-raschka.R#L186))
+
+        ``` r
+        # e.g. alg_list <- list(elastic_net = elast_est, rf = rf_est)
+        lol <- list(alg_list, grid_list, n_iter_list)
+
+        # Setting up multiple RandomSearchCV objects, 1 for each algorithm
+        # Collecting them in the inner-loop list
+        inner_loop <- 
+          purrr::pmap(lol, 
+                      function(alg, grid, n_iter) {
+                        sk_ms$RandomizedSearchCV(
+                          estimator = alg,
+                          param_distributions = grid,
+                          n_iter = n_iter,
+                          scoring = 'neg_mean_absolute_error',
+                          cv = inner_cv,
+                          n_jobs = -1L,
+                          pre_dispatch = '2*n_jobs',
+                          refit = TRUE)
+                      }
+          )
+        ```
 
 ### List Operations {#sec-r-tidy-pur-lsop .unnumbered}
 
