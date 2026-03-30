@@ -1315,25 +1315,44 @@
 
 -   [Example]{.ribbon-highlight}:
 
-    :::: panel-tabset
+    ::: panel-tabset
     ## Sample Time Instances
 
-    -   The data, r5to10, is PM10 measurements across 53 measurement stations in Germany. See [EDA \>\> Autocorrelation](geospatial-spat-temp.qmd#sec-geo-sptemp-eda-ac){style="color: green"} \>\> Example 1 for details on this data.
+    -   The data, r5to10, is PM10 measurements across 53 measurement stations in Germany.
     -   Pooled spatial variograms are analyzed. Spatial dependence is calculated per sampled time instance and pooled across all sampled time instances.
     -   Bootstrap distributions for the partial sill and range are calculated. These could give us a potential range of starting values if we use the same model (exponential) in the spatio-temporal variogram.
+    -   This example is from the [{gstat}]{style="color: #990000"} vignette which they seem to have specified the model incorrectly given the package documentation. The vignette uses [dX = 0]{.arg-text} which I can only guess is because they thought [dX]{.arg-text} is *less than equal to* the 2-norm when it's *strictly less than* (See [Geospatial, Kriging \>\> Variograms](https://ercbk.github.io/Data-Science-Notebook/qmd/geospatial-kriging.qmd#sec-geo-krig-vario){style="color: green"} \>\> Example). Consequently, they produced a bad fit.
+        -   The correct specification [dX = 0.5]{.arg-text} with a factored time variable produced good fits for all models.
 
     ``` r
     pacman::p_load(
-      spacetime,
+      dplyr,
+      ggplot2,
       gstat,
-      tidyverse,
       futurize
     )
 
+    data(air, package = "spacetime")
+
+    rural <- spacetime::STFDF(
+      sp = stations,
+      time = dates,
+      data = data.frame(PM10 = as.vector(air))
+    )
+    rr <- rural[, "2005::2010"]
+
+    unsel <- which(apply(
+      as(rr, "xts"), 2,
+      function(x) all(is.na(x))
+    ))
+    r5to10 <- rr[-unsel, ]
+
+
     # sample 100 time instances (days)
+    set.seed(2026)
     vec_time <- sample(
       x = dim(r5to10)[2],
-      size = 100 # also used 300
+      size = 100
     )
 
     ls_samp <- lapply(
@@ -1356,55 +1375,198 @@
     -   For each time instance, the [STFDF]{.arg-text} is subsetted by that day. Then that day is added to a new variable, [time_index]{.var-text}.
     -   Each element of [ls_samp]{.var-text} is a [SpatialPointsDataFrame]{.arg-text} and `rbind` combines the elements into one [SpatialPointsDataFrame]{.arg-text}
 
-    ## Pooled Spatial Variogram Model
+    ## Pooled Spatial Variogram Models
 
-    ::: {layout-ncol="2"}
-    ![100](_resources/Geospatial-Spatio-Temporal.resources/eda-spdep-ex1-vario-1.png){.lightbox group="eda-spdep-ex1" width="432"}
-
-    ![300](_resources/Geospatial-Spatio-Temporal.resources/eda-spdep-ex1-vario-2.png){.lightbox group="eda-spdep-ex1" width="432"}
-    :::
+    ###### Fit the Models
 
     ``` r
-    vario_samp <- 
-      variogram(
-        object = PM10 ~ time_index,
-        locations = spdf_samp[!is.na(spdf_samp$PM10),],
-        dX = 0
+    spdf_samp$time_index <- as.factor(spdf_samp$time_index)
+
+    vario_samp <- variogram(
+      object    = PM10 ~ time_index,
+      locations = spdf_samp[!is.na(spdf_samp$PM10),],
+      dX        = 0.5   # select pairs only within same factor level (time instance)
+    )
+
+    # used in heuristic for starting values
+    gamma_max <- max(vario_samp$gamma)
+    dist_max  <- max(vario_samp$dist)
+
+    fit_vario_mod <- function(
+        mod_type, 
+        is_nug, 
+        vario_samp,
+        gamma_max,
+        dist_max) {
+
+      if (is_nug) {
+        # w/nugget
+        mod_vario <- 
+          fit.variogram(
+            object = vario_samp, 
+            model = vgm(
+              # heuristic method
+              psill = gamma_max * 0.85,
+              model = mod_type,
+              range = dist_max  * 0.25,
+              nugget = gamma_max * 0.15
+            )
+          ) 
+      } else {
+        # no nugget
+        mod_vario <- 
+          fit.variogram(
+            object = vario_samp, 
+            model = vgm(
+              psill = gamma_max * 0.85,
+              model = mod_type,
+              range = dist_max  * 0.25,
+            )
+          ) 
+      }
+
+      # cleaning up model output
+      nugget_val <- mod_vario$psill[mod_vario$model == "Nug"]
+      model_res <- mod_vario[mod_vario$model != "Nug", ]
+
+      tib_res <- tibble(
+        mod_type = model_res$model,
+        psill = model_res$psill,
+        range = model_res$range,
+        nugget = ifelse(length(nugget_val) == 0, NA, nugget_val),
+        sse =  attr(mod_vario, "SSErr"),
+        model = list(mod_vario)
+      )  
+
+      return (tib_res)
+    }
+
+    # input for the mod fitting loop
+    # theoretical model types and w or w/o nugget
+    # empircal variogram plus data for starting values
+    df_mods_nug <- expand.grid(
+      mod_type = c("Exp", "Sph", "Mat"),
+      is_nug = c(TRUE, FALSE),
+      stringsAsFactors = FALSE,
+      KEEP.OUT.ATTRS = FALSE
+    ) |>
+      as_tibble() |> 
+      mutate(
+        vario_samp = list(vario_samp),
+        gamma_max = gamma_max,
+        dist_max = dist_max,
       )
 
-    mod_vario_samp_exp <- 
-      fit.variogram(
-        object = vario_samp, 
-        model = vgm(
-          psill = 100,
-          model = "Exp",
-          range = 200
+    tib_vario_mods <- purrr::pmap(
+      df_mods_nug,
+      fit_vario_mod
+    ) |> 
+      purrr::list_rbind()
+
+    tib_vario_mods
+    #> # A tibble: 6 × 6
+    #>   mod_type psill range nugget   sse model             
+    #>   <fct>    <dbl> <dbl>  <dbl> <dbl> <list>            
+    #> 1 Exp      106.   283.   4.76  49.1 <vrgrmMdl [2 × 9]>
+    #> 2 Sph       68.4  343.   6.45  51.7 <vrgrmMdl [2 × 9]>
+    #> 3 Mat      106.   283.   4.76  49.1 <vrgrmMdl [2 × 9]>
+    #> 4 Exp       84.8  167.  NA     63.3 <vrgrmMdl [1 × 9]>
+    #> 5 Sph       68.3  264.  NA    102.  <vrgrmMdl [1 × 9]>
+    #> 6 Mat       84.8  167.  NA     63.3 <vrgrmMdl [1 × 9]>
+    ```
+
+    -   No warnings from any of the model fittings, so the starting values from the heuristic method seem to work fine in this case.
+    -   Each model fitted a nugget when offered the opportunity
+    -   The Exponential and Matern (both w/nugget) delivered the best performances with SSEs of 49.1.
+
+    ###### Visualize
+
+    ![](_resources/Geospatial-Spatio-Temporal.resources/eda-spdep-ex1-vario-facet-1.png){.lightbox}
+
+    <Details>
+
+    <Summary>Code</Summary>
+
+    ``` r
+    # facet titles for each model
+    tib_plot_data <- tib_vario_mods |> 
+      mutate(
+        nugget_status = if_else(is.na(nugget), 
+                                "No Nugget", 
+                                paste("Nugget:", round(nugget, 2))),
+        facet_label = factor(
+          paste(mod_type, "|", nugget_status),
+          levels = unique(paste(mod_type, "|", nugget_status))
         )
       )
 
-    mod_vario_samp_exp
-    #>   model    psill    range
-    #> 1   Exp 48.92291 51.20898
-
-    plot(
-      x = vario_samp, 
-      mod_vario_samp_exp, 
-      plot.numbers = TRUE
+    # generates the fitted lines for each model
+    model_lines <- purrr::map2_dfr(
+      tib_plot_data$model, 
+      tib_plot_data$facet_label, 
+      ~ variogramLine(.x, maxdist = max(vario_samp$dist)) |> 
+        mutate(facet_label = .y)
     )
+
+
+    ggplot() +
+
+      # experimental variogram points
+      geom_point(
+        data = vario_samp, 
+        aes(x = dist, y = gamma), 
+        color = "black", 
+        size = 2
+      ) +
+
+      # labels for number of distance pairs
+      ggrepel::geom_text_repel(
+        data = vario_samp, 
+        aes(x = dist, y = gamma, label = np),
+        size = 3.5,
+        color = "grey30",
+        segment.color = "grey70",
+        force = 2,
+        box.padding = 0.5
+      ) +
+
+      # model lines
+      geom_line(
+        data = model_lines, 
+        aes(x = dist, y = gamma), 
+        color = "firebrick", 
+        linewidth = 1
+      ) +
+
+      facet_wrap(~ facet_label, ncol = 3) +
+
+      labs(
+        title = "Variogram Model Fits by Type and Nugget Status",
+        subtitle = "Labels indicate number of pairs per distance bin",
+        x = "Distance (h)",
+        y = "Semivariance (γ)"
+      ) +
+
+      theme_notebook() +
+
+      theme(
+        # increase facet title font size
+        strip.text = element_text(
+          size = 14, 
+          face = "bold", 
+          color = "black"
+        ),
+        axis.title = element_text(size = 12),
+        panel.spacing = unit(1.5, "lines")
+      )
     ```
 
-    -   The spatial variogram on the left uses 100 time slices (i.e. 100 days) and the one on the right uses 300.
-    -   The one on the left looks more unstable in the region (small distance pairs) where the range is estimated.
-        -   Monotonicity is broken where the third bin has a lower semi-variance than the second bin.
-        -   There is a large jump in semi-variance between the first and second bin.
-    -   In the one on right, monotonicity is restored and a smaller jump from bin 1 to bin 2 which results in a flatter fitted curve.
-    -   [dX = 0]{.arg-text} because including pairs from different time slices might have these effects:
-        -   If temporal correlation is weak, short-distance bins inflate
-        -   The estimated “spatial” range shrinks artificially
-        -   The sill and nugget lose spatial interpretation
-    -   There are 53 locations, so `choose(53, 2)` says there 1,378 location pairs per time slice. Therefore, sampling 100 time instances means there are 13,780 pairs overall used to calculate this empirical variogram.
-    -   While this seems like a lot of data, it doesn't fundamentally give us more *spatial* information about the area. Whether we sample 100 or use all the time slice to calculate the empirical variogram, the salient spatial variable is the number of locations which is just 53.
-    -   More time slices gives less variance (smoother line) to our model's estimate of the psill and range, but doesn't make it more accurate in terms of true "population" values. To increase the accuracy, we'd need more locations taking PM10 measurements.
+    </Details>
+
+    -   Even with just 100 time instance samples, these variograms look stable
+        -   Monotonicity isn't broken
+        -   No major outliers (maybe a couple mild ones at the large pairwise distance bins)
+    -   All these fits look fine visually. If I had to pick a bad one, it'd probably be the Spherical without a nugget, but maybe it's right and the others are overfitting.
 
     ## Block Bootstrapping
 
@@ -1612,7 +1774,7 @@
     -   Both parameter distributions are right-skewed with some outliers
     -   So if we were to create a grid a starting values, it could be pretty wide.
     -   Maybe more than 300 days (out of 1826 days) for the number of sampled time instances (slices) would help, but this is likely do to there only being 53 stations taking measurements.
-    ::::
+    :::
 
 ## Kriging {#sec-geo-sptemp-krig .unnumbered}
 
@@ -1664,9 +1826,9 @@
     plot(vario_samp, vario_mod, wireframe = T)
     ```
 
-### Starting Values
+### Starting Values {#sec-geo-sptemp-krig-stval .unnumbered}
 
--   I don't think any starting values for parameters have to be set unless the model fails to converge. Failures (convergence, singular) aren't rare though.
+-   I don't think any starting values for parameters have to be set unless the model fails to converge. Failures (convergence, singular) aren't rare though, so maybe it's just better to use them from the jump.
 
 -   Use estimates from pooled marginal variograms
 
