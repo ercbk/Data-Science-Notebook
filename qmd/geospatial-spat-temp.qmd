@@ -855,6 +855,42 @@
 
     ## Autocorrelation
 
+    ###### Average ACF per Location
+
+    ![](_resources/Geospatial-Spatio-Temporal.resources/eda-spdep-ex2-boot-avg-acf-1.png){.lightbox width="532"}
+
+    ``` r
+    # ACF for each station
+    mat_acf <- apply(
+      as(r5to10, "xts"), # coerce to matrix of time series columns
+      2, 
+      function(x) {
+        acf(
+          x, 
+          na.action = na.pass, 
+          plot = FALSE, 
+          lag.max = 80)$acf
+      }
+    )
+
+    # locations are rows
+    acf_mean <- rowMeans(mat_acf, na.rm = TRUE)
+
+    plot(
+      0:80,           # 80 days
+      acf_mean, 
+      type = "b",     # points and lines
+      xlab = "Lag (days)", 
+      ylab = "Mean ACF",
+      main = "Average temporal ACF across stations"
+    )
+    abline(h = 0, lty = 2)
+    ```
+
+    -   The average autocorrelation gets close to zero around 40 days and then crosses zero at around 60 days. After 60 days, there's only a little noisy oscillation around zero.
+
+    ###### Specific Locations
+
     ![](_resources/Geospatial-Spatio-Temporal.resources/krig-eda-ac-ex1-1.png){.lightbox group="eda-ac-ex1" width="532"}
 
     ``` r
@@ -1320,8 +1356,8 @@
     ## Sample Time Instances
 
     -   The data, r5to10, is PM10 measurements across 53 measurement stations in Germany.
-    -   Pooled spatial variograms are analyzed. Spatial dependence is calculated per sampled time instance and pooled across all sampled time instances.
-    -   Bootstrap distributions for the partial sill and range are calculated. These could give us a potential range of starting values if we use the same model (exponential) in the spatio-temporal variogram.
+    -   Pooled spatial variograms are analyzed. Semivariance is computed between station pairs within each time slice, and then those within-slice spatial relationships are *pooled* across slices. The partial sill and range estimates can be used as starting values in a spatio-temporal variogram..
+    -   Bootstrap distributions for the partial sill and range are calculated. These could give us a potential range of starting values if there are fitting issues with the spatio-temporal variogram.
     -   This example is from the [{gstat}]{style="color: #990000"} [vignette](https://cran.r-project.org/web/packages/gstat/vignettes/st.pdf) (Sect. 2.2) which they seem to have specified the model incorrectly given the package documentation. The vignette uses [dX = 0]{.arg-text} which I can only guess is because they thought [dX]{.arg-text} is *less than equal to* the 2-norm when it's actually *strictly less than* (See [Geospatial, Kriging \>\> Variograms](https://ercbk.github.io/Data-Science-Notebook/qmd/geospatial-kriging.qmd#sec-geo-krig-vario){style="color: green"} \>\> Example). Consequently, they produced a bad fit.
         -   The correct specification [dX = 0.5]{.arg-text} with a factored time variable produced good fits for all models.
 
@@ -1571,9 +1607,16 @@
 
     ## Block Bootstrapping
 
-    -   After fitting variograms with a few different amounts of sampled time slices/instances a number of times, the variograms were substantially different — making it difficult to gain a feel for the partial sill and range parameters. Applying the bootstrap should give a better sense for a range of starting values for each of those parameters.
-    -   From the autocorrelation EDA example, there does seem to be some pretty strong autocorrelation present, so using the block version of bootstrapping makes sense. Probably could make blocks up to around 21 days judging by the ACFs, but I just went with 14 days here.
-        -   Note that cross-correlations are more of spatio-temporal calculation. Setting dX = 0, means we're modeling spatial dependence *within* time slices and then pooling, so the ACF is more appropriate to base our block length off of.
+    -   Different amounts of sampled time slices/instances a number of times can result in substantially different variograms — making it difficult to gain a feel for the partial sill and range parameters. Applying the bootstrap should give a better sense for a range of starting values for each of those parameters.
+    -   From the autocorrelation EDA example, there does seem to be some pretty strong autocorrelation present, so using the block version of bootstrapping makes sense.
+    -   Under iid resampling, you could draw many of those similar days into the same resample, producing a bootstrap distribution that understates variability in your parameter estimates because some resamples are effectively seeing the same spatial field repeatedly. The block bootstrap guards against this by ensuring consecutive days stay together, preserving the effective sample size of your bootstrap distribution.
+    -   Looking at the average ACF per location can help choose a block length\
+        ![](_resources/Geospatial-Spatio-Temporal.resources/eda-spdep-ex2-boot-avg-acf-1.png){.lightbox width="532"}
+        -   See [EDA \>\> Temporal Dependence](geospatial-spat-temp.qmd#sec-geo-sptemp-eda-ac){style="color: green"} \>\> Example 1 for the code.
+        -   Ideally 60 days (or 63 which is 9 weeks) is probably the choice, but 42 days (6 weeks) or even 21 days could possibly work.
+        -   The issue with choosing a block length is that there needs to be enough time instances (slices) sampled in order to get stable estimates.
+            -   Whether you have enough time instances depends on the amount of data (in this example, 1826 days after cleaning).
+        -   Also, this is a computationally expensive process that can take hours on the average desktop, so resources are another consideration.
 
     ###### Block Bootstrap the Partial Sill and Range
 
@@ -1584,48 +1627,112 @@
     <Summary>Code</Summary>
 
     ``` r
-    # ---------- Model and Block Functions ---------- #
+    # ---------- Model Function ---------- #
 
-    estim_params_vgm <-  # <1>
-      function(idx_time_resamp,
-               dat) {
+    estim_params_vgm <- function( # <1>
+        mod_type, 
+        idx_time_resamp, 
+        dat) {
 
-        ls_dat <- lapply(
-          idx_time_resamp, 
-          function(i) {
-            x <- dat[, i]
-            x$time_index <- i
-            rownames(x@coords) <- NULL
-            x
-          }
-        )
+      ls_dat <- lapply(idx_time_resamp, function(i) {
+        x <- dat[, i]
+        x$time_index <- i
+        rownames(x@coords) <- NULL
+        x
+      })
 
-        spdf <- do.call(rbind, ls_dat)
-        spdf <- spdf[!is.na(spdf$PM10), ]
+      spdf <- do.call(rbind, ls_dat)
+      spdf <- spdf[!is.na(spdf$PM10), ]
+      spdf$time_index <- as.factor(spdf$time_index)
 
-        vario_exp <- variogram(
-          PM10 ~ time_index,
-          spdf,
-          dX = 0
-        )
+      vario_exp <- variogram(
+        PM10 ~ time_index, 
+        spdf, 
+        dX = 0.5
+      )
 
-        vario_mod <- try(
-          fit.variogram(
-            vario_exp, 
-            vgm(psill = 100, 
-                "Exp", 
-                range = 200)),
-          silent = TRUE
-        )
+      # matern model
+      if (mod_type == "Mat") {
+        # narrower than default
+        kappa_grid <- seq(0.40, 0.70, by = 0.05)
 
-        if (inherits(vario_mod, "try-error"))
-          return(c(NA, NA))
+        fits <- lapply(kappa_grid, function(k) {
+          try(fit.variogram(
+            vario_exp,
+            vgm(nugget = NA,
+                psill  = NA,
+                model  = "Mat",
+                range  = NA,
+                kappa  = k),
+            fit.kappa  = FALSE, # <2>
+            fit.method = 7
+          ), silent = TRUE)
+        })
 
-        tibble(
-          psill = vario_mod$psill,
-          range = vario_mod$range
-        )
+        # give NAs to degenerate results
+        valid <- Filter(function(f) {
+          !inherits(f, "try-error")     &&
+            !isTRUE(attr(f, "singular")) &&
+            all(f$psill >= 0)            &&
+            all(f$range >= 0)
+        }, fits)
+
+        if (length(valid) == 0) return(tibble(
+          model = mod_type, 
+          psill = NA, 
+          range = NA,
+          nugget = NA, 
+          kappa = NA, 
+          sse = NA
+        ))
+
+        vario_mod   <- valid[[which.min(sapply(valid, function(f) attr(f, "SSErr")))]]
+        kappa_value <- vario_mod$kappa[[2]]
+
+      } else {
+
+        # exponential or spherical
+        vario_mod <- try(fit.variogram(
+          vario_exp,
+          vgm(
+            psill  = NA,
+            model  = mod_type,
+            range  = NA,
+            nugget = NA
+          )
+        ), silent = TRUE)
+
+        failed <-
+          inherits(vario_mod, "try-error")    ||
+          isTRUE(attr(vario_mod, "singular")) ||
+          any(vario_mod$psill < 0)            ||
+          any(vario_mod$range < 0)
+
+        if (failed) return(tibble(
+          model = mod_type, 
+          psill = NA, 
+          range = NA,
+          nugget = NA, 
+          kappa = NA, 
+          sse = NA
+        ))
+
+        kappa_value <- NA
       }
+
+      tibble(
+        model  = mod_type,
+        psill  = vario_mod$psill[[2]],
+        range  = vario_mod$range[[2]],
+        nugget = vario_mod$psill[[1]],
+        kappa  = kappa_value,
+        sse    = attr(vario_mod, "SSErr")
+      )
+    }
+
+
+
+    # ---------- Block Function ----------- #
 
     make_block_indices <- 
       function(n_time, 
@@ -1634,10 +1741,10 @@
                n_samples) {
       mat_idxs <- matrix(NA, nrow = n_samples, ncol = time_slices)
 
-      for (r in seq_len(n_samples)) { # <2>
+      for (r in seq_len(n_samples)) { # <3>
         idx <- integer(0)
 
-        while (length(idx) < time_slices) { # <3>
+        while (length(idx) < time_slices) { # <4>
           start <- sample(
             1:(n_time - block_length + 1),
             size = 1
@@ -1653,9 +1760,12 @@
 
 
     # ---------- Run it ---------- # 
-    # <4>
-    time_slices <- 300 # 300 days
-    block_length <- 14 # 2 weeks
+
+    set.seed(2026) # <5>
+
+    # cleaned data has 1826 days
+    time_slices <- 504 # days
+    block_length <- 42 # 6 weeks
     n_samples <- 200 # 200 resamples
 
     block_idxs <- make_block_indices(
@@ -1665,47 +1775,113 @@
       n_samples = n_samples
     )
 
-    plan(future.mirai::mirai_multisession, workers = 10L)
+    plan(future.mirai::mirai_multisession, workers = 14L)
 
-    tib_vario_params <- purrr::map(
-      asplit(block_idxs, 1),
-      \(x) {
-        estim_params_vgm(x, dat = r5to10)
+    tib_vario_params_full <- purrr::map(
+      c("Exp", "Mat"),
+      \(i) {
+        tib_vario_params <- purrr::map(
+          asplit(block_idxs, 1),
+          \(x) {
+            estim_params_vgm(
+              mod_type = i, 
+              x, 
+              dat = r5to10
+            )
+          }
+        ) |> 
+          futurize() |> 
+          purrr::list_rbind()    
       }
     ) |> 
-      futurize() |> 
-      list_rbind()
+      purrr::list_rbind()
 
     mirai::daemons(0)
     ```
 
     1.  The basically just functionalizes the part of the script in the previous tabs and extracts the psill and range parameters from the variogram model
-    2.  Iterates through the number of bootstrap replicates specified by [n_samples]{.var-text}
-    3.  Generates blocks until the length of the replicate reaches the fixed length ([time_slices]{.var-text})
-    4.  A matrix is created with `make_block_indices` where each row is indices of PM10 observations which are organized in blocks of 14 days. Each row of that matrix is fed into `estim_parmas_vgm` where a variogram model is fit. The calculated [psill]{.arg-text} and [range]{.arg-text} parameters of the fitted model are collected in a tibble
+    2.  [fit.kappa = TRUE]{.arg-text} can produce some unrealistic parameter estimates while producing low MSE performance. It failed in this case, so I used a narrower grid search centered around the Exponential model ($\kappa = 0.50$) which was producing stable estimates for the most part when I was exploring different settings.
+    3.  Iterates through the number of bootstrap replicates specified by [n_samples]{.var-text}
+    4.  Generates blocks until the length of the replicate reaches the fixed length ([time_slices]{.var-text})
+    5.  A matrix is created with `make_block_indices` where each row is indices of PM10 observations which are organized in blocks of 14 days. Each row of that matrix is fed into `estim_parmas_vgm` where a variogram model is fit. The calculated [psill]{.arg-text} and [range]{.arg-text} parameters of the fitted model are collected in a tibble
 
     </Details>
+
+    ###### Execution Notes
+
+    +------------------------+---------------------------+-----------------------------------------------------------------------------------------------+
+    | Configuration          | Run Time                  | Results                                                                                       |
+    +========================+===========================+===============================================================================================+
+    | time slices: 630 days\ | 1 hr 14 min on 12 workers | Good median/mean spreads on parameter estimates                                               |
+    | block length: 42 days\ |                           |                                                                                               |
+    | n samples: 150         |                           |                                                                                               |
+    +------------------------+---------------------------+-----------------------------------------------------------------------------------------------+
+    | time slices: 504 days\ | 42 min on 12 workers      | Still good median/mean spreads; nugget spread affected most                                   |
+    | block length: 42 days\ |                           |                                                                                               |
+    | n samples: 150         |                           |                                                                                               |
+    +------------------------+---------------------------+-----------------------------------------------------------------------------------------------+
+    | time slices: 420 days\ | 27 min on 12 workers      | Nugget and range spreads now affected. Nugget median and maximums have changed substantially. |
+    | block length: 42 days\ |                           |                                                                                               |
+    | n samples: 150         |                           |                                                                                               |
+    +------------------------+---------------------------+-----------------------------------------------------------------------------------------------+
+
+    -   The only model fit during this experimentation was the Matern model since that's the one that was most difficult to get stable estimates (i.e. spread between mean and median, maximum size)
+    -   Execution took 2.02 hrs on 14 workers. I felt this configuration (504 [time_slices]{.var-text}, 42 [block_length]{.var-text}, and 200 [n_samples]{.var-text}) gave me the best trade-off between precision and run time.
 
     ###### Results
 
     ``` r
-    summary(tib_vario_params)
-    #>      psill            range       
-    #>  Min.   : 22.43   Min.   : 27.00  
-    #>  1st Qu.: 40.79   1st Qu.: 53.54  
-    #>  Median : 50.84   Median : 68.48  
-    #>  Mean   : 55.30   Mean   : 73.89  
-    #>  3rd Qu.: 62.64   3rd Qu.: 87.91  
-    #>  Max.   :160.85   Max.   :357.72
+    tib_vario_params_full |>
+      group_by(model) |>
+      summarize(na_rate = mean(is.na(range)))
+    #>   model na_rate
+    #>   <chr>   <dbl>
+    #> 1 Exp         0
+    #> 2 Mat         0
 
-    sd(tib_vario_params$psill)
-    #> [1] 21.50009
-    sd(tib_vario_params$range)
-    #> [1] 32.32091
+    tib_vario_params_full |>
+      group_by(model) |>
+      mutate(id = row_number()) |>
+      ungroup() |>
+      tidyr::pivot_wider(
+        id_cols = id,
+        names_from = model,
+        values_from = c(psill, range, nugget, kappa, sse)
+      ) |> 
+      select(-id) |> 
+      summary()
+    #>    psill_Exp        psill_Mat        range_Exp        range_Mat        nugget_Exp       nugget_Mat       kappa_Exp     kappa_Mat     
+    #>  Min.   : 22.33   Min.   : 22.97   Min.   : 36.60   Min.   : 23.70   Min.   : 0.000   Min.   :0.0000   Min.   : NA   Min.   :0.4000  
+    #>  1st Qu.: 40.64   1st Qu.: 42.61   1st Qu.: 62.71   1st Qu.: 63.13   1st Qu.: 0.000   1st Qu.:0.0000   1st Qu.: NA   1st Qu.:0.4000  
+    #>  Median : 52.49   Median : 54.98   Median : 92.56   Median :123.06   Median : 1.115   Median :0.0000   Median : NA   Median :0.4000  
+    #>  Mean   : 58.37   Mean   : 63.68   Mean   :107.38   Mean   :150.49   Mean   : 1.836   Mean   :0.9716   Mean   :NaN   Mean   :0.4755  
+    #>  3rd Qu.: 69.20   3rd Qu.: 76.28   3rd Qu.:137.62   3rd Qu.:193.86   3rd Qu.: 2.734   3rd Qu.:1.2989   3rd Qu.: NA   3rd Qu.:0.5000  
+    #>  Max.   :165.82   Max.   :201.13   Max.   :291.82   Max.   :608.03   Max.   :10.166   Max.   :7.1015   Max.   : NA   Max.   :0.7000  
+    #>                                                                                                        NA's   :200                   
+    #>     sse_Exp            sse_Mat        
+    #>  Min.   :   68.07   Min.   :   57.24  
+    #>  1st Qu.:  202.13   1st Qu.:  175.43  
+    #>  Median :  375.05   Median :  334.31  
+    #>  Mean   : 1264.13   Mean   : 1056.00  
+    #>  3rd Qu.: 1087.46   3rd Qu.: 1001.13  
+    #>  Max.   :75587.82   Max.   :56389.88  
+
+    tib_vario_params_full |> 
+      summarize(
+        sd_psill = sd(psill),
+        sd_range = sd(range),
+        sd_nugget = sd(nugget),
+        .by = model)
+    #> # A tibble: 2 × 4
+    #>   model sd_psill sd_range sd_nugget
+    #>   <chr>    <dbl>    <dbl>     <dbl>
+    #> 1 Exp       24.8     54.6      2.18
+    #> 2 Mat       29.4    121.       1.63
     ```
 
     -   We have medians less than means, so skew is present
-    -   The variance of each distribution is quite large.
+    -   The variance of each distribution is quite large which we expect when taking autocorrelation into account.
+    -   You see some crazy maximums, but the spreads between the median and means are fairly tame.
 
     ###### Visualize
 
