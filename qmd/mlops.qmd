@@ -153,6 +153,7 @@
 
 -   [Misc]{.underline}
     -   Packages
+
         -   [CRAN Task View](https://cran.r-project.org/web/views/HighPerformanceComputing.html)
         -   [{]{style="color: #990000"}[bakerrr](https://anirbanshaw24.github.io/bakerrr/){style="color: #990000"}[}]{style="color: #990000"}
             -   S7 Class System: Type-safe, modern R object system
@@ -164,6 +165,77 @@
             -   Clean API: Intuitive `print`, `summary`, and `run_jobs(wait_for_results)` methods
         -   [{]{style="color: #990000"}[progressr](https://progressr.futureverse.org/){style="color: #990000"}[}]{style="color: #990000"} - Provides a minimal API for reporting progress updates in R.
             -   Designed to work out-of-the-box also for parallel and distributed processing, especially with the futureverse ecosystem.
+
+            -   I have had problems with this on my Windows machine. It'll stop being able to connect to "gzfile" at random times for some reason and stop your loop with an error. I haven't looked into this too much yet though.
+
+            -   [Example]{.ribbon-highlight}: Adding a progress bar ([source](geospatial-spat-temp.qmd#sec-geo-sptemp-eda-spdep){style="color: green"})
+
+                ``` r
+                library(futurize); library(progressr)
+
+                plan(future.mirai::mirai_multisession, workers = 10L)
+                handlers(global = TRUE)                  # for progress bar
+                handlers("progress")                     # for progress bar
+
+                run_boot <- function(idxs, n_samples) {
+                  p <- progressor(along = 1:n_samples) # for progress bar
+                  tib_params_mat <- purrr::map2(
+                    asplit(idxs, 1),
+                    1:n_samples,                       # for progress bar
+                    \(x, iter) {
+                      p(sprintf("sample=%g", iter))    # for progress bar
+                      estim_params_vgm(
+                        mod_type = "Mat", 
+                        x, 
+                        dat = r5to10
+                      )
+                    }
+                  ) |> 
+                    futurize() |> 
+                    purrr::list_rbind()
+
+                  return(tib_params_mat)
+                }
+
+                tib_params <- run_boot(block_idxs, n_samples)
+                ```
+
+                -   `progressor` has to be in a localized environment like a function
+                -   Can also use `with_progress`
+
+            -   [Example]{.ribbon-highlight}: Adding a progress bar to a nested loop ([source](geospatial-spat-temp.qmd#sec-geo-sptemp-eda-spdep){style="color: green"})
+
+                ``` r
+                library(futurize); library(progressr)
+
+                plan(future.mirai::mirai_multisession, workers = 10L)
+                handlers(global = TRUE)                  # for progress bar
+                handlers("progress")                     # for progress bar
+
+                tib_vario_params_full <- purrr::map(
+                  c("Exp", "Mat"),
+                  \(i) {
+                    p <- progressor(along = 1:n_samples) # for progress bar
+                    tib_vario_params <- purrr::map2(
+                      asplit(block_idxs, 1),
+                      1:n_samples,                       # for progress bar
+                      \(x, iter) {
+                        p(sprintf("sample=%g", iter))    # for progress bar
+                        estim_params_vgm(
+                          mod_type = i, 
+                          x, 
+                          dat = r5to10
+                        )
+                      }
+                    ) |> 
+                      futurize() |> 
+                      purrr::list_rbind()    
+                  }
+                ) |> 
+                  purrr::list_rbind()
+
+                mirai::daemons(0)
+                ```
         -   [{]{style="color: #990000"}[SafeMapper](https://zaoqu-liu.github.io/SafeMapper/){style="color: #990000"}[}]{style="color: #990000"} - Provides drop-in replacements for 'purrr' and 'furrr' mapping functions with built-in fault tolerance, automatic checkpointing, and seamless recovery capabilities.
             -   When long-running computations are interrupted due to errors, system crashes, or other failures, simply re-run the same code to automatically resume from the last checkpoint.
             -   Ideal for large-scale data processing, API calls, web scraping, and other time-intensive operations where reliability is critical.
@@ -225,40 +297,6 @@
         cv <- glmnet::cv.glmnet(x, y) |> futurize() # requires {doFuture}
         b <- mgcv::bam(y ~ s(x0, bs = bs) + s(x1, bs = bs), data = dat) |> futurize() # requires {future}
         m <- lme4::allFit(models) |> futurize() # requires {future}
-        ```
-
-    -   [Example]{.ribbon-highlight}: Adding a progress bar ([source](geospatial-spat-temp.qmd#sec-geo-sptemp-eda-spdep){style="color: green"})
-
-        ``` r
-        library(futurize); library(progressr)
-
-        plan(future.mirai::mirai_multisession, workers = 10L)
-        handlers(global = TRUE)                  # for progress bar (optional)
-        handlers("progress")                     # for progress bar (optional)
-
-        tib_vario_params_full <- purrr::map(
-          c("Exp", "Mat"),
-          \(i) {
-            p <- progressor(along = 1:n_samples) # for progress bar (optional)
-            tib_vario_params <- purrr::map2(
-              asplit(block_idxs, 1),
-              1:n_samples,                       # for progress bar (optional)
-              \(x, iter) {
-                p(sprintf("sample=%g", iter))    # for progress bar (optional)
-                estim_params_vgm(
-                  mod_type = i, 
-                  x, 
-                  dat = r5to10
-                )
-              }
-            ) |> 
-              futurize() |> 
-              purrr::list_rbind()    
-          }
-        ) |> 
-          purrr::list_rbind()
-
-        mirai::daemons(0)
         ```
 
     -   Also see [{progressr}]{style="color: #990000"} [docs](https://progressr.futureverse.org/articles/progressr-22-parallel-processing.html#future_map---parallel-purrrmap)
