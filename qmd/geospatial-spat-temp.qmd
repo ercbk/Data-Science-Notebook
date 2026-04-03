@@ -1800,7 +1800,7 @@
     ```
 
     1.  The basically just functionalizes the part of the script in the previous tabs and extracts the psill and range parameters from the variogram model
-    2.  [fit.kappa = TRUE]{.arg-text} can produce some unrealistic parameter estimates while producing low MSE performance. It failed in this case, so I used a narrower grid search centered around the Exponential model ($\kappa = 0.50$) which was producing stable estimates for the most part when I was exploring different settings.
+    2.  [fit.kappa = TRUE]{.arg-text} can produce some unrealistic parameter estimates while still having good MSE performance. It failed in this case, so I used a narrower grid search centered around the Exponential model ($\kappa = 0.50$) which was producing stable estimates for the most part when I was exploring different settings.
     3.  Iterates through the number of bootstrap replicates specified by [n_samples]{.var-text}
     4.  Generates blocks until the length of the replicate reaches the fixed length ([time_slices]{.var-text})
     5.  A matrix is created with `make_block_indices` where each row is indices of PM10 observations which are organized in blocks of 14 days. Each row of that matrix is fed into `estim_parmas_vgm` where a variogram model is fit. The calculated [psill]{.arg-text} and [range]{.arg-text} parameters of the fitted model are collected in a tibble
@@ -1841,12 +1841,18 @@
     | n samples: 200         |                           |                                                                                                                                                                                                 |
     +------------------------+---------------------------+-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------+
 
+    -   **tl;dr**
+        -   As the number of time slices (length of rows in resample matrix) was reduced, the sequence of most affected estimates was nugget, then nugget and range, and finally nugget, range, and psill
+        -   Block lengths (step size in weeks) were chosen using the average ACF per location plot. Increasing the block length increased the variance. The higher the block length, the more nonsensical estimates produced.
+            -   Increasing the number of time slices can probably mitigate this, but that depends on your data (1826 days in this example) and resources (I have 16 workers available)
+        -   When the variance was high and estimates were non-sensical, increasing the number of resamples (n_samples) further increased the variance and made the estimates even worse.
     -   The only model fit during this experimentation was the Matern model since that's the one that was most difficult to get stable estimates (i.e. spread between mean and median, maximum size)
     -   Execution for both Exponential and Matern took 2.02 hrs on 14 workers. I felt this configuration (504 [time_slices]{.var-text}, 42 [block_length]{.var-text}, and 200 [n_samples]{.var-text}) gave me the best trade-off between precision (reasonable estimates) and run time.
 
     ###### Results
 
     ``` r
+    # no error, singular mats, or negative estimates
     tib_vario_params_full |>
       group_by(model) |>
       summarize(na_rate = mean(is.na(range)))
@@ -1928,7 +1934,7 @@
 
     ###### Visualize
 
-    ![](_resources/Geospatial-Spatio-Temporal.resources/eda-spdep-ex1-boot-1.png){.lightbox group="eda-spdep-ex1" width="532"}
+    ![](_resources/Geospatial-Spatio-Temporal.resources/eda-spdep-ex1-bboot-1.png){.lightbox}
 
     <Details>
 
@@ -1940,24 +1946,34 @@
     notebook_colors <- unname(swatches::read_ase(here::here("palettes/Forest Floor.ase")))
 
     tib_plot <- 
-      tib_vario_params |> 
-      pivot_longer(cols = everything(), names_to = "parameter") |> 
+      tib_vario_params_full |> 
+      mutate(model = recode_values(
+        model,
+        "Exp" ~ "Exponential",
+        "Mat" ~ "Matern"
+      )) |> 
+      tidyr::pivot_longer(cols = -model, names_to = "parameter",) |> 
       group_split(parameter)
 
     psill_plot <- ggplot(
-      data = tib_plot[[1]],
-      aes(y = parameter, 
-          x = value, 
-          fill = parameter)) +
+      data = tib_plot[[3]],
+      aes(y = model, 
+          x = value,
+          fill = model)) +
+      
+      # density
       stat_slab(
         aes(thickness = after_stat(pdf*n)), 
-        scale = 0.7) +
+        scale = 0.5) +
+      
+      # histogram
       stat_dotsinterval(
         side = "bottom", 
-        scale = 0.7, 
-        slab_linewidth = NA) +
-      scale_x_continuous(position = "top") +
-      scale_fill_manual(values = notebook_colors[[4]]) +
+        scale = 0.5, 
+        slab_linewidth = NA) + # not sure why, setting to NA applies proper color to dots
+      
+      scale_fill_manual(values = c(notebook_colors[[4]], notebook_colors[[8]])) +
+      labs(title = "Partial Sill") +
       xlab("Semi-Variance") +
       guides(fill = "none") +
       theme_notebook(
@@ -1967,33 +1983,139 @@
                                     linewidth = 1.5))
 
     range_plot <- ggplot(
-      data = tib_plot[[2]],
-      aes(y = parameter, 
-          x = value, 
-          fill = parameter)) +
+      data = tib_plot[[4]],
+      aes(y = model, 
+          x = value,
+          fill = model)) +
+      
+      # density
       stat_slab(
         aes(thickness = after_stat(pdf*n)), 
-        scale = 0.7) +
+        scale = 0.5) +
+      
+      # histogram
       stat_dotsinterval(
         side = "bottom", 
-        scale = 0.7, 
-        slab_linewidth = NA) +
-      scale_fill_manual(values = notebook_colors[[8]]) +
-      xlab("Distance (km)") +
+        scale = 0.5, 
+        slab_linewidth = NA) + # not sure why, setting to NA applies proper color to dots
+      
+      scale_fill_manual(values = c(notebook_colors[[4]], notebook_colors[[8]])) +
+      labs(title = "Range") +
+      xlab("Distance") +
       guides(fill = "none") +
       theme_notebook(
         axis.title.y = element_blank(),
         panel.border = element_rect(color = "#FFFDF9FF", 
                                     fill = "#FFFDF9FF", 
                                     linewidth = 1.5))
-    psill_plot/range_plot
+
+
+    nugget_plot <- 
+      ggplot(tib_plot[[2]],
+             aes(
+               x = value, 
+               y = model, 
+               color = model
+           )) +
+      
+      geom_boxplot(
+        width = 0.3, 
+        linewidth = 1,
+        median.linewidth = 2,
+        median.color = notebook_colors[[9]],
+        outlier.shape = NA,  # hide redundant outlier dots
+        color = "grey40", 
+        fill = NA) +
+      
+      # adds points inline w/boxplot
+      ggforce::geom_sina(
+        alpha = 0.5, 
+        size = 1.5, 
+        maxwidth = 0.6) +
+      
+      # handle many outliers
+      scale_x_sqrt() +  # sqrt transform helps w/skew w/o hiding zeros
+      
+      scale_color_manual(values = c(notebook_colors[[4]], notebook_colors[[8]])) +
+      labs(
+        x = "Semivariance (γ)", 
+        y = NULL, 
+        title = "Nugget") +
+      guides(color = "none") +
+      theme_notebook(
+        axis.title.y = element_blank(),
+        panel.border = element_rect(color = "#FFFDF9FF",
+                                    fill = "#FFFDF9FF",
+                                    linewidth = 1.5))
+
+
+    kappa_plot <- ggplot(
+      data = tib_plot[[1]] |> filter(model == "Matern"),
+      aes(x = value)) +
+      
+      # dot bars
+      geom_dots(
+        layout = "bar", 
+        fill = notebook_colors[[8]], 
+        dotsize = 1) +
+      
+      # remove y axis
+      scale_y_continuous(breaks = NULL) +
+      # add cushion so dots don't get cutt off
+      scale_x_continuous(expand = expansion(mult = 0.1)) +
+      
+      labs(title = "Matern's Kappa") +
+      xlab("Kappa") +
+      guides(fill = "none") +
+      theme_notebook(
+        axis.title.y = element_blank(),
+        panel.border = element_rect(color = "#FFFDF9FF",
+                                    fill = "#FFFDF9FF",
+                                    linewidth = 1.5))
+
+
+    sse_plot <- ggplot(
+      data = tib_plot[[5]],
+      aes(y = model, 
+          x = value,
+          fill = model)) +
+      
+      # density
+      stat_slab(
+        aes(thickness = after_stat(pdf*n)), 
+        scale = 0.5) +
+      
+      # dot histogram
+      stat_dotsinterval(
+        side = "bottom", 
+        scale = 0.5, 
+        slab_linewidth = NA) + # not sure why, setting to NA applies proper color to dots
+      
+      # handle many outliers
+      scale_x_log10() +
+      
+      scale_fill_manual(values = c(notebook_colors[[4]], notebook_colors[[8]])) +
+      labs(title = "Sum of Squared Error (SSE)") +
+      guides(fill = "none") +
+      theme_notebook(
+        axis.title.y = element_blank(),
+        axis.title.x = element_blank(),
+        panel.border = element_rect(color = "#FFFDF9FF", 
+                                    fill = "#FFFDF9FF", 
+                                    linewidth = 1.5))
+
+
+    psill_plot + range_plot + nugget_plot + kappa_plot + sse_plot + plot_layout(nrow = 3, byrow = FALSE)
     ```
 
     </Details>
 
-    -   Both parameter distributions are right-skewed with some outliers
-    -   So if we were to create a grid a starting values, it could be pretty wide.
-    -   Maybe more than 300 days (out of 1826 days) for the number of sampled time instances (slices) would help, but this is likely do to there only being 53 stations taking measurements.
+    -   Lots of skew and outliers
+    -   Nugget has a square root transform on the x-axis
+    -   SSE has a log10 transform on the x-axis
+    -   Kind of interesting that most of the chosen kappa values are at both extremes of the search grid.
+    -   I think Matern might've been chosen in the vignette, but it looks like you get pretty close to the same SSE with less potential drama (extreme range and psill estimates).
+        -   Although the Matern's nugget looks a little more stable. Also not that it has more zeros than the Exponential.
     :::
 
 ## Kriging {#sec-geo-sptemp-krig .unnumbered}
