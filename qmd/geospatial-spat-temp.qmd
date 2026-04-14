@@ -2126,46 +2126,6 @@
 
     -   [{]{style="color: #990000"}[gstat](https://cran.r-project.org/web/packages/gstat/index.html){style="color: #990000"}[}]{style="color: #990000"} - **OG**; Has idw and various kriging methods.
 
--   Fitting tips, notes, etc.
-
-    -   Get rid of the "range should be positive error" (and other errors that are the result from some parameter estimate being negative) from the get-go by restricting the search space to being positive for all parameters.
-
-        -   [Example]{.ribbon-highlight}:
-
-            ``` r
-            fit.StVariogram(
-              vario_emp, 
-              mod, 
-              # get rid of "range should be positive" error
-              lower = c(
-                sill.s   = 0,   range.s  = 1,   # km
-                sill.t   = 0,   range.t  = 0.1, # days
-                sill.st  = 0,   range.st = 1,
-                nugget   = 0,   anis     = 1
-              )
-            )
-            ```
-
-            -   Using floats is okay if the context of the data makes it plausible (e.g. temporal data is in days, but perhaps a range of less than a day (hours) is plausible)
-
-    -   Make convergence more likely by increasing the optimization iterations
-
-        -   [Example]{.ribbon-highlight}:
-
-            ``` r
-            fit.StVariogram(
-              vario_emp, 
-              mod,
-              control = list(maxit=10000)
-            )
-            ```
-
-    -   Fit the *Simple Sum Metric* first. Then, use its estimated model parameters to fit the *Sum Metric*
-
-        -   It's already mentioned in the notes under [Sum Metric](geospatial-spat-temp.html#sec-geo-sptemp-krig-var-vgmst){style="color: green"}, but it's worth emphasizing. The optimizer errors aren't really helpful, so the best course is to avoid them all together.
-
-        -   See [Starting Values](geospatial-spat-temp.qmd#sec-geo-sptemp-krig-stval){style="color: green"} \>\> Joint Models \>\> Example 1
-
 -   The added value of spatio-temporal kriging lies in the flexibility to not only interpolate at unobserved locations in space, but also at unobserved time instances.
 
     -   This makes spatio-temporal kriging a suitable tool to fill gaps in time series not only based on the time series solely, but also including some of its spatial neighbours.
@@ -2211,6 +2171,8 @@
 ### Starting Values {#sec-geo-sptemp-krig-stval .unnumbered}
 
 -   I don't think any starting values for parameters have to be set unless the model fails to converge. Failures (convergence, singular) aren't rare though, so maybe it's just better to use them from the jump.
+
+#### Marginal Models {#sec-geo-sptemp-krig-stval-marg .unnumbered}
 
 -   Use estimates from pooled marginal variograms
 
@@ -2294,6 +2256,381 @@
             range_start <- vario_samp$dist[which(vario_samp$gamma >= 0.95 * sill_start)[1]]
             range_start <- ifelse(is.na(range_start), dist_max * 0.3, range_start)
             ```
+
+#### Joint Models {#sec-geo-sptemp-krig-stval-joint .unnumbered}
+
+-   Joint models are components in the Metric class of variogram models (Metric, Sum Metric, and Simple Sum Metric)
+
+-   [Example 1]{.ribbon-highlight}
+
+    ::: panel-tabset
+    ## Set-Up and Data
+
+    words
+
+    ``` r
+
+    pacman::p_load(
+      dplyr,
+      ggplot2,
+      patchwork,
+      futurize,
+      gstat
+    )
+
+    set.seed(2026)
+    options(scipen = 999)
+    notebook_colors <- unname(swatches::read_ase(here::here("palettes/Forest Floor.ase")))
+
+    data(air, package = "spacetime")
+
+    # get rural location time series from 2005 to 2010
+    rural <- spacetime::STFDF(
+      sp = stations, 
+      time = dates, 
+      data = data.frame(PM10 = as.vector(air))
+    )
+    rr <- rural[,"2005::2010"]
+
+    # remove station ts w/all NAs
+    unsel <- which(apply(
+      as(rr, "xts"), 
+      2, 
+      function(x) all(is.na(x)))
+    )
+    r5to10 <- rr[-unsel,]
+    ```
+
+    -   Thoughts
+
+    ## EDA
+
+    ![](_resources/Geospatial-Spatio-Temporal.resources/krig-start-joint-ex1-sanity.png){.lightbox width="632"}
+
+    ``` r
+    # create variogram using the metric distance (for exponential model)
+    # filter out purely spatial and temporal lags
+    diag_slice <- vario_emp[vario_emp$spacelag > 0 & vario_emp$timelag > 0, ] |> 
+      mutate(met_dist_exp = sqrt(spacelag^2 + (num_stani_exp * as.numeric(timelag))^2),
+             met_dist_mat = sqrt(spacelag^2 + (num_stani_mat * as.numeric(timelag))^2))
+
+    plot_vario <- function(dat, mod_type) {
+
+      if (mod_type == "exponential") {
+        met_dist <- "met_dist_exp"
+        ink_col <- notebook_colors[[6]]
+      }
+      if (mod_type == "matern") {
+        met_dist <- "met_dist_mat"
+        ink_col <- notebook_colors[[9]]
+      }
+
+      ggplot(dat,
+             aes(
+               x = .data[[met_dist]],
+               y = gamma,
+               group = factor(spacelag)
+             )) +
+        geom_line() +
+        geom_point() +
+        labs(
+          x = "Metric Distance (km/day)",
+          y = "Semi-Variance (γ)",
+          subtitle = glue::glue("{stringr::str_to_title(mod_type)} Model")
+        ) + 
+        theme_notebook(geom = element_geom(
+          ink = prismatic::clr_darken(ink_col),
+          accent = prismatic::clr_lighten(ink_col)))
+    }
+
+    purrr::map(
+      joint_mod_types,
+      \(x) {plot_vario(diag_slice, x)}
+    ) |> 
+      purrr::reduce(
+        `+`
+      ) +
+      plot_annotation(
+        title = "Variogram Using Metric Distance",
+        theme = theme_notebook())
+
+
+
+    # Then look at gamma values at large metric distances in well-filled bins to reduce noise
+    # the minimum is over 10k pairs, so using all bins is fine
+    summary(diag_slice$np)
+    #>   Min. 1st Qu.  Median    Mean 3rd Qu.    Max. 
+    #>  10181   60088  127680  112616  152985  180704 
+
+    # all bins have enough pairs
+    (joint_sill_start_exp <- diag_slice |> 
+      # only bins at and past estimated range
+      filter(met_dist_exp > 1000) |> 
+      summarize(med_gamma = median(gamma)) |> 
+      pull(med_gamma))
+    #> [1] 108.4971
+
+
+    # # mine
+    # (joint_range_start <- diag_slice |>
+    #   filter(
+    #     # only bins with enough distance pair
+    #     np > quantile(np, 0.5),
+    #     # only keep around the first half of the timelags
+    #     met_dist_exp < 0.5 * max(met_dist_exp)
+    #     # gamma >= 0.95 * joint_sill_start
+    #   ) |>
+    #   # vertical slices in the variogram
+    #   group_by(timelag) |>
+    #   # for each lag, how close is its avg gamma to the sill estimate
+    #   mutate(gamma_diff = mean(abs(gamma - joint_sill_start))) |>
+    #   ungroup() |>
+    #   # choose the lag that has the gamma diff closest to the sill
+    #   slice_min(gamma_diff) |> 
+    #   summarize(range_est = mean(met_dist_exp)) |>
+    #   pull(range_est))
+    # #> [1] 989.6416        
+    ```
+
+    -   words
+
+    ## Estimate Joint Parameters
+
+    ###### Empirical Variogram and Marginal VGMs
+
+    ``` r
+    # tlags = 0:6 (vignette),              299.47 sec (~5 min)
+    # tlags = 0:14 (range of pooled temp), 459.61 sec (~7.5 min)
+    vario_emp <- variogramST(
+      PM10 ~ 1,
+      data = r5to10,
+      tlags = 0:14
+    )
+
+
+    # from pooled (marginal) variograms
+    space_vgm_exp <- vgm(
+      model = "Exp",
+      psill = 52,
+      range = 93,
+      nugget = 1.5
+    )
+
+    space_vgm_mat <- vgm(
+      model = "Mat",
+      psill = 55,
+      range = 123,
+      nugget = 0.5,
+      kappa = 0.4
+    )
+
+    time_vgm_mat <- vgm(
+      model = "Mat",
+      psill = 100,
+      range = 14,
+      nugget = 0.1,
+      kappa = 0.12 
+    )
+    ```
+
+    -   Thoughts
+
+    ###### Estimate Parameters
+
+    ``` r
+    # use heuristics to get starting values
+    calc_joint_vgm_params <- function(
+        vario_emp,
+        mod_type,
+        stani) {
+
+      # remove purely spatial and purely temporal lags (i.e. 0)
+      diag_slice <- vario_emp[vario_emp$spacelag > 0 & vario_emp$timelag > 0, ] |> 
+        mutate(met_dist = sqrt(spacelag^2 + (stani * as.numeric(timelag))^2))
+
+      joint_sill_start <- diag_slice |> 
+          filter(
+            # only bins with enough distance pairs
+            np > quantile(np, 0.5),
+            # large dist where it's assumed gamma will be flat
+            met_dist > max(met_dist) * 0.5
+          ) |> 
+          summarize(med_gamma = median(gamma)) |> 
+          pull(med_gamma)
+
+      joint_range_start <- diag_slice |>
+          filter(
+            # only bins with enough distance pairs
+            np > quantile(np, 0.5),
+            # right before the plateau
+            gamma >= 0.95 * joint_sill_start
+          ) |>
+          summarize(range_est = min(met_dist)) |>
+          pull(range_est)
+
+      joint_nugget_start <- diag_slice |>
+        filter(
+          # only bins with enough distance pairs
+          np > quantile(np, 0.5),
+          # just enough starting bins to get a decent est
+          met_dist < 0.6 * joint_range_start
+        ) |>
+        lm(gamma ~ met_dist, data = _) |> 
+        broom::tidy() |> 
+        filter(term == "(Intercept)") |> 
+        pull(estimate)
+
+      joint_psill_start <- joint_sill_start - joint_nugget_start
+
+      if (mod_type == "exponential") {
+        joint_params <- list(
+          psill = joint_psill_start,
+          range = joint_range_start,
+          nugget = joint_nugget_start
+        )
+      }
+
+      if (mod_type == "matern") {
+        joint_params <- list(
+          psill = joint_psill_start,
+          range = joint_range_start,
+          nugget = joint_nugget_start
+        )
+      }
+
+      return(joint_params)
+    }
+
+    # estimate anistropy
+    num_stani_exp <- estiStAni(
+      empVgm = vario_emp,
+      method = "metric",
+      interval = c(1, 1000),
+      spatialVgm = space_vgm_exp
+    )
+
+    num_stani_mat <- estiStAni(
+      empVgm = vario_emp,
+      method = "metric",
+      interval = c(1, 1000),
+      spatialVgm = space_vgm_mat
+    )
+
+
+    joint_mod_types <- c("exponential", "matern")
+
+    tib_joint_specs <- tibble(
+      vario_emp = rep(list(vario_emp), length(joint_mod_types)),
+      mod_type = joint_mod_types,
+      stani = c(num_stani_exp, num_stani_mat)
+    )
+
+    ls_joint_vgm_params <- purrr::pmap(
+      tib_joint_specs,
+      calc_joint_vgm_params
+    )
+
+     names(ls_joint_vgm_params) <- joint_mod_types
+    ```
+
+    -   words
+
+    ## Create Joint VGMs
+
+    ``` r
+    create_joint_vgm <- function(mod_type, ls_params, joint_kappa) {
+
+      if (mod_type == "exponential") {
+        joint <- vgm(
+          psill = ls_params$psill, 
+          model = "Exp", 
+          range = ls_params$range,
+          nugget = ls_params$nugget
+        )
+      }
+
+      if (mod_type == "matern") {
+        joint <- vgm(
+          psill = ls_params$psill, 
+          model = "Mat", 
+          range = ls_params$range,
+          nugget = ls_params$nugget, 
+          kappa = joint_kappa
+        )
+      }
+
+      tib_joint <- tibble(
+        mod_type = mod_type,
+        kappa = joint_kappa,
+        joint_vgm = list(joint)
+      )
+      return(tib_joint)
+    }
+
+
+    tib_joint_exp_params_grid <- tibble(
+      mod_type = "exponential",
+      ls_params = ls_joint_vgm_params["exponential"],  
+      kappa = NA  
+    )
+
+    tib_joint_mat_params_grid <- expand.grid(
+      mod_type = "matern",
+      ls_params = ls_joint_vgm_params["matern"],
+      kappa = c(0.3, 0.5, 0.8, 1.0, 1.5, 2.0)
+    )
+
+    tib_joint_all_params_grid <- tib_joint_exp_params_grid |> 
+      bind_rows(tib_joint_mat_params_grid)
+
+    tib_joint_vgm <- purrr::pmap(
+      tib_joint_all_params_grid,
+      ~ create_joint_vgm(..1, ..2, ..3)
+    ) |> 
+      purrr::list_rbind()
+    ```
+
+    -   words
+
+    ## Calculate K
+
+    ``` r
+    calc_k_start <- function(space_vgm, time_vgm, joint_sill) {
+
+      # if nuggets are NA, make'em zeros
+      if(is.na(space_vgm$psill[[1]])) {
+        space_vgm$psill[[1]] <- 0
+      }
+
+      if(is.na(time_vgm$psill[[1]])) {
+        time_vgm$psill[[1]] <- 0
+      }
+
+      sills  <- space_vgm$psill[[2]] + space_vgm$psill[[1]]
+      sillt  <- time_vgm$psill[[2]] + time_vgm$psill[[1]] 
+      sillst <- joint_sill
+
+      k_start <- (sillst - sills - sillt) / (sills * sillt)
+      k_start <- max(k_start, 0.01)
+      return(k_start)
+    }
+
+    # Using nugget + psill for the joint sill
+    k_start_exp <- calc_k_start(
+      space_vgm_exp,
+      time_vgm_mat,
+      ls_joint_vgm_params["exponential"][[1]]$psill + ls_joint_vgm_params["exponential"][[1]]$psill
+    )
+
+    k_start_mat <- calc_k_start(
+      space_vgm_mat,
+      time_vgm_mat,
+      ls_joint_vgm_params["matern"][[1]]$psill + ls_joint_vgm_params["matern"][[1]]$psill
+    )
+    ```
+
+    -   words
+    :::
 
 ### Variogram {#sec-geo-sptemp-krig-var .unnumbered}
 
@@ -2406,7 +2743,80 @@
 -   [Docs](https://cran.r-project.org/web/packages/gstat/refman/gstat.html#fit.StVariogram)
 -   Fits the variogram model using the empirical variogram (`variogramST`) and variogram model specification (`vgmST`)
 -   [Misc]{.underline}
-    -   `extractPar(model)` can be used to extract the estimated parameters from the variogram model
+-   Fitting tips, notes, etc.
+    -   Get rid of errors that are the result from some parameter estimate being negative) from the get-go by restricting the search space to being positive for all estimated parameters for that model.
+        -   You can use `extractPar(model)` or `extractParNames(model)` to extract the estimated parameters names and ORDER.
+
+        -   **The order of parameter values in the vector is paramount.** The names are basically for you only. `optim` only cares about the order. Out of order parameters will like result in confusing errors like, "non-finite finite-difference value \[2\]" or something
+
+            ``` r
+            extractPar(sep_mod)
+            #>  range.s nugget.s  range.t nugget.t     sill 
+            #> 123.0000   0.5000  14.0000   0.1000 109.9943
+            ```
+
+            -   If you set the bounds ([lower]{.arg-text} or [upper]{.arg-text}) and you give `optim` [range.t = 0.1]{.arg-text} first, it will think that is the value you want for [range.s]{.arg-text}. It doesn't care that you named it [range.t]{.arg-text}.
+            -   So double check that you have the correct order using `extractPar` or `extractParNames`
+
+        -   [Example]{.ribbon-highlight}:
+
+            ``` r
+            lower_bounds <- switch(
+              mod_type,
+              "separable" = c(
+                range.s  = 1,   nugget.s = 0,
+                range.t  = 0.1, nugget.t = 0,
+                sill     = 0
+              ),
+              "productSum" = c(
+               sill.s = 0, range.s = 1,
+               nugget.s = 0, sill.t = 0,
+               range.t = 0.1, nugget.t = 0,
+               k = 0.0001
+              ),
+              "metric" = c(
+               sill    = 0, range   = 1,
+               nugget  = 0, anis    = 1
+              ),
+              "simpleSumMetric" = c(
+               sill.s  = 0, range.s  = 1,
+               sill.t  = 0, range.t  = 0.1,
+               sill.st = 0, range.st = 1,
+               nugget  = 0, anis     = 1
+              )
+            )          
+
+            fit.StVariogram(
+              vario_emp, 
+              mod, 
+              lower = lower_bounds
+            )
+
+            sum_metric_lower_bounds <- c(
+              sill.s = 0,     range.s = 1,
+              nugget.s = 0,   sill.t = 0,
+              range.t = 0.1,  nugget.t = 0,
+              sill.st = 0,    range.st = 1,
+              nugget.st = 0,  anis = 1
+            )
+            ```
+
+            -   Using floats is okay if the context of the data makes it plausible (e.g. temporal data is in days, but perhaps a range of less than a day (hours) is plausible)
+    -   Make convergence more likely by increasing the optimization iterations
+        -   [Example]{.ribbon-highlight}:
+
+            ``` r
+            fit.StVariogram(
+              vario_emp, 
+              mod,
+              control = list(maxit=10000)
+            )
+            ```
+    -   Fit the *Simple Sum Metric* first. Then, use its estimated model parameters to fit the *Sum Metric*
+        -   It's already mentioned in the notes under [Sum Metric](geospatial-spat-temp.html#sec-geo-sptemp-krig-var-vgmst){style="color: green"}, but it's worth emphasizing. The optimizer errors aren't really helpful, so the best course is to avoid them all together.
+        -   See [Starting Values](geospatial-spat-temp.qmd#sec-geo-sptemp-krig-stval){style="color: green"} \>\> Joint Models \>\> Example 1
+    -   Tune the weighting method ([fit.method]{.arg-text}) for `fit.StVariogram`
+        -   For the Simple Sum Metric using the Matern model in [Starting Values](geospatial-spat-temp.qmd#sec-geo-sptemp-krig-stval){style="color: green"} \>\> Joint Models \>\> Example 1, changing to [fit.method = 7]{.arg-text} from [fit.method = 6]{.arg-text} resulted in a 300% decrease in sum of squared errors (SSE).
 -   [Weighting Options]{.underline}\
     ![](_resources/Geospatial-Spatio-Temporal.resources/krig-wgt-methods1.png){.lightbox width="332"}
     -   Controls the weighing of the residuals between empirical and model surface
