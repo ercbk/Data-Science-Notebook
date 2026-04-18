@@ -2261,12 +2261,144 @@
 
 -   Joint models are components in the Metric class of variogram models (Metric, Sum Metric, and Simple Sum Metric)
 
+-   The visual estimation of the range (and to a lesser extent the sill) is substantially different (overestimating) the numerically calculated range from variogram models. So, if starting values aren't producing converging models, it's probably a good idea to try decreasing the starting values you're getting from heuristic/visual methods.
+
+-   Using the joint variogram based on metric distance to visually estimate the range and sill\
+    ![](_resources/Geospatial-Spatio-Temporal.resources/krig-start-joint-heur-range-mine.png){.lightbox width="582"}
+
+    ``` r
+    diag_slice <- vario_emp[vario_emp$spacelag > 0 & vario_emp$timelag > 0, ] |> 
+      mutate(met_dist_exp = sqrt(spacelag^2 + (num_stani_exp * as.numeric(timelag))^2),
+             timelag_lab = paste("time lag", as.numeric(timelag))) |> 
+      mutate(rowid = row_number(),
+             spacelag_lab = paste("space lag", rowid),
+             .by = spacelag) |> 
+      select(-rowid)
+
+    # summary of the number of distance pairs per bin
+    summary(diag_slice$np)
+    #>   Min. 1st Qu.  Median    Mean 3rd Qu.    Max. 
+    #>  10181   60088  127680  112616  152985  180704 
+
+    (joint_sill_start_exp <- diag_slice |> 
+      # only bins at and past estimated range
+      filter(met_dist_exp >= 800) |> 
+      summarize(med_gamma = median(gamma)) |> 
+      pull(med_gamma))
+    #> [1] 108.0044
+
+    (joint_range_start <- diag_slice |>
+      filter(
+        # only keep around the first half of the timelags
+        met_dist_exp < 0.5 * max(met_dist_exp)
+        # narrow to points greater than the estimated sill
+        gamma >= 0.95 * joint_sill_start_exp
+      ) |>
+      # vertical slices in the variogram
+      group_by(timelag) |>
+      # for each lag, how close is its avg gamma to the sill estimate
+      mutate(gamma_diff = mean(abs(gamma - joint_sill_start_exp))) |>
+      ungroup() |>
+      # choose the lag that has the gamma diff closest to the sill
+      slice_min(gamma_diff) |>
+      summarize(range_est = mean(met_dist_exp)) |>
+      pull(range_est))
+    #> [1] 1122.117
+    ```
+
+    -   These sill and range estimates assume "well-filled" bins which seems to be the case here (minimum \~10K)
+
+    -   The goal was to get the estimates for the sill and range using the points in the time lags
+
+    -   For the sill estimate, the curves seem to begin to flatten around a metric distance between 800 and 1000, so I limited the points to greater than 800 and took the avg gamma value of those points.
+
+    -   Range Estimate:
+
+        -   I'm trying to zero-in around that 7th time lag and get that metric distance (reducing estimation space horizontally). So I remove most of the time lags that are likely in that flat plateau area (1/2 total metric distance)
+        -   Then I remove all the points that have gamma values below my sill estimate. (narrowing the estimation space vertically)
+        -   Then I group by time lags and calculate how close their average gamma is to my sill estimate. I choose the time lag with the average gamma that closest to the sill estimate
+        -   Then I get that time lag's metric distance and that's my range estimate.
+
+    -   Visually 1122 seems like a reasonable range starting point to my eye
+
+    -   Spoiler: The best variogram models estimated the range to be around 360. So if I used this estimate, I overshot by about a factor of 3. ¯\\\_(ツ)\_/¯
+
+        -   The heuristic I went with in the example that doesn't assume well-filled bins and overshot by a factor of 2. It was still close enough to get converged fitted models though ¯\\\_(ツ)\_/¯ .
+
+    -   Visualization
+
+        <Details>
+
+        <Summary>Code</Summary>
+
+        ``` r
+        ggplot(diag_slice,
+               aes(
+                 x = met_dist_exp,
+                 y = gamma
+               )) +
+          geom_point(color = prismatic::clr_darken(notebook_colors[[6]])) +
+          geom_line(
+            aes(group = factor(spacelag)),
+            color = prismatic::clr_lighten(notebook_colors[[6]])
+          ) + 
+
+          # time lag
+          ggforce::geom_mark_ellipse(
+            aes(
+              fill = as.numeric(timelag),
+              label = timelag_lab,
+              filter = as.numeric(timelag) == 7
+            ),
+            fill = notebook_colors[[5]],
+            color = NA,
+            con.colour = notebook_colors[[5]],
+            label.fill = "#FFFDF9FF",
+            label.colour = notebook_colors[[5]],
+            expand = 0.01,
+            con.cap = 0
+          ) +
+
+          # space lag
+          ggforce::geom_mark_hull(
+            aes(
+              fill = spacelag,
+              label = spacelag_lab,
+              filter = spacelag == min(spacelag)
+            ),
+            fill = notebook_colors[[2]],
+            color = NA,
+            con.colour = notebook_colors[[2]],
+            label.fill = "#FFFDF9FF",
+            label.colour = prismatic::clr_darken(notebook_colors[[2]]),
+            radius = unit(0.1, "mm"),
+            expand = 0.01,
+            concavity = 4,
+            con.cap = 0
+          ) +
+
+          guides(fill = "none") +
+          labs(
+            x = "Metric Distance (km/day)",
+            y = "Semi-Variance (γ)",
+            title = "Joint Variogram Using Metric Distance",
+            subtitle = "Exponential Model"
+          ) + 
+          theme_notebook()
+        ```
+
+        -   After messing with the [radius]{.arg-text}, [expand]{.arg-text}, and [concavity]{.arg-text} settings, that's the best hull I could get for annotating the space lag unfortunately.
+
+        </Details>
+
 -   [Example 1]{.ribbon-highlight}
 
     ::: panel-tabset
     ## Set-Up and Data
 
-    words
+    This is the PM10 air pollution dataset for Germany that’s from [{spacetime}]{style="color: #990000"} and used in many of my examples.
+
+    The goal is to find starting values for joint `vgm` portions of spatio-temporal variogram models.
 
     ``` r
 
@@ -2301,102 +2433,9 @@
     r5to10 <- rr[-unsel,]
     ```
 
-    -   Thoughts
+    -   Urban stations have been removed as they have a dgp and should be modelled separately
 
-    ## EDA
-
-    ![](_resources/Geospatial-Spatio-Temporal.resources/krig-start-joint-ex1-sanity.png){.lightbox width="632"}
-
-    ``` r
-    # create variogram using the metric distance (for exponential model)
-    # filter out purely spatial and temporal lags
-    diag_slice <- vario_emp[vario_emp$spacelag > 0 & vario_emp$timelag > 0, ] |> 
-      mutate(met_dist_exp = sqrt(spacelag^2 + (num_stani_exp * as.numeric(timelag))^2),
-             met_dist_mat = sqrt(spacelag^2 + (num_stani_mat * as.numeric(timelag))^2))
-
-    plot_vario <- function(dat, mod_type) {
-
-      if (mod_type == "exponential") {
-        met_dist <- "met_dist_exp"
-        ink_col <- notebook_colors[[6]]
-      }
-      if (mod_type == "matern") {
-        met_dist <- "met_dist_mat"
-        ink_col <- notebook_colors[[9]]
-      }
-
-      ggplot(dat,
-             aes(
-               x = .data[[met_dist]],
-               y = gamma,
-               group = factor(spacelag)
-             )) +
-        geom_line() +
-        geom_point() +
-        labs(
-          x = "Metric Distance (km/day)",
-          y = "Semi-Variance (γ)",
-          subtitle = glue::glue("{stringr::str_to_title(mod_type)} Model")
-        ) + 
-        theme_notebook(geom = element_geom(
-          ink = prismatic::clr_darken(ink_col),
-          accent = prismatic::clr_lighten(ink_col)))
-    }
-
-    purrr::map(
-      joint_mod_types,
-      \(x) {plot_vario(diag_slice, x)}
-    ) |> 
-      purrr::reduce(
-        `+`
-      ) +
-      plot_annotation(
-        title = "Variogram Using Metric Distance",
-        theme = theme_notebook())
-
-
-
-    # Then look at gamma values at large metric distances in well-filled bins to reduce noise
-    # the minimum is over 10k pairs, so using all bins is fine
-    summary(diag_slice$np)
-    #>   Min. 1st Qu.  Median    Mean 3rd Qu.    Max. 
-    #>  10181   60088  127680  112616  152985  180704 
-
-    # all bins have enough pairs
-    (joint_sill_start_exp <- diag_slice |> 
-      # only bins at and past estimated range
-      filter(met_dist_exp > 1000) |> 
-      summarize(med_gamma = median(gamma)) |> 
-      pull(med_gamma))
-    #> [1] 108.4971
-
-
-    # # mine
-    # (joint_range_start <- diag_slice |>
-    #   filter(
-    #     # only bins with enough distance pair
-    #     np > quantile(np, 0.5),
-    #     # only keep around the first half of the timelags
-    #     met_dist_exp < 0.5 * max(met_dist_exp)
-    #     # gamma >= 0.95 * joint_sill_start
-    #   ) |>
-    #   # vertical slices in the variogram
-    #   group_by(timelag) |>
-    #   # for each lag, how close is its avg gamma to the sill estimate
-    #   mutate(gamma_diff = mean(abs(gamma - joint_sill_start))) |>
-    #   ungroup() |>
-    #   # choose the lag that has the gamma diff closest to the sill
-    #   slice_min(gamma_diff) |> 
-    #   summarize(range_est = mean(met_dist_exp)) |>
-    #   pull(range_est))
-    # #> [1] 989.6416        
-    ```
-
-    -   words
-
-    ## Estimate Joint Parameters
-
-    ###### Empirical Variogram and Marginal VGMs
+    ## Empirical Variogram and Anistropy
 
     ``` r
     # tlags = 0:6 (vignette),              299.47 sec (~5 min)
@@ -2407,7 +2446,103 @@
       tlags = 0:14
     )
 
+    # estimate anistropy
+    # 160.0086
+    num_stani_exp <- estiStAni(
+      empVgm = vario_emp,
+      method = "metric",
+      interval = c(1, 1000),
+      spatialVgm = space_vgm_exp
+    )
 
+    # 164.2333
+    num_stani_mat <- estiStAni(
+      empVgm = vario_emp,
+      method = "metric",
+      interval = c(1, 1000),
+      spatialVgm = space_vgm_mat
+    )
+    ```
+
+    -   Using the metric method for the anistropy estimation since it felt consistent with using metric distance for the variogram plot (See EDA tab next) and seemed like it would be one of the best methods for spatio-temporal data in general.
+        -   See [fit.StVariogram](geospatial-spat-temp.qmd#sec-geo-sptemp-krig-var-fitstv){style="color: green"} \>\> stAni for details on methods and the interval starting range.
+
+    ## EDA
+
+    ![](_resources/Geospatial-Spatio-Temporal.resources/krig-start-joint-ex1-sanity.png){.lightbox width="632"}
+
+    ``` r
+    # filter out purely spatial and temporal lags
+    # calculate metric distance for both variogram models
+    diag_slice <- vario_emp[vario_emp$spacelag > 0 & vario_emp$timelag > 0, ] |> 
+      mutate(met_dist_exp = sqrt(spacelag^2 + (num_stani_exp * as.numeric(timelag))^2),
+             met_dist_mat = sqrt(spacelag^2 + (num_stani_mat * as.numeric(timelag))^2))
+
+    # summary of the number of distance pairs per bin
+    summary(diag_slice$np)
+    #>   Min. 1st Qu.  Median    Mean 3rd Qu.    Max. 
+    #>  10181   60088  127680  112616  152985  180704 
+    ```
+
+    -   Creates a variogram plot using the metric distance as it combines both spatial and temporal distance (i.e. jointly)
+
+    -   The only variable in the metric distance calculations for exponential and matern is the anistropy estimation. The plots are pretty much identical which is expected given that there isn't much difference in the anistropy estimates.\
+
+    -   Visualization
+
+        <Details>
+
+        <Summary>Code</Summary>
+
+        ``` r
+        plot_vario <- function(dat, mod_type) {
+
+          if (mod_type == "exponential") {
+            met_dist <- "met_dist_exp"
+            ink_col <- notebook_colors[[6]]
+          }
+          if (mod_type == "matern") {
+            met_dist <- "met_dist_mat"
+            ink_col <- notebook_colors[[9]]
+          }
+
+          ggplot(dat,
+                 aes(
+                   x = .data[[met_dist]],
+                   y = gamma,
+                   group = factor(spacelag)
+                 )) +
+            geom_line() +
+            geom_point() +
+            labs(
+              x = "Metric Distance (km/day)",
+              y = "Semi-Variance (γ)",
+              subtitle = glue::glue("{stringr::str_to_title(mod_type)} Model")
+            ) + 
+            theme_notebook(geom = element_geom(
+              ink = prismatic::clr_darken(ink_col),
+              accent = prismatic::clr_lighten(ink_col)))
+        }
+
+        purrr::map(
+          c("exponential", "matern"),
+          \(x) {plot_vario(diag_slice, x)}
+        ) |> 
+          purrr::reduce(
+            `+`
+          ) +
+          plot_annotation(
+            title = "Variogram Using Metric Distance",
+            theme = theme_notebook())
+        ```
+
+        </Details>
+
+    ## Estimate Joint Parameters
+
+    ###### Marginal VGMs
+
+    ``` r
     # from pooled (marginal) variograms
     space_vgm_exp <- vgm(
       model = "Exp",
@@ -2433,7 +2568,9 @@
     )
     ```
 
-    -   Thoughts
+    -   The values are from the pooled (aka marginal) variograms EDA examples
+    -   See [EDA \>\> Temporal Dependence](geospatial-spat-temp.qmd#sec-geo-sptemp-eda-ac){style="color: green"} \>\> Example 2
+    -   See [EDA \>\> Spatial Dependence](geospatial-spat-temp.qmd#sec-geo-sptemp-eda-spdep){style="color: green"} \>\> Example 1
 
     ###### Estimate Parameters
 
@@ -2501,22 +2638,6 @@
       return(joint_params)
     }
 
-    # estimate anistropy
-    num_stani_exp <- estiStAni(
-      empVgm = vario_emp,
-      method = "metric",
-      interval = c(1, 1000),
-      spatialVgm = space_vgm_exp
-    )
-
-    num_stani_mat <- estiStAni(
-      empVgm = vario_emp,
-      method = "metric",
-      interval = c(1, 1000),
-      spatialVgm = space_vgm_mat
-    )
-
-
     joint_mod_types <- c("exponential", "matern")
 
     tib_joint_specs <- tibble(
@@ -2531,9 +2652,31 @@
     )
 
      names(ls_joint_vgm_params) <- joint_mod_types
+     ls_joint_vgm_params
+     #> $exponential
+    #> $exponential$psill
+    #> [1] 82.77977
+    #> 
+    #> $exponential$range
+    #> [1] 680.2305
+    #> 
+    #> $exponential$nugget
+    #> [1] 27.2145
+    #> 
+    #> 
+    #> $matern
+    #> $matern$psill
+    #> [1] 82.31318
+    #> 
+    #> $matern$range
+    #> [1] 696.1542
+    #> 
+    #> $matern$nugget
+    #> [1] 27.68108
     ```
 
-    -   words
+    -   Heuristic methods are used to get [psill]{.arg-text}, [range]{.arg-text}, and [nugget]{.arg-text} starting values
+    -   Not much difference between the exponential and matern models
 
     ## Create Joint VGMs
 
@@ -2590,7 +2733,8 @@
       purrr::list_rbind()
     ```
 
-    -   words
+    -   The joint model `vgm` objects are created using the starting values. These will be used for fitting the variogram models
+    -   There will be more matern vgms, because I'll be tuning that kappa value later.
 
     ## Calculate K
 
