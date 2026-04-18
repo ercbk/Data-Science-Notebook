@@ -2323,7 +2323,7 @@
 
     -   Spoiler: The best variogram models estimated the range to be around 360. So if I used this estimate, I overshot by about a factor of 3. ¯\\\_(ツ)\_/¯
 
-        -   The heuristic I went with in the example that doesn't assume well-filled bins and overshot by a factor of 2. It was still close enough to get converged fitted models though ¯\\\_(ツ)\_/¯ .
+        -   The heuristic I went with in the example that doesn't assume well-filled bins still overshot by a factor of 2. It was still close enough to get converged fitted models though ¯\\\_(ツ)\_/¯ .
 
     -   Visualization
 
@@ -2406,7 +2406,6 @@
       dplyr,
       ggplot2,
       patchwork,
-      futurize,
       gstat
     )
 
@@ -2433,7 +2432,7 @@
     r5to10 <- rr[-unsel,]
     ```
 
-    -   Urban stations have been removed as they have a dgp and should be modelled separately
+    -   Urban stations have been removed as they have a different dgp and should be modelled separately
 
     ## Empirical Variogram and Anistropy
 
@@ -2675,7 +2674,7 @@
     #> [1] 27.68108
     ```
 
-    -   Heuristic methods are used to get [psill]{.arg-text}, [range]{.arg-text}, and [nugget]{.arg-text} starting values
+    -   Heuristic methods are used to get [psill]{.arg-text}, [range]{.arg-text}, and [nugget]{.arg-text} starting values. See code comments for more details.
     -   Not much difference between the exponential and matern models
 
     ## Create Joint VGMs
@@ -2773,7 +2772,7 @@
     )
     ```
 
-    -   words
+    -   The Product Sum model requires a k parameter which is a joint parameter. Therefore, the joint sill starting value is used here (calculated by adding the nugget and psill) as input.
     :::
 
 ### Variogram {#sec-geo-sptemp-krig-var .unnumbered}
@@ -3073,6 +3072,941 @@
     -   See vignette for an example. They used the simple sum-metric model to obtain starting values for the full sum-metric model, and that improved the convergence speed of the more complex model.
         -   There is a note in the discussion section about how this resulted in the more complex model being essentially the same as the simple model, but they tried other starting values and still ended up with the same result. So don't freak if you get the same model.
     -   In most applications, a change of 1 in the sills will have a stronger influence on the variogram surface than a change of 1 in the ranges.
+
+#### Examples
+
+-   [Example 1]{.ribbon-highlight}: Germany's PM10 Polution Data
+
+    ::: panel-tabset
+    ## Assemble Parameter Grid
+
+    This example is a continuation from getting starting values for the marginal components (space and time) and getting starting values for the joint components. See:
+
+    -   [EDA \>\> Temporal Depenndence](geospatial-spat-temp.qmd#sec-geo-sptemp-eda-ac){style="color: green"} \>\> Example 2
+    -   [EDA \>\> Spatial Dependence](geospatial-spat-temp.qmd#sec-geo-sptemp-eda-spdep){style="color: green"} \>\> Example 1
+    -   [Starting Values \>\> Joint Models](geospatial-spat-temp.qmd#sec-geo-sptemp-krig-stval-joint){style="color: green"} \>\> Example 1
+
+    ``` r
+    pacman::p_load(
+      dplyr,
+      ggplot2,
+      futurize,
+      gstat,
+      plotly
+    )
+
+    set.seed(2026)
+    options(scipen = 999)
+    notebook_colors <- unname(swatches::read_ase(here::here("palettes/Forest Floor.ase")))
+
+    tib_specs_variost <- expand.grid( # <1>
+      mod_type = c("separable", "productSum", "metric", "simpleSumMetric"),
+      space_type = c("matern", "exponential"),
+      time_type = "matern",
+      joint_type = c("matern", "exponential"),
+      kappa = c(0.3, 0.5, 0.8, 1.0, 1.5, 2.0),
+      wgt = c(1, 2, 6, 7, 9),
+      stringsAsFactors = FALSE,
+      KEEP.OUT.ATTRS = FALSE
+    ) |>
+
+      # clean-up expand.grid output 
+      mutate( # <2>
+        # give NAs to models that don't have joint components
+        # and joint types that aren't matern
+        kappa = ifelse(
+          mod_type %in% c("separable", "productSum") |
+            joint_type == "exponential",
+          NA,
+          kappa),
+        # give NAs to models that don't have joint components
+        joint_type = ifelse(
+          mod_type %in% c("separable", "productSum"),
+          NA,
+          joint_type
+        ), 
+        # remove space, time types from metric model
+        space_type = ifelse(
+          mod_type == "metric",
+          NA,
+          space_type
+        ),
+        time_type = ifelse(
+          mod_type == "metric",
+          NA,
+          time_type
+        )
+      ) |> 
+      distinct() |> 
+
+      # add components
+      mutate( # <3>
+        vario_emp = list(vario_emp),
+        space_vgm = case_when(
+          space_type == "exponential" ~ list(space_vgm_exp),
+          space_type == "matern" ~ list(space_vgm_mat)
+        ),
+        time_vgm = ifelse(
+          time_type == "matern",
+          list(time_vgm_mat),
+          NA),
+        stAni =  case_when(
+          joint_type == "exponential" | 
+            (space_type == "exponential" & wgt == 7) ~ num_stani_exp,
+          joint_type == "matern" | 
+            (space_type == "matern" & wgt == 7)~ num_stani_mat
+        ),
+        k = case_when(
+          mod_type == "productSum" &
+            space_type  == "exponential" ~ k_start_exp,
+          mod_type == "productSum" &
+            space_type  ==  "matern" ~ k_start_mat
+        ),
+        nugget = case_when(
+          mod_type == "simpleSumMetric" &
+            space_type  == "exponential" ~ 
+            ls_joint_vgm_params["exponential"][[1]]$nugget,
+          mod_type == "simpleSumMetric" &
+            space_type  ==  "matern" ~
+            ls_joint_vgm_params["matern"][[1]]$nugget
+        ),
+        sill = case_when(
+          mod_type == "separable" &
+            space_type  == "exponential" ~ 
+            # using sill = nugget + psill
+            ls_joint_vgm_params["exponential"][[1]]$nugget + ls_joint_vgm_params["exponential"][[1]]$psill,
+          mod_type == "separable" &
+            space_type  ==  "matern" ~
+            ls_joint_vgm_params["matern"][[1]]$nugget + ls_joint_vgm_params["matern"][[1]]$psill
+        )
+      ) |> 
+
+      # add joint vgms
+      left_join(
+        tib_joint_vgm,
+        by = join_by(
+          joint_type == mod_type,
+          kappa
+        )
+      ) |> 
+
+      # misc
+      # blend of the model types for space, time, and joint
+      mutate(comp_type = paste(space_type, time_type, joint_type, sep = "_")) |> # <4>
+      relocate(joint_vgm, .after = time_vgm) |> 
+      relocate(comp_type, .after = mod_type) |> 
+      arrange(desc(mod_type), wgt)
+
+    glimpse(tib_specs_variost)
+    #> Rows: 125
+    #> Columns: 15
+    #> $ mod_type   <chr> "simpleSumMetric", "simpleSumMetric", "simpleSumMetric", "simpleSumMetric", "simpleSumMetric", "simpleSumMet…
+    #> $ comp_type  <chr> "matern_matern_matern", "exponential_matern_matern", "matern_matern_exponential", "exponential_matern_expone…
+    #> $ space_type <chr> "matern", "exponential", "matern", "exponential", "matern", "exponential", "matern", "exponential", "matern"…
+    #> $ time_type  <chr> "matern", "matern", "matern", "matern", "matern", "matern", "matern", "matern", "matern", "matern", "matern"…
+    #> $ joint_type <chr> "matern", "matern", "exponential", "exponential", "matern", "matern", "matern", "matern", "matern", "matern"…
+    #> $ kappa      <dbl> 0.3, 0.3, NA, NA, 0.5, 0.5, 0.8, 0.8, 1.0, 1.0, 1.5, 1.5, 2.0, 2.0, 0.3, 0.3, NA, NA, 0.5, 0.5, 0.8, 0.8, 1.…
+    #> $ wgt        <dbl> 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 6, 6, 6, 6, 6, 6, 6, 6, …
+    #> $ vario_emp  <list> [<StVariogram[240 x 7]>], [<StVariogram[240 x 7]>], [<StVariogram[240 x 7]>], [<StVariogram[240 x 7]>], [<S…
+    #> $ space_vgm  <list> [<variogramModel[2 x 9]>], [<variogramModel[2 x 9]>], [<variogramModel[2 x 9]>], [<variogramModel[2 x 9]>],…
+    #> $ time_vgm   <list> [<variogramModel[2 x 9]>], [<variogramModel[2 x 9]>], [<variogramModel[2 x 9]>], [<variogramModel[2 x 9]>],…
+    #> $ joint_vgm  <list> [<variogramModel[2 x 9]>], [<variogramModel[2 x 9]>], [<variogramModel[2 x 9]>], [<variogramModel[2 x 9]>],…
+    #> $ stAni      <dbl> 164.2333, 164.2333, 160.0086, 160.0086, 164.2333, 164.2333, 164.2333, 164.2333, 164.2333, 164.2333, 164.2333…
+    #> $ k          <dbl> NA, NA, NA, NA, NA, NA, NA, NA, NA, NA, NA, NA, NA, NA, NA, NA, NA, NA, NA, NA, NA, NA, NA, NA, NA, NA, NA, …
+    #> $ nugget     <dbl> 27.68108, 27.21450, 27.68108, 27.21450, 27.68108, 27.21450, 27.68108, 27.21450, 27.68108, 27.21450, 27.68108…
+    #> $ sill       <dbl> NA, NA, NA, NA, NA, NA, NA, NA, NA, NA, NA, NA, NA, NA, NA, NA, NA, NA, NA, NA, NA, NA, NA, NA, NA, NA, NA, …
+    ```
+
+    1.  Thoughts
+    2.  Thoughts
+    3.  Thoughts
+    4.  Thoughts
+
+    ## Fit Variogram Models
+
+    ###### Fitting Function
+
+    ``` r
+    fit_vario_models <- function(
+        mod_type,
+        comp_type,
+        kappa, 
+        wgt,
+        vario_emp,
+        space_vgm,
+        time_vgm,
+        joint_vgm = NA,
+        stAni,
+        k,
+        nugget,
+        sill) {
+
+      mod <- switch(
+        mod_type,
+        "separable" = vgmST(
+          stModel = mod_type,
+          space = space_vgm,
+          time  = time_vgm,
+          sill = sill
+        ),
+        "productSum" = vgmST(
+          stModel = mod_type,
+          space = space_vgm,
+          time  = time_vgm,
+          k = k
+        ),
+        "metric" = vgmST(
+          stModel = mod_type,
+          joint = joint_vgm,
+          stAni = stAni
+        ),
+        "simpleSumMetric" = vgmST(
+          stModel = mod_type,
+          space = space_vgm,
+          time = time_vgm,
+          joint = joint_vgm,
+          nugget = nugget,
+          stAni = stAni
+        )
+      )
+
+      lower_bounds <- switch(
+        mod_type,
+        "separable" = c(
+          range.s  = 1,   nugget.s = 0,
+          range.t  = 0.1, nugget.t = 0,
+          sill     = 0
+        ),
+        "productSum" = c(
+         sill.s = 0, range.s = 1,
+         nugget.s = 0, sill.t = 0,
+         range.t = 0.1, nugget.t = 0,
+         k = 0.0001
+        ),
+        "metric" = c(
+         sill    = 0, range   = 1,
+         nugget  = 0, anis    = 1
+        ),
+        "simpleSumMetric" = c(
+         sill.s  = 0, range.s  = 1,
+         sill.t  = 0, range.t  = 0.1,
+         sill.st = 0, range.st = 1,
+         nugget  = 0, anis     = 1
+        )
+      )
+
+      fit_stv <- tryCatch({  
+        fit.StVariogram(
+          vario_emp, 
+          mod, 
+          fit.method = wgt,
+          stAni = stAni,
+          lower = lower_bounds,
+          control = list(maxit=10000)
+        )
+      }, error = \(e) {
+        message(
+          "model type = ",
+          mod_type,
+          ", kappa = ", 
+          kappa, 
+          " and weight method = ", 
+          wgt,
+          " failed: ", 
+          e$message
+        )
+        return(NULL)
+      })
+
+      if (is.null(fit_stv)) return(NULL)
+
+      attr_opt <- attributes(fit_stv)$optim.output
+
+      tib_res <- tibble(
+        mod_type = mod_type,
+        comp_type = comp_type,
+        kappa = kappa,
+        weight_method = wgt,
+        fit_stv = list(fit_stv),
+        converge = attr_opt$convergence,
+        message = attr_opt$message,
+        sse = attr_opt$value
+      )
+
+      return(tib_res)
+    }
+    ```
+
+    -   Thoughts
+
+    ###### Results
+
+    ``` r
+    plan(future.mirai::mirai_multisession, workers = 12L)
+
+    # about 4-6 minutes
+    tib_vario_mod_fits <- purrr::pmap(
+      tib_specs_variost |> select(-space_type, -time_type, -joint_type),
+      fit_vario_models
+      ) |> 
+      futurize(
+        options = futurize_options(seed = TRUE)
+      ) |> 
+      purrr::list_rbind()
+    # out of 125 models, only 5 failed. They were all fit.method = 2 which is known to have issues. 
+
+    mirai::daemons(0)
+
+    # simpleSumMetric and weighting method 7 take all the medals
+    tib_vario_mod_fits |> 
+      slice_min(sse, n = 10) |> 
+      select(-fit_stv, -message)
+    #> # A tibble: 10 × 6
+    #>    mod_type        comp_type                      kappa weight_method converge   sse
+    #>    <chr>           <chr>                          <dbl>         <dbl>    <int> <dbl>
+    #>  1 simpleSumMetric matern_matern_matern             0.5             7        0  11.7
+    #>  2 simpleSumMetric matern_matern_matern             0.8             7        0  11.7
+    #>  3 simpleSumMetric exponential_matern_matern        0.8             7        0  11.7
+    #>  4 simpleSumMetric exponential_matern_matern        0.5             7        0  11.8
+    #>  5 simpleSumMetric exponential_matern_exponential  NA               7        0  11.8
+    #>  6 simpleSumMetric exponential_matern_matern        1               7        0  12.0
+    #>  7 simpleSumMetric matern_matern_exponential       NA               7        0  12.0
+    #>  8 simpleSumMetric matern_matern_matern             1               7        0  12.0
+    #>  9 simpleSumMetric exponential_matern_matern        1.5             7        0  12.7
+    #> 10 simpleSumMetric matern_matern_matern             1.5             7        0  12.8
+    ```
+
+    -   Thoughts
+
+    ## Fit Sum Metric
+
+    ###### Tune Simple Sum Metric
+
+    ``` r
+    tune_joint_ssm_matern <- function(kappa) {
+
+      joint <- vgm(
+        psill = ls_joint_vgm_params["matern"][[1]]$psill,
+        model = "Mat",
+        range = ls_joint_vgm_params["matern"][[1]]$range,
+        nugget = ls_joint_vgm_params["matern"][[1]]$psill,
+        kappa = kappa
+      )
+
+      mod <- vgmST(
+        "simpleSumMetric",
+        space = space_vgm_mat,
+        time  = time_vgm_mat,
+        joint = joint,
+        nugget = ls_joint_vgm_params["matern"][[1]]$psill,
+        stAni = num_stani_mat
+      )
+
+      fit_ssm <- tryCatch({
+        fit.StVariogram(
+          vario_emp,
+          mod,
+          fit.method = 7,
+          stAni = num_stani_mat,
+          lower = c(
+            sill.s   = 0,   range.s  = 1,   # km
+            sill.t   = 0,   range.t  = 0.1, # days
+            sill.st  = 0,   range.st = 1,
+            nugget   = 0,   anis     = 1
+          ),
+          control = list(maxit=10000)
+        )
+      }, error = \(e) {
+        message(
+          "kappa = ",
+          k,
+          " failed: ",
+          e$message
+        )
+        return(NULL)
+      })
+
+      if (is.null(fit_ssm)) return(NULL)
+
+      attr_opt <- attributes(fit_ssm)$optim.output
+
+      tib_res <- tibble(
+        kappa = kappa,
+        fit_ssm = list(fit_ssm),
+        converge = attr_opt$convergence,
+        message = attr_opt$message,
+        sse = attr_opt$value
+      )
+
+      return(tib_res)
+    }
+
+
+    plan(future.mirai::mirai_multisession, workers = 12L)
+
+    # about 39 sec
+    tib_ssm_fits <- purrr::map(
+      c(0.45, 0.5, 0.55, 0.6, 0.65, 0.7, 0.75, 0.8, 0.85),
+      tune_joint_ssm_matern
+    ) |>
+      futurize(
+        options = futurize_options(seed = TRUE)
+      ) |>
+      purrr::list_rbind()
+
+    mirai::daemons(0)
+
+
+    tib_ssm_fits |> 
+      select(kappa, converge, sse) |> 
+      arrange(sse)
+    #> # A tibble: 9 × 3
+    #>   kappa converge   sse
+    #>   <dbl>    <int> <dbl>
+    #> 1  0.6         0  11.4
+    #> 2  0.65        0  11.4
+    #> 3  0.55        0  11.5
+    #> 4  0.7         0  11.5
+    #> 5  0.75        0  11.6
+    #> 6  0.5         0  11.7
+    #> 7  0.8         0  11.7
+    #> 8  0.85        0  11.7
+    #> 9  0.45        0  12.0
+
+
+
+    best_ssm <- tib_ssm_fits |> 
+      slice_min(sse) |> 
+      pull(fit_ssm) |> 
+      first()
+
+    best_ssm
+    #> space component: 
+    #>   model    psill   range kappa
+    #> 1   Mat 20.52655 20.9819   0.4
+    #> time component: 
+    #>   model    psill    range kappa
+    #> 1   Mat 4.665003 2.282749  0.12
+    #> joint component: 
+    #>   model    psill    range kappa
+    #> 1   Mat 84.44602 359.2199   0.6
+    #> nugget: 0
+    #> stAni: 183.003165956668
+    ```
+
+    -   Thoughts
+
+    ###### Fit Sum Metric
+
+    ``` r
+
+    extract_vgmst_components <- function(fit_vgmst, nugget) {
+
+      extract_vgm <- function(component) {
+        vgm(
+          psill = component$psill,
+          model = as.character(component$model),
+          range = component$range,
+          kappa = component$kappa,
+          nugget = nugget + 0.01 # in case nugget is zero
+        )
+      }
+
+      list(
+        space  = extract_vgm(fit_vgmst$space),
+        time   = extract_vgm(fit_vgmst$time),
+        joint  = extract_vgm(fit_vgmst$joint),
+        stAni  = unname(fit_vgmst$stAni)
+      )
+    }
+
+    comps_vgmst_ssm <- extract_vgmst_components(best_ssm, unname(best_ssm$nugget))
+
+    vgmst_sm <- vgmST(
+      "sumMetric",
+      space = comps_vgmst_ssm$space,
+      time  = comps_vgmst_ssm$time,
+      joint = comps_vgmst_ssm$joint,
+      stAni = comps_vgmst_ssm$stAni
+    )
+
+    fit_vario_sm <- fit.StVariogram(
+      vario_emp, 
+      vgmst_sm,
+      fit.method = 7,
+      stAni = comps_vgmst_ssm$stAni,
+      lower = c(
+        sill.s   = 0,   range.s  = 1,
+        nugget.s = 0,   sill.t = 0,
+        range.t  = 0.1, nugget.t = 0,
+        sill.st  = 0,   range.st = 1,
+        nugget.st = 0,  anis     = 1
+      ),
+      control = list(maxit=10000)
+    )
+    ```
+
+    -   Thoughts
+
+    ###### Compare Results
+
+    ``` r
+    attributes(fit_vario_sm)$optim.output$convergence
+    #> [1] 0
+    attributes(fit_vario_sm)$optim.output$value
+    #> [1] 10.21217
+
+    fit_vario_sm
+    #> space component: 
+    #>   model    psill   range kappa
+    #> 1   Nug  0.00000  0.0000   0.0
+    #> 2   Mat 20.80275 21.4185   0.4
+    #> time component: 
+    #>   model    psill    range kappa
+    #> 1   Nug 0.000000 0.000000  0.00
+    #> 2   Mat 4.731562 2.284217  0.12
+    #> joint component: 
+    #>   model    psill   range kappa
+    #> 1   Nug  0.00000   0.000   0.0
+    #> 2   Mat 84.19348 362.735   0.6
+    #> stAni: 184.266947554025
+
+    best_mod_fits <- tib_vario_mod_fits |> 
+      filter_out(mod_type == "simpleSumMetric") |> 
+      group_by(mod_type) |> 
+      slice_min(sse) |> 
+      ungroup()
+
+    best_mod_fits |> select(mod_type, sse)
+    #> # A tibble: 3 × 2
+    #>   mod_type     sse
+    #>   <chr>      <dbl>
+    #> 1 metric      18.8
+    #> 2 productSum  42.2
+    #> 3 separable   41.4
+    ```
+
+    -   Thoughts
+
+    ## Lattice Plots
+
+    ###### Multi-Line
+
+    ![](_resources/Geospatial-Spatio-Temporal.resources/krig-vario-ex1-mod-comp-line-lattice.png){.lightbox width="632"}
+
+    ``` r
+    best_mod_fits_all <- list(fit_vario_sm, best_ssm) |> append(best_mod_fits$fit_stv)
+
+    plot(vario_emp,
+         best_mod_fits_all,
+         map = FALSE,
+         all = TRUE)
+    ```
+
+    -   Thoughts
+
+    ###### Heatmap
+
+    ![](_resources/Geospatial-Spatio-Temporal.resources/krig-vario-ex1-mod-comp-heat-lattice.png){.lightbox}
+
+    ``` r
+    plot(vario_emp,
+         best_mod_fits_all,
+         map = TRUE,
+         all = TRUE)
+    ```
+
+    -   Thoughts
+
+    ###### Surface
+
+    ![](_resources/Geospatial-Spatio-Temporal.resources/krig-vario-ex1-mod-comp-surface-lattice.png){.lightbox width="632"}
+
+    ``` r
+    plot(vario_emp,
+         best_mod_fits_all,
+         map = FALSE,
+         wireframe = TRUE,
+         all = TRUE)
+    ```
+
+    -   Thoughts
+
+    ## ggplot2 and plotly
+
+    ###### Data Processing
+
+    ``` r
+    # process empircal variogram df
+    tib_vario_emp <- vario_emp |> 
+      mutate(
+        timelag = as.numeric(timelag),
+        # makes sure gamma calc below doesn't divide by 0
+        avgDist = ifelse(
+          avgDist == 0 & timelag == 0,
+          sqrt(.Machine$double.eps),
+          avgDist)
+      )
+
+
+    # calc each model's gamma estimates
+    tib_vario_mods_gamma <- purrr::map2(
+      best_mod_fits_all,
+      model_names,
+      \(mod, mod_name) {
+        mod_gamma <- variogramSurface(
+          model = mod,
+          dist_grid = data.frame(
+            spacelag = tib_vario_emp$avgDist,
+            timelag = tib_vario_emp$timelag
+          )
+        )$gamma
+        tibble(
+          model = mod_name,
+          gamma = mod_gamma,
+          avgDist = tib_vario_emp$avgDist,
+          timelag = tib_vario_emp$timelag
+        )
+      }
+    ) |> 
+      purrr::list_rbind()
+
+    # combine tibbles; make legend labels
+    tib_plot <- tib_vario_emp |> 
+      mutate(model = "Observed") |> 
+      select(model, gamma, avgDist, timelag) |> 
+      bind_rows(tib_vario_mods_gamma) |> 
+      filter_out(is.na(gamma)) |> 
+      mutate(
+        lag_label = factor(
+          paste0("lag", timelag), 
+          # minus 1 to get lag0
+          levels = paste0("lag", 0:length(unique(tib_vario_emp$timelag))-1)),
+        model = factor(model, levels = c("Observed", model_names))
+      )  
+
+    # named list for colors
+    lag_colors <- setNames(
+      rev(scico::scico(length(unique(tib_plot$timelag)), palette = "glasgow")),
+      paste0("lag", 0:(length(unique(tib_plot$timelag))-1))
+    )
+    ```
+
+    -   words
+
+    ###### Multi-Line
+
+    ![](_resources/Geospatial-Spatio-Temporal.resources/krig-vario-ex1-mod-comp-line.png){.lightbox width="632"}
+
+    <Details>
+
+    <Summary>Code</Summary>
+
+    ``` r
+    ggplot(tib_plot, 
+           aes(x = avgDist, 
+               y = gamma,
+               group = lag_label, 
+               color = lag_label
+           )) +
+      geom_line() +
+      geom_point(shape = 1, size = 1.5) +
+      scale_color_manual(values = lag_colors, name = NULL) +
+      facet_wrap(~ model, nrow = 2) +
+      labs(
+        title = "Variogram Model Comparison",
+        subtitle = "The best fit of each type of model",
+        x = "distance (km)", 
+        y = "gamma"
+      ) +
+      theme_notebook(
+        strip.text = element_text(
+          size = 14, 
+          face = "bold", 
+          color = "black"
+        ),
+        legend.text = element_text(size = 12)
+      )
+    ```
+
+    -   words
+
+    </Details>
+
+    ###### Heatmap
+
+    ![](_resources/Geospatial-Spatio-Temporal.resources/krig-vario-ex1-mod-comp-heat.png){.lightbox width="632"}
+
+    <Details>
+
+    <Summary>Code</Summary>
+
+    ``` r
+    # observed noisy, metric abrupt temporally, prod/sep gradual in space and time
+    ggplot(tib_plot, aes(x = factor(floor(avgDist)), y = timelag, fill = gamma)) +
+      geom_tile() +
+      scale_fill_gradientn(
+        colors = rev(scico::scico(100, palette = "glasgow")),
+        na.value = "white"
+      ) +
+      scale_x_discrete(
+        breaks = function(x) x[seq(1, length(x), by = 2)]
+      ) +
+      facet_wrap(~ model, nrow = 2) +
+      labs(
+        title = "Spatio-Temporal Semi-Variance Surfaces",
+        subtitle = "Model comparison between the best fit of each type of model",
+        x = "distance (km)",
+        y = "time lag (days)",
+        fill = "Semi-\nVariance"
+      ) +
+      theme_notebook(
+        strip.background = element_blank(),
+        strip.text = element_text(
+          size = 14, 
+          face = "bold", 
+          color = "black"
+        ),
+        panel.grid = element_blank(),
+        legend.key.height = unit(1.95, "cm"),
+        legend.text = element_text(
+          size = 10, 
+          face = "bold"
+        ),
+        legend.title = element_text(
+          size = 12,
+          face = "bold",
+          margin = margin(b = 10)
+        )
+      )
+    ```
+
+    -   words
+
+    </Details>
+
+    ###### Surface
+
+    ![](_resources/Geospatial-Spatio-Temporal.resources/krig-vario-ex1-mod-comp-surface.png){.lightbox width="632"}
+
+    <Details>
+
+    <Summary>Code</Summary>
+
+    ``` r
+    model_levels <- c("Observed", model_names)
+
+    # make matrix for z-coordinate
+    make_surface_matrix <- function(data, mod_name) {
+      data |>
+        filter(model == mod_name) |>
+        select(avgDist, timelag, gamma) |>
+        arrange(timelag, avgDist) |>
+        tidyr::pivot_wider(names_from = timelag, values_from = gamma) |>
+        arrange(avgDist) |>
+        select(-avgDist) |>
+        as.matrix()
+    }
+
+    # requires unique, sorted axis values
+    x_vals <- sort(unique(tib_plot$avgDist))
+    y_vals <- sort(unique(tib_plot$timelag))
+
+
+    glasgow_colors <- rev(scico::scico(10, palette = "glasgow"))
+    colorscale <- purrr::map2(
+      seq(0, 1, length.out = 10),
+      glasgow_colors,
+      \(stop, color) list(stop, color)
+    )
+
+
+    make_surface_plot <- function(mod_name, scene_id) {
+      # surface requires a matrix in z direction
+      z_mat <- make_surface_matrix(tib_plot, mod_name)
+
+      # legend
+      colorbar_settings <- list(
+        title = list(
+          text = "Semi-<br>Variance",
+          font = list(size = 12)
+        ),
+        # positioning
+        x = 1.02,
+        xanchor = "left",
+        y = 0.5,
+        yanchor = "middle",
+        len = 0.5,
+        thickness = 20,
+        bgcolor = '#FFFDF9FF',
+        bordercolor = '#FFFDF9FF'
+      )
+
+      plot_ly(
+        x = x_vals,
+        y = y_vals,
+        z = z_mat,
+        type = "surface",
+        colorscale = colorscale,
+        # only need a colorbar for one plot
+        showscale = mod_name == "Observed",
+        # plot id
+        scene = scene_id,
+        colorbar = if(mod_name == "Observed") colorbar_settings else NULL,
+        # tooltip
+        hovertemplate = paste(
+          "<b>distance</b>: %{x:.1f} km<br>",
+          "<b>time lag</b>: %{y:.0f} days<br>",
+          "<b>semi-variance</b>: %{z:.2f}<br>",
+          "<extra></extra>"
+        )
+      )
+    }
+
+    # plotly requires the first scene to be exactly labelled "scene"
+    scene_ids <- c("scene", paste0("scene", 2:6))
+    plots <- purrr::map2(
+      model_levels, 
+      scene_ids, 
+      make_surface_plot
+    )
+
+    # set initial plot orientation
+    shared_camera <- list(
+      eye = list(x = -1.5, y = -1.5, z = 1.0)
+    )
+
+    # subplot styling
+    scene_layout_init <- purrr::map(
+      scene_ids, 
+      \(sid) {
+        list(
+          camera = shared_camera,
+          xaxis = list(title = list(text = "distance (km)")),
+          yaxis = list(title = list(text = "time lag (days)")),
+          zaxis = list(title = list(text = "semi-variance (γ)")),
+          bgcolor = '#FFFDF9FF'
+        )
+    }) |>
+      setNames(scene_ids)
+
+    # subplot positioning
+    domains <- list(
+      list(x = c(0.00, 0.30), y = c(0.50, 1.00)),
+      list(x = c(0.33, 0.63), y = c(0.50, 1.00)),
+      list(x = c(0.66, 0.96), y = c(0.50, 1.00)),
+      list(x = c(0.00, 0.30), y = c(0.00, 0.50)),
+      list(x = c(0.33, 0.63), y = c(0.00, 0.50)),
+      list(x = c(0.66, 0.96), y = c(0.00, 0.50))
+    )
+
+    # add domain positions to the scenes
+    scene_layout_fin <- purrr::map2(
+      scene_layout_init, 
+      domains,
+      \(l, d) {
+        l$domain <- d
+        l
+      })
+
+    # Set title positions for subplots
+    title_positions <- list(
+      # Top row (y = 0.95)
+      list(x = 0.14, y = 0.93),  # Column 1
+      list(x = 0.48, y = 0.93),  # Column 2
+      list(x = 0.815,  y = 0.93),  # Column 3
+      # Bottom row (y = 0.45)
+      list(x = 0.145, y = 0.43),
+      list(x = 0.48, y = 0.43),
+      list(x = 0.815, y = 0.43)
+    )
+
+    # titles for subplots
+    annotations_list <- purrr::map2(
+      model_levels, 
+      title_positions, 
+      function(name, pos) {
+        list(
+          text = paste0("<b>", name, "</b>"),
+          x = pos$x, 
+          y = pos$y,
+          xref = "paper",      # Use paper coordinates (0 to 1 across figure)
+          yref = "paper",      
+          showarrow = FALSE,
+          font = list(size = 16),
+          xanchor = "center",
+          yanchor = "bottom"
+        )
+    })
+
+    # Build visual
+    fig <- subplot(plots, nrows = 2) |>
+      layout(
+        title = list(
+          text = "<b>Spatio-Temporal Semi-Variance Surfaces</b>",
+          font = list(size = 25)
+        ),
+        margin = list(
+          t = 100  # Increase top margin to stop title being cutoff
+        ),
+        paper_bgcolor  = '#FFFDF9FF',
+        plot_bgcolor = '#FFFDF9FF',
+        annotations = annotations_list,
+        autosize = TRUE,
+        scene = scene_layout_fin$scene,
+        scene2 = scene_layout_fin$scene2,
+        scene3 = scene_layout_fin$scene3,
+        scene4 = scene_layout_fin$scene4,
+        scene5 = scene_layout_fin$scene5,
+        scene6 = scene_layout_fin$scene6
+      ) |> 
+      config(scrollZoom = FALSE) # sync for zoom is really buggy
+
+    fig_synced <- fig |>
+      htmlwidgets::onRender("
+        function(el, x) {
+          var scenes = ['scene', 'scene2', 'scene3', 'scene4', 'scene5', 'scene6'];
+          var syncing = false;
+
+          el.on('plotly_relayout', function(eventData) {
+            if (syncing) return;
+
+            var triggerScene = null;
+            var newCamera = null;
+
+            scenes.forEach(function(scene) {
+              var key = scene + '.camera';
+              if (eventData[key] !== undefined) {
+                triggerScene = scene;
+                newCamera = eventData[key];
+              }
+            });
+
+            if (triggerScene === null || newCamera === null) return;
+
+            var update = {};
+            scenes.forEach(function(scene) {
+              if (scene !== triggerScene) {
+                update[scene + '.camera'] = newCamera;
+              }
+            });
+
+            syncing = true;
+            Plotly.relayout(el, update).then(function() {
+              syncing = false;
+            });
+          });
+        }
+      ")
+
+
+    fig_synced
+    ```
+
+    -   words
+
+    </Details>
+    :::
 
 ### Interpolate {#sec-geo-sptemp-krig-inter .unnumbered}
 
