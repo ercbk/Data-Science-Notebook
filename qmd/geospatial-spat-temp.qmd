@@ -1,3 +1,8 @@
+---
+lightbox:
+  loop: true
+---
+
 # Spatio-Temporal {#sec-geo-sptemp .unnumbered}
 
 ## Misc {#sec-geo-sptemp-misc .unnumbered}
@@ -125,11 +130,22 @@
 
 ## Grid Layouts {#sec-geo-sptemp-grlay .unnumbered}
 
+### Types {#sec-geo-sptemp-grlay-type .unnumbered}
+
 - [{spacetime}]{style="color: #990000"} Classes\
   ![](_resources/Geospatial-Spatio-Temporal.resources/layouts-classes-1.png){.lightbox width="401"}
 - [Full-Grids]{.underline}\
   ![](_resources/Geospatial-Spatio-Temporal.resources/layouts-full-grid-1.png){.lightbox width="232"}
   - Each coordinate (spatial feature vs. time) for each time point has a value (which can be NA) — i.e. a fixed set of spatial entities and a fixed set of time points.
+  - `STFDF(sp, time, data)`
+    - [sp]{.arg-text}: A [SpatialPoints]{.arg-text} or maybe a [SpatialPointsDataFrame]{.arg-text} class object
+      - Requires **only unique pairs (lat, lon) of coordinates** that are present in the [data]{.arg-text}, e.g. if there are 53 locations, then there should be 53 pairs (lat, long) of coordinates.
+      - This object's coordinates has to be **ordered the same way as the data** (first by time, then by space).
+    - [time]{.arg-text}: An *ordered* vector of dates (can be [Date]{.arg-text} or [POSIXct]{.arg-text})
+      - Requires **only a unique set of dates**
+    - [data]{.arg-text}: A dataframe with the variable(s) of interest.
+    - `nrows(data) == nrows(coords) * length(time)` where [coords]{.var-text} is the coordinates matrix in the [SpatialPoints]{.arg-text} object. If this logical isn't true, you'll get an error.
+      - It will be true if all the bold instructions above are followed.
   - Examples
     - Regular (e.g., hourly) measurements of air quality at a spatially irregular set of points (measurement stations)
     - Yearly disease counts for a set of administrative regions
@@ -156,196 +172,203 @@
         - In 2018, you have GPS points for all recorded crimes that year (randomly scattered).
         - In 2019, you have a completely different set of GPS points (different crimes, different places).
         - The number of points per year also varies.
-- \[Irregular Grids\]{.underline} ![](_resources/Geospatial-Spatio-Temporal.resources/layouts-irregular-grid-1.png){.lightbox width="232"}
+- [Irregular Grids]{.underline}\
+  ![](_resources/Geospatial-Spatio-Temporal.resources/layouts-irregular-grid-1.png){.lightbox width="232"}
   - Time and space points of measured values have no apparent organization: for each measured value the spatial feature and time point is stored, as in the long format.
   - No underlying lattice structure or indexes. Each observation is a standalone (space, time) pair. Repeated values are possible.
   - Essentially just a dataframe with a geometry column, datetime column, and value column.
+  - `STIDF(sp, time, data)`
+    - Arguments [**sp**]{.arg-text}**, [time]{.arg-text} and [data]{.arg-text} need to have the same number of records**, and regardless of the class of time (xts or POSIXct) have to be in correspoinding order: the triple [sp\[i\]]{.arg-text}, [time\[i\]]{.arg-text} and [data\[i, \]]{.arg-text} refer to the same observation
+    - I haven't had any luck with this class in my limited usage (hanging `StVariogram`). You can just create a [STFDF]{.arg-text} class object with your data with [NA]{.arg-text}s for your variable(s) at the filled-in time instances (`StVariogram` worked for me. See [Interpolate](geospatial-spat-temp.qmd#sec-geo-sptemp-krig-inter){style="color: green"} \>\> Example 2).
   - Use Cases
     - Mobile sensors or moving animals: each record has its own location and timestamp — no fixed grid or station network.
     - Lightning strikes: purely random events in continuous space-time.
-- \[Trajectory Grids\]{.underline} ![](_resources/Geospatial-Spatio-Temporal.resources/layouts-trajectory-grid-1.png){.lightbox width="232"}
+- [Trajectory Grids]{.underline}\
+  ![](_resources/Geospatial-Spatio-Temporal.resources/layouts-trajectory-grid-1.png){.lightbox width="232"}
   - Trajectories cover the case where sets of (irregular) space-time points form sequences, and depict a trajectory.
   - Their grouping may be *simple* (e.g., the trajectories of two persons on different days), *nested* (for several objects, a set of trajectories representing different trips) or *more complex* (e.g., with objects that split, merge, or disappear).
   - Examples
     - Human trajectories
     - Mobile sensor measurements (where the sequence is kept, e.g., to derive the speed and direction of the sensor)
     - Trajectories of tornados where the tornado extent of each time stamp can be reflected by a different polygon
-- Subsetting
-  - Notes from [Subsetting of Spatio-Temporal Objects](https://cran.r-project.org/web/packages/spacetime/vignettes/stsubs.pdf)
 
-  - **Don't subset STSDF (or probably STIDF objects too)** as it's not intuitive. You're subsetting the index inside the object and not spatial locations. After index is subsetted, the resulting structure makes no sense to me. Best to do your subsetting before creating these objects.
+### Subsetting {#sec-geo-sptemp-grlay-sub .unnumbered}
 
-  - Example data
+- Notes from [Subsetting of Spatio-Temporal Objects](https://cran.r-project.org/web/packages/spacetime/vignettes/stsubs.pdf)
+
+- **Don't subset STSDF (or probably STIDF objects too)** as it's not intuitive. You're subsetting the index inside the object and not spatial locations. After index is subsetted, the resulting structure makes no sense to me. Best to do your subsetting before creating these objects.
+
+- Example data
+
+  ``` r
+  spObj
+  #> SpatialPoints:
+  #>   x y
+  #> A 0 2
+  #> B 2 2
+  #> C 1 1
+  #> D 0 0
+  #> E 2 0
+  #> Coordinate Reference System (CRS) arguments: NA 
+
+  timeObj
+  #> [1] "2010-08-05 EDT" "2010-08-06 EDT"
+
+  mydata
+  #>        smpl1     smpl2
+  #> 1   8.798207  8.658649
+  #> 2         NA        NA
+  #> 3  29.764684 28.761798
+  #> 4         NA        NA
+  #> 5  49.808253 49.931965
+  #> 6         NA        NA
+  #> 7         NA        NA
+  #> 8  28.308468 29.619051
+  #> 9  39.334547 40.642147
+  #> 10 49.174389 51.285906
+
+  # the indexing for the STFDF object
+  # 1  (A, t1)
+  # 2  (A, t2)
+  # 3  (B, t1)
+  # 4  (B, t2)
+  # 5  (C, t1)
+  # 6  (C, t2)
+  # 7  (D, t1)
+  # 8  (D, t2)
+  # 9  (E, t1)
+  # 10 (E, t2)
+  ```
+
+  - Data used to create the various grid type objects
+  - When creating one of these objects, `nrow(object@data) == length(object@sp) * nrow(object@time)`
+    - In this example, 10 = 5 \* 2
+  - When a STSDF (sparse) is constructed, rows with NA are dropped.
+
+- Spatially
+
+  - Only first 3 locations
 
     ``` r
-    spObj
+    STFobj[1:3, ]
+    #> An object of class "STF"
+    #> Slot "sp":
     #> SpatialPoints:
     #>   x y
     #> A 0 2
     #> B 2 2
     #> C 1 1
-    #> D 0 0
-    #> E 2 0
     #> Coordinate Reference System (CRS) arguments: NA 
-
-    timeObj
-    #> [1] "2010-08-05 EDT" "2010-08-06 EDT"
-
-    mydata
-    #>        smpl1     smpl2
-    #> 1   8.798207  8.658649
-    #> 2         NA        NA
-    #> 3  29.764684 28.761798
-    #> 4         NA        NA
-    #> 5  49.808253 49.931965
-    #> 6         NA        NA
-    #> 7         NA        NA
-    #> 8  28.308468 29.619051
-    #> 9  39.334547 40.642147
-    #> 10 49.174389 51.285906
-
-    # the indexing for the STFDF object
-    # 1  (A, t1)
-    # 2  (A, t2)
-    # 3  (B, t1)
-    # 4  (B, t2)
-    # 5  (C, t1)
-    # 6  (C, t2)
-    # 7  (D, t1)
-    # 8  (D, t2)
-    # 9  (E, t1)
-    # 10 (E, t2)
+    #> 
+    #> Slot "time":
+    #>            timeIndex
+    #> 2010-08-05         1
+    #> 2010-08-06         2
+    #> 
+    #> Slot "endTime":
+    #> [1] "2010-08-06 EDT" "2010-08-07 EDT"
     ```
 
-    - Data used to create the various grid type objects
-    - When creating one of these objects, `nrow(object@data) == length(object@sp) * nrow(object@time)`
-      - In this example, 10 = 5 \* 2
-    - When a STSDF (sparse) is constructed, rows with NA are dropped.
+  - Only first 3 locations in reverse order
 
-  - Spatially
+    ``` r
+    # in reverse order
+    STFobj[3:1, ]
+    #> An object of class "STF"
+    #> Slot "sp":
+    #> SpatialPoints:
+    #>   x y
+    #> C 1 1
+    #> B 2 2
+    #> A 0 2
+    #> Coordinate Reference System (CRS) arguments: NA 
+    #> 
+    #> Slot "time":
+    #>            timeIndex
+    #> 2010-08-05         1
+    #> 2010-08-06         2
+    #> 
+    #> Slot "endTime":
+    #> [1] "2010-08-06 EDT" "2010-08-07 EDT"
+    ```
 
-    - Only first 3 locations
+  - Using a logical vector
 
-      ``` r
-      STFobj[1:3, ]
-      #> An object of class "STF"
-      #> Slot "sp":
-      #> SpatialPoints:
-      #>   x y
-      #> A 0 2
-      #> B 2 2
-      #> C 1 1
-      #> Coordinate Reference System (CRS) arguments: NA 
-      #> 
-      #> Slot "time":
-      #>            timeIndex
-      #> 2010-08-05         1
-      #> 2010-08-06         2
-      #> 
-      #> Slot "endTime":
-      #> [1] "2010-08-06 EDT" "2010-08-07 EDT"
-      ```
+    ``` r
+    STFobj[c(TRUE,TRUE,FALSE,FALSE,TRUE), ]
+    #> An object of class "STF"
+    #> Slot "sp":
+    #> SpatialPoints:
+    #>   x y
+    #> A 0 2
+    #> B 2 2
+    #> E 2 0
+    #> Coordinate Reference System (CRS) arguments: NA 
+    #> 
+    #> Slot "time":
+    #>            timeIndex
+    #> 2010-08-05         1
+    #> 2010-08-06         2
+    #> 
+    #> Slot "endTime":
+    #> [1] "2010-08-06 EDT" "2010-08-07 EDT"
+    ```
 
-    - Only first 3 locations in reverse order
+  - Using a location names
 
-      ``` r
-      # in reverse order
-      STFobj[3:1, ]
-      #> An object of class "STF"
-      #> Slot "sp":
-      #> SpatialPoints:
-      #>   x y
-      #> C 1 1
-      #> B 2 2
-      #> A 0 2
-      #> Coordinate Reference System (CRS) arguments: NA 
-      #> 
-      #> Slot "time":
-      #>            timeIndex
-      #> 2010-08-05         1
-      #> 2010-08-06         2
-      #> 
-      #> Slot "endTime":
-      #> [1] "2010-08-06 EDT" "2010-08-07 EDT"
-      ```
+    ``` r
+    STFobj[c("A","B"), ]
+    #> An object of class "STF"
+    #> Slot "sp":
+    #> SpatialPoints:
+    #>   x y
+    #> A 0 2
+    #> B 2 2
+    #> Coordinate Reference System (CRS) arguments: NA 
+    #> 
+    #> Slot "time":
+    #>            timeIndex
+    #> 2010-08-05         1
+    #> 2010-08-06         2
+    #> 
+    #> Slot "endTime":
+    #> [1] "2010-08-06 EDT" "2010-08-07 EDT"
+    ```
 
-    - Using a logical vector
+- Temporally
 
-      ``` r
-      STFobj[c(TRUE,TRUE,FALSE,FALSE,TRUE), ]
-      #> An object of class "STF"
-      #> Slot "sp":
-      #> SpatialPoints:
-      #>   x y
-      #> A 0 2
-      #> B 2 2
-      #> E 2 0
-      #> Coordinate Reference System (CRS) arguments: NA 
-      #> 
-      #> Slot "time":
-      #>            timeIndex
-      #> 2010-08-05         1
-      #> 2010-08-06         2
-      #> 
-      #> Slot "endTime":
-      #> [1] "2010-08-06 EDT" "2010-08-07 EDT"
-      ```
+  - Uses [{]{style="color: #990000"}[xts](https://joshuaulrich.github.io/xts/){style="color: #990000"}[}]{style="color: #990000"} for the time series component, so use their syntax to subset different time intervals
 
-    - Using a location names
+  - By years
 
-      ``` r
-      STFobj[c("A","B"), ]
-      #> An object of class "STF"
-      #> Slot "sp":
-      #> SpatialPoints:
-      #>   x y
-      #> A 0 2
-      #> B 2 2
-      #> Coordinate Reference System (CRS) arguments: NA 
-      #> 
-      #> Slot "time":
-      #>            timeIndex
-      #> 2010-08-05         1
-      #> 2010-08-06         2
-      #> 
-      #> Slot "endTime":
-      #> [1] "2010-08-06 EDT" "2010-08-07 EDT"
-      ```
+    ``` r
+    STFDFobj[, "2023::2024"]
+    ```
 
-  - Temporally
+    - All data from 2023-01-01 to 2024-12-01
+    - Was in the [{spacetime}]{style="color: #990000"} vignette but not in xts docs ¯\\\_(ツ)\_/¯
 
-    - Uses [{]{style="color: #990000"}[xts](https://joshuaulrich.github.io/xts/){style="color: #990000"}[}]{style="color: #990000"} for the time series component, so use their syntax to subset different time intervals
+  - 1 month
 
-    - By years
+    ``` r
+    STFDFobj[,'2023-03'] # ❌ doesn't work
+    STFDFobj[,'2023-03-01'] # ❌ doesn't work
+    STFDFobj[, '2023-03/2023-03'] # works
+    ```
 
-      ``` r
-      STFDFobj[, "2023::2024"]
-      ```
+  - Everything before August 2023 (includes August)
 
-      - All data from 2023-01-01 to 2024-12-01
-      - Was in the [{spacetime}]{style="color: #990000"} vignette but not in xts docs ¯\\\_(ツ)\_/¯
+    ``` r
+    STFDFobj[,'/2023-08']
+    ```
 
-    - 1 month
+  - Everything after August 2023 (doesn't include August
 
-      ``` r
-      STFDFobj[,'2023-03'] # ❌ doesn't work
-      STFDFobj[,'2023-03-01'] # ❌ doesn't work
-      STFDFobj[, '2023-03/2023-03'] # works
-      ```
+    ``` r
+    STFDFobj[,'2023-08/']
+    ```
 
-    - Everything before August 2023 (includes August)
-
-      ``` r
-      STFDFobj[,'/2023-08']
-      ```
-
-    - Everything after August 2023 (doesn't include August
-
-      ``` r
-      STFDFobj[,'2023-08/']
-      ```
-
-    - Subsetting by index is a pain and should be avoided. When you do it, you have to convert the resulting object back to a spacetime object.
+  - Subsetting by index is a pain and should be avoided. When you do it, you have to convert the resulting object back to a spacetime object.
 
 ## Data Formats {#sec-geo-sptemp-datform .unnumbered}
 
@@ -1598,9 +1621,9 @@
   spdf_samp$time_index <- as.factor(spdf_samp$time_index)
 
   vario_samp <- variogram(
-    object    = PM10 ~ time_index,
+    object = PM10 ~ time_index,
     locations = spdf_samp[!is.na(spdf_samp$PM10),],
-    dX        = 0.5   # select pairs only within same factor level (time instance)
+    dX = 0.5   # select pairs only within same factor level (time instance)
   )
 
   fit_vario_mod <- function(
@@ -4213,9 +4236,11 @@
 - No parallel option!
 - `krigeST(formula, data, modelList, newdata)`
   - [data]{.arg-text} - Original dataset (used to fit `variogramST`)
+    - From docs, "ST object: should contain the dependent variable and independent variables."
   - [modelList]{.arg-text} - Object returned from `fit.StVariogram`
   - [newdata]{.arg-text} - An ST object with prediction/simulation locations in space and time
     - Should contain attribute columns with the independent variables (if present).
+    - From docs, "ST object with prediction/simulation locations in space and time; should contain attribute columns with the independent variables (if present)."
   - [computeVar = TRUE]{.arg-text} - Returns prediction variances
     - [fullCovariance = TRUE]{.arg-text} - Returns the full covariance matrix
   - [bufferNmax = 1]{.arg-text} (default) - Used to increase the search radius for neighbors (e.g. 2 would be double the default radius.)
@@ -4223,37 +4248,92 @@
     - If the prediction variances are large, then this parameter should help by gathering more data points.
   - [nmax]{.arg-text} - The maximum number of neighboring locations for a spatio-temporal local neighbourhood
   - [stAni]{.arg-text} - Only needs to be set if the provided variogram model doesn't include a [stAni]{.arg-text} parameter (Seperable and Product-Sum)
+- Prediction Grids (i.e. [newdata]{.arg-text} input)
+  - [Example]{.ribbon-highlight}: DE_RB_2005 dataset from [{gstat}]{style="color: #990000"} ([github](https://github.com/r-spatial/gstat/blob/c1df8b864e96a25e2f3e24c4662884734e50d326/demo/stkrige-prediction.R#L15-L21), [vignette](https://cran.r-project.org/web/packages/gstat/vignettes/spatio-temporal-kriging.pdf))
+
+    ``` r
+    gridDE <- sp::SpatialGrid(sp::GridTopology(
+      cellcentre.offset = DE_RB_2005@sp@bbox[,1] %/% 10000 * 10000, 
+      cellsize = c(10000, 10000),
+      # number of cells in each dimension
+      cells.dim = ceiling(apply(
+        DE_RB_2005@sp@bbox,
+        1,
+        diff
+      )/10000) #  10 km × 10 km
+    ))
+    # projected coords
+    sp::proj4string(gridDE) <- sp::CRS("+init=epsg:32632")
+    # "demotes a gridded structure back to a non-structured one"
+    sp::fullgrid(gridDE) <- F
+
+    ind <- sp::over(x = gridDE, y = as(DE_NUTS1,"SpatialPolygons"))
+    gridDE <- gridDE[!is.na(ind)]
+
+    smplDays <- sort(sample(365,8)) # from stkrige.R
+    DE_pred <- STF(gridDE, DE_RB_2005@time[smplDays])
+
+    tIDS <- unique(pmax(1,pmin(as.numeric(outer(-5:5, smplDays, "+")), 365)))
+
+    sumPred <- krigeST(
+      PM10 ~ 1, 
+      data=DE_RB_2005[,tIDS],
+      newdata = DE_pred, 
+      fitSumMetricModel, 
+      nmax = 50,
+      stAni = fitMetricModel$stAni/24/3600
+    )
+    ```
+
+    - Creates a grid over Germany for PM10 pollution interpolation
+    - [cellcentre.offset]{.arg-text}: Numeric; vector with the smallest centroid coordinates for each dimension; coordinates refer to the cell centre
+    - `over`: "at the spatial locations of object x retrieves the indexes or attributes from spatial object y"
+    - Only interpolates an 8 day sample
+
+  - [Example]{.ribbon-highlight}: using mostly [{stars}]{style="color: #990000"} ([SDS, Ch 13.3](https://r-spatial.org/book/13-Geostatistics.html#a-spatiotemporal-variogram-model))
+
+    ``` r
+    crs <- st_crs('EPSG:32632')
+    de <- read_sf("data/de_nuts1.gpkg") |> st_transform(crs)
+
+    grd <- sf::st_bbox(de) |>
+      st_as_stars(dx = 10000) |>
+      sf::st_crop(de)
+
+    d <- dim(grd)
+
+    # no2.st is a stars obj
+    t <- st_get_dimension_values(x = no2.st, which = 1)
+    # 1080 3240 5400 7560
+    t4 <- t[(1:4 - 0.5) * (3*24*30)]
+
+    grd.st <- st_as_stars(
+      pts = array(
+        1, 
+        c(d[1], d[2], time = length(t4))
+      )
+    ) |>
+        st_set_dimensions("time", t4) |>
+        st_set_dimensions("x", st_get_dimension_values(grd, "x")) |>
+        st_set_dimensions("y", st_get_dimension_values(grd, "y")) |>
+        sf::st_set_crs(crs)
+    ```
 - `stplot(preds)` will plot the results
-- spat-temp vig
-  - Regular measurements over time (i.e. hourly, daily) motivate regular binning intervals of the same temporal resolution. Nevertheless, flexible binning boundaries can be passed for spatial and temporal dimensions. This allows for instance to use smaller bins at small distances and larger ones for large distances
-    - Need to try and pass a vector of bin widths to width or check the code and see how treats the width argument
+- Vignette raw notes
   - we could have fitted the spatial variogram for each day separately using observations from that day only. However, given the small number of observation stations, this produced unstable variograms for several days and we decided to use the single spatial variogram derived from all spatio-temporal locations treating time slices as uncorrelated copies of the spatial random field.
+
     - Either add to workflow or misc in kriging
+
   - A temporal lag of one or a few days leads already to a large variability compared to spatial distances of few hundred kilometres, implying that the temporal correlation is too weak to considerably improve the overall prediction.
+
     - Think this a comment about a table of results but it refers to the empircal variogram
+
   - Further preprocessing steps might be necessary to improve the modelling of this PM10 data set such as for instance a temporal AR-model followed by spatio-temporal residual kriging or using further covariates in a preceding (linear) modelling step.
+
     - Need to research the AR model part
+
   - The prediction at an unobserved location with a cluster of observations at one side will be biased towards this cluster and neglect the locations towards the other directions. Similar as the quadrant search in the pure spatial case an octant wise search strategy for the local neighbourhood would solve this limitation. A simpler stepwise approach to define an n-dimensional neighbourhood might already be sufficient in which at first ns spatial neighbours and then from each spatial neighbour nt time instances are selected, such that
+
   - Starting values can in most cases be read from the sample variogram
+
     - need to see if a st empirical variogram can be plotted (or printed?) and what can actually be gleaned from it
-- From [post](https://www.r-bloggers.com/2015/08/spatio-temporal-kriging-in-r/)
-  - Empircal variogram heatmap
-
-    ``` r
-    plot(var,map=T) 
-    ```
-
-  - `fit.StVariogram` model comparison
-
-    ``` r
-    # empirical vs model multi-line chart
-    # maybe use a par(c(4,2)) and loop
-    # maybe list + all = T will do it; might also need par
-    plot(var,separable_Vgm,map=F) 
-
-    # error (needs a loop and table)
-    attr(SimplesumMetric_Vgm, "MSE")
-
-    # wireframe
-    plot(var,list(separable_Vgm, prodSumModel_Vgm, metric_Vgm, sumMetric_Vgm, SimplesumMetric_Vgm),all=T,wireframe=T)
-    ```
