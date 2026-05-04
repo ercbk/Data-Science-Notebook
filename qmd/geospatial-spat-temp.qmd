@@ -394,7 +394,7 @@ lightbox:
       ozoneSP <- SpatialPoints(ozone.UTM@coords, CRS("+init=epsg:3395")) 
       ```
 - [Long]{.underline} - The full spatio-temporal information (i.e. response value) is held in a single column, and location and time are also single columns.
-  - [Example]{.ribbon-highlight}: Private capital stock (?)
+  - [Example 1]{.ribbon-highlight}: Private capital stock (?)
 
     ``` r
     #>     state year region     pcap     hwy   water    util       pc   gsp
@@ -408,7 +408,7 @@ lightbox:
     - Each row is a single time unit and space unit combination.
     - This is likely not the row order you want though. I think these spatio-temporal object creation functions want ordered by time, then by space. (See Example)
 
-  - [Example]{.ribbon-highlight}: Create full grid spacetime object from a long table (7.2 Panel Data in [{spacetime}]{style="color: #990000"} vignette)
+  - [Example 2]{.ribbon-highlight}: Create full grid spacetime object from a long table (7.2 Panel Data in [{spacetime}]{style="color: #990000"} vignette)
 
     ::: panel-tabset
     ## Input Data
@@ -497,6 +497,54 @@ lightbox:
       - [endTime]{.var-text}: Used for intervals
       - [timeIndex]{.var-text}: An index of time "sections" in the data dataframe. (e.g. 1:17 for 17 unique year values)
     :::
+
+  - [Example 3]{.ribbon-highlight}: Convert a STFDF to Long Format [{sf}]{style="color: #990000"} dataframe ([source](geospatial-spat-temp.qmd#sec-geo-sptemp-krig-ex){style="color: green"} \>\> Example 1)
+
+    ``` r
+    library(dplyr)
+
+    data(air, package = "spacetime")
+
+    # get rural location time series from 2005 to 2010
+    rural <- spacetime::STFDF(
+      sp = stations, 
+      time = dates, 
+      data = data.frame(PM10 = as.vector(air))
+    )
+    rr <- rural[,"2005::2010"]
+
+    # remove station ts w/all NAs
+    unsel <- which(apply(
+      as(rr, "xts"), 
+      2, 
+      function(x) all(is.na(x)))
+    )
+    r5to10 <- rr[-unsel,]
+
+
+    # Convert to Long Format
+    crs_r5 <- sp::proj4string(r5to10@sp)
+    sf_r5 <- as.data.frame(r5to10) |> 
+      sf::st_as_sf(coords = c("coords.x1", "coords.x2"), crs = crs_r5) |>
+      sf::st_transform(crs = 25832) |> # projected, UTM zone 32N
+      filter(!is.na(PM10)) |> 
+      rename(
+        date = time, 
+        pm10 = PM10,
+        station_id = sp.ID
+      ) |> 
+      select(-endTime, -timeIndex)
+
+    tib_pm10 <- sf_r5 |> 
+      mutate(
+        date_feat = date, # extra for feat eng
+        X = sf::st_coordinates(geometry)[, 1],
+        Y = sf::st_coordinates(geometry)[, 2]
+      ) |> 
+      sf::st_drop_geometry()
+    ```
+
+    - The essential elements here are pulling the CRS using [{sp}]{style="color: #990000"} `proj4string` and converting to a dataframe using the [{spacetime} ]{style="color: #990000"}`as.data.frame` method
 - [Space-wide]{.underline} - Each space unit is a column
   - [Example]{.ribbon-highlight}: Wind speeds
 
@@ -4359,7 +4407,7 @@ lightbox:
   ::: panel-tabset
   ## Data and Set-Up
 
-  Cross-Validation is peformed using \[{mlr3spatiotempcv}\]{style:"color: #990000"}. The models include Random Forest, Light GBM, Catboost and krigeST.
+  Cross-Validation is peformed using [{mlr3spatiotempcv}]{style="color: #990000"}. The models include Random Forest, Light GBM, Catboost and krigeST.
 
   This is the PM10 air pollution dataset for Germany that’s from [{spacetime}]{style="color: #990000"} and used in many of my examples.
 
@@ -4438,7 +4486,8 @@ lightbox:
     )
   ```
 
-  - Thoughts
+  - There's a more efficient way to convert a [STFDF]{.arg-text} object to a tibble (along with CRS conversion, various transforms, etc.), but I use [sf_pm10]{.var-text} in too many other places to change this code now. See [Data Formats](geospatial-spat-temp.qmd#sec-geo-sptemp-datform){style="color: green"} \>\> Long \>\> Example 3 for the efficient code.
+    - Basically [{spacetime}]{style="color: #990000"} comes with a `as.data.frame` method which makes this easier.
 
   ## [{mlr3}]{style="color: #990000"}
 
@@ -5966,7 +6015,7 @@ lightbox:
 
   ## Visualize
 
-  ![](_resources/Geospatial-Spatio-Temporal.resources/krig-interp-ex3-preds.png){.lightbox width="632"}
+  ![](_resources/Geospatial-Spatio-Temporal.resources/krig-interp-ex3-preds.png){.lightbox}
 
   ``` r
   legend_limits <- sf_krige_pred |>
@@ -6057,7 +6106,9 @@ lightbox:
     ),
     plot.background = element_rect(fill = "#191a1a", color = NA)
   )
-  p_krige_pred / p_cat_pred + plot_layout(guides = "collect") + plot_annotation(title = "PM10 Predictions", theme = theme_patch)
+  p_krige_pred / p_cat_pred + 
+    plot_layout(guides = "collect") + 
+    plot_annotation(title = "PM10 Predictions", theme = theme_patch)
   ```
 
   - Thoughts
