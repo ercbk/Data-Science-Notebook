@@ -544,7 +544,7 @@ lightbox:
       sf::st_drop_geometry()
     ```
 
-    - The essential elements here are pulling the CRS using [{sp}]{style="color: #990000"} `proj4string` and converting to a dataframe using the [{spacetime} ]{style="color: #990000"}`as.data.frame` method
+    - The essential elements here are pulling the CRS using [{sp}]{style="color: #990000"} `proj4string` and converting to a dataframe using the [{spacetime}]{style="color: #990000"}`as.data.frame` method
 - [Space-wide]{.underline} - Each space unit is a column
   - [Example]{.ribbon-highlight}: Wind speeds
 
@@ -4486,45 +4486,45 @@ lightbox:
     )
   ```
 
+  - This code is taking the original [r5to10]{.var-text} object from the [{spacetime}]{style="color: #990000"} vignette and transforming it into a tibble with some minor preprocessing along the way.
   - There's a more efficient way to convert a [STFDF]{.arg-text} object to a tibble (along with CRS conversion, various transforms, etc.), but I use [sf_pm10]{.var-text} in too many other places to change this code now. See [Data Formats](geospatial-spat-temp.qmd#sec-geo-sptemp-datform){style="color: green"} \>\> Long \>\> Example 3 for the efficient code.
     - Basically [{spacetime}]{style="color: #990000"} comes with a `as.data.frame` method which makes this easier.
 
   ## [{mlr3}]{style="color: #990000"}
 
-  words
+  As far as I know, currently, [{mlrspatiotempcv}]{style="color: #990000"} is the only R package that implements CV for spatiotemporal modeling.\
+  \
+  While I'm in the mlr3 framework, I decided to include some ML models to see how they perform on this data.
 
   ###### Task
 
   ``` r
-  task_st_pm10 <- as_task_regr_st(
+  task_st_pm10 <- as_task_regr_st( # <1>
     tib_pm10,
     target = "pm10",
-    coordinate_names = c("X", "Y"),
+    coordinate_names = c("X", "Y"), # <2>
     coords_as_features = TRUE,
     id = "pm10_st"
   )
 
-
-  # set space and time roles for sptcv_cstf
-  task_st_pm10$set_col_roles("station_id", roles = "space")
+  task_st_pm10$set_col_roles("station_id", roles = "space") # <3>
   task_st_pm10$set_col_roles("date",       roles = "time")
 
   # task_st_pm10$feature_names
   ```
 
-  - Thoughts
+  1.  `as_task_regr_st` is a special task function from [{mlrspatiotempcv}]{style="color: #990000"}. It basically applies some attributes to the data that going to be used for modeling.
+  2.  If you're using a [{sf}]{style="color: #990000"} class dataframe, then you don't have to specify the coordinate_names. I'm going to be doing some feature engineering on the coordinates, so I decided to extract them into a tibble. Maybe, I could've still done this with a [{sf}]{style="color: #990000"} object with just setting [coord_as_features = TRUE]{.arg-text}, but I didn't try.
+  3.  Space and time roles must be specified for [sptcv_cstf]{.arg-text} spatiotemporal CV method
 
   ###### Pipe Ops
 
   ``` r
   path_spline <- po("scalerange", id = "spl_scalerang", affect_columns = selector_name(c("X", "Y"))) %>>% 
-    po("thin_plate_spline", id = "spl_tp", coords = c("X", "Y"), k = 10L) %>>%   
+    po("thin_plate_spline", id = "spl_tp", coords = c("X", "Y"), k = 10L) %>>%  
     # removing "date_feat" has to be done here
     po("select", id = "spl_rm_feat", selector = selector_invert(selector_name("date_feat")))
 
-  # po("datefeatures") autoselects feat w/Date or POSIXct class but I'd rather be explicit
-  # po("datefeatures"): hms features automatically skipped for a Date class col
-  # believe this could've been done outside of mlr since no leakage risk
   path_date <- po("select", id = "date_sel_feat", selector = selector_name("date_feat")) %>>%
     po("datefeatures", id = "date_feat") %>>%
     # xgb hates integers
@@ -4537,8 +4537,6 @@ lightbox:
       date_feat.day_of_month = ~ as.numeric(date_feat.day_of_month),
       date_feat.day_of_week = ~ as.numeric(date_feat.day_of_week)
     ))
-
-  # gr$plot(horizontal = TRUE)
 
   result_spl <- path_spline$train(task_st_pm10)
   result_date <- path_date$train(task_st_pm10)
@@ -4563,9 +4561,261 @@ lightbox:
   #> 3:                      1                     7
   ```
 
-  - Thoughts
+  - `po` stands for the [PipeOps]{.arg-text} class. These are essentially [{recipe}]{style="color: #990000"} steps from the [{tidymodels}]{style="color: #990000"} framework.
+    - Technically, I think two chained (`%>>%)` [PipeOps]{.arg-text} creates a [Graph]{.arg-text} class, but the mlr3 book uses this path naming convention, so that's what I went with.
+  - [path_spline]{.var-text} scales the spatial coordinate features using min/max (aka range scaling) and then applies a spline transformation. The [date_feat]{.var-text} feature also gets manually dropped from the output for compatibility when I combine these paths (later).
+    - Max Absolute and Robust scaling were options, but given that the data analysis is exclusively on Germany and the locations of the measurement stations, I felt I didn't have to worry much about a hypothetically much larger future max or smaller future min screwing too much with this transformation.
+    - [thin_plate_spline]{.arg-text} is a custom [PipeOp]{.arg-text} that Claude wrote (See next section for the code). mlr3 has spline [PipeOp]{.arg-text} (natural and a b-spline I think), but I've only seen coordinates transformed using thin plate splines.
+    - Straight [X]{.var-text} and [Y]{.var-text} features will not pick up spatial patterns well enough. I'm not sure if this approach is optimal for spatial patterns but it does improve the model perfomance.
+    - [k]{.arg-text} is set to 10 based on some other examples I've seen, but it should be tuned.
+    - I tried to drop that [date_feat]{.var-text} variable later during the [Graph]{.arg-text} formation, but it doesn't work and causes the Graph to hang during execution.
+  - [datefeatures]{.arg-text} creates some basic calendar features for the selected date variable. Unfortunately, [datefeatures]{.arg-text} outputs integer columns which some ML (xgboost and maybe catboost) models don't tolerate, so they get painfully coerced to numerics.
+    - Pretty sure I could do this same thing outside of mlr3 since there shouldn't be any data leakage concerns, but I just wanted try out linking PipeOps paths into a [Graph]{.arg-text} (later). It'd be much cleaner outside and I could do more feature engineering.
+    - This was the only PipeOp that I saw that was dedicated to time variable engineering.
+    - [datefeatures]{.arg-text} autoselects feat w/[Date]{.arg-text} or [POSIXct]{.arg-text} class but I'd rather be explicit
+    - [datefeatures]{.arg-text} automatically skips hms features for a Date class column
+  - Training your path/[PipeOp]{.arg-text} on the task allows you to check out the output and see if everything works as expected
+
+  ###### Thin Plate Spline PipeOp
+
+  <Details>
+
+  <Summary>Code</Summary>
+
+  ``` r
+  #' @title PipeOpThinPlateSpline
+  #'
+  #' @description
+  #' Fits a thin plate spline basis (via \pkg{mgcv}) on two scaled coordinate
+  #' columns of a \code{\link[mlr3]{Task}} and replaces those columns with the
+  #' resulting basis-function columns.
+  #'
+  #' **Training:** calls \code{mgcv::smoothCon()} to learn the spline basis and
+  #' stores the smooth object in \code{$state}.
+  #'
+  #' **Prediction:** calls \code{mgcv::PredictMat()} to project new coordinates
+  #' onto the *training* basis, so the output columns are always aligned with
+  #' what the learner saw during training.
+  #'
+  #' @section Parameters:
+  #' \describe{
+  #'   \item{\code{coords}}{(\code{character(2)})\cr
+  #'     Names of the two coordinate columns (x first, then y).
+  #'     Default: \code{c("X", "Y")}.}
+  #'   \item{\code{k}}{(\code{integer(1)})\cr
+  #'     Basis dimension passed to \code{mgcv::s(..., k = k)}.
+  #'     Must be \eqn{\ge 3}. Default: \code{10L}.}
+  #'   \item{\code{prefix}}{(\code{character(1)})\cr
+  #'     Prefix for the new spline column names, e.g. \code{"spline_"} produces
+  #'     \code{spline_1}, \code{spline_2}, \ldots. Default: \code{"spline_"}.}
+  #' }
+  #'
+  #' @section Usage in a Graph:
+  #' \preformatted{
+  #' library(mlr3pipelines)
+  #'
+  #' # Scale raw X/Y with PipeOpScaleRange first, then apply splines
+  #' gr <- po("scalerange", affect_columns = selector_name(c("X", "Y"))) %>>%
+  #'   PipeOpThinPlateSpline$new(
+  #'     param_vals = list(coords = c("X", "Y"), k = 10L)
+  #'   )
+  #' }
+  #'
+  #' @importFrom R6 R6Class
+  #' @importFrom mlr3pipelines PipeOp
+  #' @importFrom mlr3 mlr_pipeops
+  #' @importFrom paradox ps p_int p_uty
+  #' @importFrom mgcv smoothCon s PredictMat
+  #' @export
+  PipeOpThinPlateSpline <- R6::R6Class(
+    "PipeOpThinPlateSpline",
+    inherit = mlr3pipelines::PipeOp,
+
+    public = list(
+
+      #' @description
+      #' Creates a new \code{PipeOpThinPlateSpline} object.
+      #'
+      #' @param id (\code{character(1)})\cr Identifier for the \code{PipeOp}.
+      #' @param param_vals (named \code{list})\cr Initial parameter values.
+      initialize = function(id = "thin_plate_spline", param_vals = list()) {
+
+        param_set <- paradox::ps(
+          coords = paradox::p_uty(
+            default = c("X", "Y"),
+            tags = "train",
+            custom_check = function(x) {
+              if (!is.character(x) || length(x) != 2L)
+                return("'coords' must be a character vector of length 2")
+              TRUE
+            }
+          ),
+          k = paradox::p_int(
+            lower = 3L,
+            default = 10L,
+            tags = c("train", "tune")
+          ),
+          prefix = paradox::p_uty(
+            default = "spline_",
+            tags = "train",
+            custom_check = function(x) {
+              if (!is.character(x) || length(x) != 1L)
+                return("'prefix' must be a single character string")
+              TRUE
+            }
+          )
+        )
+
+        # Set defaults explicitly
+        param_set$values <- utils::modifyList(
+          list(coords = c("X", "Y"), k = 10L, prefix = "spline_"),
+          param_vals
+        )
+
+        super$initialize(
+          id = id,
+          param_set = param_set,
+          # One Task in, one Task out
+          input = data.table::data.table(
+            name = "input",
+            train = "Task",
+            predict = "Task"
+          ),
+          output = data.table::data.table(
+            name = "output",
+            train = "Task",
+            predict = "Task"
+          ),
+          packages = c("mgcv", "data.table")
+        )
+      }
+    ),
+
+    private = list(
+
+      # ------------------------------------------------------------------
+      # .train()
+      # Receives: list with one Task
+      # Returns:  list with one (modified) Task
+      # Side-effect: populates self$state with the smooth object
+      # ------------------------------------------------------------------
+      .train = function(inputs) {
+        task <- inputs[[1L]]
+        pv <- self$param_set$values
+        coords <- pv$coords
+        k <- pv$k
+        prefix <- pv$prefix
+
+        # ---- Validate that coord columns exist in the task ----------------
+        missing_cols <- setdiff(coords, task$feature_names)
+        if (length(missing_cols))
+          stop(sprintf(
+            "PipeOpThinPlateSpline: column(s) not found in Task: %s",
+            paste(missing_cols, collapse = ", ")
+          ))
+
+        # ---- Extract coordinate data frame --------------------------------
+        coord_data <- as.data.frame(task$data(cols = coords))
+
+        # ---- Build the spline basis ---------------------------------------
+        # smoothCon needs a named data frame matching the variable names used
+        # in s(); we rename columns to match the bare symbol names mgcv expects
+        fit_data <- coord_data
+        names(fit_data) <- coords
+
+        # Evaluate the smooth spec in the mgcv namespace so s() is found
+        # correctly when smoothCon() evaluates it internally
+        spline_spec <- eval(
+          call("s", as.name(coords[1L]), as.name(coords[2L]), bs = "ts", k = k),
+          envir = asNamespace("mgcv")
+        )
+        smooth_list <- mgcv::smoothCon(
+          object = spline_spec,
+          data = fit_data,
+          knots = NULL,
+          absorb.cons = TRUE  # identifiability constraint absorbed into basis
+        )
+        smooth_obj <- smooth_list[[1L]]
+
+        # ---- Build spline matrix ------------------------------------------
+        n_cols <- ncol(smooth_obj$X)
+        spline_cols <- paste0(prefix, seq_len(n_cols))
+        spline_mat <- as.data.frame(smooth_obj$X)
+        names(spline_mat) <- spline_cols
+
+        # ---- Store state (smooth object + metadata) ----------------------
+        self$state <- list(
+          smooth = smooth_obj,
+          coords = coords,
+          spline_cols = spline_cols,
+          prefix = prefix
+        )
+
+        # ---- Modify Task -------------------------------------------------
+        task <- private$.replace_columns(task, coord_data, spline_mat, coords)
+        list(task)
+      },
+
+      # ------------------------------------------------------------------
+      # .predict()
+      # Uses PredictMat() to project onto the *training* basis.
+      # ------------------------------------------------------------------
+      .predict = function(inputs) {
+        task <- inputs[[1L]]
+        st <- self$state
+        coords <- st$coords
+        spline_cols <- st$spline_cols
+
+        missing_cols <- setdiff(coords, task$feature_names)
+        if (length(missing_cols))
+          stop(sprintf(
+            "PipeOpThinPlateSpline: column(s) not found in Task at predict time: %s",
+            paste(missing_cols, collapse = ", ")
+          ))
+
+        coord_data <- as.data.frame(task$data(cols = coords))
+        names(coord_data) <- coords  # ensure names match training
+
+        spline_mat <- as.data.frame(mgcv::PredictMat(st$smooth, coord_data))
+        names(spline_mat) <- spline_cols
+
+        task <- private$.replace_columns(task, coord_data, spline_mat, coords)
+        list(task)
+      },
+
+      # ------------------------------------------------------------------
+      # Helper: drop coord columns, add spline columns
+      # ------------------------------------------------------------------
+      .replace_columns = function(task, coord_data, spline_mat, coords) {
+        ids <- task$row_ids
+
+        spline_dt <- data.table::as.data.table(spline_mat)
+        spline_dt[, (task$backend$primary_key) := ids]
+
+        task$cbind(spline_dt)
+
+        task$select(setdiff(task$feature_names, coords))
+
+        task
+      }
+    )
+  )
+
+  # Register in the mlr3 dictionary so po("thin_plate_spline") works
+  mlr3pipelines::mlr_pipeops$add(
+    "thin_plate_spline",
+    PipeOpThinPlateSpline
+  )
+  ```
+
+  - I have not idea how this works. I didn't want to delve into it or the R6 framework, so I had Claude write it. It did a damn good job surprisingly. I wasn't expecting it to be versed in this niche task.
+  - Hopefully I can add it to my personal package and get it out of here. This note is already huge.
+
+  </Details>
 
   ###### Graph
+
+  ![](_resources/Geospatial-Spatio-Temporal.resources/krig-interp-ex1-pipeline.png){.lightbox width="632"}\
 
   ``` r
   learner_rf <- lrn(
@@ -4597,7 +4847,9 @@ lightbox:
   gr_rf$plot(horizontal = TRUE)
   ```
 
-  - Thoughts
+  - Learners (i.e. models) are specified and tacked on the end of the paths to create Graph objects. One graph object per learner.
+  - I couldn't get XGBoost to work. The final error didn't seem like something I could correct, so I just moved on. Probably need to create an issue with the mlr3 people.
+  - The plot method allows you to see your Graph structure. The random forest pipeline is shown but they're all the same.
 
   ###### Run CV
 
@@ -4642,6 +4894,12 @@ lightbox:
   bmr_pm10$aggregate(msr("regr.rmse")) |> 
     select(learner_id, resampling_id, regr.rmse) |> 
     mutate(learner_id = stringr::str_extract(learner_id, "regr\\.(\\w)*"))
+  #>       learner_id       resampling_id regr.rmse
+  #>           <char>              <char>     <num>
+  #> 1:   regr.ranger repeated_sptcv_cstf  9.387355
+  #> 2: regr.lightgbm repeated_sptcv_cstf  9.515735
+  #> 3: regr.catboost repeated_sptcv_cstf  9.279322
+
 
   (cat_fold_scores <- bmr_pm10$score(msr("regr.rmse")) |> 
     select(iteration, regr.rmse) |> 
@@ -4667,11 +4925,11 @@ lightbox:
   sd(cat_fold_scores$regr.rmse)
   #> [1] 0.8554204
 
+  # Train the production model
   lrn_cat <- as_learner(gr_cat)
   lrn_cat_final <- lrn_cat$train(task_st_pm10)
 
-  # currently there is no initial split, so held-out test set to create a final model on.
-  # predict in-sample (entire dataset) instead
+
   preds_final <- lrn_cat_final$predict(task_st_pm10)
   # substantially better than the cv score
   preds_final$score(msr("regr.rmse"))
@@ -4679,7 +4937,13 @@ lightbox:
   #>    6.2681
   ```
 
-  - Thoughts
+  - The Graphs are packaged up into a list
+    - `as_learner` applied to a Graph object allows it to function as a "Learner"
+  - The spatiotemporal CV method is specified.
+    - In previous experimentation (nested cv), 5 folds with 3 repeats had good generaliztion error and was computationally efficient. Is this an apples to apples situation? Nope. Using it anyways.
+  - Note that mlr3 has its own parallelization parameterization setting with {future}. Don't remember what output = TRUE is about. Think I just copied it from an example.
+  - Only about 3.6 minutes to complete this is pretty freaking awesome compared to the kriging times.
+  - Catboost eeks out the victory with a 9.27 RMSE. SD is low so it looks like a stable algorithm for this data.
 
   ## krigeST
 
@@ -6015,7 +6279,7 @@ lightbox:
 
   ## Visualize
 
-  ![](_resources/Geospatial-Spatio-Temporal.resources/krig-interp-ex3-preds.png){.lightbox}
+  ![](_resources/Geospatial-Spatio-Temporal.resources/krig-interp-ex3-preds.png){.lightbox width="632"}
 
   ``` r
   legend_limits <- sf_krige_pred |>
