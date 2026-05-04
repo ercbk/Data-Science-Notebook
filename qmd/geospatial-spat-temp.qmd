@@ -3276,7 +3276,7 @@ lightbox:
     - There is a note in the discussion section about how this resulted in the more complex model being essentially the same as the simple model, but they tried other starting values and still ended up with the same result. So don't freak if you get the same model.
   - In most applications, a change of 1 in the sills will have a stronger influence on the variogram surface than a change of 1 in the ranges.
 
-#### Examples
+#### Examples {#sec-geo-sptemp-krig-var-ex .unnumbered}
 
 - [Example 1]{.ribbon-highlight}: Germany's PM10 Polution Data
 
@@ -4248,7 +4248,10 @@ lightbox:
     - If the prediction variances are large, then this parameter should help by gathering more data points.
   - [nmax]{.arg-text} - The maximum number of neighboring locations for a spatio-temporal local neighbourhood
   - [stAni]{.arg-text} - Only needs to be set if the provided variogram model doesn't include a [stAni]{.arg-text} parameter (Seperable and Product-Sum)
-- Prediction Grids (i.e. [newdata]{.arg-text} input)
+  - **Regarding the [data]{.arg-text} and [newdata]{.arg-text} objects**
+    - BOTH must be same class — e.g. both must be [STFDF]{.arg-text} objects or both must be [{stars}]{style="color: #990000"} objects
+    - BOTH objects' time components must be the same class — e.g. both must be a [Date]{.arg-text} class or both must be [POSIXct]{.arg-text} class
+- [Prediction Grids]{.underline} (i.e. [newdata]{.arg-text} input)
   - [Example]{.ribbon-highlight}: DE_RB_2005 dataset from [{gstat}]{style="color: #990000"} ([github](https://github.com/r-spatial/gstat/blob/c1df8b864e96a25e2f3e24c4662884734e50d326/demo/stkrige-prediction.R#L15-L21), [vignette](https://cran.r-project.org/web/packages/gstat/vignettes/spatio-temporal-kriging.pdf))
 
     ``` r
@@ -4317,6 +4320,17 @@ lightbox:
         st_set_dimensions("x", st_get_dimension_values(grd, "x")) |>
         st_set_dimensions("y", st_get_dimension_values(grd, "y")) |>
         sf::st_set_crs(crs)
+
+    new_int <- krigeST(
+      NO2~1, 
+      data = no2.st["NO2"], 
+      newdata = grd.st,
+      nmax = 200, 
+      stAni = StAni, 
+      modelList = fitProdSumModel,
+      progress = FALSE
+    )
+    names(new_int)[2] = "NO2"
     ```
 - `stplot(preds)` will plot the results
 - Vignette raw notes
@@ -4337,3 +4351,1714 @@ lightbox:
   - Starting values can in most cases be read from the sample variogram
 
     - need to see if a st empirical variogram can be plotted (or printed?) and what can actually be gleaned from it
+
+### Examples {#sec-geo-sptemp-krig-ex .unnumbered}
+
+- [Example 1]{.ribbon-highlight}: Cross-Validation
+
+  ::: panel-tabset
+  ## Data and Set-Up
+
+  Cross-Validation is peformed using \[{mlr3spatiotempcv}\]{style:"color: #990000"}. The models include Random Forest, Light GBM, Catboost and krigeST.
+
+  This is the PM10 air pollution dataset for Germany that’s from [{spacetime}]{style="color: #990000"} and used in many of my examples.
+
+  This example is a continuation from getting starting values for the marginal components (space and time) and getting starting values for the joint components. See:
+
+  - [EDA \>\> Temporal Depenndence](geospatial-spat-temp.qmd#sec-geo-sptemp-eda-ac){style="color: green"} \>\> Example 2
+  - [EDA \>\> Spatial Dependence](geospatial-spat-temp.qmd#sec-geo-sptemp-eda-spdep){style="color: green"} \>\> Example 1
+  - [Starting Values \>\> Joint Models](geospatial-spat-temp.qmd#sec-geo-sptemp-krig-stval-joint){style="color: green"} \>\> Example 1
+  - [Variogram \>\> Examples](geospatial-spat-temp.qmd#sec-geo-sptemp-krig-var-ex){style="color: green"} \>\> Example 1
+  - [Examples](geospatial-spat-temp.qmd#sec-geo-sptemp-krig-ex){style="color: green"} \>\> Example 2 and Example 3
+
+  ``` r
+  pacman::p_load(
+    dplyr,
+    futurize,
+    mlr3,
+    mlr3learners,
+    mlr3extralearners,
+    mlr3pipelines,
+    mlr3spatiotempcv
+  )
+
+  requireNamespace("mlr3measures")
+  # requireNamespace("xgboost", quietly = TRUE)
+  source("../../temp-storage/PipeOpThinPlateSpline.R")
+
+
+  set.seed(2026)
+  options(scipen = 999)
+
+  data(air, package = "spacetime")
+
+  # get rural location time series from 2005 to 2010
+  rural <- spacetime::STFDF(
+    sp = stations, 
+    time = dates, 
+    data = data.frame(PM10 = as.vector(air))
+  )
+  rr <- rural[,"2005::2010"]
+
+  # remove station ts w/all NAs
+  unsel <- which(apply(
+    as(rr, "xts"), 
+    2, 
+    function(x) all(is.na(x)))
+  )
+  r5to10 <- rr[-unsel,]
+
+  sf_r5 <- r5to10 |> # STFDF object
+    stars::st_as_stars() |> 
+    sf::st_as_sf(long = TRUE) |> 
+    rename(geometry = sfc)
+
+  tib_stations <- as_tibble(stations@coords) |> 
+    mutate(station_id = rownames(stations@coords))
+
+  sf_stations <- sf::st_as_sf(
+    tib_stations,
+    coords = c("coords.x1", "coords.x2"),
+    crs = sf::st_crs(sf_r5)
+  )
+
+  sf_pm10 <- sf_r5 |> 
+    sf::st_join(sf_stations) |> 
+    sf::st_transform(crs = 25832) |> # projected, UTM zone 32N
+    filter(!is.na(PM10)) |> 
+    rename(date = time, pm10 = PM10)
+
+
+  tib_pm10 <- sf_pm10 |> 
+    sf::st_drop_geometry() |> 
+    mutate(
+      date_feat = date, # extra for feat eng
+      X = sf::st_coordinates(sf_pm10)[, 1],
+      Y = sf::st_coordinates(sf_pm10)[, 2]
+    )
+  ```
+
+  - Thoughts
+
+  ## [{mlr3}]{style="color: #990000"}
+
+  words
+
+  ###### Task
+
+  ``` r
+  task_st_pm10 <- as_task_regr_st(
+    tib_pm10,
+    target = "pm10",
+    coordinate_names = c("X", "Y"),
+    coords_as_features = TRUE,
+    id = "pm10_st"
+  )
+
+
+  # set space and time roles for sptcv_cstf
+  task_st_pm10$set_col_roles("station_id", roles = "space")
+  task_st_pm10$set_col_roles("date",       roles = "time")
+
+  # task_st_pm10$feature_names
+  ```
+
+  - Thoughts
+
+  ###### Pipe Ops
+
+  ``` r
+  path_spline <- po("scalerange", id = "spl_scalerang", affect_columns = selector_name(c("X", "Y"))) %>>% 
+    po("thin_plate_spline", id = "spl_tp", coords = c("X", "Y"), k = 10L) %>>%   
+    # removing "date_feat" has to be done here
+    po("select", id = "spl_rm_feat", selector = selector_invert(selector_name("date_feat")))
+
+  # po("datefeatures") autoselects feat w/Date or POSIXct class but I'd rather be explicit
+  # po("datefeatures"): hms features automatically skipped for a Date class col
+  # believe this could've been done outside of mlr since no leakage risk
+  path_date <- po("select", id = "date_sel_feat", selector = selector_name("date_feat")) %>>%
+    po("datefeatures", id = "date_feat") %>>%
+    # xgb hates integers
+    po("mutate", mutation = list(
+      date_feat.year = ~ as.numeric(date_feat.year),
+      date_feat.month = ~ as.numeric(date_feat.month),
+      date_feat.quarter = ~ as.numeric(date_feat.quarter),
+      date_feat.week_of_year = ~ as.numeric(date_feat.week_of_year),
+      date_feat.day_of_year = ~ as.numeric(date_feat.day_of_year),
+      date_feat.day_of_month = ~ as.numeric(date_feat.day_of_month),
+      date_feat.day_of_week = ~ as.numeric(date_feat.day_of_week)
+    ))
+
+  # gr$plot(horizontal = TRUE)
+
+  result_spl <- path_spline$train(task_st_pm10)
+  result_date <- path_date$train(task_st_pm10)
+
+  result_spl[[1]]$data()[1:3]
+  #>      pm10   spline_1  spline_2  spline_3  spline_4   spline_5   spline_6  spline_7    spline_8 spline_9
+  #>     <num>      <num>     <num>     <num>     <num>      <num>      <num>     <num>       <num>    <num>
+  #> 1: 16.696 -0.7845660 1.0161461 0.5642808 0.7840572 -0.5688355 -0.7853558 0.7391472 -0.16817003 1.317808
+  #> 2: 31.667 -0.8604533 0.8683869 0.6483173 0.6173459 -0.6283766 -0.8058987 0.6285879 -0.12413108 1.234869
+  #> 3: 22.450 -0.5593611 1.5303593 0.7460287 1.0285107 -0.9101423 -0.4846120 0.9965906 -0.08220771 1.547379
+
+  result_date[[1]]$data()[1:3]
+  #>      pm10 date_feat.year date_feat.month date_feat.quarter date_feat.week_of_year date_feat.day_of_year
+  #>     <num>          <num>           <num>             <num>                  <num>                 <num>
+  #> 1: 16.696           2005               1                 1                     53                     1
+  #> 2: 31.667           2005               1                 1                     53                     1
+  #> 3: 22.450           2005               1                 1                     53                     1
+  #>    date_feat.day_of_month date_feat.day_of_week
+  #>                     <num>                 <num>
+  #> 1:                      1                     7
+  #> 2:                      1                     7
+  #> 3:                      1                     7
+  ```
+
+  - Thoughts
+
+  ###### Graph
+
+  ``` r
+  learner_rf <- lrn(
+    "regr.ranger",
+    num.trees  = 1000
+  )
+  # learner_xgb <- lrn("regr.xgboost")
+  learner_lgbm <- lrn("regr.lightgbm")
+  learner_cat <- lrn("regr.catboost")
+
+
+  gr_rf <- gunion(list(path_date, path_spline)) %>>% 
+    po("featureunion") %>>% 
+    learner_rf
+
+  # gr_xgb <- gunion(list(path_date, path_spline)) %>>%
+  #   po("featureunion") %>>%
+  #   learner_xgb
+  # Error: 'xgb.params' is not an exported object from 'namespace:xgboost'
+  # This happened in PipeOp regr.xgboost's $train()
+
+  gr_lgbm <- gunion(list(path_date, path_spline)) %>>% 
+    po("featureunion") %>>% 
+    learner_lgbm
+  gr_cat <- gunion(list(path_date, path_spline)) %>>% 
+    po("featureunion") %>>%   
+    learner_cat
+
+  gr_rf$plot(horizontal = TRUE)
+  ```
+
+  - Thoughts
+
+  ###### Run CV
+
+  ``` r
+  learners_pm10 <- list(
+    glrn_rf = as_learner(gr_rf),
+    # glrn_xgb = as_learner(gr_xgb),
+    glrn_lgbm = as_learner(gr_lgbm),
+    glrn_cat = as_learner(gr_cat)
+  )
+
+  # set up resampling
+  rcv_st_pm10 <- rsmp(
+    "repeated_sptcv_cstf", 
+    folds = 5, 
+    repeats = 3
+  )
+
+  # needed so kriging can train on the same indices
+  # rcv_st_pm10$instantiate(task_st_pm10)
+
+  design_pm10 <- benchmark_grid(
+    tasks = task_st_pm10,
+    learners = learners_pm10,
+    resamplings = rcv_st_pm10
+  )
+
+  mirai::daemons(
+    10L, 
+    .compute = "mlr3_parallelization", 
+    seed = 2026L, 
+    output = TRUE
+  )
+
+  tictoc::tic()
+  # ~ 3.63 min for rf, lgbm, cat
+  bmr_pm10 <- benchmark(design_pm10)
+  tictoc::toc()
+
+  mirai::daemons(0)
+
+  bmr_pm10$aggregate(msr("regr.rmse")) |> 
+    select(learner_id, resampling_id, regr.rmse) |> 
+    mutate(learner_id = stringr::str_extract(learner_id, "regr\\.(\\w)*"))
+
+  (cat_fold_scores <- bmr_pm10$score(msr("regr.rmse")) |> 
+    select(iteration, regr.rmse) |> 
+    slice(31:45))
+  #>     iteration regr.rmse
+  #>         <int>     <num>
+  #>  1:         1  8.665232
+  #>  2:         2  9.461272
+  #>  3:         3  9.758544
+  #>  4:         4  8.494960
+  #>  5:         5 10.718390
+  #>  6:         6  8.562439
+  #>  7:         7  8.269326
+  #>  8:         8 10.400065
+  #>  9:         9  8.979645
+  #> 10:        10  9.519779
+  #> 11:        11  8.797159
+  #> 12:        12  8.660889
+  #> 13:        13  9.049979
+  #> 14:        14 11.038864
+  #> 15:        15  8.813295
+
+  sd(cat_fold_scores$regr.rmse)
+  #> [1] 0.8554204
+
+  lrn_cat <- as_learner(gr_cat)
+  lrn_cat_final <- lrn_cat$train(task_st_pm10)
+
+  # currently there is no initial split, so held-out test set to create a final model on.
+  # predict in-sample (entire dataset) instead
+  preds_final <- lrn_cat_final$predict(task_st_pm10)
+  # substantially better than the cv score
+  preds_final$score(msr("regr.rmse"))
+  #> regr.rmse 
+  #>    6.2681
+  ```
+
+  - Thoughts
+
+  ## krigeST
+
+  words
+
+  ###### CV Function
+
+  ``` r
+  fit_vario_sm <- readr::read_rds("../../temp-storage/gstat-vig9-sm-mod.rds")
+  rcv_st_pm10 <- readr::read_rds("../../temp-storage/gstat-vig-krig1-mlr-rcv.rds")
+
+  run_krigeST_fold <- function(
+      fold_idx, 
+      cv_folds, 
+      sf_dat,
+      vario_mod, 
+      nmax, 
+      bufferNmax) {
+
+    # get train and test row indices from mlr3 resampling
+    train_idx <- cv_folds$train_set(fold_idx)
+    test_idx  <- cv_folds$test_set(fold_idx)
+
+    # subset sf_p10 to train and test
+    sf_train <- sf_dat[train_idx, ]
+    sf_test  <- sf_dat[test_idx, ]
+
+    # build SpatialPoints for train
+    sp_train <- SpatialPoints(
+      coords = st_coordinates(sf_train),
+      proj4string = CRS("EPSG:25832")
+    )
+
+    # build SpatialPoints for test
+    sp_test <- SpatialPoints(
+      coords = st_coordinates(sf_test),
+      proj4string = CRS("EPSG:25832")
+    )
+
+    # build STIDF for training data
+    stidf_train <- STIDF(
+      sp = sp_train,
+      time = as.POSIXct(sf_train$date),
+      data = data.frame(pm10 = sf_train$pm10)
+    )
+
+    # build STIDF for test locations 
+    # where pm10 = NA, these are prediction targets
+    stidf_test <- STIDF(
+      sp = sp_test,
+      time = as.POSIXct(sf_test$date),
+      data = data.frame(pm10 = rep(NA_real_, nrow(sf_test)))
+    )
+
+    krige_pred <- tryCatch({
+      krigeST(
+        pm10 ~ 1,
+        data = stidf_train,
+        newdata = stidf_test,
+        modelList = vario_mod,
+        nmax = nmax,
+        bufferNmax = bufferNmax,
+        computeVar = TRUE
+      )
+    }, error = \(e) {
+      message("Fold ", fold_idx, " failed: ", e$message)
+      return(NULL)
+    })
+
+    if (is.null(krige_pred)) return(NULL)
+
+    tibble(
+      fold = fold_idx,
+      nmax = nmax,
+      bufferNmax = bufferNmax,
+      station_id = sf_test$station_id,
+      date = sf_test$date,
+      observed = sf_test$pm10,
+      predicted = krige_pred@data$var1.pred,
+      pred_var = krige_pred@data$var1.var
+    )
+  }
+  ```
+
+  - Thoughts
+
+  ###### Run CV
+
+  ``` r
+  # 90 models
+  krig_grid <- expand.grid(
+    fold_idx = 1:15,
+    nmax = c(10, 15, 20), # only 53 locations
+    bufferNmax = c(1, 2) #
+  ) |> 
+    mutate(
+      cv_folds = list(rcv_st_pm10),
+      sf_dat = list(sf_pm10),
+      vario_mod = list(fit_vario_sm)
+    )
+
+  plan(future.mirai::mirai_multisession, workers = 12L)
+
+  tictoc::tic()
+  # run CV across all folds
+  # 11395.29 sec or 3.15 hrs with 12 workers
+  tib_res_cv_krige <- purrr::pmap(
+    krig_grid,
+    run_krigeST_fold
+  ) |>
+    futurize() |>
+    purrr::list_rbind()
+  tictoc::toc()
+
+  mirai::daemons(0)
+
+  # 4 models w/lowest RMSE, but (15, 2) with lowest bias (neg or pos)
+  tib_res_cv_krige |>
+    summarize(
+      RMSE = sqrt(mean((observed - predicted)^2, na.rm = TRUE)),
+      ME   = mean(observed - predicted, na.rm = TRUE),
+      .by = c(nmax, bufferNmax)
+    ) |> 
+    arrange(RMSE)
+  #> # A tibble: 6 × 4
+  #>    nmax bufferNmax  RMSE     ME
+  #>   <dbl>      <dbl> <dbl>  <dbl>
+  #> 1    10          1  10.1 -0.193
+  #> 2    10          2  10.1 -0.187
+  #> 3    15          1  10.1 -0.194
+  #> 4    15          2  10.1 -0.140
+  #> 5    20          2  10.3 -0.220
+  #> 6    20          1  10.3 -0.235
+
+
+  # the (15, 2) model doesn't show any erratic scores in the folds
+  # everything between 9 and 11
+  tib_res_cv_krige |>
+    filter(
+      nmax == 15,
+      bufferNmax == 2
+    ) |>
+    summarize(
+      RMSE = sqrt(mean((observed - predicted)^2, na.rm = TRUE)),
+      ME   = mean(observed - predicted, na.rm = TRUE),
+      .by = fold
+    )
+  #> # A tibble: 15 × 3
+  #>     fold  RMSE       ME
+  #>    <int> <dbl>    <dbl>
+  #>  1     1 10.2  -1.10   
+  #>  2     2  9.40 -0.268  
+  #>  3     3 10.4  -0.578  
+  #>  4     4 11.1   1.08   
+  #>  5     5  9.42 -0.798  
+  #>  6     6 10.1  -0.669  
+  #>  7     7  9.35  0.308  
+  #>  8     8  9.57  0.969  
+  #>  9     9 11.6  -0.00601
+  #> 10    10  9.55  0.668  
+  #> 11    11 10.8   1.02   
+  #> 12    12  9.79 -1.64   
+  #> 13    13  9.68 -0.554  
+  #> 14    14 11.0   0.901  
+  #> 15    15 10.1  -1.17  
+  ```
+
+  - Thoughts
+  :::
+
+- [Example 2]{.ribbon-highlight}: Diagnostics
+
+  ::: panel-tabset
+  ## Data and Set-Up
+
+  Diagnostics are peformed on the cross-validation results of Catboost and Ordiary Kriging models
+
+  This is the PM10 air pollution dataset for Germany that’s from [{spacetime}]{style="color: #990000"} and used in many of my examples.
+
+  This example is a continuation from getting starting values for the marginal components (space and time) and getting starting values for the joint components. See:
+
+  - [EDA \>\> Temporal Depenndence](geospatial-spat-temp.qmd#sec-geo-sptemp-eda-ac){style="color: green"} \>\> Example 2
+  - [EDA \>\> Spatial Dependence](geospatial-spat-temp.qmd#sec-geo-sptemp-eda-spdep){style="color: green"} \>\> Example 1
+  - [Starting Values \>\> Joint Models](geospatial-spat-temp.qmd#sec-geo-sptemp-krig-stval-joint){style="color: green"} \>\> Example 1
+  - [Variogram \>\> Examples](geospatial-spat-temp.qmd#sec-geo-sptemp-krig-var-ex){style="color: green"} \>\> Example 1
+  - [Examples](geospatial-spat-temp.qmd#sec-geo-sptemp-krig-ex){style="color: green"} \>\> Example 1 and Example 3
+
+  ``` r
+  pacman::p_load(
+    dplyr,
+    ggplot2,
+    ggdist,
+    DALEX,
+    DALEXtra
+  )
+
+  cv_cat_pm10 <- readr::read_rds("../../temp-storage/gstat-vig-krig1-mlr-cv-rf-cat-lgbm.rds")
+  tib_res_cv_krige <- readr::read_rds("../../temp-storage/gstat-vig-krig1-krig.rds")
+
+  tib_res_cv_krige_fin <- tib_res_cv_krige |> 
+    filter(
+      nmax == 15,
+      bufferNmax == 2
+    )
+
+  set.seed(2026)
+  options(scipen = 999)
+  notebook_colors <- unname(swatches::read_ase(here::here("palettes/Forest Floor.ase")))
+
+  # ---- Prepare CV Results ----
+
+  tib_sf_pm10_ids <- sf_pm10 |>
+    sf::st_drop_geometry() |>
+    mutate(row_id = row_number()) |>
+    select(row_id, station_id, date)
+
+
+  cat_cv_results <- purrr::map(1:15, \(i) {
+    pred <- cv_cat_pm10$resample_result(3)$predictions()[[i]]
+    tibble(
+      fold = i,
+      row_id = pred$row_ids,
+      observed = pred$truth,
+      predicted = pred$response
+    )
+  }) |>
+    purrr::list_rbind() |>
+    left_join(tib_sf_pm10_ids, by = "row_id") |> 
+    # averages predictions by location and data across all test folds and repeats
+    summarize(
+      predicted = mean(predicted, na.rm = TRUE),
+      observed = first(observed),
+      .by = c(station_id, date)
+    ) |>
+    mutate(
+      residual = observed - predicted,
+      model = "Catboost"
+    )
+
+
+  # each model's results have 36402 out of 74799 observations covered (~49%) after 3 repeats × 5 folds = 15 folds is actually consistent with that coverage rate (15 × ~4% ≈ 60%, minus overlaps between folds reducing it to ~49%).
+  cv_combined <- tib_res_cv_krige_fin |>
+    summarize(
+      predicted = mean(predicted, na.rm = TRUE),
+      pred_var = mean(pred_var, na.rm = TRUE),
+      observed = first(observed),
+      .by = c(station_id, date)
+    ) |>
+    mutate(
+      residual = observed - predicted,
+      model = "krigeST"
+    ) |> 
+    bind_rows(cat_cv_results) |>
+    mutate(
+      model = factor(model, levels = c("krigeST", "Catboost")),
+      month = lubridate::month(date),
+      season = case_when(
+        month %in% c(12, 1, 2) ~ "DJF",
+        month %in% c(3, 4, 5) ~ "MAM",
+        month %in% c(6, 7, 8) ~ "JJA",
+        month %in% c(9, 10, 11) ~ "SON"
+      ) |>
+        factor(levels = c("DJF", "MAM", "JJA", "SON"))
+    )
+  ```
+
+  - Thoughts
+
+  ## Residuals
+
+  ###### Distribution
+
+  ![](_resources/Geospatial-Spatio-Temporal.resources/krig-interp-ex2-resid-dens-1.png){.lightbox width="582"}
+
+  <Details>
+
+  <Summary>Code</Summary>
+
+  ``` r
+
+  p_resid_dist <- cv_combined |> 
+    ggplot(
+      aes(y = model, 
+          x = residual,
+          fill = model)
+    ) +
+    # density
+    stat_slab(
+      aes(thickness = after_stat(pdf*n)), 
+      scale = 0.5) +
+    # histogram
+    stat_dotsinterval(
+      side = "bottom", 
+      scale = 0.5, 
+      slab_linewidth = NA) + # not sure why, setting to NA applies proper color to dots
+    scale_fill_manual(values = c(notebook_colors[[5]], notebook_colors[[6]])) +
+    labs(title = "Residual Distributions") +
+    xlab("Residual") +
+    guides(fill = "none") +
+    theme_notebook(
+      axis.title.y = element_blank(),
+      axis.text.y = element_text(size = 14, face = "bold"),
+      panel.border = element_rect(color = "#FFFDF9FF", 
+                                  fill = "#FFFDF9FF", 
+                                  linewidth = 1.5))
+  ```
+
+  </Details>
+
+  - Thoughts
+
+  ###### Q-Q
+
+  ![](_resources/Geospatial-Spatio-Temporal.resources/krig-interp-ex2-resid-qq-1.png){.lightbox width="582"}
+
+  <Details>
+
+  <Summary>Code</Summary>
+
+  ``` r
+  p_qq <- cv_combined |>
+    ggplot(aes(sample = residual, color = model)) +
+    stat_qq() +
+    stat_qq_line() +
+    scale_color_manual(
+      values = c(notebook_colors[[5]], notebook_colors[[6]])
+    ) +
+    facet_wrap(~model) +
+    labs(
+      title = "Residual QQ-Plot",
+      x = "Theoretical Quantiles",
+      y = "Sample Quantiles"
+    ) +
+    theme_notebook(legend.position = "none")
+  ```
+
+  </Details>
+
+  - Thoughts
+
+  ###### Residuals vs. Predicted
+
+  ![](_resources/Geospatial-Spatio-Temporal.resources/krig-interp-ex2-resid-pred-1.png){.lightbox width="582"}
+
+  <Details>
+
+  <Summary>Code</Summary>
+
+  ``` r
+  p_resid_pred <- cv_combined |>
+    ggplot(
+      aes(x = predicted, 
+          y = residual, 
+          color = model)
+    ) +
+    geom_point(alpha = 0.3, size = 0.8) +
+    geom_hline(yintercept = 0, linetype = "dashed") +
+    scale_color_manual(
+      values = c(notebook_colors[[5]], notebook_colors[[6]])
+    ) +
+    facet_wrap(~model) +
+    labs(
+      title = "Residuals vs Predicted",
+      x = "Predicted PM10",
+      y = "Residual"
+    ) +
+    theme_notebook(legend.position = "none")
+  ```
+
+  </Details>
+
+  - Thoughts
+
+  ###### Residual Variograms
+
+  ![](_resources/Geospatial-Spatio-Temporal.resources/krig-interp-ex2-resid-vario-krig-1.png){.lightbox width="382"}\
+  ![](_resources/Geospatial-Spatio-Temporal.resources/krig-interp-ex2-resid-vario-cat-1.png){.lightbox width="382"}
+
+  <Details>
+
+  <Summary>Code</Summary>
+
+  ``` r
+  # creating a full grid (STFDF)
+  cv_dates <- cv_combined |> 
+    select(date) |> 
+    distinct() |> 
+    summarize(
+      min_date = min(date),
+      max_date = max(date)
+    )
+
+  cv_dates_full <- tibble(
+    date = seq(
+      cv_dates$min_date[[1]], 
+      cv_dates$max_date[[1]], 
+      by = "day"
+    )
+  )
+
+
+  # -------------- krigeST --------------
+
+
+  cv_combined_full <- cv_combined |> 
+    filter(model == "krigeST") |> 
+    select(date, station_id, residual) |> 
+    group_split(station_id) |> 
+    purrr::map(\(x) {
+      current_station <- x |> 
+        select(station_id) |> 
+        pull(station_id) |> 
+        first()
+      cv_combined_full_station <- cv_dates_full |> 
+        left_join(x, by = "date") |> 
+        mutate(station_id = ifelse(is.na(station_id), current_station, station_id))
+    }
+    ) |> 
+    purrr::list_rbind() |> 
+    arrange(date)
+
+  cv_coords_full <- cv_combined_full |> 
+    slice_min(date) |> 
+    select(station_id) |> 
+    left_join(tib_station_coords_ll, by = "station_id") |> 
+    tibble::column_to_rownames("station_id") |> 
+    as.matrix(rownames.force = TRUE)
+
+  stfdf_resid <- spacetime::STFDF(
+    sp = sp::SpatialPoints(
+      coords = cv_coords_full,
+      proj4string = sp::CRS("+proj=longlat +datum=WGS84 +no_defs")
+    ),                                                      # 53 stations (rows of coords)
+    time = as.POSIXct(cv_dates_full$date),                  # 1826 dates
+    data = data.frame(residual = cv_combined_full$residual) # 96778 observations = 53 * 1826
+  )
+
+  # w/na.omit = TRUE you get an identical plot
+  vario_resid <- gstat::variogramST(
+    residual ~ 1,
+    data = stfdf_resid,
+    tlags = 0:14
+  )
+
+
+  tib_resid_vario <- vario_resid |>
+    filter(!is.na(gamma)) |>
+    mutate(
+      timelag_num = as.numeric(timelag),
+      lag_label = factor(
+        paste0("lag", timelag_num),
+        levels = paste0("lag", 0:(length(unique(as.numeric(timelag))) - 1))
+      )
+    )
+
+  # named list for colors
+  lag_colors <- setNames(
+    rev(scico::scico(length(unique(tib_resid_vario$timelag)), palette = "glasgow")),
+    paste0("lag", 0:(length(unique(tib_resid_vario$timelag))-1))
+  )
+
+  p_resid_vario <- tib_resid_vario |>
+    ggplot(aes(
+      x = avgDist,
+      y = gamma,
+      group = lag_label,
+      color = lag_label
+    )) +
+    geom_line(linewidth = 1.75) +
+    # geom_point(shape = 1, size = 1.5) +
+    scale_color_manual(
+      values = lag_colors,
+      name = NULL
+    ) +
+    guides(color = guide_legend(reverse = TRUE)) +
+    labs(
+      title = "Spatio-Temporal Variogram of KrigeST Residuals",
+      x = "Distance (km)",
+      y = "Semivariance"
+    ) +
+    theme_notebook(legend.key.width = unit(1, "cm"))
+
+
+  # -------------- Catboost --------------
+
+
+  cv_combined_full_cat <- cv_combined |> 
+    filter(model == "Catboost") |> 
+    select(date, station_id, residual) |> 
+    group_split(station_id) |> 
+    purrr::map(\(x) {
+      current_station <- x |> 
+        select(station_id) |> 
+        pull(station_id) |> 
+        first()
+      cv_combined_full_station <- cv_dates_full |> 
+        left_join(x, by = "date") |> 
+        mutate(station_id = ifelse(is.na(station_id), current_station, station_id))
+    }
+    ) |> 
+    purrr::list_rbind() |> 
+    arrange(date)
+
+  cv_coords_full_cat <- cv_combined_full_cat |> 
+    slice_min(date) |> 
+    select(station_id) |> 
+    left_join(tib_station_coords_ll, by = "station_id") |> 
+    tibble::column_to_rownames("station_id") |> 
+    as.matrix(rownames.force = TRUE)
+
+  stfdf_resid_cat <- spacetime::STFDF(
+    sp = sp::SpatialPoints(
+      coords = cv_coords_full_cat,
+      proj4string = sp::CRS("+proj=longlat +datum=WGS84 +no_defs")
+    ),                                                       # 53 stations (rows of coords)
+    time = as.POSIXct(cv_dates_full$date),                   # 1826 dates
+    data = data.frame(residual = cv_combined_full_cat$residual) # 96778 observations = 53 * 1826
+  )
+
+  # w/na.omit = TRUE you get an identical plot
+  vario_resid_cat <- gstat::variogramST(
+    residual ~ 1,
+    data = stfdf_resid_cat,
+    tlags = 0:14
+  )
+
+  tib_resid_vario_cat <- vario_resid_cat |>
+    filter(!is.na(gamma)) |>
+    mutate(
+      timelag_num = as.numeric(timelag),
+      lag_label = factor(
+        paste0("lag", timelag_num),
+        levels = paste0("lag", 0:(length(unique(as.numeric(timelag))) - 1))
+      )
+    )
+
+
+  lag_colors_cat <- setNames(
+    rev(scico::scico(length(unique(tib_resid_vario_cat$timelag)), palette = "glasgow")),
+    paste0("lag", 0:(length(unique(tib_resid_vario_cat$timelag))-1))
+  )
+
+  p_resid_vario_cat <- tib_resid_vario_cat |>
+    ggplot(aes(
+      x = avgDist,
+      y = gamma,
+      group = lag_label,
+      color = lag_label
+    )) +
+    geom_line(linewidth = 1.75) +
+    scale_color_manual(
+      values = lag_colors_cat,
+      name = NULL
+    ) +
+    guides(color = guide_legend(reverse = TRUE)) +
+    labs(
+      title = "Spatio-Temporal Variogram of Catboost Residuals",
+      x = "Distance (km)",
+      y = "Semivariance"
+    ) +
+    theme_notebook(legend.key.width = unit(1, "cm"))
+  ```
+
+  </Details>
+
+  - Thoughts
+
+  ## Spatial
+
+  ###### Processing
+
+  <Details>
+
+  <Summary>Code</Summary>
+
+  ``` r
+  germany <- rnaturalearth::ne_countries(
+    country = "Germany",
+    scale = "medium",
+    returnclass = "sf"
+  ) |>
+    sf::st_transform(crs = 25832)
+
+  tib_station_coords <- sf_pm10 |>
+    select(station_id) |>
+    mutate(
+      x = sf::st_coordinates(geometry)[, "X"],
+      y = sf::st_coordinates(geometry)[, "Y"]
+    ) |>
+    sf::st_drop_geometry() |> 
+    distinct()
+
+  tib_station_coords_ll <- sf_pm10 |>
+    select(station_id) |>
+    sf::st_transform(crs = 4326) |>
+    mutate(
+      x = sf::st_coordinates(geometry)[, "X"],
+      y = sf::st_coordinates(geometry)[, "Y"]
+    ) |>
+    sf::st_drop_geometry() |> 
+    distinct()
+
+  tib_station_metrics <- cv_combined |>
+    summarize(
+      RMSE = sqrt(mean(residual^2, na.rm = TRUE)),
+      ME = mean(residual, na.rm = TRUE),
+      .by = c(model, station_id)
+    ) |>
+    left_join(tib_station_coords, by = "station_id") |>
+    sf::st_as_sf(coords = c("x", "y"), crs = 25832)
+  ```
+
+  - Thoughts
+
+  </Details>
+
+  ###### RMSE
+
+  ![](_resources/Geospatial-Spatio-Temporal.resources/krig-interp-ex2-spat-rmse-loc-1.png){.lightbox width="582"}
+
+  <Details>
+
+  <Summary>Code</Summary>
+
+  ``` r
+  tib_rmse_outliers <- tib_station_metrics |> 
+    select(-ME) |> 
+    tidyr::pivot_wider(names_from = model, values_from = RMSE) |> 
+    mutate(rmse_diff = abs(krigeST - Catboost)) |> 
+    slice_max(rmse_diff, n = 4) |> 
+    select(-rmse_diff) |> 
+    tidyr::pivot_longer(
+      cols = c(krigeST, Catboost),
+      names_to = "model",
+      values_to = "RMSE"
+    )
+
+  p_map_rmse <- tib_station_metrics |>
+    ggplot() +
+    geom_sf(
+      data = germany, 
+      fill = "#263238",
+      color = "#37474F",
+      linewidth = 0.2
+    ) +
+    geom_sf(aes(color = RMSE, size = RMSE)) +
+    geom_sf_label(
+      data = tib_rmse_outliers |> 
+        filter(station_id != "DESN076"),
+      aes(label = paste0(station_id, "\n", round(RMSE, 2))),
+      nudge_x = -40000,
+      nudge_y = 35000,
+      size = 3
+    ) +
+    geom_sf_label(
+      data = tib_rmse_outliers |> 
+        filter(station_id == "DESN076"),
+      aes(label = paste0(station_id, "\n", round(RMSE, 2))),
+      nudge_x = 47000,
+      nudge_y = 35000,
+      size = 3
+    ) +
+    scale_color_gradientn(
+      # sunsetdark from CARTOColors
+      colors = colorRampPalette(c(
+        "#fcde9c","#faa476","#f0746e","#e34f6f",
+        "#dc3977","#b9257a","#7c1d6f"))(100)
+    ) +
+    facet_wrap(~model) +
+    guides(size = guide_legend(
+      reverse = TRUE,
+      override.aes = list(color = "#fcde9c"))
+    ) +
+    labs(
+      title = "RMSE by Station",
+      subtitle = "Stations with greatest difference are highlighted
+  ",
+      color = "RMSE",
+      size = "RMSE"
+    ) +
+    theme_slate_map()
+  ```
+
+  </Details>
+
+  - Thoughts
+
+  ###### Mean Error (ME)
+
+  ![](_resources/Geospatial-Spatio-Temporal.resources/krig-interp-ex2-spat-me-loc-1.png){.lightbox width="582"}
+
+  <Details>
+
+  <Summary>Code</Summary>
+
+  ``` r
+  tib_me_outliers <- tib_station_metrics |> 
+    select(-RMSE) |> 
+    tidyr::pivot_wider(names_from = model, values_from = ME) |> 
+    mutate(me_diff = abs(krigeST - Catboost)) |> 
+    slice_max(me_diff, n = 4) |> 
+    select(-me_diff) |> 
+    tidyr::pivot_longer(
+      cols = c(krigeST, Catboost),
+      names_to = "model",
+      values_to = "ME"
+    )
+
+  p_map_me <- tib_station_metrics |>
+    ggplot() +
+    geom_sf(
+      data = germany, 
+      fill = "#242424",
+      color = "#333333",
+      linewidth = 0.15
+    ) +
+    geom_sf(aes(
+      color = ME, 
+      size = abs(ME)
+    )) +
+    scale_color_gradientn(
+      # tealrose from CARTOColors
+      colors = colorRampPalette(c(
+        "#009392", "#72aaa1", "#b1c7b3", "#f1eac8", 
+        "#e5b9ad","#d98994", "#d0587e"))(100),
+      limits = c(
+        -max(abs(tib_station_metrics$ME)),
+        max(abs(tib_station_metrics$ME))
+      )
+    ) +
+    geom_sf_label(
+      data = tib_rmse_outliers |> 
+        filter(station_id != "DESN076"),
+      aes(label = paste0(station_id, "\n", round(RMSE, 2))),
+      nudge_x = -40000,
+      nudge_y = 35000,
+      size = 3
+    ) +
+    geom_sf_label(
+      data = tib_rmse_outliers |> 
+        filter(station_id == "DESN076"),
+      aes(label = paste0(station_id, "\n", round(RMSE, 2))),
+      nudge_x = 47000,
+      nudge_y = 35000,
+      size = 3
+    ) +
+    facet_wrap(~ model) +
+    guides(size = guide_legend(
+      reverse = TRUE,
+      override.aes = list(color = "#f1eac8"))
+    ) +
+    labs(
+      title = "Mean Error by Station",
+      subtitle = "Stations with greatest difference are highlighted
+  ",
+      color = "ME",
+      size = "|ME|"
+    ) +
+    theme_charcoal_map()
+  ```
+
+  </Details>
+
+  - Thoughts
+
+  ## Temporal
+
+  ###### Mean Residual by Month
+
+  ![](_resources/Geospatial-Spatio-Temporal.resources/krig-interp-ex2-temp-mean-resid-1.png){.lightbox width="582"}
+
+  <Details>
+
+  <Summary>Code</Summary>
+
+  ``` r
+  p_resid_time <- cv_combined |>
+    mutate(year_month = lubridate::floor_date(date, "month")) |>
+    summarize(
+      mean_residual = mean(residual, na.rm = TRUE),
+      .by = c(model, year_month)
+    ) |>
+    ggplot(aes(x = year_month, y = mean_residual, color = model)) +
+    geom_line(linewidth = 2) +
+    geom_hline(yintercept = 0, linetype = "dashed") +
+    scale_color_manual(
+      values = c(notebook_colors[[5]], notebook_colors[[6]])
+    ) +
+    labs(
+      title = "Mean Residual Over Time",
+      x = "Date",
+      y = "Mean Residual",
+      color = "Model"
+    ) +
+    theme_notebook(legend.position = "top")
+  ```
+
+  </Details>
+
+  - Thoughts
+
+  ###### RMSE and ME by Season
+
+  ![](_resources/Geospatial-Spatio-Temporal.resources/krig-interp-ex2-temp-season-resid-1.png){.lightbox width="582"}
+
+  <Details>
+
+  <Summary>Code</Summary>
+
+  ``` r
+  p_rmse_season <- cv_combined |>
+    summarize(
+      RMSE = sqrt(mean(residual^2, na.rm = TRUE)),
+      ME = mean(residual, na.rm = TRUE),
+      .by = c(model, season)
+    ) |>
+    tidyr::pivot_longer(
+      cols = c(RMSE, ME),
+      names_to = "metric",
+      values_to = "value"
+    ) |>
+    ggplot(aes(x = season, y = value, fill = model)) +
+    geom_col(position = "dodge") +
+    scale_fill_manual(
+      values = c(notebook_colors[[5]], notebook_colors[[6]])
+    ) +
+    facet_wrap(~metric, scales = "free_y") +
+    labs(
+      title = "RMSE and ME by Season",
+      x = "Season",
+      y = "Value",
+      fill = "Model"
+    ) +
+    theme_notebook(legend.position = "top")
+  ```
+
+  </Details>
+
+  - Thoughts
+
+  ###### Prediction Difference by Month
+
+  ![](_resources/Geospatial-Spatio-Temporal.resources/krig-interp-ex2-comp-mean-pred-time-1.png){.lightbox}
+
+  <Details>
+
+  <Summary>Code</Summary>
+
+  ``` r
+  tib_disagree_time <- cv_combined |>
+    summarize(
+      predicted = mean(predicted, na.rm = TRUE),
+      .by = c(date, model)
+    ) |>
+    tidyr::pivot_wider(names_from = model, values_from = predicted) |>
+    mutate(
+      disagreement = krigeST - Catboost,
+      year_month = lubridate::floor_date(date, "month")
+    ) |>
+    summarize(
+      mean_disagreement = mean(disagreement, na.rm = TRUE),
+      .by = year_month
+    )
+
+  p_disagree_temporal <- tib_disagree_time |>
+    ggplot(aes(x = year_month, y = mean_disagreement)) +
+    geom_line(color = notebook_colors[[9]], linewidth = 3) +
+    geom_hline(yintercept = 0, linetype = "dashed") +
+    labs(
+      title = "Mean Prediction Disagreement Over Time (KrigeST - Cat)",
+      x = "Date",
+      y = "Mean Disagreement (µg/m³)"
+    ) +
+    theme_notebook()
+  ```
+
+  </Details>
+
+  - Thoughts
+
+  ## Model-specific
+
+  ###### Kriging PI Coverage
+
+  ![](_resources/Geospatial-Spatio-Temporal.resources/krig-interp-ex2-krig-pi-cov-1.png){.lightbox width="432"}
+
+  <Details>
+
+  <Summary>Code</Summary>
+
+  ``` r
+  tib_pi <- tib_res_cv_krige_fin |>
+    mutate(
+      se = sqrt(pred_var),
+      lower_95 = predicted - 1.96 * se,
+      upper_95 = predicted + 1.96 * se,
+      covered = observed >= lower_95 & observed <= upper_95
+    )
+
+  tib_pi_station <- tib_pi |>
+    summarize(
+      coverage = mean(covered, na.rm = TRUE),
+      .by = station_id
+    ) |>
+    left_join(tib_station_coords, by = "station_id") |>
+    sf::st_as_sf(coords = c("x", "y"), crs = 25832)
+
+  tib_pi_outlier <- tib_pi_station |> 
+    slice_min(coverage)
+
+  p_pi_map <- tib_pi_station |>
+    ggplot() +
+    geom_sf(
+      data = germany, 
+      fill = "#263238",
+      color = "#37474F",
+      linewidth = 0.2
+    ) +
+    geom_sf(aes(color = coverage, size = coverage)) +
+    geom_sf_label(
+      data = tib_pi_outlier,
+      aes(label = paste0(station_id, "\n", round(coverage, 2))),
+      nudge_x = -40000,
+      nudge_y = 35000,
+      size = 3
+    ) +
+    scale_color_gradientn(
+      # sunsetdark from CARTOColors
+      colors = colorRampPalette(c(
+        "#fcde9c","#faa476","#f0746e","#e34f6f",
+        "#dc3977","#b9257a","#7c1d6f"))(100)
+    ) +
+    guides(size = guide_legend(
+      reverse = TRUE,
+      override.aes = list(color = "#fcde9c"))
+    ) +
+    labs(
+      title = "95% Prediction Interval Coverage by Station",
+      color = "Coverage",
+      size = "Coverage"
+    ) +
+    theme_slate_map()
+
+  tib_pi |>
+    summarize(overall_coverage = mean(covered, na.rm = TRUE))
+  #> # A tibble: 1 × 1
+  #>   overall_coverage
+  #>              <dbl>
+  #> 1            0.971
+  ```
+
+  </Details>
+
+  - Overall average coverage is 97.1% (see code)
+
+  ###### Catboost Variable Importance
+
+  ![](_resources/Geospatial-Spatio-Temporal.resources/krig-interp-ex2-cat-feat-imp-1.png){.lightbox width="582"}
+
+  <Details>
+
+  <Summary>Code</Summary>
+
+  ``` r
+
+  # 3.3.2 https://mlr3book.mlr-org.com/chapters/chapter3/evaluation_and_benchmarking.html#sec-bm-resamp
+  learner_cat_final <- readr::read_rds( "../../temp-storage/gstat-vig-krig-mlr-cat-final.rds")
+
+  # PredictionValuesChange shows how much on average the prediction changes if the feature value changes. The bigger the value of the importance the bigger on average is the change to the prediction value, if this feature is changed.
+  cat_import_raw <- tibble(
+    importance = unname(learner_cat_final$importance()),
+    vars = names(learner_cat_final$importance())
+  ) |> 
+    mutate(vars = stringr::str_remove(vars, "date_feat\\."),
+           vars = stringr::str_replace_all(vars, "_", " "),
+           vars = stringr::str_to_title(vars))
+
+  spline_total <- cat_import_raw %>%
+    filter(stringr::str_detect(vars, "^Spline")) %>%
+    summarize(
+      vars = "Spline Total",
+      importance = sum(importance, na.rm = TRUE)
+    )
+
+  cat_import_fin <- cat_import_raw |> 
+    filter(!stringr::str_detect(vars, "^Spline")) %>%  # remove original spline vars
+    bind_rows(spline_total) |> 
+    mutate(vars = factor(vars),
+           vars = forcats::fct_reorder(vars, importance))
+
+
+  p_cat_import <- cat_import_fin |> 
+    ggplot(aes(x = importance, y = vars)) +
+    geom_col(fill = notebook_colors[[6]]) + 
+    labs(title = "Catboost Feature Importance",
+         subtitle = "Uses prediction value change method") +
+    theme_notebook(
+      axis.title.x = element_blank(),
+      axis.title.y = element_blank(),
+      axis.text.y = element_text(
+        family = "Anybody",
+        face = "bold",
+        size = 12
+      ),
+      axis.text.x = element_text(
+        family = "Anybody",
+        face = "bold",
+        size = 12
+      ),
+      plot.title.position = "plot"
+    )
+  ```
+
+  </Details>
+
+  - Thoughts
+
+  ###### Catboost CP Profiles
+
+  ![](_resources/Geospatial-Spatio-Temporal.resources/krig-interp-ex2-cat-cp-prof-1.png){.lightbox width="582"}
+
+  <Details>
+
+  <Summary>Code</Summary>
+
+  ``` r
+  tib_pm10 <- sf_pm10 |> 
+    sf::st_drop_geometry() |> 
+    mutate(
+      date_feat = date, # extra for feat eng
+      X = sf::st_coordinates(sf_pm10)[, 1],
+      Y = sf::st_coordinates(sf_pm10)[, 2]
+    )
+
+  exp_cat <- explain_mlr3(
+    learner_cat_final,
+    data = tib_pm10,
+    y = tib_pm10$pm10,
+    label = ""
+  )
+
+  cat_prof <- model_profile(exp_cat, k = 2, variables = c("X", "Y"))
+
+  p_pdp <- plot(
+    cat_prof,
+    geom = "profiles"
+  ) +
+    labs(
+      title = "Ceteris Paribus Profiles",
+      subtitle = "Catboost"
+    ) +
+    theme_notebook()
+
+  p_pdp@layers[[2]]$aes_params$colour <- notebook_colors[[6]]
+
+  # find facet variable
+  p_pdp$facet$params$facets
+  #> <list_of<quosure>>
+  #> 
+  #> $`_vname_`
+  #> <quosure>
+  #> expr: ^`_vname_`
+  #> env:  0x000002100f466a68
+
+  # confirm
+  moose <- ggplot_build(p_pdp)
+  moose$layout$layout
+  #>   PANEL ROW COL _vname_ SCALE_X SCALE_Y COORD
+  #> 1     1   1   1     doy       1       1     1
+  #> 2     2   1   2       X       2       1     2
+  #> 3     3   1   3       Y       3       1     3
+
+  p_pdp <- p_pdp +
+    facet_wrap(
+      vars(`_vname_`),
+      scales = "free_x",
+      labeller = as_labeller(c(
+        # "doy" = "Day of the Year",
+        "X" = "Easting (m)",
+        "Y" = "Northing (m)"
+      ))
+    )
+  ```
+
+  </Details>
+
+  - Thoughts
+
+  ## Others
+
+  ###### Predicted vs. Observed
+
+  ![](_resources/Geospatial-Spatio-Temporal.resources/krig-interp-ex2-comp-obs-pred-1.png){.lightbox width="582"}
+
+  <Details>
+
+  <Summary>Code</Summary>
+
+  ``` r
+  p_obs_pred <- cv_combined |>
+    ggplot(aes(x = observed, y = predicted, color = model)) +
+    geom_point(alpha = 0.2, size = 0.8) +
+    geom_abline(slope = 1, intercept = 0, linetype = "dashed") +
+    scale_color_manual(
+      values = c(notebook_colors[[5]], notebook_colors[[6]])
+    ) +
+    expand_limits(x = c(0, 270), y = c(0, 270)) +
+    facet_wrap(~model) +
+    labs(
+      title = "Observed vs Predicted PM10",
+      x = "Observed PM10 (µg/m³)",
+      y = "Predicted PM10 (µg/m³)"
+    ) +
+    theme_notebook() +
+    theme(legend.position = "none")
+  ```
+
+  </Details>
+
+  - Thoughts
+
+  ###### RMSE and ME by Observed Range
+
+  ![](_resources/Geospatial-Spatio-Temporal.resources/krig-interp-ex2-resid-rmse-range-1.png){.lightbox width="582"}
+
+  <Details>
+
+  <Summary>Code</Summary>
+
+  ``` r
+  p_rmse_range <- cv_combined |>
+    mutate(
+      pm10_bin = cut(observed, breaks = seq(0, max(observed) + 10, by = 20))
+    ) |>
+    summarize(
+      RMSE = sqrt(mean(residual^2, na.rm = TRUE)),
+      ME = mean(residual, na.rm = TRUE),
+      .by = c(model, pm10_bin)
+    ) |>
+    tidyr::pivot_longer(
+      cols = c(RMSE, ME),
+      names_to = "metric",
+      values_to = "value"
+    ) |>
+    ggplot(aes(x = pm10_bin, y = value, color = model, group = model)) +
+    geom_line() +
+    geom_point(size = 4) +
+    scale_color_manual(
+      values = c(notebook_colors[[5]], notebook_colors[[6]])
+    ) +
+    facet_wrap(~metric, scales = "free_y") +
+    labs(
+      title = "RMSE and ME by PM10 Range",
+      x = "PM10 Range (µg/m³)",
+      y = "Value",
+      color = "Model"
+    ) +
+    theme_notebook(
+      axis.text.x = element_text(angle = 45, hjust = 1),
+      legend.position = "top"
+    )
+  ```
+
+  </Details>
+
+  - Thoughts
+  :::
+
+- [Example 3]{.ribbon-highlight}: Prediction
+
+  ::: panel-tabset
+  ## Data and Set-Up
+
+  Predictions using Catboost and Spatio-Temporal Kriging are calculated and visualized
+
+  This is the PM10 air pollution dataset for Germany that’s from [{spacetime}]{style="color: #990000"} and used in many of my examples.
+
+  This example is a continuation from getting starting values for the marginal components (space and time) and getting starting values for the joint components. See:
+
+  - [EDA \>\> Temporal Depenndence](geospatial-spat-temp.qmd#sec-geo-sptemp-eda-ac){style="color: green"} \>\> Example 2
+  - [EDA \>\> Spatial Dependence](geospatial-spat-temp.qmd#sec-geo-sptemp-eda-spdep){style="color: green"} \>\> Example 1
+  - [Starting Values \>\> Joint Models](geospatial-spat-temp.qmd#sec-geo-sptemp-krig-stval-joint){style="color: green"} \>\> Example 1
+  - [Variogram \>\> Examples](geospatial-spat-temp.qmd#sec-geo-sptemp-krig-var-ex){style="color: green"} \>\> Example 1
+  - [Examples](geospatial-spat-temp.qmd#sec-geo-sptemp-krig-ex){style="color: green"} \>\> Example 1 and Example 2
+
+  ``` r
+  pacman::p_load(
+    dplyr,
+    ggplot2,
+    patchwork,
+    sf
+  )
+
+  learner_cat_final <- readr::read_rds( "../../temp-storage/gstat-vig-krig-mlr-cat-final.rds")
+  fit_vario_sm <- readr::read_rds("../../temp-storage/gstat-vig9-sm-mod.rds")
+
+  set.seed(2026)
+  options(scipen = 999)
+
+  # no days with all stations having observations
+  tib_almost_complete_days <- sf_pm10 |>
+    st_drop_geometry() |>
+    summarize(
+      n_stations = n_distinct(station_id),
+      .by = date
+    ) |>
+    filter(n_stations %in% c(44, 45, 46))
+
+  min(tib_almost_complete_days$date)
+  #> [1] "2005-01-01"
+  max(tib_almost_complete_days$date)
+  #> [1] "2006-12-28"
+
+  vec_sample_days <- tib_almost_complete_days |>
+    slice_sample(n = 6) |>
+    pull(date) |>
+    sort()
+
+  vec_sample_days
+  #> [1] "2005-02-21" "2005-05-15" "2005-05-26" "2005-10-08" "2006-05-08" "2006-10-23""
+
+  sf_germany <- rnaturalearth::ne_countries(
+    country = "Germany",
+    scale = "medium",
+    returnclass = "sf"
+  ) |>
+    st_transform(crs = 25832)
+
+  grd_stars <- sf_germany |>
+    st_bbox() |>
+    stars::st_as_stars(dx = 5000) |>
+    st_crop(sf_germany)
+
+  dim_grd <- dim(grd_stars)
+
+  # build spatio-temporal stars grid for krigeST
+  grd_st <- stars::st_as_stars(
+    pts = array(
+      1,
+      c(dim_grd[1], dim_grd[2], time = length(vec_sample_days))
+    )
+  ) |>
+    stars::st_set_dimensions("time", vec_sample_days) |>
+    stars::st_set_dimensions(
+      "x",
+      stars::st_get_dimension_values(grd_stars, "x")
+    ) |>
+    stars::st_set_dimensions(
+      "y",
+      stars::st_get_dimension_values(grd_stars, "y")
+    ) |>
+    st_set_crs(25832)
+  ```
+
+  - Thoughts
+
+  ## krigeST
+
+  words
+
+  ``` r
+  # outputs stars obj
+  # ~ 40 min for 2 days at 10k cells
+  # 23879.57 sec or ~6.63 hrs for 6 days at 5k cells w/nmax = 15, bufferNmax = 2
+  # 28742.18 sec or ~7.98 hrs for 6 days at 5k cells w/nmax = 120, bufferNmax = default
+  tictoc::tic()
+  krige_grid_pred <- gstat::krigeST(
+    PM10 ~ 1,
+    data = stars::st_as_stars(r5to10) |> st_transform(25832),
+    newdata = grd_st,
+    modelList = fit_vario_sm,
+    nmax = 120,
+    progress = TRUE
+  )
+  tictoc::toc()
+
+  sf_krige_pred <- krige_grid_pred |>
+    as.data.frame() |>
+    filter(!is.na(var1.pred)) |>
+    st_as_sf(coords = c("x", "y"), crs = 25832) |>
+    rename(
+      predicted = var1.pred
+    ) |>
+    mutate(
+      date = as.Date(time),
+      model = "krigeST"
+    ) |>
+    select(date, predicted, model, geometry)
+  ```
+
+  - Thoughts
+
+  ## Catboost
+
+  words
+
+  ``` r
+  tib_grid_coords <- grd_st |>
+    as.data.frame() |>
+    filter(!is.na(pts)) |>
+    select(x, y) |>
+    distinct()
+
+  # build sf prediction grid matching sf_pm10 structure
+  sf_cat_grid <- tidyr::expand_grid(
+    tib_grid_coords,
+    date = vec_sample_days
+  ) |>
+    st_as_sf(coords = c("x", "y"), crs = 25832)
+
+  # build mlr3 task for prediction grid
+  tib_newdata_cat <- sf_cat_grid |>
+    st_drop_geometry() |>
+    mutate(
+      X = st_coordinates(sf_cat_grid)[, "X"],
+      Y = st_coordinates(sf_cat_grid)[, "Y"],
+      station_id = NA_character_,
+      date_feat = date
+    )
+
+  # predict using final trained learner
+  cat_grid_pred <- learner_cat_final$predict_newdata(tib_newdata_cat)
+
+  sf_cat_pred <- sf_cat_grid |>
+    mutate(
+      predicted = cat_grid_pred$response,
+      model = "Catboost"
+    ) |>
+    select(date, predicted, model, geometry)
+  ```
+
+  - Thoughts
+
+  ## Visualize
+
+  ![](_resources/Geospatial-Spatio-Temporal.resources/krig-interp-ex3-preds.png){.lightbox width="632"}
+
+  ``` r
+  legend_limits <- sf_krige_pred |>
+    bind_rows(sf_cat_pred) |>
+    st_drop_geometry() |> 
+    reframe(range_pred = range(predicted, na.rm = TRUE)) |> 
+    mutate(range_pred = case_when(
+      range_pred == min(range_pred) ~ floor(range_pred),
+      range_pred == max(range_pred) ~ ceiling(range_pred) + 5
+    )) |> 
+    pull(range_pred)
+
+  sf_obs_sample <- sf_pm10 |>
+    filter(date %in% vec_sample_days) |>
+    select(date, station_id, pm10, geometry)
+
+  # germany boundary as multilinestring for overlay
+  sf_germany_line <- sf_germany |>
+    st_cast("MULTILINESTRING")
+
+  p_krige_pred <- ggplot() +
+    stars::geom_stars(
+      data = krige_grid_pred |> st_crop(sf_germany),
+      aes(x = x,
+          y = y,
+          fill = var1.pred)
+    ) +
+    geom_sf(
+      data = sf_germany_line, 
+      color = "grey40", 
+      linewidth = 0.3
+    ) +
+    geom_sf(
+      data = sf_obs_sample,
+      color = "white",
+      size = 0.8,
+      alpha = 0.7
+    ) +
+    facet_wrap(~ as.Date(time), nrow = 1) +
+    scico::scale_fill_scico(
+      palette = "glasgow",
+      limits = legend_limits,
+      direction = -1,
+      name = "PM10\n(µg/m³)",
+      na.value = "transparent"
+    ) +
+    coord_sf(lims_method = "geometry_bbox") +
+    labs(title = "KrigeST") +
+    theme_charcoal_map()
+
+
+  p_cat_pred <- ggplot() +
+    stars::geom_stars(
+      data = cat_stars_combined,
+      aes(x = x, 
+          y = y, 
+          fill = predicted)
+    ) +
+    geom_sf(
+      data = sf_germany_line, 
+      color = "grey40", 
+      linewidth = 0.3
+    ) +
+    geom_sf(
+      data = sf_obs_sample,
+      color = "white",
+      size = 0.8,
+      alpha = 0.7
+    ) +
+    facet_wrap(~as.Date(time), nrow = 1) +
+    scico::scale_fill_scico(
+      palette = "glasgow",
+      limits = legend_limits,
+      direction = -1,
+      name = "PM10\n(µg/m³)",
+      na.value = "transparent"
+    ) +
+    coord_sf(lims_method = "geometry_bbox") +
+    labs(title = "Catboost") +
+    theme_charcoal_map()
+
+  theme_patch <- theme(
+    plot.title = element_text(
+      family = "Anybody",
+      size = 25, 
+      color = "white",
+      face = "bold"
+    ),
+    plot.background = element_rect(fill = "#191a1a", color = NA)
+  )
+  p_krige_pred / p_cat_pred + plot_layout(guides = "collect") + plot_annotation(title = "PM10 Predictions", theme = theme_patch)
+  ```
+
+  - Thoughts
+  :::
