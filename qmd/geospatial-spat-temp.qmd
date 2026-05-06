@@ -1330,7 +1330,6 @@ lightbox:
 
   keep_cols <- dates >= as.Date("2005-01-01") &
     dates <= as.Date("2010-12-31")
-
   air_sub <- air[, keep_cols]
 
   # Remove locations with all NAs
@@ -1340,6 +1339,8 @@ lightbox:
   # add dates as column names
   keep_dates <- as.character(dates[keep_cols])
   colnames(air_sub) <- keep_dates
+
+  air_sub_log <- log(air_sub)
   ```
 
   - `pooled_temporal_variogram` is from [my personal package](https://ercbk.github.io/ebtools/) and requires a space-time matrix with date or datetime strings as column names.
@@ -1353,7 +1354,7 @@ lightbox:
     c(7, 14, 21), # 1wk, 2wks, 3wks
     \(x) {
       pooled_temporal_variogram(
-        Y = air_sub,
+        Y = air_sub_log,
         bin_width = x,
         max_time_diff = 375 # slightly more than a year in case there's noise
       )
@@ -1368,7 +1369,7 @@ lightbox:
              aes(x = dist, y = gamma)) +
         geom_point(color = "#59754D") +
         geom_line(color = "#59754D") +
-        expand_limits(y = 60:110) +
+        expand_limits(y = 0:0.35) +
         labs(
           x = "Time Difference (days)",
           y = "Semivariance",
@@ -5125,12 +5126,9 @@ lightbox:
     DALEXtra
   )
 
-  cv_cat_pm10 <- readr::read_rds("../../temp-storage/gstat-vig-krig1-mlr-cv-rf-cat-lgbm.rds")
-  tib_res_cv_krige <- readr::read_rds("../../temp-storage/gstat-vig-krig1-krig.rds")
-
   tib_res_cv_krige_fin <- tib_res_cv_krige |> 
     filter(
-      nmax == 15,
+      nmax == 10,
       bufferNmax == 2
     )
 
@@ -5151,8 +5149,8 @@ lightbox:
     tibble(
       fold = i,
       row_id = pred$row_ids,
-      observed = pred$truth,
-      predicted = pred$response
+      observed = exp(pred$truth),
+      predicted = exp(pred$response)
     )
   }) |>
     purrr::list_rbind() |>
@@ -5172,9 +5170,9 @@ lightbox:
   # each model's results have 36402 out of 74799 observations covered (~49%) after 3 repeats × 5 folds = 15 folds is actually consistent with that coverage rate (15 × ~4% ≈ 60%, minus overlaps between folds reducing it to ~49%).
   cv_combined <- tib_res_cv_krige_fin |>
     summarize(
-      predicted = mean(predicted, na.rm = TRUE),
-      pred_var = mean(pred_var, na.rm = TRUE),
-      observed = first(observed),
+      predicted = mean(exp(predicted), na.rm = TRUE),
+      pred_var = mean(exp(pred_var), na.rm = TRUE),
+      observed = first(exp(observed)),
       .by = c(station_id, date)
     ) |>
     mutate(
@@ -5193,15 +5191,34 @@ lightbox:
       ) |>
         factor(levels = c("DJF", "MAM", "JJA", "SON"))
     )
+
+  tib_station_coords <- sf_pm10 |>
+    select(station_id) |>
+    mutate(
+      x = sf::st_coordinates(geometry)[, "X"],
+      y = sf::st_coordinates(geometry)[, "Y"]
+    ) |>
+    sf::st_drop_geometry() |> 
+    distinct()
+
+  tib_station_coords_ll <- sf_pm10 |>
+    select(station_id) |>
+    sf::st_transform(crs = 4326) |>
+    mutate(
+      x = sf::st_coordinates(geometry)[, "X"],
+      y = sf::st_coordinates(geometry)[, "Y"]
+    ) |>
+    sf::st_drop_geometry() |> 
+    distinct()
   ```
 
-  - Thoughts
+  - [cv_cat_pm10]{.var-text} and [tib_res_cv_krige]{.var-text} are the cross-validation results from Example 1
 
   ## Residuals
 
   ###### Distribution
 
-  ![](_resources/Geospatial-Spatio-Temporal.resources/krig-interp-ex2-resid-dens-1.png){.lightbox width="582"}
+  ![](_resources/Geospatial-Spatio-Temporal.resources/krig-interp-ex2-resid-dens-1.png){.lightbox gjroup="krig-interp-ex2-resid" width="582"}
 
   <Details>
 
@@ -5239,12 +5256,13 @@ lightbox:
   </Details>
 
   - The bulk of the residuals have some skew but not awful.
+    - Compared to unlogged pm10 models (not shown), these distributions have sharper peaks (leptokurtic)
   - Unfortunately, there are looong tails, especially on the right (underprediction)
     - i.e. there are might be some extreme observed values that the models are having trouble predicting.
 
   ###### Q-Q
 
-  ![](_resources/Geospatial-Spatio-Temporal.resources/krig-interp-ex2-resid-qq-1.png){.lightbox width="582"}
+  ![](_resources/Geospatial-Spatio-Temporal.resources/krig-interp-ex2-resid-qq-1.png){.lightbox gjroup="krig-interp-ex2-resid" width="582"}
 
   <Details>
 
@@ -5269,11 +5287,11 @@ lightbox:
 
   </Details>
 
-  - Thoughts
+  - The fatter tails and outliers are clearly indicated in this chart
 
   ###### Residuals vs. Predicted
 
-  ![](_resources/Geospatial-Spatio-Temporal.resources/krig-interp-ex2-resid-pred-1.png){.lightbox width="582"}
+  ![](_resources/Geospatial-Spatio-Temporal.resources/krig-interp-ex2-resid-pred-1.png){.lightbox gjroup="krig-interp-ex2-resid" width="582"}
 
   <Details>
 
@@ -5302,11 +5320,14 @@ lightbox:
 
   </Details>
 
-  - Thoughts
+  - Both distributions display some randomness except for the floor for the negative residuals that deepens as the predictions get larger.
+    - I'm guessing this is due to the strictly positive nature of the pm10 variable. Makes sense to me for a tree model (all positives in leaves), but I'm not sure about the reasoning behind the kriging model being affected by it.
+  - Difficult to make a determination about the amount of under-prediction and over-prediction, it seems evident that for large predictions, the magnitude of the under-predictions is much larger than the magnitude of the over-predictions.
+    - In fact, this can be said about all sizes of predictions, in general.
 
   ###### Robust Distributions per Prediction Quantile
 
-  ![](_resources/Geospatial-Spatio-Temporal.resources/krig-interp-ex2-resid-robust-box-1.png){.lightbox width="632"}
+  ![](_resources/Geospatial-Spatio-Temporal.resources/krig-interp-ex2-resid-robust-box-1.png){.lightbox gjroup="krig-interp-ex2-resid" width="632"}
 
   <Details>
 
@@ -5413,15 +5434,22 @@ lightbox:
 
   </Details>
 
-  - Given the distribution of the residuals for both models — long outlier tails and slightly skewed — this method (median + mad) provides a more robust description of the residual distributions.
-  - For both models, the median is slightly below zero indicating an overall bias towards underpredicting
+  - Given the distributions of the residuals for both models — long outlier tails and slightly skewed — this method (median + mad) provides a more robust description of the residual distributions.
+  - For both models, the median hang fairly close to zero, so there's about as much under-prediction as over-prediction happening
+    - For the kriging Q1, there is a slight bias towards under-predicition. and Q5 a slightly greater tendency to over-predict
+    - This is in contrast to the unlogged pm10 variable (not shown) where the model progressively became more likely to overpredict as the predictions became larger. This was the case for both models
   - The progression from low and high predictions doesn't seem to drastically change the size of the box plots (not getting substantially longer), so heteroskedacity probably isn't a big problem.
-    - The boxes do get a little bigger at Q4 and Q5, but I don't think that's as important as all the outliers or as interesting as the constistent bias of the predictions in BOTH models.
+    - The boxes do get a little bigger at Q4 and Q5, but I don't think that's as important as all the outliers.
 
   ###### Residual Variograms
 
-  ![](_resources/Geospatial-Spatio-Temporal.resources/krig-interp-ex2-resid-vario-krig-1.png){.lightbox width="382"}\
-  ![](_resources/Geospatial-Spatio-Temporal.resources/krig-interp-ex2-resid-vario-cat-1.png){.lightbox width="382"}
+  ::: {layout-ncol="2"}
+  ![krigeST](_resources/Geospatial-Spatio-Temporal.resources/krig-interp-ex2-resid-vario-krig-1.png){.lightbox gjroup="krig-interp-ex2-resid" width="382"}
+  
+  ![Catboost](_resources/Geospatial-Spatio-Temporal.resources/krig-interp-ex2-resid-vario-cat-1.png){.lightbox gjroup="krig-interp-ex2-resid" width="382"}
+  :::
+  
+  
 
   <Details>
 
@@ -5610,7 +5638,10 @@ lightbox:
 
   </Details>
 
-  - Thoughts
+  - CatBoost residuals are better behaved. Lower overall semivariance (spatial autocorrelation) and tighter lag clustering (temporal autocorrelation) indicate that CatBoost captured more of the spatio-temporal signal, leaving less structured variance in its residuals.
+  - Both models have spikes of semi-variance at a short distance (20 to 50km?).
+  - For Catboost, a greater emphasis on adding time variables would be most helpful.
+  - For krigeST, it needs variable help spatially and temporally.
 
   ## Spatial
 
@@ -5663,7 +5694,7 @@ lightbox:
 
   ###### RMSE
 
-  ![](_resources/Geospatial-Spatio-Temporal.resources/krig-interp-ex2-spat-rmse-loc-1.png){.lightbox width="582"}
+  ![](_resources/Geospatial-Spatio-Temporal.resources/krig-interp-ex2-spat-rmse-loc-1.png){.lightbox gjroup="krig-interp-ex2-spat" width="582"}
 
   <Details>
 
@@ -5734,7 +5765,7 @@ lightbox:
 
   ###### Mean Error (ME)
 
-  ![](_resources/Geospatial-Spatio-Temporal.resources/krig-interp-ex2-spat-me-loc-1.png){.lightbox width="582"}
+  ![](_resources/Geospatial-Spatio-Temporal.resources/krig-interp-ex2-spat-me-loc-1.png){.lightbox gjroup="krig-interp-ex2-spat" width="582"}
 
   <Details>
 
@@ -5814,7 +5845,7 @@ lightbox:
 
   ###### Mean Residual by Month
 
-  ![](_resources/Geospatial-Spatio-Temporal.resources/krig-interp-ex2-temp-mean-resid-1.png){.lightbox width="582"}
+  ![](_resources/Geospatial-Spatio-Temporal.resources/krig-interp-ex2-temp-mean-resid-1.png){.lightbox gjroup="krig-interp-ex2-temp" width="582"}
 
   <Details>
 
@@ -5848,7 +5879,7 @@ lightbox:
 
   ###### RMSE and ME by Season
 
-  ![](_resources/Geospatial-Spatio-Temporal.resources/krig-interp-ex2-temp-season-resid-1.png){.lightbox width="582"}
+  ![](_resources/Geospatial-Spatio-Temporal.resources/krig-interp-ex2-temp-season-resid-1.png){.lightbox gjroup="krig-interp-ex2-temp" width="582"}
 
   <Details>
 
@@ -5887,7 +5918,7 @@ lightbox:
 
   ###### Prediction Difference by Month
 
-  ![](_resources/Geospatial-Spatio-Temporal.resources/krig-interp-ex2-comp-mean-pred-time-1.png){.lightbox}
+  ![](_resources/Geospatial-Spatio-Temporal.resources/krig-interp-ex2-comp-mean-pred-time-1.png){.lightbox gjroup="krig-interp-ex2-resid" width="582"}
 
   <Details>
 
@@ -5929,7 +5960,7 @@ lightbox:
 
   ###### Kriging PI Coverage
 
-  ![](_resources/Geospatial-Spatio-Temporal.resources/krig-interp-ex2-krig-pi-cov-1.png){.lightbox width="432"}
+  ![](_resources/Geospatial-Spatio-Temporal.resources/krig-interp-ex2-krig-pi-cov-1.png){.lightbox gjroup="krig-interp-ex2-modspec" width="432"}
 
   <Details>
 
@@ -6002,7 +6033,7 @@ lightbox:
 
   ###### Catboost Variable Importance
 
-  ![](_resources/Geospatial-Spatio-Temporal.resources/krig-interp-ex2-cat-feat-imp-1.png){.lightbox width="582"}
+  ![](_resources/Geospatial-Spatio-Temporal.resources/krig-interp-ex2-cat-feat-imp-1.png){.lightbox gjroup="krig-interp-ex2-modspec" width="582"}
 
   <Details>
 
@@ -6064,7 +6095,7 @@ lightbox:
 
   ###### Catboost CP Profiles
 
-  ![](_resources/Geospatial-Spatio-Temporal.resources/krig-interp-ex2-cat-cp-prof-1.png){.lightbox width="582"}
+  ![](_resources/Geospatial-Spatio-Temporal.resources/krig-interp-ex2-cat-cp-prof-1.png){.lightbox gjroup="krig-interp-ex2-modspec" width="582"}
 
   <Details>
 
@@ -6137,7 +6168,7 @@ lightbox:
 
   ###### Predicted vs. Observed
 
-  ![](_resources/Geospatial-Spatio-Temporal.resources/krig-interp-ex2-comp-obs-pred-1.png){.lightbox width="582"}
+  ![](_resources/Geospatial-Spatio-Temporal.resources/krig-interp-ex2-comp-obs-pred-1.png){.lightbox gjroup="krig-interp-ex2-other" width="582"}
 
   <Details>
 
@@ -6168,7 +6199,7 @@ lightbox:
 
   ###### RMSE and ME by Observed Range
 
-  ![](_resources/Geospatial-Spatio-Temporal.resources/krig-interp-ex2-resid-rmse-range-1.png){.lightbox width="582"}
+  ![](_resources/Geospatial-Spatio-Temporal.resources/krig-interp-ex2-resid-rmse-range-1.png){.lightbox gjroup="krig-interp-ex2-other" width="582"}
 
   <Details>
 
