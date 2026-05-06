@@ -1383,41 +1383,14 @@ lightbox:
   ls_plots[[1]] + ls_plots[[2]] + ls_plots[[3]]    
   ```
 
-  - **tl;dr MY RANGE ESTIMATION WAS BAD.** The main issue I think was that I didn't extend the y-axis to zero in my plots which zoomed me into the data. It caused me to over-interpret the pattern which led me to estimate a larger range. Turns out that the variogram model sees the data as FLAT which leads to a much smaller range. When you see the plots in the next section you can kind of see where it's coming from, and honestly with air pollution, a small range makes more intuitive sense to me.
-    - If I could go back and change my range guess, I'd go with 25 to 30 days.
-    - **My nugget and sill estimations (and some other stuff) were pretty good at least (for some models).**
-    - I'm leaving this interpretation here, because it might be helpful to look back upon for when there is an actual pattern in my data.
-  - Using a bin width 7 is best for nugget estimation and initial detection of any patterns (e.g. seasonality)
-    - My nugget estimation: \~68 units
-      - So probably some micro-scale variation or measurment error present
-  - Using a bin width 14 and 21 is best for sill and range estimation
-    - Refinement of interpretation of any patterns
-    - Sill estimation: \~103 units
-    - Range estimation options:
-      - Use the bump: \~220 days
-      - Treat the bump as an anomaly: \~120 days
-  - The rapid rise and leveling indicates strong short-term temporal dependence
+  - The rapid rise and leveling indicates short-term temporal dependence
   - The bump could indicate some seasonality. It begins at around 200 days and lasts until around 300 days.
     - The (temporal) variogram assumes stationarity. So, if strong enough, it could substantially bias the estimation.
-    - Perhaps some seasonal differencing may be useful
+  - If there is seasonality, some seasonal differencing may be useful
     - Internally subtract location-wise mean or seasonal mean (rows in the matrix)
-  - The nugget-sill ratio: 68/103 = 0.66 which is quite high
-    - Interpretation:
-      - High day-to-day variability
-        - Since roughly two-thirds of the total variance is unstructured at the resolution of the sampling
-      - Weak persistence after short lags
-        - i.e. variable de-autocorrelates quickly after a 2 or 3 weeks
-      - This is realistic for air pollution
-    - Reasons
-      - Pollution levels are driven by episodic events (traffic, wind shifts, industrial emissions, weather fronts)
-      - Day-to-day meteorological forcing is highly variable and not strongly autocorrelated
-      - PM10 responds quickly to local conditions and doesn't "persist" the way a slower variable like soil organic matter or groundwater depth might
   - The dip after \~275 days suggests one of:
-    - Finite sample noise (most likely)
+    - Finite sample noise; i.e. not enough pairs
     - Seasonality (annual structure)
-      - Potentially correct as the bump is at the tail
-    - Not enough pairs
-      - There are more than enough, so this ain't it
 
   ## Fit Variogram Models
 
@@ -2620,6 +2593,8 @@ lightbox:
 
   The goal is to find starting values for joint `vgm` portions of spatio-temporal variogram models.
 
+  Objects, such as the empirical variogram and vgms, produced in this script will be used in [Variogram \>\> Examples](geospatial-spat-temp.qmd#sec-geo-sptemp-krig-var-ex){style="color: green"} \>\> Example 1
+
   ``` r
 
   pacman::p_load(
@@ -2636,12 +2611,12 @@ lightbox:
   data(air, package = "spacetime")
 
   # get rural location time series from 2005 to 2010
-  rural <- spacetime::STFDF(
+  rural_log <- spacetime::STFDF(
     sp = stations, 
     time = dates, 
-    data = data.frame(PM10 = as.vector(air))
+    data = data.frame(PM10 = log(as.vector(air)))
   )
-  rr <- rural[,"2005::2010"]
+  rr <- rural_log[,"2005::2010"]
 
   # remove station ts w/all NAs
   unsel <- which(apply(
@@ -2653,8 +2628,43 @@ lightbox:
   ```
 
   - Urban stations have been removed as they have a different dgp and should be modelled separately
+  - Unlike the vignette, PM10 has been logged
 
-  ## Empirical Variogram and Anistropy
+  ## Empirical Variogram and Anisotropy
+
+  ###### Marginal VGMs
+
+  ``` r
+  # from pooled (marginal) variograms
+  space_vgm_exp <- vgm(
+    model = "Exp",
+    psill = 0.18,
+    range = 86.15,
+    nugget = 0.01
+  )
+
+  space_vgm_mat <- vgm(
+    model = "Mat",
+    psill = 0.20,
+    range = 110.83,
+    nugget = 0.01,
+    kappa = 0.40
+  )
+
+  time_vgm_mat <- vgm(
+    model = "Mat",
+    psill = 0.31,
+    range = 13.21,
+    nugget = 0.01,
+    kappa = 0.12 
+  )
+  ```
+
+  - The values are from the pooled (aka marginal) variograms EDA examples
+  - See [EDA \>\> Temporal Dependence](geospatial-spat-temp.qmd#sec-geo-sptemp-eda-ac){style="color: green"} \>\> Example 2
+  - See [EDA \>\> Spatial Dependence](geospatial-spat-temp.qmd#sec-geo-sptemp-eda-spdep){style="color: green"} \>\> Example 1
+
+  ###### Compute Variogram and Calculate Anisotropy
 
   ``` r
   # tlags = 0:6 (vignette),              299.47 sec (~5 min)
@@ -2665,8 +2675,8 @@ lightbox:
     tlags = 0:14
   )
 
-  # estimate anistropy
-  # 160.0086
+  # estimate anistropy factor
+  # 489.2811
   num_stani_exp <- estiStAni(
     empVgm = vario_emp,
     method = "metric",
@@ -2674,7 +2684,7 @@ lightbox:
     spatialVgm = space_vgm_exp
   )
 
-  # 164.2333
+  # 468.8629
   num_stani_mat <- estiStAni(
     empVgm = vario_emp,
     method = "metric",
@@ -2683,7 +2693,7 @@ lightbox:
   )
   ```
 
-  - Using the metric method for the anistropy estimation since it felt consistent with using metric distance for the variogram plot (See EDA tab next) and seemed like it would be one of the best methods for spatio-temporal data in general.
+  - Using the metric method for the anisotropy estimation since it felt consistent with using metric distance for the variogram plot (See EDA tab next) and seemed like it would be one of the best methods for spatio-temporal data in general.
     - See [fit.StVariogram](geospatial-spat-temp.qmd#sec-geo-sptemp-krig-var-fitstv){style="color: green"} \>\> stAni for details on methods and the interval starting range.
 
   ## EDA
@@ -2758,40 +2768,6 @@ lightbox:
     </Details>
 
   ## Estimate Joint Parameters
-
-  ###### Marginal VGMs
-
-  ``` r
-  # from pooled (marginal) variograms
-  space_vgm_exp <- vgm(
-    model = "Exp",
-    psill = 52,
-    range = 93,
-    nugget = 1.5
-  )
-
-  space_vgm_mat <- vgm(
-    model = "Mat",
-    psill = 55,
-    range = 123,
-    nugget = 0.5,
-    kappa = 0.4
-  )
-
-  time_vgm_mat <- vgm(
-    model = "Mat",
-    psill = 100,
-    range = 14,
-    nugget = 0.1,
-    kappa = 0.12 
-  )
-  ```
-
-  - The values are from the pooled (aka marginal) variograms EDA examples
-  - See [EDA \>\> Temporal Dependence](geospatial-spat-temp.qmd#sec-geo-sptemp-eda-ac){style="color: green"} \>\> Example 2
-  - See [EDA \>\> Spatial Dependence](geospatial-spat-temp.qmd#sec-geo-sptemp-eda-spdep){style="color: green"} \>\> Example 1
-
-  ###### Estimate Parameters
 
   ``` r
   # use heuristics to get starting values
@@ -2872,35 +2848,41 @@ lightbox:
 
    names(ls_joint_vgm_params) <- joint_mod_types
    ls_joint_vgm_params
-   #> $exponential
+  #> $exponential
   #> $exponential$psill
-  #> [1] 82.77977
+  #> [1] 0.3713649
   #> 
   #> $exponential$range
-  #> [1] 680.2305
+  #> [1] 1501.922
   #> 
   #> $exponential$nugget
-  #> [1] 27.2145
+  #> [1] -0.006394975
   #> 
   #> 
   #> $matern
   #> $matern$psill
-  #> [1] 82.31318
+  #> [1] 0.3556519
   #> 
   #> $matern$range
-  #> [1] 696.1542
+  #> [1] 1442.115
   #> 
   #> $matern$nugget
-  #> [1] 27.68108
+  #> [1] 0.009318045
   ```
 
   - Heuristic methods are used to get [psill]{.arg-text}, [range]{.arg-text}, and [nugget]{.arg-text} starting values. See code comments for more details.
   - Not much difference between the exponential and matern models
+    - EEEK! A negative nugget for the Exponential!
 
   ## Create Joint VGMs
 
   ``` r
   create_joint_vgm <- function(mod_type, ls_params, joint_kappa) {
+
+    # check for negative estimates
+    ls_params <- lapply(ls_params, function(x) {
+      ifelse(x < 0, 0.01, x)
+    })
 
     if (mod_type == "exponential") {
       joint <- vgm(
@@ -3417,6 +3399,8 @@ lightbox:
     # misc
     # blend of the model types for space, time, and joint
     mutate(comp_type = paste(space_type, time_type, joint_type, sep = "_")) |> # <4>
+    # replace negative parameter estimates
+    mutate(across(where(is.numeric), ~ifelse(.x < 0, 0.01, .x))) |> 
     relocate(joint_vgm, .after = time_vgm) |> 
     relocate(comp_type, .after = mod_type) |> 
     arrange(desc(mod_type), wgt)
@@ -3424,21 +3408,21 @@ lightbox:
   glimpse(tib_specs_variost)
   #> Rows: 125
   #> Columns: 15
-  #> $ mod_type   <chr> "simpleSumMetric", "simpleSumMetric", "simpleSumMetric", "simpleSumMetric", "simpleSumMetric", "simpleSumMet…
-  #> $ comp_type  <chr> "matern_matern_matern", "exponential_matern_matern", "matern_matern_exponential", "exponential_matern_expone…
-  #> $ space_type <chr> "matern", "exponential", "matern", "exponential", "matern", "exponential", "matern", "exponential", "matern"…
-  #> $ time_type  <chr> "matern", "matern", "matern", "matern", "matern", "matern", "matern", "matern", "matern", "matern", "matern"…
-  #> $ joint_type <chr> "matern", "matern", "exponential", "exponential", "matern", "matern", "matern", "matern", "matern", "matern"…
-  #> $ kappa      <dbl> 0.3, 0.3, NA, NA, 0.5, 0.5, 0.8, 0.8, 1.0, 1.0, 1.5, 1.5, 2.0, 2.0, 0.3, 0.3, NA, NA, 0.5, 0.5, 0.8, 0.8, 1.…
-  #> $ wgt        <dbl> 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 6, 6, 6, 6, 6, 6, 6, 6, …
-  #> $ vario_emp  <list> [<StVariogram[240 x 7]>], [<StVariogram[240 x 7]>], [<StVariogram[240 x 7]>], [<StVariogram[240 x 7]>], [<S…
-  #> $ space_vgm  <list> [<variogramModel[2 x 9]>], [<variogramModel[2 x 9]>], [<variogramModel[2 x 9]>], [<variogramModel[2 x 9]>],…
-  #> $ time_vgm   <list> [<variogramModel[2 x 9]>], [<variogramModel[2 x 9]>], [<variogramModel[2 x 9]>], [<variogramModel[2 x 9]>],…
-  #> $ joint_vgm  <list> [<variogramModel[2 x 9]>], [<variogramModel[2 x 9]>], [<variogramModel[2 x 9]>], [<variogramModel[2 x 9]>],…
-  #> $ stAni      <dbl> 164.2333, 164.2333, 160.0086, 160.0086, 164.2333, 164.2333, 164.2333, 164.2333, 164.2333, 164.2333, 164.2333…
-  #> $ k          <dbl> NA, NA, NA, NA, NA, NA, NA, NA, NA, NA, NA, NA, NA, NA, NA, NA, NA, NA, NA, NA, NA, NA, NA, NA, NA, NA, NA, …
-  #> $ nugget     <dbl> 27.68108, 27.21450, 27.68108, 27.21450, 27.68108, 27.21450, 27.68108, 27.21450, 27.68108, 27.21450, 27.68108…
-  #> $ sill       <dbl> NA, NA, NA, NA, NA, NA, NA, NA, NA, NA, NA, NA, NA, NA, NA, NA, NA, NA, NA, NA, NA, NA, NA, NA, NA, NA, NA, …
+  #> $ mod_type   <chr> "simpleSumMetric", "simpleSumMetric", "simpleSumMetric", "simpleSumMetric", "simpleSumMetric", "simpleSumMetric", "simpleSumMetric", "simple…
+  #> $ comp_type  <chr> "matern_matern_matern", "exponential_matern_matern", "matern_matern_exponential", "exponential_matern_exponential", "matern_matern_matern", …
+  #> $ space_type <chr> "matern", "exponential", "matern", "exponential", "matern", "exponential", "matern", "exponential", "matern", "exponential", "matern", "expo…
+  #> $ time_type  <chr> "matern", "matern", "matern", "matern", "matern", "matern", "matern", "matern", "matern", "matern", "matern", "matern", "matern", "matern", …
+  #> $ joint_type <chr> "matern", "matern", "exponential", "exponential", "matern", "matern", "matern", "matern", "matern", "matern", "matern", "matern", "matern", …
+  #> $ kappa      <dbl> 0.3, 0.3, NA, NA, 0.5, 0.5, 0.8, 0.8, 1.0, 1.0, 1.5, 1.5, 2.0, 2.0, 0.3, 0.3, NA, NA, 0.5, 0.5, 0.8, 0.8, 1.0, 1.0, 1.5, 1.5, 2.0, 2.0, 0.3,…
+  #> $ wgt        <dbl> 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 7, 7, 7, 7, 7,…
+  #> $ vario_emp  <list> [<StVariogram[240 x 7]>], [<StVariogram[240 x 7]>], [<StVariogram[240 x 7]>], [<StVariogram[240 x 7]>], [<StVariogram[240 x 7]>], [<StVario…
+  #> $ space_vgm  <list> [<variogramModel[2 x 9]>], [<variogramModel[2 x 9]>], [<variogramModel[2 x 9]>], [<variogramModel[2 x 9]>], [<variogramModel[2 x 9]>], [<va…
+  #> $ time_vgm   <list> [<variogramModel[2 x 9]>], [<variogramModel[2 x 9]>], [<variogramModel[2 x 9]>], [<variogramModel[2 x 9]>], [<variogramModel[2 x 9]>], [<va…
+  #> $ joint_vgm  <list> [<variogramModel[2 x 9]>], [<variogramModel[2 x 9]>], [<variogramModel[2 x 9]>], [<variogramModel[2 x 9]>], [<variogramModel[2 x 9]>], [<va…
+  #> $ stAni      <dbl> 468.8629, 468.8629, 489.2811, 489.2811, 468.8629, 468.8629, 468.8629, 468.8629, 468.8629, 468.8629, 468.8629, 468.8629, 468.8629, 468.8629, …
+  #> $ k          <dbl> NA, NA, NA, NA, NA, NA, NA, NA, NA, NA, NA, NA, NA, NA, NA, NA, NA, NA, NA, NA, NA, NA, NA, NA, NA, NA, NA, NA, NA, NA, NA, NA, NA, NA, NA, …
+  #> $ nugget     <dbl> 0.009318045, 0.010000000, 0.009318045, 0.010000000, 0.009318045, 0.010000000, 0.009318045, 0.010000000, 0.009318045, 0.010000000, 0.00931804…
+  #> $ sill       <dbl> NA, NA, NA, NA, NA, NA, NA, NA, NA, NA, NA, NA, NA, NA, NA, NA, NA, NA, NA, NA, NA, NA, NA, NA, NA, NA, NA, NA, NA, NA, NA, NA, NA, NA, NA, …
   ```
 
   1.  Creates an initial grid with a couple arguments I want to tune. Decided to only go with 1 time marginal model (Matern) as it seemed like the much better fit visually. [wgt]{.var-text} will be input for the [fit.method]{.arg-text} argument in `fit.StVariogram`
@@ -3588,21 +3572,21 @@ lightbox:
     slice_min(sse, n = 10) |> 
     select(-fit_stv, -message)
   #> # A tibble: 10 × 6
-  #>    mod_type        comp_type                      kappa weight_method converge   sse
-  #>    <chr>           <chr>                          <dbl>         <dbl>    <int> <dbl>
-  #>  1 simpleSumMetric matern_matern_matern             0.5             7        0  11.7
-  #>  2 simpleSumMetric matern_matern_matern             0.8             7        0  11.7
-  #>  3 simpleSumMetric exponential_matern_matern        0.8             7        0  11.7
-  #>  4 simpleSumMetric exponential_matern_matern        0.5             7        0  11.8
-  #>  5 simpleSumMetric exponential_matern_exponential  NA               7        0  11.8
-  #>  6 simpleSumMetric exponential_matern_matern        1               7        0  12.0
-  #>  7 simpleSumMetric matern_matern_exponential       NA               7        0  12.0
-  #>  8 simpleSumMetric matern_matern_matern             1               7        0  12.0
-  #>  9 simpleSumMetric exponential_matern_matern        1.5             7        0  12.7
-  #> 10 simpleSumMetric matern_matern_matern             1.5             7        0  12.8
+  #>    mod_type        comp_type                      kappa weight_method converge       sse
+  #>    <chr>           <chr>                          <dbl>         <dbl>    <int>     <dbl>
+  #>  1 simpleSumMetric exponential_matern_matern        0.3             7        0 0.0000854
+  #>  2 simpleSumMetric exponential_matern_matern        0.5             7        0 0.0000858
+  #>  3 simpleSumMetric matern_matern_exponential       NA               7        0 0.0000858
+  #>  4 simpleSumMetric matern_matern_matern             0.3             7        0 0.0000859
+  #>  5 simpleSumMetric exponential_matern_exponential  NA               7        0 0.0000864
+  #>  6 simpleSumMetric matern_matern_matern             0.5             7        0 0.0000877
+  #>  7 simpleSumMetric exponential_matern_matern        0.8             7        0 0.0000954
+  #>  8 simpleSumMetric matern_matern_matern             0.8             7        0 0.0000977
+  #>  9 simpleSumMetric exponential_matern_matern        1               7        0 0.0000999
+  #> 10 simpleSumMetric matern_matern_matern             1               7        0 0.000102 
   ```
 
-  - The Simple Sum-Metric model dominates and in particular, the ones with a matern joint model with kappas (smoothnes parameter) 0.5 and 0.8 and the 7-type weighting method.
+  - The Simple Sum-Metric model dominates and in particular, the ones with a matern joint model with a kappa (smoothnes parameter) of 0.3 and the 7-type weighting method.
   - Note that the Sum-Metric hasn't been included in the model selection process. That's because the estimated parameter values of the best Simple Sum-Metric model will be used to fit the (even more) finicky Sum-Metric model
 
   ## Fit Sum Metric
@@ -3673,7 +3657,7 @@ lightbox:
 
   # about 39 sec
   tib_ssm_fits <- purrr::map(
-    c(0.45, 0.5, 0.55, 0.6, 0.65, 0.7, 0.75, 0.8, 0.85),
+    c(0.15, 0.2, 0.25, 0.3, 0.35, 0.4, 0.45),
     tune_joint_ssm_matern
   ) |>
     futurize(
@@ -3687,18 +3671,16 @@ lightbox:
   tib_ssm_fits |> 
     select(kappa, converge, sse) |> 
     arrange(sse)
-  #> # A tibble: 9 × 3
-  #>   kappa converge   sse
-  #>   <dbl>    <int> <dbl>
-  #> 1  0.6         0  11.4
-  #> 2  0.65        0  11.4
-  #> 3  0.55        0  11.5
-  #> 4  0.7         0  11.5
-  #> 5  0.75        0  11.6
-  #> 6  0.5         0  11.7
-  #> 7  0.8         0  11.7
-  #> 8  0.85        0  11.7
-  #> 9  0.45        0  12.0
+  #> # A tibble: 7 × 3
+  #>   kappa converge       sse
+  #>   <dbl>    <int>     <dbl>
+  #> 1  0.35        0 0.0000845
+  #> 2  0.4         0 0.0000847
+  #> 3  0.3         0 0.0000859
+  #> 4  0.45        0 0.0000860
+  #> 5  0.25        0 0.0000896
+  #> 6  0.2         0 0.0000980
+  #> 7  0.15        0 0.000119 
 
 
 
@@ -3709,21 +3691,21 @@ lightbox:
 
   best_ssm
   #> space component: 
-  #>   model    psill   range kappa
-  #> 1   Mat 20.52655 20.9819   0.4
+  #>   model     psill    range kappa
+  #> 1   Mat 0.1084484 110.8302   0.4
   #> time component: 
-  #>   model    psill    range kappa
-  #> 1   Mat 4.665003 2.282749  0.12
+  #>   model psill    range kappa
+  #> 1   Mat     0 13.21124  0.12
   #> joint component: 
-  #>   model    psill    range kappa
-  #> 1   Mat 84.44602 359.2199   0.6
-  #> nugget: 0
-  #> stAni: 183.003165956668
+  #>   model     psill    range kappa
+  #> 1   Mat 0.2696335 1442.115  0.35
+  #> nugget: 0.0243474434624375
+  #> stAni: 468.862817278627
   ```
 
-  - The top two Simple Sum-Metric models had matern space, time, and joint component models with kappa values of 0.5 and 0.8 for the joint model. This code will explore the kappa space a little further by testing values around 0.5 and 0.8.
+  - The top Simple Sum-Metric models had exponential space and matern time and joint component models with a kappa value of 0.3 for the joint model. This code will explore the kappa space a little further by testing values around 0.15 and 0.45.
     - [fit.method = 7]{.arg-text} also dominated in model selection, so it's used as well.
-  - The model with the lowest SSE has a kappa value of 0.6 and 0.65. Either would be fine. I'm going 0.6.
+  - The model with the lowest SSE has a kappa value of 0.35.
   - [best_ssm]{.var-text} shows the estimated parameters that will be used as starting values for the Sum-Metric model.
 
   ###### Fit Sum Metric
@@ -3784,22 +3766,22 @@ lightbox:
   attributes(fit_vario_sm)$optim.output$convergence
   #> [1] 0
   attributes(fit_vario_sm)$optim.output$value
-  #> [1] 10.21217
+  #> [1] 0.00008409905
 
   fit_vario_sm
   #> space component: 
-  #>   model    psill   range kappa
-  #> 1   Nug  0.00000  0.0000   0.0
-  #> 2   Mat 20.80275 21.4185   0.4
+  #>   model      psill    range kappa
+  #> 1   Nug 0.01340038   0.0000   0.0
+  #> 2   Mat 0.10743242 110.8302   0.4
   #> time component: 
-  #>   model    psill    range kappa
-  #> 1   Nug 0.000000 0.000000  0.00
-  #> 2   Mat 4.731562 2.284217  0.12
+  #>   model       psill    range kappa
+  #> 1   Nug 0.000000000  0.00000  0.00
+  #> 2   Mat 0.002002074 13.21124  0.12
   #> joint component: 
-  #>   model    psill   range kappa
-  #> 1   Nug  0.00000   0.000   0.0
-  #> 2   Mat 84.19348 362.735   0.6
-  #> stAni: 184.266947554025
+  #>   model      psill    range kappa
+  #> 1   Nug 0.01144517    0.000  0.00
+  #> 2   Mat 0.26927656 1442.115  0.35
+  #> stAni: 468.862814647035
 
   best_mod_fits <- tib_vario_mod_fits |> 
     filter_out(mod_type == "simpleSumMetric") |> 
@@ -3807,17 +3789,24 @@ lightbox:
     slice_min(sse) |> 
     ungroup()
 
-  best_mod_fits |> select(mod_type, sse)
-  #> # A tibble: 3 × 2
-  #>   mod_type     sse
-  #>   <chr>      <dbl>
-  #> 1 metric      18.8
-  #> 2 productSum  42.2
-  #> 3 separable   41.4
+  best_mod_fits |> 
+    select(mod_type, sse) |> 
+    add_row(mod_type = "simpleSumMetric",
+            sse = tib_ssm_fits |> 
+              slice_min(sse) |> 
+              pull(sse) |> 
+              first())
+  #> # A tibble: 4 × 2
+  #>   mod_type              sse
+  #>   <chr>               <dbl>
+  #> 1 metric          0.000203 
+  #> 2 productSum      0.000139 
+  #> 3 separable       0.000231 
+  #> 4 simpleSumMetric 0.0000845
   ```
 
-  - The Sum-Metric significantly beats the Simple Sum Metric and is chosen as the variogram model to later be used in kriging.
-  - If we were to chose a simpler model, the plain ol'Metric model would probably do decent job for us.
+  - The Sum-Metric beats the Simple Sum Metric (but it's very close) and is chosen as the variogram model to later be used in kriging.
+  - If we were to chose a simpler model, the Product-Sum model would probably do decent job for us.
 
   ## Lattice Plots
 
@@ -3863,7 +3852,7 @@ lightbox:
   ```
 
   - If I had to choose the best fitting model based on this visual, I'd be in trouble.
-  - Maybe the extra pinkish coloring of the inner layers of the Product-Sum and Separable might be enough for the discerning user to disqualify those models, but that's tough to make out.
+  - The Separable model is obviously bad, but I'd have difficulty choosing between the Metrica and Product Sum models.
   - It's a 3-D surface, which is cool, but in terms of model selection, it's not much help.
     - Maybe if it were interactive and we were able to rotate the visual it would make it more useful. (hint, hint, wink)
 
@@ -3875,7 +3864,14 @@ lightbox:
 
   ###### Data Processing
 
+  <Details>
+
+  <Summary>Code</Summary>
+
   ``` r
+  # in the same order as best_mod_fits_all
+  model_names <- c("Sum Metric", "Simple Sum Metric", "Metric", "Product Sum", "Separable")
+
   # process empirical variogram df
   tib_vario_emp <- vario_emp |> 
     mutate(
@@ -3931,8 +3927,11 @@ lightbox:
   )
   ```
 
+  - The empirical variogram (`vario_emp`) is from [Starting Values \>\> Joint Models](geospatial-spat-temp.qmd#sec-geo-sptemp-krig-stval-joint){style="color: green"} \>\> Example 1
   - For purely spatial variogram models, `variogramLine` is used, but for spatio-temporal variogram models, `variogramSurface` is used to get the gamma (semi-variance) estimates.
   - [avgDist]{.var-text} is the median(?) pairwise distance value for each bin of the variogram and it'll be used for the x-axis of these plots.
+
+  </Details>
 
   ###### Multi-Line
 
@@ -3949,24 +3948,18 @@ lightbox:
              group = lag_label, 
              color = lag_label
          )) +
-    geom_line() +
+    geom_line(linewidth = 0.85) +
     geom_point(shape = 1, size = 1.5) +
     scale_color_manual(values = lag_colors, name = NULL) +
     facet_wrap(~ model, nrow = 2) +
+    guides(color = guide_legend(reverse = TRUE)) +
     labs(
       title = "Variogram Model Comparison",
       subtitle = "The best fit of each type of model",
       x = "distance (km)", 
       y = "gamma"
     ) +
-    theme_notebook(
-      strip.text = element_text(
-        size = 14, 
-        face = "bold", 
-        color = "black"
-      ),
-      legend.text = element_text(size = 12)
-    )
+    theme_notebook(legend.key.width = unit(1, "cm"))
   ```
 
   </Details>
@@ -4001,22 +3994,8 @@ lightbox:
     ) +
     theme_notebook(
       strip.background = element_blank(),
-      strip.text = element_text(
-        size = 14, 
-        face = "bold", 
-        color = "black"
-      ),
       panel.grid = element_blank(),
       legend.key.height = unit(1.95, "cm"),
-      legend.text = element_text(
-        size = 10, 
-        face = "bold"
-      ),
-      legend.title = element_text(
-        size = 12,
-        face = "bold",
-        margin = margin(b = 10)
-      )
     )
   ```
 
@@ -4242,7 +4221,7 @@ lightbox:
   ```
 
   - Holy crap is it complicated to build a multi-plot layout in plotly. FFS.
-  - Most text stylings don't work and plotly has abandoned it's R version. Supposedly Posit is going to take it over though. (info from plotly R issue in Dec 2025 I think)
+  - Most text stylings don't work and plotly has abandoned its R version. Supposedly Posit is going to take it over though. (info from plotly R issue in Dec 2025 I think)
   - The sync is a little delayed, but that's the best that can be done with plotly's api according to Claude
 
   </Details>
@@ -4412,12 +4391,12 @@ lightbox:
   data(air, package = "spacetime")
 
   # get rural location time series from 2005 to 2010
-  rural <- spacetime::STFDF(
+  rural_log <- spacetime::STFDF(
     sp = stations, 
     time = dates, 
-    data = data.frame(PM10 = as.vector(air))
+    data = data.frame(PM10 = log(as.vector(air)))
   )
-  rr <- rural[,"2005::2010"]
+  rr <- rural_log[,"2005::2010"]
 
   # remove station ts w/all NAs
   unsel <- which(apply(
@@ -4457,7 +4436,8 @@ lightbox:
     )
   ```
 
-  - This code is taking the original [r5to10]{.var-text} object from the [{spacetime}]{style="color: #990000"} vignette and transforming it into a tibble with some minor preprocessing along the way.
+  - This code is taking the original [r5to10]{.var-text} object from the [{gstat}]{style="color: #990000"} vignette and transforming it into a tibble with some minor preprocessing along the way.
+    - The PM10 variable has been logged which doesn't happen in the vignette.
   - There's a more efficient way to convert a [STFDF]{.arg-text} object to a tibble (along with CRS conversion, various transforms, etc.), but I use [sf_pm10]{.var-text} in too many other places to change this code now. See [Data Formats](geospatial-spat-temp.qmd#sec-geo-sptemp-datform){style="color: green"} \>\> Long \>\> Example 3 for the efficient code.
     - Basically [{spacetime}]{style="color: #990000"} comes with a `as.data.frame` method which makes this easier.
 
@@ -4513,23 +4493,23 @@ lightbox:
   result_date <- path_date$train(task_st_pm10)
 
   result_spl[[1]]$data()[1:3]
-  #>      pm10   spline_1  spline_2  spline_3  spline_4   spline_5   spline_6  spline_7    spline_8 spline_9
-  #>     <num>      <num>     <num>     <num>     <num>      <num>      <num>     <num>       <num>    <num>
-  #> 1: 16.696 -0.7845660 1.0161461 0.5642808 0.7840572 -0.5688355 -0.7853558 0.7391472 -0.16817003 1.317808
-  #> 2: 31.667 -0.8604533 0.8683869 0.6483173 0.6173459 -0.6283766 -0.8058987 0.6285879 -0.12413108 1.234869
-  #> 3: 22.450 -0.5593611 1.5303593 0.7460287 1.0285107 -0.9101423 -0.4846120 0.9965906 -0.08220771 1.547379
+  #>        pm10   spline_1  spline_2  spline_3  spline_4   spline_5   spline_6  spline_7    spline_8 spline_9
+  #>       <num>      <num>     <num>     <num>     <num>      <num>      <num>     <num>       <num>    <num>
+  #> 1: 2.815169 -0.7845660 1.0161461 0.5642808 0.7840572 -0.5688355 -0.7853558 0.7391472 -0.16817003 1.317808
+  #> 2: 3.455275 -0.8604533 0.8683869 0.6483173 0.6173459 -0.6283766 -0.8058987 0.6285879 -0.12413108 1.234869
+  #> 3: 3.111291 -0.5593611 1.5303593 0.7460287 1.0285107 -0.9101423 -0.4846120 0.9965906 -0.08220771 1.547379
 
   result_date[[1]]$data()[1:3]
-  #>      pm10 date_feat.year date_feat.month date_feat.quarter date_feat.week_of_year date_feat.day_of_year
-  #>     <num>          <num>           <num>             <num>                  <num>                 <num>
-  #> 1: 16.696           2005               1                 1                     53                     1
-  #> 2: 31.667           2005               1                 1                     53                     1
-  #> 3: 22.450           2005               1                 1                     53                     1
-  #>    date_feat.day_of_month date_feat.day_of_week
-  #>                     <num>                 <num>
-  #> 1:                      1                     7
-  #> 2:                      1                     7
-  #> 3:                      1                     7
+  #>        pm10 date_feat.year date_feat.month date_feat.quarter date_feat.week_of_year date_feat.day_of_year date_feat.day_of_month
+  #>       <num>          <num>           <num>             <num>                  <num>                 <num>                  <num>
+  #> 1: 2.815169           2005               1                 1                     53                     1                      1
+  #> 2: 3.455275           2005               1                 1                     53                     1                      1
+  #> 3: 3.111291           2005               1                 1                     53                     1                      1
+  #>    date_feat.day_of_week
+  #>                    <num>
+  #> 1:                     7
+  #> 2:                     7
+  #> 3:                     7
   ```
 
   - `po` stands for the [PipeOps]{.arg-text} class. These are essentially [{recipe}]{style="color: #990000"} steps from the [{tidymodels}]{style="color: #990000"} framework.
@@ -4867,45 +4847,47 @@ lightbox:
     mutate(learner_id = stringr::str_extract(learner_id, "regr\\.(\\w)*"))
   #>       learner_id       resampling_id regr.rmse
   #>           <char>              <char>     <num>
-  #> 1:   regr.ranger repeated_sptcv_cstf  9.387355
-  #> 2: regr.lightgbm repeated_sptcv_cstf  9.515735
-  #> 3: regr.catboost repeated_sptcv_cstf  9.279322
+  #> 1:   regr.ranger repeated_sptcv_cstf 0.5561710
+  #> 2: regr.lightgbm repeated_sptcv_cstf 0.5683319
+  #> 3: regr.catboost repeated_sptcv_cstf 0.5521295
 
 
   (cat_fold_scores <- bmr_pm10$score(msr("regr.rmse")) |> 
     select(iteration, regr.rmse) |> 
-    slice(31:45))
+      slice(31:45)) # catboost
   #>     iteration regr.rmse
   #>         <int>     <num>
-  #>  1:         1  8.665232
-  #>  2:         2  9.461272
-  #>  3:         3  9.758544
-  #>  4:         4  8.494960
-  #>  5:         5 10.718390
-  #>  6:         6  8.562439
-  #>  7:         7  8.269326
-  #>  8:         8 10.400065
-  #>  9:         9  8.979645
-  #> 10:        10  9.519779
-  #> 11:        11  8.797159
-  #> 12:        12  8.660889
-  #> 13:        13  9.049979
-  #> 14:        14 11.038864
-  #> 15:        15  8.813295
+  #>  1:         1 0.5109692
+  #>  2:         2 0.5425213
+  #>  3:         3 0.6898884
+  #>  4:         4 0.5280379
+  #>  5:         5 0.5458836
+  #>  6:         6 0.5727127
+  #>  7:         7 0.5623074
+  #>  8:         8 0.5713485
+  #>  9:         9 0.4784572
+  #> 10:        10 0.5292341
+  #> 11:        11 0.5459597
+  #> 12:        12 0.5545424
+  #> 13:        13 0.5155985
+  #> 14:        14 0.5563014
+  #> 15:        15 0.5781796
 
   sd(cat_fold_scores$regr.rmse)
-  #> [1] 0.8554204
+  #> [1] 0.0465267
+
+  0.5521295 / sd(tib_pm10$pm10)
+  #> [1] 0.8807431
 
   # Train the production model
   lrn_cat <- as_learner(gr_cat)
   lrn_cat_final <- lrn_cat$train(task_st_pm10)
 
-
   preds_final <- lrn_cat_final$predict(task_st_pm10)
   # substantially better than the cv score
   preds_final$score(msr("regr.rmse"))
   #> regr.rmse 
-  #>    6.2681
+  #> 0.3645166 
   ```
 
   - The Graphs are packaged up into a list
@@ -4914,7 +4896,7 @@ lightbox:
     - In previous experimentation (nested cv), 5 folds with 3 repeats had good generaliztion error and was computationally efficient. Is this an apples to apples situation? Nope. Using it anyways.
   - Note that mlr3 has its own parallelization parameterization setting with {future}. Don't remember what output = TRUE is about. Think I just copied it from an example.
   - Only about 3.6 minutes to complete this is pretty freaking awesome compared to the kriging times.
-  - Catboost eeks out the victory with a 9.27 RMSE. SD is low so it looks like a stable algorithm for this data.
+  - Catboost eeks out the victory. SD is okay so it looks like a stable algorithm for this data.
 
   ## krigeST
 
@@ -4941,8 +4923,8 @@ lightbox:
     test_idx  <- cv_folds$test_set(fold_idx)
 
     # subset sf_p10 to train and test
-    sf_train <- sf_dat[train_idx, ]
-    sf_test  <- sf_dat[test_idx, ]
+    sf_train <- sf_dat[train_idx, ] |> sf::st_as_sf(coords = c("X", "Y"))
+    sf_test  <- sf_dat[test_idx, ] |> sf::st_as_sf(coords = c("X", "Y"))
 
     # build SpatialPoints for train
     sp_train <- SpatialPoints(
@@ -5022,7 +5004,7 @@ lightbox:
 
   tictoc::tic()
   # run CV across all folds
-  # 11395.29 sec or 3.15 hrs with 12 workers
+  # 8265.92 sec or 2.3 hrs with 12 workers
   tib_res_cv_krige <- purrr::pmap(
     krig_grid,
     run_krigeST_fold
@@ -5033,71 +5015,88 @@ lightbox:
 
   mirai::daemons(0)
 
-  # 4 models w/lowest RMSE, but (15, 2) with lowest bias (neg or pos)
-  tib_res_cv_krige |>
+  (res_scores <- tib_res_cv_krige |>
+    # score each fold
     summarize(
-      RMSE = sqrt(mean((observed - predicted)^2, na.rm = TRUE)),
-      ME   = mean(observed - predicted, na.rm = TRUE),
+      RMSE = sqrt(mean((exp(observed) - exp(predicted))^2, na.rm = TRUE)),
+      ME = mean(exp(observed) - exp(predicted), na.rm = TRUE),
+      .by = c(nmax, bufferNmax, fold)
+    ) |>
+    # average fold scores
+    summarize(
+      RMSE = mean(RMSE),
+      ME   = mean(ME),
       .by = c(nmax, bufferNmax)
-    ) |> 
-    arrange(RMSE)
+    ) |>
+    arrange(RMSE))
   #> # A tibble: 6 × 4
-  #>    nmax bufferNmax  RMSE     ME
-  #>   <dbl>      <dbl> <dbl>  <dbl>
-  #> 1    10          1  10.1 -0.193
-  #> 2    10          2  10.1 -0.187
-  #> 3    15          1  10.1 -0.194
-  #> 4    15          2  10.1 -0.140
-  #> 5    20          2  10.3 -0.220
-  #> 6    20          1  10.3 -0.235
+  #>    nmax bufferNmax  RMSE    ME
+  #>   <dbl>      <dbl> <dbl> <dbl>
+  #> 1    10          2  9.93  1.56
+  #> 2    10          1  9.94  1.56
+  #> 3    15          2 10.0   1.67
+  #> 4    15          1 10.0   1.68
+  #> 5    20          2 10.1   1.77
+  #> 6    20          1 10.1   1.77
 
 
-  # the (15, 2) model doesn't show any erratic scores in the folds
-  # everything between 9 and 11
   tib_res_cv_krige |>
     filter(
-      nmax == 15,
+      nmax == 10,
       bufferNmax == 2
     ) |>
     summarize(
-      RMSE = sqrt(mean((observed - predicted)^2, na.rm = TRUE)),
-      ME   = mean(observed - predicted, na.rm = TRUE),
+      RMSE = sqrt(mean((exp(observed) - exp(predicted))^2, na.rm = TRUE)),
+      ME   = mean(exp(observed) - exp(predicted), na.rm = TRUE),
       .by = fold
     )
   #> # A tibble: 15 × 3
-  #>     fold  RMSE       ME
-  #>    <int> <dbl>    <dbl>
-  #>  1     1 10.2  -1.10   
-  #>  2     2  9.40 -0.268  
-  #>  3     3 10.4  -0.578  
-  #>  4     4 11.1   1.08   
-  #>  5     5  9.42 -0.798  
-  #>  6     6 10.1  -0.669  
-  #>  7     7  9.35  0.308  
-  #>  8     8  9.57  0.969  
-  #>  9     9 11.6  -0.00601
-  #> 10    10  9.55  0.668  
-  #> 11    11 10.8   1.02   
-  #> 12    12  9.79 -1.64   
-  #> 13    13  9.68 -0.554  
-  #> 14    14 11.0   0.901  
-  #> 15    15 10.1  -1.17  
+  #>     fold  RMSE     ME
+  #>    <int> <dbl>  <dbl>
+  #>  1     1  8.88  1.47 
+  #>  2     2 10.4   0.603
+  #>  3     3  9.58 -0.147
+  #>  4     4  9.13  1.68 
+  #>  5     5 11.1   2.26 
+  #>  6     6  9.44  2.10 
+  #>  7     7  9.24  1.21 
+  #>  8     8 10.9   0.401
+  #>  9     9 10.4   1.76 
+  #> 10    10  9.61  2.71 
+  #> 11    11  9.82  0.684
+  #> 12    12  9.53  1.82 
+  #> 13    13  9.84  2.19 
+  #> 14    14 11.5   2.21 
+  #> 15    15  9.56  2.44 
 
-  summary(tib_pm10$pm10)
-  #>   Min. 1st Qu.  Median    Mean 3rd Qu.    Max. 
-  #>  0.560   9.275  13.852  16.261  20.333 269.079
 
-  sd(tib_pm10$pm10)
-  #> [1] 10.73985
+  res_scores |> 
+    slice_min(RMSE) |> 
+    summarize(rmse_ratio = RMSE/sd(exp(tib_pm10$pm10)))
+  #> # A tibble: 1 × 1
+  #>   rmse_ratio
+  #>        <dbl>
+  #> 1      0.925
+
+
+  moose <- tib_res_cv_krige |>
+    filter(
+      nmax == 10,
+      bufferNmax == 2
+    )
+  yardstick::rsq_vec(moose, exp(observed), exp(predicted))
+  #> [1] 0.1784053
   ```
 
   - Along with running the CV, I'm also tuning nmax and bufferNmax.
     - Given the spread of the station locations across the country and the fact, there are only 53 possible stations on any given day, I can't imagine more than 20 of the nearest stations would have any significant information.
     - I only allowed for double the search radius, but given the spread, maybe I should have allowed for larger factors.
-  - Results show a few models with the same (lowest) RMSE, but nmax = 15 and bufferNmax = 2 has the ME closest to zero.
-  - Process took around 3.15 hrs with 12 workers on my rig.
+  - Results show a nmax = 10 and bufferNmax = 2 with the lowest RMSE
+  - Process took around 2.3 hrs with 12 workers on my rig.
     - Claude and I came up with some speed-up ideas. Hopefully I'll apply those someday and create a pull request or package out it.
-  - I didn't check the SD on these but they look stable too.
+  - I experimented with a logged PM10 (results shown) and not-logged PM10. It doesn't seem to affect the scores much at all, but hopefully the residuals will look better
+  - Neither the Catboost or this kriging model are good models, but they're better than taking the mean. They're also basic models with no real predictors. Adding informative predictors (e.g. wind speed, distance from factories, interstates, elevation, weather, population, etc.) would hopefully make these much better.
+    - The Catboost has a few engineered variables but those (basic space and time variables) are just so it can play on the same field as a true spatio-temporal model.
   :::
 
 - [Example 2]{.ribbon-highlight}: Diagnostics
