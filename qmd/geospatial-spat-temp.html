@@ -7525,117 +7525,128 @@ Code
 <li>The function takes the test and train row indices from the mlr3 folds, subsets the dat accordingly, uses them to create STFDF objects, runs krigeST, and records the results.</li>
 </ul>
 <h6 id="run-cv-1" class="anchored">Run CV</h6>
-<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb85"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb85-1"><a href="#cb85-1" aria-hidden="true" tabindex="-1"></a><span class="co"># 90 models</span></span>
-<span id="cb85-2"><a href="#cb85-2" aria-hidden="true" tabindex="-1"></a>krig_grid <span class="ot">&lt;-</span> <span class="fu">expand.grid</span>(</span>
-<span id="cb85-3"><a href="#cb85-3" aria-hidden="true" tabindex="-1"></a>  <span class="at">fold_idx =</span> <span class="dv">1</span><span class="sc">:</span><span class="dv">15</span>,</span>
-<span id="cb85-4"><a href="#cb85-4" aria-hidden="true" tabindex="-1"></a>  <span class="at">nmax =</span> <span class="fu">c</span>(<span class="dv">10</span>, <span class="dv">15</span>, <span class="dv">20</span>), <span class="co"># only 53 locations</span></span>
-<span id="cb85-5"><a href="#cb85-5" aria-hidden="true" tabindex="-1"></a>  <span class="at">bufferNmax =</span> <span class="fu">c</span>(<span class="dv">1</span>, <span class="dv">2</span>) <span class="co">#</span></span>
-<span id="cb85-6"><a href="#cb85-6" aria-hidden="true" tabindex="-1"></a>) <span class="sc">|&gt;</span> </span>
-<span id="cb85-7"><a href="#cb85-7" aria-hidden="true" tabindex="-1"></a>  <span class="fu">mutate</span>(</span>
-<span id="cb85-8"><a href="#cb85-8" aria-hidden="true" tabindex="-1"></a>    <span class="at">cv_folds =</span> <span class="fu">list</span>(rcv_st_pm10),</span>
-<span id="cb85-9"><a href="#cb85-9" aria-hidden="true" tabindex="-1"></a>    <span class="at">sf_dat =</span> <span class="fu">list</span>(sf_pm10),</span>
-<span id="cb85-10"><a href="#cb85-10" aria-hidden="true" tabindex="-1"></a>    <span class="at">vario_mod =</span> <span class="fu">list</span>(fit_vario_sm)</span>
-<span id="cb85-11"><a href="#cb85-11" aria-hidden="true" tabindex="-1"></a>  )</span>
-<span id="cb85-12"><a href="#cb85-12" aria-hidden="true" tabindex="-1"></a></span>
-<span id="cb85-13"><a href="#cb85-13" aria-hidden="true" tabindex="-1"></a><span class="fu">plan</span>(future.mirai<span class="sc">::</span>mirai_multisession, <span class="at">workers =</span> <span class="dv">12</span>L)</span>
-<span id="cb85-14"><a href="#cb85-14" aria-hidden="true" tabindex="-1"></a></span>
-<span id="cb85-15"><a href="#cb85-15" aria-hidden="true" tabindex="-1"></a>tictoc<span class="sc">::</span><span class="fu">tic</span>()</span>
-<span id="cb85-16"><a href="#cb85-16" aria-hidden="true" tabindex="-1"></a><span class="co"># run CV across all folds</span></span>
-<span id="cb85-17"><a href="#cb85-17" aria-hidden="true" tabindex="-1"></a><span class="co"># 8265.92 sec or 2.3 hrs with 12 workers</span></span>
-<span id="cb85-18"><a href="#cb85-18" aria-hidden="true" tabindex="-1"></a>tib_res_cv_krige <span class="ot">&lt;-</span> purrr<span class="sc">::</span><span class="fu">pmap</span>(</span>
-<span id="cb85-19"><a href="#cb85-19" aria-hidden="true" tabindex="-1"></a>  krig_grid,</span>
-<span id="cb85-20"><a href="#cb85-20" aria-hidden="true" tabindex="-1"></a>  run_krigeST_fold</span>
-<span id="cb85-21"><a href="#cb85-21" aria-hidden="true" tabindex="-1"></a>) <span class="sc">|&gt;</span></span>
-<span id="cb85-22"><a href="#cb85-22" aria-hidden="true" tabindex="-1"></a>  <span class="fu">futurize</span>() <span class="sc">|&gt;</span></span>
-<span id="cb85-23"><a href="#cb85-23" aria-hidden="true" tabindex="-1"></a>  purrr<span class="sc">::</span><span class="fu">list_rbind</span>()</span>
-<span id="cb85-24"><a href="#cb85-24" aria-hidden="true" tabindex="-1"></a>tictoc<span class="sc">::</span><span class="fu">toc</span>()</span>
-<span id="cb85-25"><a href="#cb85-25" aria-hidden="true" tabindex="-1"></a></span>
-<span id="cb85-26"><a href="#cb85-26" aria-hidden="true" tabindex="-1"></a>mirai<span class="sc">::</span><span class="fu">daemons</span>(<span class="dv">0</span>)</span>
-<span id="cb85-27"><a href="#cb85-27" aria-hidden="true" tabindex="-1"></a></span>
-<span id="cb85-28"><a href="#cb85-28" aria-hidden="true" tabindex="-1"></a>(res_scores <span class="ot">&lt;-</span> tib_res_cv_krige <span class="sc">|&gt;</span></span>
-<span id="cb85-29"><a href="#cb85-29" aria-hidden="true" tabindex="-1"></a>  <span class="co"># score each fold</span></span>
-<span id="cb85-30"><a href="#cb85-30" aria-hidden="true" tabindex="-1"></a>  <span class="fu">summarize</span>(</span>
-<span id="cb85-31"><a href="#cb85-31" aria-hidden="true" tabindex="-1"></a>    <span class="at">RMSE =</span> <span class="fu">sqrt</span>(<span class="fu">mean</span>((<span class="fu">exp</span>(observed) <span class="sc">-</span> <span class="fu">exp</span>(predicted))<span class="sc">^</span><span class="dv">2</span>, <span class="at">na.rm =</span> <span class="cn">TRUE</span>)),</span>
-<span id="cb85-32"><a href="#cb85-32" aria-hidden="true" tabindex="-1"></a>    <span class="at">ME =</span> <span class="fu">mean</span>(<span class="fu">exp</span>(observed) <span class="sc">-</span> <span class="fu">exp</span>(predicted), <span class="at">na.rm =</span> <span class="cn">TRUE</span>),</span>
-<span id="cb85-33"><a href="#cb85-33" aria-hidden="true" tabindex="-1"></a>    <span class="at">.by =</span> <span class="fu">c</span>(nmax, bufferNmax, fold)</span>
-<span id="cb85-34"><a href="#cb85-34" aria-hidden="true" tabindex="-1"></a>  ) <span class="sc">|&gt;</span></span>
-<span id="cb85-35"><a href="#cb85-35" aria-hidden="true" tabindex="-1"></a>  <span class="co"># average fold scores</span></span>
-<span id="cb85-36"><a href="#cb85-36" aria-hidden="true" tabindex="-1"></a>  <span class="fu">summarize</span>(</span>
-<span id="cb85-37"><a href="#cb85-37" aria-hidden="true" tabindex="-1"></a>    <span class="at">RMSE =</span> <span class="fu">mean</span>(RMSE),</span>
-<span id="cb85-38"><a href="#cb85-38" aria-hidden="true" tabindex="-1"></a>    <span class="at">ME   =</span> <span class="fu">mean</span>(ME),</span>
-<span id="cb85-39"><a href="#cb85-39" aria-hidden="true" tabindex="-1"></a>    <span class="at">.by =</span> <span class="fu">c</span>(nmax, bufferNmax)</span>
-<span id="cb85-40"><a href="#cb85-40" aria-hidden="true" tabindex="-1"></a>  ) <span class="sc">|&gt;</span></span>
-<span id="cb85-41"><a href="#cb85-41" aria-hidden="true" tabindex="-1"></a>  <span class="fu">arrange</span>(RMSE))</span>
-<span id="cb85-42"><a href="#cb85-42" aria-hidden="true" tabindex="-1"></a><span class="co">#&gt; # A tibble: 6 × 4</span></span>
-<span id="cb85-43"><a href="#cb85-43" aria-hidden="true" tabindex="-1"></a><span class="co">#&gt;    nmax bufferNmax  RMSE    ME</span></span>
-<span id="cb85-44"><a href="#cb85-44" aria-hidden="true" tabindex="-1"></a><span class="co">#&gt;   &lt;dbl&gt;      &lt;dbl&gt; &lt;dbl&gt; &lt;dbl&gt;</span></span>
-<span id="cb85-45"><a href="#cb85-45" aria-hidden="true" tabindex="-1"></a><span class="co">#&gt; 1    10          2  9.93  1.56</span></span>
-<span id="cb85-46"><a href="#cb85-46" aria-hidden="true" tabindex="-1"></a><span class="co">#&gt; 2    10          1  9.94  1.56</span></span>
-<span id="cb85-47"><a href="#cb85-47" aria-hidden="true" tabindex="-1"></a><span class="co">#&gt; 3    15          2 10.0   1.67</span></span>
-<span id="cb85-48"><a href="#cb85-48" aria-hidden="true" tabindex="-1"></a><span class="co">#&gt; 4    15          1 10.0   1.68</span></span>
-<span id="cb85-49"><a href="#cb85-49" aria-hidden="true" tabindex="-1"></a><span class="co">#&gt; 5    20          2 10.1   1.77</span></span>
-<span id="cb85-50"><a href="#cb85-50" aria-hidden="true" tabindex="-1"></a><span class="co">#&gt; 6    20          1 10.1   1.77</span></span>
-<span id="cb85-51"><a href="#cb85-51" aria-hidden="true" tabindex="-1"></a></span>
+<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb85"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb85-1"><a href="#cb85-1" aria-hidden="true" tabindex="-1"></a><span class="co"># tune nmax. then tune bufferNmax. then tune nmax again</span></span>
+<span id="cb85-2"><a href="#cb85-2" aria-hidden="true" tabindex="-1"></a><span class="co"># settings for final cv run</span></span>
+<span id="cb85-3"><a href="#cb85-3" aria-hidden="true" tabindex="-1"></a>krig_grid <span class="ot">&lt;-</span> <span class="fu">expand.grid</span>(</span>
+<span id="cb85-4"><a href="#cb85-4" aria-hidden="true" tabindex="-1"></a>  <span class="at">fold_idx =</span> <span class="dv">1</span><span class="sc">:</span><span class="dv">15</span>,</span>
+<span id="cb85-5"><a href="#cb85-5" aria-hidden="true" tabindex="-1"></a>  <span class="at">nmax =</span> <span class="fu">c</span>(<span class="dv">8</span>, <span class="dv">9</span>, <span class="dv">11</span>, <span class="dv">12</span>),</span>
+<span id="cb85-6"><a href="#cb85-6" aria-hidden="true" tabindex="-1"></a>  <span class="at">bufferNmax =</span> <span class="dv">132</span></span>
+<span id="cb85-7"><a href="#cb85-7" aria-hidden="true" tabindex="-1"></a>) <span class="sc">|&gt;</span> </span>
+<span id="cb85-8"><a href="#cb85-8" aria-hidden="true" tabindex="-1"></a>  <span class="fu">mutate</span>(</span>
+<span id="cb85-9"><a href="#cb85-9" aria-hidden="true" tabindex="-1"></a>    <span class="at">cv_folds =</span> <span class="fu">list</span>(rcv_st_pm10),</span>
+<span id="cb85-10"><a href="#cb85-10" aria-hidden="true" tabindex="-1"></a>    <span class="at">sf_dat =</span> <span class="fu">list</span>(sf_pm10),</span>
+<span id="cb85-11"><a href="#cb85-11" aria-hidden="true" tabindex="-1"></a>    <span class="at">vario_mod =</span> <span class="fu">list</span>(fit_vario_sm)</span>
+<span id="cb85-12"><a href="#cb85-12" aria-hidden="true" tabindex="-1"></a>  )</span>
+<span id="cb85-13"><a href="#cb85-13" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb85-14"><a href="#cb85-14" aria-hidden="true" tabindex="-1"></a><span class="fu">plan</span>(future.mirai<span class="sc">::</span>mirai_multisession, <span class="at">workers =</span> <span class="dv">12</span>L)</span>
+<span id="cb85-15"><a href="#cb85-15" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb85-16"><a href="#cb85-16" aria-hidden="true" tabindex="-1"></a>tictoc<span class="sc">::</span><span class="fu">tic</span>()</span>
+<span id="cb85-17"><a href="#cb85-17" aria-hidden="true" tabindex="-1"></a><span class="co"># run CV across all folds</span></span>
+<span id="cb85-18"><a href="#cb85-18" aria-hidden="true" tabindex="-1"></a><span class="co"># 8265.92 sec or 3.15 hrs with 12 workers w/nmax = c(10, 15, 20), bufferNmax = c(1, 2)</span></span>
+<span id="cb85-19"><a href="#cb85-19" aria-hidden="true" tabindex="-1"></a><span class="co"># 6077.15 sec or 1.68 hrs with 12 workers w/nmax = 10, bufferNmax = c(1, 2, 3)</span></span>
+<span id="cb85-20"><a href="#cb85-20" aria-hidden="true" tabindex="-1"></a><span class="co"># 7479.77 sec or 2.08 hrs with 12 workers w/nmax = c(8, 9, 11, 12), bufferNmax = 132</span></span>
+<span id="cb85-21"><a href="#cb85-21" aria-hidden="true" tabindex="-1"></a>tib_res_cv_krige <span class="ot">&lt;-</span> purrr<span class="sc">::</span><span class="fu">pmap</span>(</span>
+<span id="cb85-22"><a href="#cb85-22" aria-hidden="true" tabindex="-1"></a>  krig_grid,</span>
+<span id="cb85-23"><a href="#cb85-23" aria-hidden="true" tabindex="-1"></a>  run_krigeST_fold</span>
+<span id="cb85-24"><a href="#cb85-24" aria-hidden="true" tabindex="-1"></a>) <span class="sc">|&gt;</span></span>
+<span id="cb85-25"><a href="#cb85-25" aria-hidden="true" tabindex="-1"></a>  <span class="fu">futurize</span>() <span class="sc">|&gt;</span></span>
+<span id="cb85-26"><a href="#cb85-26" aria-hidden="true" tabindex="-1"></a>  purrr<span class="sc">::</span><span class="fu">list_rbind</span>()</span>
+<span id="cb85-27"><a href="#cb85-27" aria-hidden="true" tabindex="-1"></a>tictoc<span class="sc">::</span><span class="fu">toc</span>()</span>
+<span id="cb85-28"><a href="#cb85-28" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb85-29"><a href="#cb85-29" aria-hidden="true" tabindex="-1"></a>mirai<span class="sc">::</span><span class="fu">daemons</span>(<span class="dv">0</span>)</span>
+<span id="cb85-30"><a href="#cb85-30" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb85-31"><a href="#cb85-31" aria-hidden="true" tabindex="-1"></a><span class="co"># showing last two cv runs</span></span>
+<span id="cb85-32"><a href="#cb85-32" aria-hidden="true" tabindex="-1"></a><span class="co"># winner: RMSE = 0.4947919</span></span>
+<span id="cb85-33"><a href="#cb85-33" aria-hidden="true" tabindex="-1"></a>(res_scores <span class="ot">&lt;-</span> tib_res_cv_krige <span class="sc">|&gt;</span></span>
+<span id="cb85-34"><a href="#cb85-34" aria-hidden="true" tabindex="-1"></a>  <span class="fu">summarize</span>(</span>
+<span id="cb85-35"><a href="#cb85-35" aria-hidden="true" tabindex="-1"></a>    <span class="at">RMSE =</span> <span class="fu">sqrt</span>(<span class="fu">mean</span>((observed <span class="sc">-</span> predicted)<span class="sc">^</span><span class="dv">2</span>, <span class="at">na.rm =</span> <span class="cn">TRUE</span>)),</span>
+<span id="cb85-36"><a href="#cb85-36" aria-hidden="true" tabindex="-1"></a>    <span class="at">ME =</span> <span class="fu">mean</span>(observed <span class="sc">-</span> predicted, <span class="at">na.rm =</span> <span class="cn">TRUE</span>),</span>
+<span id="cb85-37"><a href="#cb85-37" aria-hidden="true" tabindex="-1"></a>    <span class="at">.by =</span> <span class="fu">c</span>(nmax, bufferNmax)</span>
+<span id="cb85-38"><a href="#cb85-38" aria-hidden="true" tabindex="-1"></a>  ) <span class="sc">|&gt;</span> </span>
+<span id="cb85-39"><a href="#cb85-39" aria-hidden="true" tabindex="-1"></a>  <span class="fu">arrange</span>(RMSE))</span>
+<span id="cb85-40"><a href="#cb85-40" aria-hidden="true" tabindex="-1"></a><span class="co">#&gt; # A tibble: 9 × 4</span></span>
+<span id="cb85-41"><a href="#cb85-41" aria-hidden="true" tabindex="-1"></a><span class="co">#&gt;    nmax bufferNmax  RMSE      ME</span></span>
+<span id="cb85-42"><a href="#cb85-42" aria-hidden="true" tabindex="-1"></a><span class="co">#&gt;   &lt;dbl&gt;      &lt;int&gt; &lt;dbl&gt;   &lt;dbl&gt;</span></span>
+<span id="cb85-43"><a href="#cb85-43" aria-hidden="true" tabindex="-1"></a><span class="co">#&gt; 1    10        132 0.495 -0.0123</span></span>
+<span id="cb85-44"><a href="#cb85-44" aria-hidden="true" tabindex="-1"></a><span class="co">#&gt; 2    10        131 0.495 -0.0124</span></span>
+<span id="cb85-45"><a href="#cb85-45" aria-hidden="true" tabindex="-1"></a><span class="co">#&gt; 3    10        133 0.495 -0.0123</span></span>
+<span id="cb85-46"><a href="#cb85-46" aria-hidden="true" tabindex="-1"></a><span class="co">#&gt; 4    10        134 0.495 -0.0122</span></span>
+<span id="cb85-47"><a href="#cb85-47" aria-hidden="true" tabindex="-1"></a><span class="co">#&gt; 5    10        135 0.495 -0.0121</span></span>
+<span id="cb85-48"><a href="#cb85-48" aria-hidden="true" tabindex="-1"></a><span class="co">#&gt; 6    10        136 0.496 -0.0119</span></span>
+<span id="cb85-49"><a href="#cb85-49" aria-hidden="true" tabindex="-1"></a><span class="co">#&gt; 7    10        137 0.496 -0.0118</span></span>
+<span id="cb85-50"><a href="#cb85-50" aria-hidden="true" tabindex="-1"></a><span class="co">#&gt; 8    10        138 0.496 -0.0118</span></span>
+<span id="cb85-51"><a href="#cb85-51" aria-hidden="true" tabindex="-1"></a><span class="co">#&gt; 9    10        139 0.496 -0.0119</span></span>
 <span id="cb85-52"><a href="#cb85-52" aria-hidden="true" tabindex="-1"></a></span>
-<span id="cb85-53"><a href="#cb85-53" aria-hidden="true" tabindex="-1"></a>tib_res_cv_krige <span class="sc">|&gt;</span></span>
-<span id="cb85-54"><a href="#cb85-54" aria-hidden="true" tabindex="-1"></a>  <span class="fu">filter</span>(</span>
-<span id="cb85-55"><a href="#cb85-55" aria-hidden="true" tabindex="-1"></a>    nmax <span class="sc">==</span> <span class="dv">10</span>,</span>
-<span id="cb85-56"><a href="#cb85-56" aria-hidden="true" tabindex="-1"></a>    bufferNmax <span class="sc">==</span> <span class="dv">2</span></span>
-<span id="cb85-57"><a href="#cb85-57" aria-hidden="true" tabindex="-1"></a>  ) <span class="sc">|&gt;</span></span>
-<span id="cb85-58"><a href="#cb85-58" aria-hidden="true" tabindex="-1"></a>  <span class="fu">summarize</span>(</span>
-<span id="cb85-59"><a href="#cb85-59" aria-hidden="true" tabindex="-1"></a>    <span class="at">RMSE =</span> <span class="fu">sqrt</span>(<span class="fu">mean</span>((<span class="fu">exp</span>(observed) <span class="sc">-</span> <span class="fu">exp</span>(predicted))<span class="sc">^</span><span class="dv">2</span>, <span class="at">na.rm =</span> <span class="cn">TRUE</span>)),</span>
-<span id="cb85-60"><a href="#cb85-60" aria-hidden="true" tabindex="-1"></a>    <span class="at">ME   =</span> <span class="fu">mean</span>(<span class="fu">exp</span>(observed) <span class="sc">-</span> <span class="fu">exp</span>(predicted), <span class="at">na.rm =</span> <span class="cn">TRUE</span>),</span>
-<span id="cb85-61"><a href="#cb85-61" aria-hidden="true" tabindex="-1"></a>    <span class="at">.by =</span> fold</span>
-<span id="cb85-62"><a href="#cb85-62" aria-hidden="true" tabindex="-1"></a>  )</span>
-<span id="cb85-63"><a href="#cb85-63" aria-hidden="true" tabindex="-1"></a><span class="co">#&gt; # A tibble: 15 × 3</span></span>
-<span id="cb85-64"><a href="#cb85-64" aria-hidden="true" tabindex="-1"></a><span class="co">#&gt;     fold  RMSE     ME</span></span>
-<span id="cb85-65"><a href="#cb85-65" aria-hidden="true" tabindex="-1"></a><span class="co">#&gt;    &lt;int&gt; &lt;dbl&gt;  &lt;dbl&gt;</span></span>
-<span id="cb85-66"><a href="#cb85-66" aria-hidden="true" tabindex="-1"></a><span class="co">#&gt;  1     1  8.88  1.47 </span></span>
-<span id="cb85-67"><a href="#cb85-67" aria-hidden="true" tabindex="-1"></a><span class="co">#&gt;  2     2 10.4   0.603</span></span>
-<span id="cb85-68"><a href="#cb85-68" aria-hidden="true" tabindex="-1"></a><span class="co">#&gt;  3     3  9.58 -0.147</span></span>
-<span id="cb85-69"><a href="#cb85-69" aria-hidden="true" tabindex="-1"></a><span class="co">#&gt;  4     4  9.13  1.68 </span></span>
-<span id="cb85-70"><a href="#cb85-70" aria-hidden="true" tabindex="-1"></a><span class="co">#&gt;  5     5 11.1   2.26 </span></span>
-<span id="cb85-71"><a href="#cb85-71" aria-hidden="true" tabindex="-1"></a><span class="co">#&gt;  6     6  9.44  2.10 </span></span>
-<span id="cb85-72"><a href="#cb85-72" aria-hidden="true" tabindex="-1"></a><span class="co">#&gt;  7     7  9.24  1.21 </span></span>
-<span id="cb85-73"><a href="#cb85-73" aria-hidden="true" tabindex="-1"></a><span class="co">#&gt;  8     8 10.9   0.401</span></span>
-<span id="cb85-74"><a href="#cb85-74" aria-hidden="true" tabindex="-1"></a><span class="co">#&gt;  9     9 10.4   1.76 </span></span>
-<span id="cb85-75"><a href="#cb85-75" aria-hidden="true" tabindex="-1"></a><span class="co">#&gt; 10    10  9.61  2.71 </span></span>
-<span id="cb85-76"><a href="#cb85-76" aria-hidden="true" tabindex="-1"></a><span class="co">#&gt; 11    11  9.82  0.684</span></span>
-<span id="cb85-77"><a href="#cb85-77" aria-hidden="true" tabindex="-1"></a><span class="co">#&gt; 12    12  9.53  1.82 </span></span>
-<span id="cb85-78"><a href="#cb85-78" aria-hidden="true" tabindex="-1"></a><span class="co">#&gt; 13    13  9.84  2.19 </span></span>
-<span id="cb85-79"><a href="#cb85-79" aria-hidden="true" tabindex="-1"></a><span class="co">#&gt; 14    14 11.5   2.21 </span></span>
-<span id="cb85-80"><a href="#cb85-80" aria-hidden="true" tabindex="-1"></a><span class="co">#&gt; 15    15  9.56  2.44 </span></span>
-<span id="cb85-81"><a href="#cb85-81" aria-hidden="true" tabindex="-1"></a></span>
-<span id="cb85-82"><a href="#cb85-82" aria-hidden="true" tabindex="-1"></a></span>
-<span id="cb85-83"><a href="#cb85-83" aria-hidden="true" tabindex="-1"></a>res_scores <span class="sc">|&gt;</span> </span>
-<span id="cb85-84"><a href="#cb85-84" aria-hidden="true" tabindex="-1"></a>  <span class="fu">slice_min</span>(RMSE) <span class="sc">|&gt;</span> </span>
-<span id="cb85-85"><a href="#cb85-85" aria-hidden="true" tabindex="-1"></a>  <span class="fu">summarize</span>(<span class="at">rmse_ratio =</span> RMSE<span class="sc">/</span><span class="fu">sd</span>(<span class="fu">exp</span>(tib_pm10<span class="sc">$</span>pm10)))</span>
-<span id="cb85-86"><a href="#cb85-86" aria-hidden="true" tabindex="-1"></a><span class="co">#&gt; # A tibble: 1 × 1</span></span>
-<span id="cb85-87"><a href="#cb85-87" aria-hidden="true" tabindex="-1"></a><span class="co">#&gt;   rmse_ratio</span></span>
-<span id="cb85-88"><a href="#cb85-88" aria-hidden="true" tabindex="-1"></a><span class="co">#&gt;        &lt;dbl&gt;</span></span>
-<span id="cb85-89"><a href="#cb85-89" aria-hidden="true" tabindex="-1"></a><span class="co">#&gt; 1      0.925</span></span>
+<span id="cb85-53"><a href="#cb85-53" aria-hidden="true" tabindex="-1"></a><span class="co">#&gt; # A tibble: 4 × 4</span></span>
+<span id="cb85-54"><a href="#cb85-54" aria-hidden="true" tabindex="-1"></a><span class="co">#&gt;    nmax bufferNmax  RMSE       ME</span></span>
+<span id="cb85-55"><a href="#cb85-55" aria-hidden="true" tabindex="-1"></a><span class="co">#&gt;   &lt;dbl&gt;      &lt;dbl&gt; &lt;dbl&gt;    &lt;dbl&gt;</span></span>
+<span id="cb85-56"><a href="#cb85-56" aria-hidden="true" tabindex="-1"></a><span class="co">#&gt; 1     9        132 0.495 -0.0154 </span></span>
+<span id="cb85-57"><a href="#cb85-57" aria-hidden="true" tabindex="-1"></a><span class="co">#&gt; 2     8        132 0.495 -0.0190 </span></span>
+<span id="cb85-58"><a href="#cb85-58" aria-hidden="true" tabindex="-1"></a><span class="co">#&gt; 3    11        132 0.496 -0.0116 </span></span>
+<span id="cb85-59"><a href="#cb85-59" aria-hidden="true" tabindex="-1"></a><span class="co">#&gt; 4    12        132 0.497 -0.00908</span></span>
+<span id="cb85-60"><a href="#cb85-60" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb85-61"><a href="#cb85-61" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb85-62"><a href="#cb85-62" aria-hidden="true" tabindex="-1"></a>tib_res_cv_krige <span class="sc">|&gt;</span></span>
+<span id="cb85-63"><a href="#cb85-63" aria-hidden="true" tabindex="-1"></a>  <span class="fu">filter</span>(</span>
+<span id="cb85-64"><a href="#cb85-64" aria-hidden="true" tabindex="-1"></a>    nmax <span class="sc">==</span> <span class="dv">10</span>,</span>
+<span id="cb85-65"><a href="#cb85-65" aria-hidden="true" tabindex="-1"></a>    bufferNmax <span class="sc">==</span> <span class="dv">132</span></span>
+<span id="cb85-66"><a href="#cb85-66" aria-hidden="true" tabindex="-1"></a>  ) <span class="sc">|&gt;</span></span>
+<span id="cb85-67"><a href="#cb85-67" aria-hidden="true" tabindex="-1"></a>  <span class="fu">summarize</span>(</span>
+<span id="cb85-68"><a href="#cb85-68" aria-hidden="true" tabindex="-1"></a>    <span class="at">RMSE =</span> <span class="fu">sqrt</span>(<span class="fu">mean</span>((observed <span class="sc">-</span> predicted)<span class="sc">^</span><span class="dv">2</span>, <span class="at">na.rm =</span> <span class="cn">TRUE</span>)),</span>
+<span id="cb85-69"><a href="#cb85-69" aria-hidden="true" tabindex="-1"></a>    <span class="at">ME   =</span> <span class="fu">mean</span>(observed <span class="sc">-</span> predicted, <span class="at">na.rm =</span> <span class="cn">TRUE</span>),</span>
+<span id="cb85-70"><a href="#cb85-70" aria-hidden="true" tabindex="-1"></a>    <span class="at">.by =</span> fold</span>
+<span id="cb85-71"><a href="#cb85-71" aria-hidden="true" tabindex="-1"></a>  )</span>
+<span id="cb85-72"><a href="#cb85-72" aria-hidden="true" tabindex="-1"></a><span class="co">#&gt; # A tibble: 15 × 3</span></span>
+<span id="cb85-73"><a href="#cb85-73" aria-hidden="true" tabindex="-1"></a><span class="co">#&gt;     fold  RMSE      ME</span></span>
+<span id="cb85-74"><a href="#cb85-74" aria-hidden="true" tabindex="-1"></a><span class="co">#&gt;    &lt;int&gt; &lt;dbl&gt;   &lt;dbl&gt;</span></span>
+<span id="cb85-75"><a href="#cb85-75" aria-hidden="true" tabindex="-1"></a><span class="co">#&gt;  1     1 0.438 -0.0191</span></span>
+<span id="cb85-76"><a href="#cb85-76" aria-hidden="true" tabindex="-1"></a><span class="co">#&gt;  2     2 0.455 -0.0269</span></span>
+<span id="cb85-77"><a href="#cb85-77" aria-hidden="true" tabindex="-1"></a><span class="co">#&gt;  3     3 0.631 -0.173 </span></span>
+<span id="cb85-78"><a href="#cb85-78" aria-hidden="true" tabindex="-1"></a><span class="co">#&gt;  4     4 0.462  0.100 </span></span>
+<span id="cb85-79"><a href="#cb85-79" aria-hidden="true" tabindex="-1"></a><span class="co">#&gt;  5     5 0.481  0.0341</span></span>
+<span id="cb85-80"><a href="#cb85-80" aria-hidden="true" tabindex="-1"></a><span class="co">#&gt;  6     6 0.507 -0.0467</span></span>
+<span id="cb85-81"><a href="#cb85-81" aria-hidden="true" tabindex="-1"></a><span class="co">#&gt;  7     7 0.495 -0.0741</span></span>
+<span id="cb85-82"><a href="#cb85-82" aria-hidden="true" tabindex="-1"></a><span class="co">#&gt;  8     8 0.509 -0.0852</span></span>
+<span id="cb85-83"><a href="#cb85-83" aria-hidden="true" tabindex="-1"></a><span class="co">#&gt;  9     9 0.430  0.116 </span></span>
+<span id="cb85-84"><a href="#cb85-84" aria-hidden="true" tabindex="-1"></a><span class="co">#&gt; 10    10 0.497  0.0586</span></span>
+<span id="cb85-85"><a href="#cb85-85" aria-hidden="true" tabindex="-1"></a><span class="co">#&gt; 11    11 0.503 -0.0977</span></span>
+<span id="cb85-86"><a href="#cb85-86" aria-hidden="true" tabindex="-1"></a><span class="co">#&gt; 12    12 0.486 -0.0345</span></span>
+<span id="cb85-87"><a href="#cb85-87" aria-hidden="true" tabindex="-1"></a><span class="co">#&gt; 13    13 0.443  0.0401</span></span>
+<span id="cb85-88"><a href="#cb85-88" aria-hidden="true" tabindex="-1"></a><span class="co">#&gt; 14    14 0.499  0.0831</span></span>
+<span id="cb85-89"><a href="#cb85-89" aria-hidden="true" tabindex="-1"></a><span class="co">#&gt; 15    15 0.532 -0.0198</span></span>
 <span id="cb85-90"><a href="#cb85-90" aria-hidden="true" tabindex="-1"></a></span>
 <span id="cb85-91"><a href="#cb85-91" aria-hidden="true" tabindex="-1"></a></span>
-<span id="cb85-92"><a href="#cb85-92" aria-hidden="true" tabindex="-1"></a>moose <span class="ot">&lt;-</span> tib_res_cv_krige <span class="sc">|&gt;</span></span>
-<span id="cb85-93"><a href="#cb85-93" aria-hidden="true" tabindex="-1"></a>  <span class="fu">filter</span>(</span>
-<span id="cb85-94"><a href="#cb85-94" aria-hidden="true" tabindex="-1"></a>    nmax <span class="sc">==</span> <span class="dv">10</span>,</span>
-<span id="cb85-95"><a href="#cb85-95" aria-hidden="true" tabindex="-1"></a>    bufferNmax <span class="sc">==</span> <span class="dv">2</span></span>
-<span id="cb85-96"><a href="#cb85-96" aria-hidden="true" tabindex="-1"></a>  )</span>
-<span id="cb85-97"><a href="#cb85-97" aria-hidden="true" tabindex="-1"></a>yardstick<span class="sc">::</span><span class="fu">rsq_vec</span>(moose, <span class="fu">exp</span>(observed), <span class="fu">exp</span>(predicted))</span>
-<span id="cb85-98"><a href="#cb85-98" aria-hidden="true" tabindex="-1"></a><span class="co">#&gt; [1] 0.1784053</span></span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
+<span id="cb85-92"><a href="#cb85-92" aria-hidden="true" tabindex="-1"></a><span class="co"># lower is better</span></span>
+<span id="cb85-93"><a href="#cb85-93" aria-hidden="true" tabindex="-1"></a><span class="co"># guidelines say "weakly informative"</span></span>
+<span id="cb85-94"><a href="#cb85-94" aria-hidden="true" tabindex="-1"></a>res_scores <span class="sc">|&gt;</span> </span>
+<span id="cb85-95"><a href="#cb85-95" aria-hidden="true" tabindex="-1"></a>  <span class="fu">filter</span>(nmax <span class="sc">==</span> <span class="dv">10</span>, bufferNmax <span class="sc">==</span> <span class="dv">132</span>) <span class="sc">|&gt;</span> </span>
+<span id="cb85-96"><a href="#cb85-96" aria-hidden="true" tabindex="-1"></a>  <span class="fu">summarize</span>(<span class="at">rmse_ratio =</span> <span class="fu">mean</span>(RMSE)<span class="sc">/</span><span class="fu">sd</span>(tib_pm10<span class="sc">$</span>pm10))</span>
+<span id="cb85-97"><a href="#cb85-97" aria-hidden="true" tabindex="-1"></a><span class="co">#&gt; # A tibble: 1 × 1</span></span>
+<span id="cb85-98"><a href="#cb85-98" aria-hidden="true" tabindex="-1"></a><span class="co">#&gt;   rmse_ratio</span></span>
+<span id="cb85-99"><a href="#cb85-99" aria-hidden="true" tabindex="-1"></a><span class="co">#&gt;        &lt;dbl&gt;</span></span>
+<span id="cb85-100"><a href="#cb85-100" aria-hidden="true" tabindex="-1"></a><span class="co">#&gt; 1      0.789</span></span>
+<span id="cb85-101"><a href="#cb85-101" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb85-102"><a href="#cb85-102" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb85-103"><a href="#cb85-103" aria-hidden="true" tabindex="-1"></a>moose <span class="ot">&lt;-</span> tib_res_cv_krige <span class="sc">|&gt;</span></span>
+<span id="cb85-104"><a href="#cb85-104" aria-hidden="true" tabindex="-1"></a>  <span class="fu">filter</span>(</span>
+<span id="cb85-105"><a href="#cb85-105" aria-hidden="true" tabindex="-1"></a>    nmax <span class="sc">==</span> <span class="dv">10</span>,</span>
+<span id="cb85-106"><a href="#cb85-106" aria-hidden="true" tabindex="-1"></a>    bufferNmax <span class="sc">==</span> <span class="dv">132</span></span>
+<span id="cb85-107"><a href="#cb85-107" aria-hidden="true" tabindex="-1"></a>  )</span>
+<span id="cb85-108"><a href="#cb85-108" aria-hidden="true" tabindex="-1"></a>yardstick<span class="sc">::</span><span class="fu">rsq_vec</span>(moose<span class="sc">$</span>observed, moose<span class="sc">$</span>predicted)</span>
+<span id="cb85-109"><a href="#cb85-109" aria-hidden="true" tabindex="-1"></a><span class="co">#&gt; [1] 0.3840644</span></span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
 <ul>
-<li>Along with running the CV, I’m also tuning nmax and bufferNmax.
+<li>Using CV to also tune nmax and bufferNmax.
 <ul>
-<li>Given the spread of the station locations across the country and the fact, there are only 53 possible stations on any given day, I can’t imagine more than 20 of the nearest stations would have any significant information.</li>
-<li>I only allowed for double the search radius, but given the spread, maybe I should have allowed for larger factors.</li>
+<li>Results show a nmax = 10 and bufferNmax = 132 with the lowest RMSE</li>
+<li>Process: Tune nmax. Then tune bufferNmax. Then tune nmax again</li>
+<li>Tuning bufferNmax, while grooling because I didn’t have any kind of heuristic at the time, bettered my RMSE by around 20%.</li>
 </ul></li>
-<li>Results show a nmax = 10 and bufferNmax = 2 with the lowest RMSE</li>
-<li>Process took around 2.3 hrs with 12 workers on my rig.
+<li>Process time varied based on the tuning grid, but it typically ranged beween 1.68 and 3.15 hrs per run using using 12 workers on my rig.
 <ul>
 <li>Claude and I came up with some speed-up ideas. Hopefully I’ll apply those someday and create a pull request or package out it.</li>
 </ul></li>
 <li>I experimented with a logged PM10 (results shown) and not-logged PM10. It doesn’t seem to affect the scores much at all, but hopefully the residuals will look better</li>
-<li>Neither the Catboost nor this kriging model are good models, but they’re better than taking the mean. They’re also basic models with no real predictors. Adding informative predictors (e.g.&nbsp;wind speed, distance from factories, interstates, elevation, weather, population, etc.) would hopefully make these much better.
+<li>Neither the Catboost nor this kriging model are <em>good</em> models, but they’re better than taking the mean. They’re also basic models with no real predictors. Adding informative predictors (e.g.&nbsp;wind speed, distance from factories, interstates, elevation, weather, population, etc.) would hopefully make these much better.
 <ul>
 <li>The Catboost has a few engineered variables but those (basic space and time variables) are just so it can play on the same field as a true spatio-temporal model.</li>
 <li>Claude has suggested more than once that using a Catboost model along with a krigeST model trained on the Catboost’s residuals would peform better.</li>
@@ -7674,87 +7685,141 @@ Code
 <span id="cb86-9"><a href="#cb86-9" aria-hidden="true" tabindex="-1"></a>tib_res_cv_krige_fin <span class="ot">&lt;-</span> tib_res_cv_krige <span class="sc">|&gt;</span> </span>
 <span id="cb86-10"><a href="#cb86-10" aria-hidden="true" tabindex="-1"></a>  <span class="fu">filter</span>(</span>
 <span id="cb86-11"><a href="#cb86-11" aria-hidden="true" tabindex="-1"></a>    nmax <span class="sc">==</span> <span class="dv">10</span>,</span>
-<span id="cb86-12"><a href="#cb86-12" aria-hidden="true" tabindex="-1"></a>    bufferNmax <span class="sc">==</span> <span class="dv">2</span></span>
+<span id="cb86-12"><a href="#cb86-12" aria-hidden="true" tabindex="-1"></a>    bufferNmax <span class="sc">==</span> <span class="dv">132</span></span>
 <span id="cb86-13"><a href="#cb86-13" aria-hidden="true" tabindex="-1"></a>  )</span>
 <span id="cb86-14"><a href="#cb86-14" aria-hidden="true" tabindex="-1"></a></span>
 <span id="cb86-15"><a href="#cb86-15" aria-hidden="true" tabindex="-1"></a><span class="fu">set.seed</span>(<span class="dv">2026</span>)</span>
 <span id="cb86-16"><a href="#cb86-16" aria-hidden="true" tabindex="-1"></a><span class="fu">options</span>(<span class="at">scipen =</span> <span class="dv">999</span>)</span>
 <span id="cb86-17"><a href="#cb86-17" aria-hidden="true" tabindex="-1"></a>notebook_colors <span class="ot">&lt;-</span> <span class="fu">unname</span>(swatches<span class="sc">::</span><span class="fu">read_ase</span>(here<span class="sc">::</span><span class="fu">here</span>(<span class="st">"palettes/Forest Floor.ase"</span>)))</span>
 <span id="cb86-18"><a href="#cb86-18" aria-hidden="true" tabindex="-1"></a></span>
-<span id="cb86-19"><a href="#cb86-19" aria-hidden="true" tabindex="-1"></a><span class="co"># ---- Prepare CV Results ----</span></span>
-<span id="cb86-20"><a href="#cb86-20" aria-hidden="true" tabindex="-1"></a></span>
-<span id="cb86-21"><a href="#cb86-21" aria-hidden="true" tabindex="-1"></a>tib_sf_pm10_ids <span class="ot">&lt;-</span> sf_pm10 <span class="sc">|&gt;</span></span>
-<span id="cb86-22"><a href="#cb86-22" aria-hidden="true" tabindex="-1"></a>  sf<span class="sc">::</span><span class="fu">st_drop_geometry</span>() <span class="sc">|&gt;</span></span>
-<span id="cb86-23"><a href="#cb86-23" aria-hidden="true" tabindex="-1"></a>  <span class="fu">mutate</span>(<span class="at">row_id =</span> <span class="fu">row_number</span>()) <span class="sc">|&gt;</span></span>
-<span id="cb86-24"><a href="#cb86-24" aria-hidden="true" tabindex="-1"></a>  <span class="fu">select</span>(row_id, station_id, date)</span>
-<span id="cb86-25"><a href="#cb86-25" aria-hidden="true" tabindex="-1"></a></span>
-<span id="cb86-26"><a href="#cb86-26" aria-hidden="true" tabindex="-1"></a></span>
-<span id="cb86-27"><a href="#cb86-27" aria-hidden="true" tabindex="-1"></a>cat_cv_results <span class="ot">&lt;-</span> purrr<span class="sc">::</span><span class="fu">map</span>(<span class="dv">1</span><span class="sc">:</span><span class="dv">15</span>, \(i) {</span>
-<span id="cb86-28"><a href="#cb86-28" aria-hidden="true" tabindex="-1"></a>  pred <span class="ot">&lt;-</span> cv_cat_pm10<span class="sc">$</span><span class="fu">resample_result</span>(<span class="dv">3</span>)<span class="sc">$</span><span class="fu">predictions</span>()[[i]]</span>
-<span id="cb86-29"><a href="#cb86-29" aria-hidden="true" tabindex="-1"></a>  <span class="fu">tibble</span>(</span>
-<span id="cb86-30"><a href="#cb86-30" aria-hidden="true" tabindex="-1"></a>    <span class="at">fold =</span> i,</span>
-<span id="cb86-31"><a href="#cb86-31" aria-hidden="true" tabindex="-1"></a>    <span class="at">row_id =</span> pred<span class="sc">$</span>row_ids,</span>
-<span id="cb86-32"><a href="#cb86-32" aria-hidden="true" tabindex="-1"></a>    <span class="at">observed =</span> <span class="fu">exp</span>(pred<span class="sc">$</span>truth),</span>
-<span id="cb86-33"><a href="#cb86-33" aria-hidden="true" tabindex="-1"></a>    <span class="at">predicted =</span> <span class="fu">exp</span>(pred<span class="sc">$</span>response)</span>
-<span id="cb86-34"><a href="#cb86-34" aria-hidden="true" tabindex="-1"></a>  )</span>
-<span id="cb86-35"><a href="#cb86-35" aria-hidden="true" tabindex="-1"></a>}) <span class="sc">|&gt;</span></span>
-<span id="cb86-36"><a href="#cb86-36" aria-hidden="true" tabindex="-1"></a>  purrr<span class="sc">::</span><span class="fu">list_rbind</span>() <span class="sc">|&gt;</span></span>
-<span id="cb86-37"><a href="#cb86-37" aria-hidden="true" tabindex="-1"></a>  <span class="fu">left_join</span>(tib_sf_pm10_ids, <span class="at">by =</span> <span class="st">"row_id"</span>) <span class="sc">|&gt;</span> </span>
-<span id="cb86-38"><a href="#cb86-38" aria-hidden="true" tabindex="-1"></a>  <span class="co"># averages predictions by location and data across all test folds and repeats</span></span>
-<span id="cb86-39"><a href="#cb86-39" aria-hidden="true" tabindex="-1"></a>  <span class="fu">summarize</span>(</span>
-<span id="cb86-40"><a href="#cb86-40" aria-hidden="true" tabindex="-1"></a>    <span class="at">predicted =</span> <span class="fu">mean</span>(predicted, <span class="at">na.rm =</span> <span class="cn">TRUE</span>),</span>
-<span id="cb86-41"><a href="#cb86-41" aria-hidden="true" tabindex="-1"></a>    <span class="at">observed =</span> <span class="fu">first</span>(observed),</span>
-<span id="cb86-42"><a href="#cb86-42" aria-hidden="true" tabindex="-1"></a>    <span class="at">.by =</span> <span class="fu">c</span>(station_id, date)</span>
-<span id="cb86-43"><a href="#cb86-43" aria-hidden="true" tabindex="-1"></a>  ) <span class="sc">|&gt;</span></span>
-<span id="cb86-44"><a href="#cb86-44" aria-hidden="true" tabindex="-1"></a>  <span class="fu">mutate</span>(</span>
-<span id="cb86-45"><a href="#cb86-45" aria-hidden="true" tabindex="-1"></a>    <span class="at">residual =</span> observed <span class="sc">-</span> predicted,</span>
-<span id="cb86-46"><a href="#cb86-46" aria-hidden="true" tabindex="-1"></a>    <span class="at">model =</span> <span class="st">"Catboost"</span></span>
-<span id="cb86-47"><a href="#cb86-47" aria-hidden="true" tabindex="-1"></a>  )</span>
-<span id="cb86-48"><a href="#cb86-48" aria-hidden="true" tabindex="-1"></a></span>
-<span id="cb86-49"><a href="#cb86-49" aria-hidden="true" tabindex="-1"></a></span>
-<span id="cb86-50"><a href="#cb86-50" aria-hidden="true" tabindex="-1"></a><span class="co"># each model's results have 36402 out of 74799 observations covered (~49%) after 3 repeats × 5 folds = 15 folds is actually consistent with that coverage rate (15 × ~4% ≈ 60%, minus overlaps between folds reducing it to ~49%).</span></span>
-<span id="cb86-51"><a href="#cb86-51" aria-hidden="true" tabindex="-1"></a>cv_combined <span class="ot">&lt;-</span> tib_res_cv_krige_fin <span class="sc">|&gt;</span></span>
-<span id="cb86-52"><a href="#cb86-52" aria-hidden="true" tabindex="-1"></a>  <span class="fu">summarize</span>(</span>
-<span id="cb86-53"><a href="#cb86-53" aria-hidden="true" tabindex="-1"></a>    <span class="at">predicted =</span> <span class="fu">mean</span>(<span class="fu">exp</span>(predicted), <span class="at">na.rm =</span> <span class="cn">TRUE</span>),</span>
-<span id="cb86-54"><a href="#cb86-54" aria-hidden="true" tabindex="-1"></a>    <span class="at">pred_var =</span> <span class="fu">mean</span>(<span class="fu">exp</span>(pred_var), <span class="at">na.rm =</span> <span class="cn">TRUE</span>),</span>
-<span id="cb86-55"><a href="#cb86-55" aria-hidden="true" tabindex="-1"></a>    <span class="at">observed =</span> <span class="fu">first</span>(<span class="fu">exp</span>(observed)),</span>
-<span id="cb86-56"><a href="#cb86-56" aria-hidden="true" tabindex="-1"></a>    <span class="at">.by =</span> <span class="fu">c</span>(station_id, date)</span>
-<span id="cb86-57"><a href="#cb86-57" aria-hidden="true" tabindex="-1"></a>  ) <span class="sc">|&gt;</span></span>
-<span id="cb86-58"><a href="#cb86-58" aria-hidden="true" tabindex="-1"></a>  <span class="fu">mutate</span>(</span>
-<span id="cb86-59"><a href="#cb86-59" aria-hidden="true" tabindex="-1"></a>    <span class="at">residual =</span> observed <span class="sc">-</span> predicted,</span>
-<span id="cb86-60"><a href="#cb86-60" aria-hidden="true" tabindex="-1"></a>    <span class="at">model =</span> <span class="st">"krigeST"</span></span>
-<span id="cb86-61"><a href="#cb86-61" aria-hidden="true" tabindex="-1"></a>  ) <span class="sc">|&gt;</span> </span>
-<span id="cb86-62"><a href="#cb86-62" aria-hidden="true" tabindex="-1"></a>  <span class="fu">bind_rows</span>(cat_cv_results) <span class="sc">|&gt;</span></span>
-<span id="cb86-63"><a href="#cb86-63" aria-hidden="true" tabindex="-1"></a>  <span class="fu">mutate</span>(</span>
-<span id="cb86-64"><a href="#cb86-64" aria-hidden="true" tabindex="-1"></a>    <span class="at">model =</span> <span class="fu">factor</span>(model, <span class="at">levels =</span> <span class="fu">c</span>(<span class="st">"krigeST"</span>, <span class="st">"Catboost"</span>)),</span>
-<span id="cb86-65"><a href="#cb86-65" aria-hidden="true" tabindex="-1"></a>    <span class="at">month =</span> lubridate<span class="sc">::</span><span class="fu">month</span>(date),</span>
-<span id="cb86-66"><a href="#cb86-66" aria-hidden="true" tabindex="-1"></a>    <span class="at">season =</span> <span class="fu">case_when</span>(</span>
-<span id="cb86-67"><a href="#cb86-67" aria-hidden="true" tabindex="-1"></a>      month <span class="sc">%in%</span> <span class="fu">c</span>(<span class="dv">12</span>, <span class="dv">1</span>, <span class="dv">2</span>) <span class="sc">~</span> <span class="st">"DJF"</span>,</span>
-<span id="cb86-68"><a href="#cb86-68" aria-hidden="true" tabindex="-1"></a>      month <span class="sc">%in%</span> <span class="fu">c</span>(<span class="dv">3</span>, <span class="dv">4</span>, <span class="dv">5</span>) <span class="sc">~</span> <span class="st">"MAM"</span>,</span>
-<span id="cb86-69"><a href="#cb86-69" aria-hidden="true" tabindex="-1"></a>      month <span class="sc">%in%</span> <span class="fu">c</span>(<span class="dv">6</span>, <span class="dv">7</span>, <span class="dv">8</span>) <span class="sc">~</span> <span class="st">"JJA"</span>,</span>
-<span id="cb86-70"><a href="#cb86-70" aria-hidden="true" tabindex="-1"></a>      month <span class="sc">%in%</span> <span class="fu">c</span>(<span class="dv">9</span>, <span class="dv">10</span>, <span class="dv">11</span>) <span class="sc">~</span> <span class="st">"SON"</span></span>
-<span id="cb86-71"><a href="#cb86-71" aria-hidden="true" tabindex="-1"></a>    ) <span class="sc">|&gt;</span></span>
-<span id="cb86-72"><a href="#cb86-72" aria-hidden="true" tabindex="-1"></a>      <span class="fu">factor</span>(<span class="at">levels =</span> <span class="fu">c</span>(<span class="st">"DJF"</span>, <span class="st">"MAM"</span>, <span class="st">"JJA"</span>, <span class="st">"SON"</span>))</span>
-<span id="cb86-73"><a href="#cb86-73" aria-hidden="true" tabindex="-1"></a>  )</span>
+<span id="cb86-19"><a href="#cb86-19" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb86-20"><a href="#cb86-20" aria-hidden="true" tabindex="-1"></a><span class="fu">data</span>(air, <span class="at">package =</span> <span class="st">"spacetime"</span>)</span>
+<span id="cb86-21"><a href="#cb86-21" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb86-22"><a href="#cb86-22" aria-hidden="true" tabindex="-1"></a><span class="co"># get rural location time series from 2005 to 2010</span></span>
+<span id="cb86-23"><a href="#cb86-23" aria-hidden="true" tabindex="-1"></a>rural_log <span class="ot">&lt;-</span> spacetime<span class="sc">::</span><span class="fu">STFDF</span>(</span>
+<span id="cb86-24"><a href="#cb86-24" aria-hidden="true" tabindex="-1"></a>  <span class="at">sp =</span> stations, </span>
+<span id="cb86-25"><a href="#cb86-25" aria-hidden="true" tabindex="-1"></a>  <span class="at">time =</span> dates, </span>
+<span id="cb86-26"><a href="#cb86-26" aria-hidden="true" tabindex="-1"></a>  <span class="at">data =</span> <span class="fu">data.frame</span>(<span class="at">PM10 =</span> <span class="fu">log</span>(<span class="fu">as.vector</span>(air)))</span>
+<span id="cb86-27"><a href="#cb86-27" aria-hidden="true" tabindex="-1"></a>)</span>
+<span id="cb86-28"><a href="#cb86-28" aria-hidden="true" tabindex="-1"></a>rr <span class="ot">&lt;-</span> rural_log[,<span class="st">"2005::2010"</span>]</span>
+<span id="cb86-29"><a href="#cb86-29" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb86-30"><a href="#cb86-30" aria-hidden="true" tabindex="-1"></a><span class="co"># remove station ts w/all NAs</span></span>
+<span id="cb86-31"><a href="#cb86-31" aria-hidden="true" tabindex="-1"></a>unsel <span class="ot">&lt;-</span> <span class="fu">which</span>(<span class="fu">apply</span>(</span>
+<span id="cb86-32"><a href="#cb86-32" aria-hidden="true" tabindex="-1"></a>  <span class="fu">as</span>(rr, <span class="st">"xts"</span>), </span>
+<span id="cb86-33"><a href="#cb86-33" aria-hidden="true" tabindex="-1"></a>  <span class="dv">2</span>, </span>
+<span id="cb86-34"><a href="#cb86-34" aria-hidden="true" tabindex="-1"></a>  <span class="cf">function</span>(x) <span class="fu">all</span>(<span class="fu">is.na</span>(x)))</span>
+<span id="cb86-35"><a href="#cb86-35" aria-hidden="true" tabindex="-1"></a>)</span>
+<span id="cb86-36"><a href="#cb86-36" aria-hidden="true" tabindex="-1"></a>r5to10 <span class="ot">&lt;-</span> rr[<span class="sc">-</span>unsel,]</span>
+<span id="cb86-37"><a href="#cb86-37" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb86-38"><a href="#cb86-38" aria-hidden="true" tabindex="-1"></a>sf_r5 <span class="ot">&lt;-</span> r5to10 <span class="sc">|&gt;</span> <span class="co"># STFDF object</span></span>
+<span id="cb86-39"><a href="#cb86-39" aria-hidden="true" tabindex="-1"></a>  stars<span class="sc">::</span><span class="fu">st_as_stars</span>() <span class="sc">|&gt;</span> </span>
+<span id="cb86-40"><a href="#cb86-40" aria-hidden="true" tabindex="-1"></a>  sf<span class="sc">::</span><span class="fu">st_as_sf</span>(<span class="at">long =</span> <span class="cn">TRUE</span>) <span class="sc">|&gt;</span> </span>
+<span id="cb86-41"><a href="#cb86-41" aria-hidden="true" tabindex="-1"></a>  <span class="fu">rename</span>(<span class="at">geometry =</span> sfc)</span>
+<span id="cb86-42"><a href="#cb86-42" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb86-43"><a href="#cb86-43" aria-hidden="true" tabindex="-1"></a>tib_stations <span class="ot">&lt;-</span> <span class="fu">as_tibble</span>(stations<span class="sc">@</span>coords) <span class="sc">|&gt;</span> </span>
+<span id="cb86-44"><a href="#cb86-44" aria-hidden="true" tabindex="-1"></a>  <span class="fu">mutate</span>(<span class="at">station_id =</span> <span class="fu">rownames</span>(stations<span class="sc">@</span>coords))</span>
+<span id="cb86-45"><a href="#cb86-45" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb86-46"><a href="#cb86-46" aria-hidden="true" tabindex="-1"></a>sf_stations <span class="ot">&lt;-</span> sf<span class="sc">::</span><span class="fu">st_as_sf</span>(</span>
+<span id="cb86-47"><a href="#cb86-47" aria-hidden="true" tabindex="-1"></a>  tib_stations,</span>
+<span id="cb86-48"><a href="#cb86-48" aria-hidden="true" tabindex="-1"></a>  <span class="at">coords =</span> <span class="fu">c</span>(<span class="st">"coords.x1"</span>, <span class="st">"coords.x2"</span>),</span>
+<span id="cb86-49"><a href="#cb86-49" aria-hidden="true" tabindex="-1"></a>  <span class="at">crs =</span> sf<span class="sc">::</span><span class="fu">st_crs</span>(sf_r5)</span>
+<span id="cb86-50"><a href="#cb86-50" aria-hidden="true" tabindex="-1"></a>)</span>
+<span id="cb86-51"><a href="#cb86-51" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb86-52"><a href="#cb86-52" aria-hidden="true" tabindex="-1"></a>sf_pm10 <span class="ot">&lt;-</span> sf_r5 <span class="sc">|&gt;</span> </span>
+<span id="cb86-53"><a href="#cb86-53" aria-hidden="true" tabindex="-1"></a>  sf<span class="sc">::</span><span class="fu">st_join</span>(sf_stations) <span class="sc">|&gt;</span> </span>
+<span id="cb86-54"><a href="#cb86-54" aria-hidden="true" tabindex="-1"></a>  sf<span class="sc">::</span><span class="fu">st_transform</span>(<span class="at">crs =</span> <span class="dv">25832</span>) <span class="sc">|&gt;</span> <span class="co"># projected, UTM zone 32N</span></span>
+<span id="cb86-55"><a href="#cb86-55" aria-hidden="true" tabindex="-1"></a>  <span class="fu">filter</span>(<span class="sc">!</span><span class="fu">is.na</span>(PM10)) <span class="sc">|&gt;</span> </span>
+<span id="cb86-56"><a href="#cb86-56" aria-hidden="true" tabindex="-1"></a>  <span class="fu">rename</span>(<span class="at">date =</span> time, <span class="at">pm10 =</span> PM10)</span>
+<span id="cb86-57"><a href="#cb86-57" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb86-58"><a href="#cb86-58" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb86-59"><a href="#cb86-59" aria-hidden="true" tabindex="-1"></a>tib_pm10 <span class="ot">&lt;-</span> sf_pm10 <span class="sc">|&gt;</span> </span>
+<span id="cb86-60"><a href="#cb86-60" aria-hidden="true" tabindex="-1"></a>  sf<span class="sc">::</span><span class="fu">st_drop_geometry</span>() <span class="sc">|&gt;</span> </span>
+<span id="cb86-61"><a href="#cb86-61" aria-hidden="true" tabindex="-1"></a>  <span class="fu">mutate</span>(</span>
+<span id="cb86-62"><a href="#cb86-62" aria-hidden="true" tabindex="-1"></a>    <span class="at">date_feat =</span> date, <span class="co"># extra for feat eng</span></span>
+<span id="cb86-63"><a href="#cb86-63" aria-hidden="true" tabindex="-1"></a>    <span class="at">X =</span> sf<span class="sc">::</span><span class="fu">st_coordinates</span>(sf_pm10)[, <span class="dv">1</span>],</span>
+<span id="cb86-64"><a href="#cb86-64" aria-hidden="true" tabindex="-1"></a>    <span class="at">Y =</span> sf<span class="sc">::</span><span class="fu">st_coordinates</span>(sf_pm10)[, <span class="dv">2</span>]</span>
+<span id="cb86-65"><a href="#cb86-65" aria-hidden="true" tabindex="-1"></a>  )</span>
+<span id="cb86-66"><a href="#cb86-66" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb86-67"><a href="#cb86-67" aria-hidden="true" tabindex="-1"></a><span class="co"># ---- Prepare CV Results ----</span></span>
+<span id="cb86-68"><a href="#cb86-68" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb86-69"><a href="#cb86-69" aria-hidden="true" tabindex="-1"></a>tib_sf_pm10_ids <span class="ot">&lt;-</span> sf_pm10 <span class="sc">|&gt;</span></span>
+<span id="cb86-70"><a href="#cb86-70" aria-hidden="true" tabindex="-1"></a>  sf<span class="sc">::</span><span class="fu">st_drop_geometry</span>() <span class="sc">|&gt;</span></span>
+<span id="cb86-71"><a href="#cb86-71" aria-hidden="true" tabindex="-1"></a>  <span class="fu">mutate</span>(<span class="at">row_id =</span> <span class="fu">row_number</span>()) <span class="sc">|&gt;</span></span>
+<span id="cb86-72"><a href="#cb86-72" aria-hidden="true" tabindex="-1"></a>  <span class="fu">select</span>(row_id, station_id, date)</span>
+<span id="cb86-73"><a href="#cb86-73" aria-hidden="true" tabindex="-1"></a></span>
 <span id="cb86-74"><a href="#cb86-74" aria-hidden="true" tabindex="-1"></a></span>
-<span id="cb86-75"><a href="#cb86-75" aria-hidden="true" tabindex="-1"></a>tib_station_coords <span class="ot">&lt;-</span> sf_pm10 <span class="sc">|&gt;</span></span>
-<span id="cb86-76"><a href="#cb86-76" aria-hidden="true" tabindex="-1"></a>  <span class="fu">select</span>(station_id) <span class="sc">|&gt;</span></span>
-<span id="cb86-77"><a href="#cb86-77" aria-hidden="true" tabindex="-1"></a>  <span class="fu">mutate</span>(</span>
-<span id="cb86-78"><a href="#cb86-78" aria-hidden="true" tabindex="-1"></a>    <span class="at">x =</span> sf<span class="sc">::</span><span class="fu">st_coordinates</span>(geometry)[, <span class="st">"X"</span>],</span>
-<span id="cb86-79"><a href="#cb86-79" aria-hidden="true" tabindex="-1"></a>    <span class="at">y =</span> sf<span class="sc">::</span><span class="fu">st_coordinates</span>(geometry)[, <span class="st">"Y"</span>]</span>
-<span id="cb86-80"><a href="#cb86-80" aria-hidden="true" tabindex="-1"></a>  ) <span class="sc">|&gt;</span></span>
-<span id="cb86-81"><a href="#cb86-81" aria-hidden="true" tabindex="-1"></a>  sf<span class="sc">::</span><span class="fu">st_drop_geometry</span>() <span class="sc">|&gt;</span> </span>
-<span id="cb86-82"><a href="#cb86-82" aria-hidden="true" tabindex="-1"></a>  <span class="fu">distinct</span>()</span>
-<span id="cb86-83"><a href="#cb86-83" aria-hidden="true" tabindex="-1"></a></span>
-<span id="cb86-84"><a href="#cb86-84" aria-hidden="true" tabindex="-1"></a>tib_station_coords_ll <span class="ot">&lt;-</span> sf_pm10 <span class="sc">|&gt;</span></span>
-<span id="cb86-85"><a href="#cb86-85" aria-hidden="true" tabindex="-1"></a>  <span class="fu">select</span>(station_id) <span class="sc">|&gt;</span></span>
-<span id="cb86-86"><a href="#cb86-86" aria-hidden="true" tabindex="-1"></a>  sf<span class="sc">::</span><span class="fu">st_transform</span>(<span class="at">crs =</span> <span class="dv">4326</span>) <span class="sc">|&gt;</span></span>
-<span id="cb86-87"><a href="#cb86-87" aria-hidden="true" tabindex="-1"></a>  <span class="fu">mutate</span>(</span>
-<span id="cb86-88"><a href="#cb86-88" aria-hidden="true" tabindex="-1"></a>    <span class="at">x =</span> sf<span class="sc">::</span><span class="fu">st_coordinates</span>(geometry)[, <span class="st">"X"</span>],</span>
-<span id="cb86-89"><a href="#cb86-89" aria-hidden="true" tabindex="-1"></a>    <span class="at">y =</span> sf<span class="sc">::</span><span class="fu">st_coordinates</span>(geometry)[, <span class="st">"Y"</span>]</span>
-<span id="cb86-90"><a href="#cb86-90" aria-hidden="true" tabindex="-1"></a>  ) <span class="sc">|&gt;</span></span>
-<span id="cb86-91"><a href="#cb86-91" aria-hidden="true" tabindex="-1"></a>  sf<span class="sc">::</span><span class="fu">st_drop_geometry</span>() <span class="sc">|&gt;</span> </span>
-<span id="cb86-92"><a href="#cb86-92" aria-hidden="true" tabindex="-1"></a>  <span class="fu">distinct</span>()</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
+<span id="cb86-75"><a href="#cb86-75" aria-hidden="true" tabindex="-1"></a>cat_cv_results <span class="ot">&lt;-</span> purrr<span class="sc">::</span><span class="fu">map</span>(<span class="dv">1</span><span class="sc">:</span><span class="dv">15</span>, \(i) {</span>
+<span id="cb86-76"><a href="#cb86-76" aria-hidden="true" tabindex="-1"></a>  pred <span class="ot">&lt;-</span> cv_cat_pm10<span class="sc">$</span><span class="fu">resample_result</span>(<span class="dv">3</span>)<span class="sc">$</span><span class="fu">predictions</span>()[[i]]</span>
+<span id="cb86-77"><a href="#cb86-77" aria-hidden="true" tabindex="-1"></a>  <span class="fu">tibble</span>(</span>
+<span id="cb86-78"><a href="#cb86-78" aria-hidden="true" tabindex="-1"></a>    <span class="at">fold =</span> i,</span>
+<span id="cb86-79"><a href="#cb86-79" aria-hidden="true" tabindex="-1"></a>    <span class="at">row_id =</span> pred<span class="sc">$</span>row_ids,</span>
+<span id="cb86-80"><a href="#cb86-80" aria-hidden="true" tabindex="-1"></a>    <span class="at">observed =</span> pred<span class="sc">$</span>truth,</span>
+<span id="cb86-81"><a href="#cb86-81" aria-hidden="true" tabindex="-1"></a>    <span class="at">predicted =</span> pred<span class="sc">$</span>response</span>
+<span id="cb86-82"><a href="#cb86-82" aria-hidden="true" tabindex="-1"></a>  )</span>
+<span id="cb86-83"><a href="#cb86-83" aria-hidden="true" tabindex="-1"></a>}) <span class="sc">|&gt;</span></span>
+<span id="cb86-84"><a href="#cb86-84" aria-hidden="true" tabindex="-1"></a>  purrr<span class="sc">::</span><span class="fu">list_rbind</span>() <span class="sc">|&gt;</span></span>
+<span id="cb86-85"><a href="#cb86-85" aria-hidden="true" tabindex="-1"></a>  <span class="fu">left_join</span>(tib_sf_pm10_ids, <span class="at">by =</span> <span class="st">"row_id"</span>) <span class="sc">|&gt;</span> </span>
+<span id="cb86-86"><a href="#cb86-86" aria-hidden="true" tabindex="-1"></a>  <span class="co"># averages predictions by location and data across all test folds and repeats</span></span>
+<span id="cb86-87"><a href="#cb86-87" aria-hidden="true" tabindex="-1"></a>  <span class="fu">summarize</span>(</span>
+<span id="cb86-88"><a href="#cb86-88" aria-hidden="true" tabindex="-1"></a>    <span class="at">predicted =</span> <span class="fu">mean</span>(predicted, <span class="at">na.rm =</span> <span class="cn">TRUE</span>),</span>
+<span id="cb86-89"><a href="#cb86-89" aria-hidden="true" tabindex="-1"></a>    <span class="at">observed =</span> <span class="fu">first</span>(observed),</span>
+<span id="cb86-90"><a href="#cb86-90" aria-hidden="true" tabindex="-1"></a>    <span class="at">.by =</span> <span class="fu">c</span>(station_id, date)</span>
+<span id="cb86-91"><a href="#cb86-91" aria-hidden="true" tabindex="-1"></a>  ) <span class="sc">|&gt;</span></span>
+<span id="cb86-92"><a href="#cb86-92" aria-hidden="true" tabindex="-1"></a>  <span class="co"># apply backtransform after combining multiple predictions of the same observation across repeats</span></span>
+<span id="cb86-93"><a href="#cb86-93" aria-hidden="true" tabindex="-1"></a>  <span class="fu">mutate</span>(</span>
+<span id="cb86-94"><a href="#cb86-94" aria-hidden="true" tabindex="-1"></a>    <span class="at">predicted =</span> <span class="fu">exp</span>(predicted),</span>
+<span id="cb86-95"><a href="#cb86-95" aria-hidden="true" tabindex="-1"></a>    <span class="at">observed =</span> <span class="fu">exp</span>(observed),    </span>
+<span id="cb86-96"><a href="#cb86-96" aria-hidden="true" tabindex="-1"></a>    <span class="at">residual =</span> observed <span class="sc">-</span> predicted,</span>
+<span id="cb86-97"><a href="#cb86-97" aria-hidden="true" tabindex="-1"></a>    <span class="at">model =</span> <span class="st">"Catboost"</span></span>
+<span id="cb86-98"><a href="#cb86-98" aria-hidden="true" tabindex="-1"></a>  )</span>
+<span id="cb86-99"><a href="#cb86-99" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb86-100"><a href="#cb86-100" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb86-101"><a href="#cb86-101" aria-hidden="true" tabindex="-1"></a><span class="co"># each model's results have 36402 out of 74799 observations covered (~49%) after 3 repeats × 5 folds = 15 folds is actually consistent with that coverage rate (15 × ~4% ≈ 60%, minus overlaps between folds reducing it to ~49%).</span></span>
+<span id="cb86-102"><a href="#cb86-102" aria-hidden="true" tabindex="-1"></a>cv_combined <span class="ot">&lt;-</span> tib_res_cv_krige_fin <span class="sc">|&gt;</span></span>
+<span id="cb86-103"><a href="#cb86-103" aria-hidden="true" tabindex="-1"></a>  <span class="fu">summarize</span>(</span>
+<span id="cb86-104"><a href="#cb86-104" aria-hidden="true" tabindex="-1"></a>    <span class="at">predicted =</span> <span class="fu">mean</span>(predicted, <span class="at">na.rm =</span> <span class="cn">TRUE</span>),</span>
+<span id="cb86-105"><a href="#cb86-105" aria-hidden="true" tabindex="-1"></a>    <span class="at">pred_var =</span> <span class="fu">mean</span>(pred_var, <span class="at">na.rm =</span> <span class="cn">TRUE</span>),</span>
+<span id="cb86-106"><a href="#cb86-106" aria-hidden="true" tabindex="-1"></a>    <span class="at">observed =</span> <span class="fu">first</span>(observed),</span>
+<span id="cb86-107"><a href="#cb86-107" aria-hidden="true" tabindex="-1"></a>    <span class="at">.by =</span> <span class="fu">c</span>(station_id, date)</span>
+<span id="cb86-108"><a href="#cb86-108" aria-hidden="true" tabindex="-1"></a>  ) <span class="sc">|&gt;</span></span>
+<span id="cb86-109"><a href="#cb86-109" aria-hidden="true" tabindex="-1"></a>  <span class="fu">mutate</span>(</span>
+<span id="cb86-110"><a href="#cb86-110" aria-hidden="true" tabindex="-1"></a>    <span class="co"># apply bias correction and bias correction after combining multiple predictions of the same observation across repeats</span></span>
+<span id="cb86-111"><a href="#cb86-111" aria-hidden="true" tabindex="-1"></a>    <span class="at">predicted =</span> <span class="fu">exp</span>(predicted <span class="sc">+</span> (pred_var <span class="sc">/</span> <span class="dv">2</span>)),</span>
+<span id="cb86-112"><a href="#cb86-112" aria-hidden="true" tabindex="-1"></a>    <span class="at">observed =</span> <span class="fu">exp</span>(observed),</span>
+<span id="cb86-113"><a href="#cb86-113" aria-hidden="true" tabindex="-1"></a>    <span class="at">residual =</span> observed <span class="sc">-</span> predicted,</span>
+<span id="cb86-114"><a href="#cb86-114" aria-hidden="true" tabindex="-1"></a>    <span class="at">model =</span> <span class="st">"krigeST"</span></span>
+<span id="cb86-115"><a href="#cb86-115" aria-hidden="true" tabindex="-1"></a>  ) <span class="sc">|&gt;</span> </span>
+<span id="cb86-116"><a href="#cb86-116" aria-hidden="true" tabindex="-1"></a>  <span class="fu">bind_rows</span>(cat_cv_results) <span class="sc">|&gt;</span></span>
+<span id="cb86-117"><a href="#cb86-117" aria-hidden="true" tabindex="-1"></a>  <span class="fu">mutate</span>(</span>
+<span id="cb86-118"><a href="#cb86-118" aria-hidden="true" tabindex="-1"></a>    <span class="at">model =</span> <span class="fu">factor</span>(model, <span class="at">levels =</span> <span class="fu">c</span>(<span class="st">"krigeST"</span>, <span class="st">"Catboost"</span>)),</span>
+<span id="cb86-119"><a href="#cb86-119" aria-hidden="true" tabindex="-1"></a>    <span class="at">month =</span> lubridate<span class="sc">::</span><span class="fu">month</span>(date),</span>
+<span id="cb86-120"><a href="#cb86-120" aria-hidden="true" tabindex="-1"></a>    <span class="at">season =</span> <span class="fu">case_when</span>(</span>
+<span id="cb86-121"><a href="#cb86-121" aria-hidden="true" tabindex="-1"></a>      month <span class="sc">%in%</span> <span class="fu">c</span>(<span class="dv">12</span>, <span class="dv">1</span>, <span class="dv">2</span>) <span class="sc">~</span> <span class="st">"DJF"</span>,</span>
+<span id="cb86-122"><a href="#cb86-122" aria-hidden="true" tabindex="-1"></a>      month <span class="sc">%in%</span> <span class="fu">c</span>(<span class="dv">3</span>, <span class="dv">4</span>, <span class="dv">5</span>) <span class="sc">~</span> <span class="st">"MAM"</span>,</span>
+<span id="cb86-123"><a href="#cb86-123" aria-hidden="true" tabindex="-1"></a>      month <span class="sc">%in%</span> <span class="fu">c</span>(<span class="dv">6</span>, <span class="dv">7</span>, <span class="dv">8</span>) <span class="sc">~</span> <span class="st">"JJA"</span>,</span>
+<span id="cb86-124"><a href="#cb86-124" aria-hidden="true" tabindex="-1"></a>      month <span class="sc">%in%</span> <span class="fu">c</span>(<span class="dv">9</span>, <span class="dv">10</span>, <span class="dv">11</span>) <span class="sc">~</span> <span class="st">"SON"</span></span>
+<span id="cb86-125"><a href="#cb86-125" aria-hidden="true" tabindex="-1"></a>    ) <span class="sc">|&gt;</span></span>
+<span id="cb86-126"><a href="#cb86-126" aria-hidden="true" tabindex="-1"></a>      <span class="fu">factor</span>(<span class="at">levels =</span> <span class="fu">c</span>(<span class="st">"DJF"</span>, <span class="st">"MAM"</span>, <span class="st">"JJA"</span>, <span class="st">"SON"</span>))</span>
+<span id="cb86-127"><a href="#cb86-127" aria-hidden="true" tabindex="-1"></a>  )</span>
+<span id="cb86-128"><a href="#cb86-128" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb86-129"><a href="#cb86-129" aria-hidden="true" tabindex="-1"></a>tib_station_coords <span class="ot">&lt;-</span> sf_pm10 <span class="sc">|&gt;</span></span>
+<span id="cb86-130"><a href="#cb86-130" aria-hidden="true" tabindex="-1"></a>  <span class="fu">select</span>(station_id) <span class="sc">|&gt;</span></span>
+<span id="cb86-131"><a href="#cb86-131" aria-hidden="true" tabindex="-1"></a>  <span class="fu">mutate</span>(</span>
+<span id="cb86-132"><a href="#cb86-132" aria-hidden="true" tabindex="-1"></a>    <span class="at">x =</span> sf<span class="sc">::</span><span class="fu">st_coordinates</span>(geometry)[, <span class="st">"X"</span>],</span>
+<span id="cb86-133"><a href="#cb86-133" aria-hidden="true" tabindex="-1"></a>    <span class="at">y =</span> sf<span class="sc">::</span><span class="fu">st_coordinates</span>(geometry)[, <span class="st">"Y"</span>]</span>
+<span id="cb86-134"><a href="#cb86-134" aria-hidden="true" tabindex="-1"></a>  ) <span class="sc">|&gt;</span></span>
+<span id="cb86-135"><a href="#cb86-135" aria-hidden="true" tabindex="-1"></a>  sf<span class="sc">::</span><span class="fu">st_drop_geometry</span>() <span class="sc">|&gt;</span> </span>
+<span id="cb86-136"><a href="#cb86-136" aria-hidden="true" tabindex="-1"></a>  <span class="fu">distinct</span>()</span>
+<span id="cb86-137"><a href="#cb86-137" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb86-138"><a href="#cb86-138" aria-hidden="true" tabindex="-1"></a>tib_station_coords_ll <span class="ot">&lt;-</span> sf_pm10 <span class="sc">|&gt;</span></span>
+<span id="cb86-139"><a href="#cb86-139" aria-hidden="true" tabindex="-1"></a>  <span class="fu">select</span>(station_id) <span class="sc">|&gt;</span></span>
+<span id="cb86-140"><a href="#cb86-140" aria-hidden="true" tabindex="-1"></a>  sf<span class="sc">::</span><span class="fu">st_transform</span>(<span class="at">crs =</span> <span class="dv">4326</span>) <span class="sc">|&gt;</span></span>
+<span id="cb86-141"><a href="#cb86-141" aria-hidden="true" tabindex="-1"></a>  <span class="fu">mutate</span>(</span>
+<span id="cb86-142"><a href="#cb86-142" aria-hidden="true" tabindex="-1"></a>    <span class="at">x =</span> sf<span class="sc">::</span><span class="fu">st_coordinates</span>(geometry)[, <span class="st">"X"</span>],</span>
+<span id="cb86-143"><a href="#cb86-143" aria-hidden="true" tabindex="-1"></a>    <span class="at">y =</span> sf<span class="sc">::</span><span class="fu">st_coordinates</span>(geometry)[, <span class="st">"Y"</span>]</span>
+<span id="cb86-144"><a href="#cb86-144" aria-hidden="true" tabindex="-1"></a>  ) <span class="sc">|&gt;</span></span>
+<span id="cb86-145"><a href="#cb86-145" aria-hidden="true" tabindex="-1"></a>  sf<span class="sc">::</span><span class="fu">st_drop_geometry</span>() <span class="sc">|&gt;</span> </span>
+<span id="cb86-146"><a href="#cb86-146" aria-hidden="true" tabindex="-1"></a>  <span class="fu">distinct</span>()</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
 </details>
 <ul>
 <li>This code backtransforms the logged observed and predicted variables, calculates the residuals, and creates some coordinate dataframes.</li>
@@ -7789,11 +7854,12 @@ Code
 <span id="cb87-19"><a href="#cb87-19" aria-hidden="true" tabindex="-1"></a>  <span class="fu">xlab</span>(<span class="st">"Residual"</span>) <span class="sc">+</span></span>
 <span id="cb87-20"><a href="#cb87-20" aria-hidden="true" tabindex="-1"></a>  <span class="fu">guides</span>(<span class="at">fill =</span> <span class="st">"none"</span>) <span class="sc">+</span></span>
 <span id="cb87-21"><a href="#cb87-21" aria-hidden="true" tabindex="-1"></a>  <span class="fu">theme_notebook</span>(</span>
-<span id="cb87-22"><a href="#cb87-22" aria-hidden="true" tabindex="-1"></a>    <span class="at">axis.title.y =</span> <span class="fu">element_blank</span>(),</span>
-<span id="cb87-23"><a href="#cb87-23" aria-hidden="true" tabindex="-1"></a>    <span class="at">axis.text.y =</span> <span class="fu">element_text</span>(<span class="at">size =</span> <span class="dv">14</span>, <span class="at">face =</span> <span class="st">"bold"</span>),</span>
-<span id="cb87-24"><a href="#cb87-24" aria-hidden="true" tabindex="-1"></a>    <span class="at">panel.border =</span> <span class="fu">element_rect</span>(<span class="at">color =</span> <span class="st">"#FFFDF9FF"</span>, </span>
-<span id="cb87-25"><a href="#cb87-25" aria-hidden="true" tabindex="-1"></a>                                <span class="at">fill =</span> <span class="st">"#FFFDF9FF"</span>, </span>
-<span id="cb87-26"><a href="#cb87-26" aria-hidden="true" tabindex="-1"></a>                                <span class="at">linewidth =</span> <span class="fl">1.5</span>))</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
+<span id="cb87-22"><a href="#cb87-22" aria-hidden="true" tabindex="-1"></a>    <span class="at">plot.title.position =</span> <span class="st">"plot"</span>,</span>
+<span id="cb87-23"><a href="#cb87-23" aria-hidden="true" tabindex="-1"></a>    <span class="at">axis.title.y =</span> <span class="fu">element_blank</span>(),</span>
+<span id="cb87-24"><a href="#cb87-24" aria-hidden="true" tabindex="-1"></a>    <span class="at">axis.text.y =</span> <span class="fu">element_text</span>(<span class="at">size =</span> <span class="dv">14</span>, <span class="at">face =</span> <span class="st">"bold"</span>),</span>
+<span id="cb87-25"><a href="#cb87-25" aria-hidden="true" tabindex="-1"></a>    <span class="at">panel.border =</span> <span class="fu">element_rect</span>(<span class="at">color =</span> <span class="st">"#FFFDF9FF"</span>, </span>
+<span id="cb87-26"><a href="#cb87-26" aria-hidden="true" tabindex="-1"></a>                                <span class="at">fill =</span> <span class="st">"#FFFDF9FF"</span>, </span>
+<span id="cb87-27"><a href="#cb87-27" aria-hidden="true" tabindex="-1"></a>                                <span class="at">linewidth =</span> <span class="fl">1.5</span>))</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
 </details>
 <ul>
 <li>The bulk of the residuals have some skew but not awful.
@@ -7897,75 +7963,79 @@ Code
 <span id="cb90-25"><a href="#cb90-25" aria-hidden="true" tabindex="-1"></a>    <span class="at">.by =</span> <span class="fu">c</span>(model, pred_bin)</span>
 <span id="cb90-26"><a href="#cb90-26" aria-hidden="true" tabindex="-1"></a>  )</span>
 <span id="cb90-27"><a href="#cb90-27" aria-hidden="true" tabindex="-1"></a></span>
-<span id="cb90-28"><a href="#cb90-28" aria-hidden="true" tabindex="-1"></a><span class="fu">ggplot</span>(tib_quant_bins, </span>
-<span id="cb90-29"><a href="#cb90-29" aria-hidden="true" tabindex="-1"></a>       <span class="fu">aes</span>(<span class="at">x =</span> pred_bin, </span>
-<span id="cb90-30"><a href="#cb90-30" aria-hidden="true" tabindex="-1"></a>           <span class="at">y =</span> residual,</span>
-<span id="cb90-31"><a href="#cb90-31" aria-hidden="true" tabindex="-1"></a>           <span class="at">color =</span> model)) <span class="sc">+</span></span>
-<span id="cb90-32"><a href="#cb90-32" aria-hidden="true" tabindex="-1"></a>  <span class="fu">geom_hline</span>(</span>
-<span id="cb90-33"><a href="#cb90-33" aria-hidden="true" tabindex="-1"></a>    <span class="at">yintercept =</span> <span class="dv">0</span>, </span>
-<span id="cb90-34"><a href="#cb90-34" aria-hidden="true" tabindex="-1"></a>    <span class="at">linetype =</span> <span class="st">"dashed"</span>, </span>
-<span id="cb90-35"><a href="#cb90-35" aria-hidden="true" tabindex="-1"></a>    <span class="at">color =</span> <span class="st">"grey50"</span>, </span>
-<span id="cb90-36"><a href="#cb90-36" aria-hidden="true" tabindex="-1"></a>    <span class="at">linewidth =</span> <span class="fl">0.5</span>) <span class="sc">+</span></span>
-<span id="cb90-37"><a href="#cb90-37" aria-hidden="true" tabindex="-1"></a>  <span class="co"># points base on residuals</span></span>
-<span id="cb90-38"><a href="#cb90-38" aria-hidden="true" tabindex="-1"></a>  <span class="fu">geom_jitter</span>(</span>
-<span id="cb90-39"><a href="#cb90-39" aria-hidden="true" tabindex="-1"></a>    <span class="at">width =</span> <span class="fl">0.25</span>, </span>
-<span id="cb90-40"><a href="#cb90-40" aria-hidden="true" tabindex="-1"></a>    <span class="at">alpha =</span> <span class="fl">0.25</span>, </span>
-<span id="cb90-41"><a href="#cb90-41" aria-hidden="true" tabindex="-1"></a>    <span class="at">size =</span> <span class="fl">1.2</span></span>
-<span id="cb90-42"><a href="#cb90-42" aria-hidden="true" tabindex="-1"></a>  ) <span class="sc">+</span></span>
-<span id="cb90-43"><a href="#cb90-43" aria-hidden="true" tabindex="-1"></a>  <span class="co"># whiskers based on residuals</span></span>
-<span id="cb90-44"><a href="#cb90-44" aria-hidden="true" tabindex="-1"></a>  <span class="fu">geom_errorbar</span>(</span>
-<span id="cb90-45"><a href="#cb90-45" aria-hidden="true" tabindex="-1"></a>    <span class="at">data =</span> bin_stats,</span>
-<span id="cb90-46"><a href="#cb90-46" aria-hidden="true" tabindex="-1"></a>    <span class="fu">aes</span>(<span class="at">x =</span> pred_bin, </span>
-<span id="cb90-47"><a href="#cb90-47" aria-hidden="true" tabindex="-1"></a>        <span class="at">ymin =</span> p10, </span>
-<span id="cb90-48"><a href="#cb90-48" aria-hidden="true" tabindex="-1"></a>        <span class="at">ymax =</span> p90),</span>
-<span id="cb90-49"><a href="#cb90-49" aria-hidden="true" tabindex="-1"></a>    <span class="at">inherit.aes =</span> <span class="cn">FALSE</span>,</span>
-<span id="cb90-50"><a href="#cb90-50" aria-hidden="true" tabindex="-1"></a>    <span class="at">width =</span> <span class="fl">0.25</span>,</span>
-<span id="cb90-51"><a href="#cb90-51" aria-hidden="true" tabindex="-1"></a>    <span class="at">linewidth =</span> <span class="fl">0.8</span></span>
-<span id="cb90-52"><a href="#cb90-52" aria-hidden="true" tabindex="-1"></a>  ) <span class="sc">+</span></span>
-<span id="cb90-53"><a href="#cb90-53" aria-hidden="true" tabindex="-1"></a>  <span class="co"># median residual (diamond shape)</span></span>
-<span id="cb90-54"><a href="#cb90-54" aria-hidden="true" tabindex="-1"></a>  <span class="fu">geom_point</span>(</span>
-<span id="cb90-55"><a href="#cb90-55" aria-hidden="true" tabindex="-1"></a>    <span class="at">data =</span> bin_stats,</span>
-<span id="cb90-56"><a href="#cb90-56" aria-hidden="true" tabindex="-1"></a>    <span class="at">mapping =</span> <span class="fu">aes</span>(<span class="at">x =</span> pred_bin, <span class="at">y =</span> median_res),</span>
-<span id="cb90-57"><a href="#cb90-57" aria-hidden="true" tabindex="-1"></a>    <span class="at">inherit.aes =</span> <span class="cn">FALSE</span>,</span>
-<span id="cb90-58"><a href="#cb90-58" aria-hidden="true" tabindex="-1"></a>    <span class="at">size =</span> <span class="fl">3.5</span>,</span>
-<span id="cb90-59"><a href="#cb90-59" aria-hidden="true" tabindex="-1"></a>    <span class="at">shape =</span> <span class="dv">18</span>,</span>
-<span id="cb90-60"><a href="#cb90-60" aria-hidden="true" tabindex="-1"></a>    <span class="at">color =</span> prismatic<span class="sc">::</span><span class="fu">clr_lighten</span>(notebook_colors[[<span class="dv">7</span>]], <span class="at">shift =</span> <span class="fl">0.6</span>)</span>
-<span id="cb90-61"><a href="#cb90-61" aria-hidden="true" tabindex="-1"></a>  ) <span class="sc">+</span></span>
-<span id="cb90-62"><a href="#cb90-62" aria-hidden="true" tabindex="-1"></a>  <span class="co"># custom IQR box based median and mad residual</span></span>
-<span id="cb90-63"><a href="#cb90-63" aria-hidden="true" tabindex="-1"></a>  <span class="fu">geom_crossbar</span>(</span>
-<span id="cb90-64"><a href="#cb90-64" aria-hidden="true" tabindex="-1"></a>    <span class="at">data =</span> bin_stats,</span>
-<span id="cb90-65"><a href="#cb90-65" aria-hidden="true" tabindex="-1"></a>    <span class="fu">aes</span>(</span>
-<span id="cb90-66"><a href="#cb90-66" aria-hidden="true" tabindex="-1"></a>      <span class="at">x =</span> pred_bin,</span>
-<span id="cb90-67"><a href="#cb90-67" aria-hidden="true" tabindex="-1"></a>      <span class="at">y =</span> median_res,</span>
-<span id="cb90-68"><a href="#cb90-68" aria-hidden="true" tabindex="-1"></a>      <span class="at">ymin =</span> median_res <span class="sc">-</span> mad_res,</span>
-<span id="cb90-69"><a href="#cb90-69" aria-hidden="true" tabindex="-1"></a>      <span class="at">ymax =</span> median_res <span class="sc">+</span> mad_res,</span>
-<span id="cb90-70"><a href="#cb90-70" aria-hidden="true" tabindex="-1"></a>      <span class="at">fill =</span> model</span>
-<span id="cb90-71"><a href="#cb90-71" aria-hidden="true" tabindex="-1"></a>    ),</span>
-<span id="cb90-72"><a href="#cb90-72" aria-hidden="true" tabindex="-1"></a>    <span class="at">inherit.aes =</span> <span class="cn">FALSE</span>,</span>
-<span id="cb90-73"><a href="#cb90-73" aria-hidden="true" tabindex="-1"></a>    <span class="at">width =</span> <span class="fl">0.45</span>,</span>
-<span id="cb90-74"><a href="#cb90-74" aria-hidden="true" tabindex="-1"></a>    <span class="at">linewidth =</span> <span class="fl">0.4</span>,</span>
-<span id="cb90-75"><a href="#cb90-75" aria-hidden="true" tabindex="-1"></a>    <span class="at">alpha =</span> <span class="fl">0.25</span></span>
-<span id="cb90-76"><a href="#cb90-76" aria-hidden="true" tabindex="-1"></a>  ) <span class="sc">+</span></span>
-<span id="cb90-77"><a href="#cb90-77" aria-hidden="true" tabindex="-1"></a>  <span class="fu">scale_color_manual</span>(<span class="at">values =</span> <span class="fu">c</span>(</span>
-<span id="cb90-78"><a href="#cb90-78" aria-hidden="true" tabindex="-1"></a>    <span class="st">"krigeST"</span> <span class="ot">=</span> notebook_colors[[<span class="dv">5</span>]], </span>
-<span id="cb90-79"><a href="#cb90-79" aria-hidden="true" tabindex="-1"></a>    <span class="st">"Catboost"</span> <span class="ot">=</span> notebook_colors[[<span class="dv">6</span>]]</span>
-<span id="cb90-80"><a href="#cb90-80" aria-hidden="true" tabindex="-1"></a>  )) <span class="sc">+</span></span>
-<span id="cb90-81"><a href="#cb90-81" aria-hidden="true" tabindex="-1"></a>  <span class="fu">scale_fill_manual</span>(<span class="at">values =</span> <span class="fu">c</span>(</span>
-<span id="cb90-82"><a href="#cb90-82" aria-hidden="true" tabindex="-1"></a>    <span class="st">"krigeST"</span> <span class="ot">=</span> prismatic<span class="sc">::</span><span class="fu">clr_lighten</span>(notebook_colors[[<span class="dv">5</span>]], <span class="at">shift =</span> <span class="fl">0.6</span>), </span>
-<span id="cb90-83"><a href="#cb90-83" aria-hidden="true" tabindex="-1"></a>    <span class="st">"Catboost"</span> <span class="ot">=</span> prismatic<span class="sc">::</span><span class="fu">clr_lighten</span>(notebook_colors[[<span class="dv">6</span>]], <span class="at">shift =</span> <span class="fl">0.6</span>)</span>
-<span id="cb90-84"><a href="#cb90-84" aria-hidden="true" tabindex="-1"></a>  )) <span class="sc">+</span></span>
-<span id="cb90-85"><a href="#cb90-85" aria-hidden="true" tabindex="-1"></a>  <span class="fu">scale_x_discrete</span>(</span>
-<span id="cb90-86"><a href="#cb90-86" aria-hidden="true" tabindex="-1"></a>    <span class="at">labels =</span> <span class="fu">c</span>(<span class="st">"Q1</span><span class="sc">\n</span><span class="st">(lowest)"</span>, <span class="st">"Q2"</span>, <span class="st">"Q3</span><span class="sc">\n</span><span class="st">(mid)"</span>, <span class="st">"Q4"</span>, <span class="st">"Q5</span><span class="sc">\n</span><span class="st">(highest)"</span>)</span>
-<span id="cb90-87"><a href="#cb90-87" aria-hidden="true" tabindex="-1"></a>  ) <span class="sc">+</span></span>
-<span id="cb90-88"><a href="#cb90-88" aria-hidden="true" tabindex="-1"></a>  <span class="fu">facet_wrap</span>(<span class="sc">~</span> model) <span class="sc">+</span></span>
-<span id="cb90-89"><a href="#cb90-89" aria-hidden="true" tabindex="-1"></a>  <span class="fu">guides</span>(<span class="at">color =</span> <span class="st">"none"</span>, <span class="at">fill =</span> <span class="st">"none"</span>) <span class="sc">+</span></span>
-<span id="cb90-90"><a href="#cb90-90" aria-hidden="true" tabindex="-1"></a>  <span class="fu">labs</span>(</span>
-<span id="cb90-91"><a href="#cb90-91" aria-hidden="true" tabindex="-1"></a>    <span class="at">title =</span> <span class="st">"Residuals Stratified by Predicted Value Quantiles"</span>,</span>
-<span id="cb90-92"><a href="#cb90-92" aria-hidden="true" tabindex="-1"></a>    <span class="at">subtitle =</span> <span class="st">"Diamond = Median  |  Box = Median ± MAD  |  Whishers = P10–P90"</span>,</span>
-<span id="cb90-93"><a href="#cb90-93" aria-hidden="true" tabindex="-1"></a>    <span class="at">x =</span> <span class="st">"Predicted value bin"</span>,</span>
-<span id="cb90-94"><a href="#cb90-94" aria-hidden="true" tabindex="-1"></a>    <span class="at">y =</span> <span class="st">"Residual"</span></span>
-<span id="cb90-95"><a href="#cb90-95" aria-hidden="true" tabindex="-1"></a>  ) <span class="sc">+</span></span>
-<span id="cb90-96"><a href="#cb90-96" aria-hidden="true" tabindex="-1"></a>  <span class="fu">theme_notebook</span>()</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
+<span id="cb90-28"><a href="#cb90-28" aria-hidden="true" tabindex="-1"></a>p_res_pred_bin <span class="ot">&lt;-</span> <span class="fu">ggplot</span>(</span>
+<span id="cb90-29"><a href="#cb90-29" aria-hidden="true" tabindex="-1"></a>  tib_quant_bins, </span>
+<span id="cb90-30"><a href="#cb90-30" aria-hidden="true" tabindex="-1"></a>  <span class="fu">aes</span>(<span class="at">x =</span> pred_bin, </span>
+<span id="cb90-31"><a href="#cb90-31" aria-hidden="true" tabindex="-1"></a>      <span class="at">y =</span> residual,</span>
+<span id="cb90-32"><a href="#cb90-32" aria-hidden="true" tabindex="-1"></a>      <span class="at">color =</span> model)</span>
+<span id="cb90-33"><a href="#cb90-33" aria-hidden="true" tabindex="-1"></a>) <span class="sc">+</span></span>
+<span id="cb90-34"><a href="#cb90-34" aria-hidden="true" tabindex="-1"></a>  <span class="fu">geom_hline</span>(</span>
+<span id="cb90-35"><a href="#cb90-35" aria-hidden="true" tabindex="-1"></a>    <span class="at">yintercept =</span> <span class="dv">0</span>, </span>
+<span id="cb90-36"><a href="#cb90-36" aria-hidden="true" tabindex="-1"></a>    <span class="at">linetype =</span> <span class="st">"dashed"</span>, </span>
+<span id="cb90-37"><a href="#cb90-37" aria-hidden="true" tabindex="-1"></a>    <span class="at">color =</span> <span class="st">"grey50"</span>, </span>
+<span id="cb90-38"><a href="#cb90-38" aria-hidden="true" tabindex="-1"></a>    <span class="at">linewidth =</span> <span class="fl">0.5</span>) <span class="sc">+</span></span>
+<span id="cb90-39"><a href="#cb90-39" aria-hidden="true" tabindex="-1"></a>  <span class="co"># points base on residuals</span></span>
+<span id="cb90-40"><a href="#cb90-40" aria-hidden="true" tabindex="-1"></a>  <span class="fu">geom_jitter</span>(</span>
+<span id="cb90-41"><a href="#cb90-41" aria-hidden="true" tabindex="-1"></a>    <span class="at">width =</span> <span class="fl">0.25</span>, </span>
+<span id="cb90-42"><a href="#cb90-42" aria-hidden="true" tabindex="-1"></a>    <span class="at">alpha =</span> <span class="fl">0.25</span>, </span>
+<span id="cb90-43"><a href="#cb90-43" aria-hidden="true" tabindex="-1"></a>    <span class="at">size =</span> <span class="fl">1.2</span></span>
+<span id="cb90-44"><a href="#cb90-44" aria-hidden="true" tabindex="-1"></a>  ) <span class="sc">+</span></span>
+<span id="cb90-45"><a href="#cb90-45" aria-hidden="true" tabindex="-1"></a>  <span class="co"># whiskers based on residuals</span></span>
+<span id="cb90-46"><a href="#cb90-46" aria-hidden="true" tabindex="-1"></a>  <span class="fu">geom_errorbar</span>(</span>
+<span id="cb90-47"><a href="#cb90-47" aria-hidden="true" tabindex="-1"></a>    <span class="at">data =</span> bin_stats,</span>
+<span id="cb90-48"><a href="#cb90-48" aria-hidden="true" tabindex="-1"></a>    <span class="fu">aes</span>(<span class="at">x =</span> pred_bin, </span>
+<span id="cb90-49"><a href="#cb90-49" aria-hidden="true" tabindex="-1"></a>        <span class="at">ymin =</span> p10, </span>
+<span id="cb90-50"><a href="#cb90-50" aria-hidden="true" tabindex="-1"></a>        <span class="at">ymax =</span> p90),</span>
+<span id="cb90-51"><a href="#cb90-51" aria-hidden="true" tabindex="-1"></a>    <span class="at">inherit.aes =</span> <span class="cn">FALSE</span>,</span>
+<span id="cb90-52"><a href="#cb90-52" aria-hidden="true" tabindex="-1"></a>    <span class="at">width =</span> <span class="fl">0.25</span>,</span>
+<span id="cb90-53"><a href="#cb90-53" aria-hidden="true" tabindex="-1"></a>    <span class="at">linewidth =</span> <span class="fl">0.8</span></span>
+<span id="cb90-54"><a href="#cb90-54" aria-hidden="true" tabindex="-1"></a>  ) <span class="sc">+</span></span>
+<span id="cb90-55"><a href="#cb90-55" aria-hidden="true" tabindex="-1"></a>  <span class="co"># custom IQR box based median and mad residual</span></span>
+<span id="cb90-56"><a href="#cb90-56" aria-hidden="true" tabindex="-1"></a>  <span class="fu">geom_crossbar</span>(</span>
+<span id="cb90-57"><a href="#cb90-57" aria-hidden="true" tabindex="-1"></a>    <span class="at">data =</span> bin_stats,</span>
+<span id="cb90-58"><a href="#cb90-58" aria-hidden="true" tabindex="-1"></a>    <span class="fu">aes</span>(</span>
+<span id="cb90-59"><a href="#cb90-59" aria-hidden="true" tabindex="-1"></a>      <span class="at">x =</span> pred_bin,</span>
+<span id="cb90-60"><a href="#cb90-60" aria-hidden="true" tabindex="-1"></a>      <span class="at">y =</span> median_res,</span>
+<span id="cb90-61"><a href="#cb90-61" aria-hidden="true" tabindex="-1"></a>      <span class="at">ymin =</span> median_res <span class="sc">-</span> mad_res,</span>
+<span id="cb90-62"><a href="#cb90-62" aria-hidden="true" tabindex="-1"></a>      <span class="at">ymax =</span> median_res <span class="sc">+</span> mad_res,</span>
+<span id="cb90-63"><a href="#cb90-63" aria-hidden="true" tabindex="-1"></a>      <span class="at">fill =</span> model</span>
+<span id="cb90-64"><a href="#cb90-64" aria-hidden="true" tabindex="-1"></a>    ),</span>
+<span id="cb90-65"><a href="#cb90-65" aria-hidden="true" tabindex="-1"></a>    <span class="at">inherit.aes =</span> <span class="cn">FALSE</span>,</span>
+<span id="cb90-66"><a href="#cb90-66" aria-hidden="true" tabindex="-1"></a>    <span class="at">width =</span> <span class="fl">0.45</span>,</span>
+<span id="cb90-67"><a href="#cb90-67" aria-hidden="true" tabindex="-1"></a>    <span class="at">linewidth =</span> <span class="fl">0.4</span>,</span>
+<span id="cb90-68"><a href="#cb90-68" aria-hidden="true" tabindex="-1"></a>    <span class="at">alpha =</span> <span class="fl">0.25</span></span>
+<span id="cb90-69"><a href="#cb90-69" aria-hidden="true" tabindex="-1"></a>  ) <span class="sc">+</span></span>
+<span id="cb90-70"><a href="#cb90-70" aria-hidden="true" tabindex="-1"></a>  <span class="fu">scale_color_manual</span>(<span class="at">values =</span> <span class="fu">c</span>(</span>
+<span id="cb90-71"><a href="#cb90-71" aria-hidden="true" tabindex="-1"></a>    <span class="st">"krigeST"</span> <span class="ot">=</span> notebook_colors[[<span class="dv">5</span>]], </span>
+<span id="cb90-72"><a href="#cb90-72" aria-hidden="true" tabindex="-1"></a>    <span class="st">"Catboost"</span> <span class="ot">=</span> notebook_colors[[<span class="dv">6</span>]]</span>
+<span id="cb90-73"><a href="#cb90-73" aria-hidden="true" tabindex="-1"></a>  )) <span class="sc">+</span></span>
+<span id="cb90-74"><a href="#cb90-74" aria-hidden="true" tabindex="-1"></a>  <span class="fu">scale_fill_manual</span>(<span class="at">values =</span> <span class="fu">c</span>(</span>
+<span id="cb90-75"><a href="#cb90-75" aria-hidden="true" tabindex="-1"></a>    <span class="st">"krigeST"</span> <span class="ot">=</span> prismatic<span class="sc">::</span><span class="fu">clr_lighten</span>(notebook_colors[[<span class="dv">5</span>]], <span class="at">shift =</span> <span class="fl">0.6</span>), </span>
+<span id="cb90-76"><a href="#cb90-76" aria-hidden="true" tabindex="-1"></a>    <span class="st">"Catboost"</span> <span class="ot">=</span> prismatic<span class="sc">::</span><span class="fu">clr_lighten</span>(notebook_colors[[<span class="dv">6</span>]], <span class="at">shift =</span> <span class="fl">0.6</span>)</span>
+<span id="cb90-77"><a href="#cb90-77" aria-hidden="true" tabindex="-1"></a>  )) <span class="sc">+</span></span>
+<span id="cb90-78"><a href="#cb90-78" aria-hidden="true" tabindex="-1"></a>  <span class="co"># median residual (diamond shape)</span></span>
+<span id="cb90-79"><a href="#cb90-79" aria-hidden="true" tabindex="-1"></a>  <span class="fu">geom_point</span>(</span>
+<span id="cb90-80"><a href="#cb90-80" aria-hidden="true" tabindex="-1"></a>    <span class="at">data =</span> bin_stats,</span>
+<span id="cb90-81"><a href="#cb90-81" aria-hidden="true" tabindex="-1"></a>    <span class="fu">aes</span>(<span class="at">x =</span> pred_bin, </span>
+<span id="cb90-82"><a href="#cb90-82" aria-hidden="true" tabindex="-1"></a>        <span class="at">y =</span> median_res),</span>
+<span id="cb90-83"><a href="#cb90-83" aria-hidden="true" tabindex="-1"></a>    <span class="at">inherit.aes =</span> <span class="cn">FALSE</span>,</span>
+<span id="cb90-84"><a href="#cb90-84" aria-hidden="true" tabindex="-1"></a>    <span class="at">size =</span> <span class="fl">3.5</span>,</span>
+<span id="cb90-85"><a href="#cb90-85" aria-hidden="true" tabindex="-1"></a>    <span class="at">shape =</span> <span class="dv">18</span>,</span>
+<span id="cb90-86"><a href="#cb90-86" aria-hidden="true" tabindex="-1"></a>    <span class="at">fill =</span> prismatic<span class="sc">::</span><span class="fu">clr_lighten</span>(notebook_colors[[<span class="dv">7</span>]], <span class="at">shift =</span> <span class="fl">0.6</span>),</span>
+<span id="cb90-87"><a href="#cb90-87" aria-hidden="true" tabindex="-1"></a>    <span class="at">color =</span> prismatic<span class="sc">::</span><span class="fu">clr_lighten</span>(notebook_colors[[<span class="dv">7</span>]], <span class="at">shift =</span> <span class="fl">0.6</span>)</span>
+<span id="cb90-88"><a href="#cb90-88" aria-hidden="true" tabindex="-1"></a>  ) <span class="sc">+</span>  </span>
+<span id="cb90-89"><a href="#cb90-89" aria-hidden="true" tabindex="-1"></a>  <span class="fu">scale_x_discrete</span>(</span>
+<span id="cb90-90"><a href="#cb90-90" aria-hidden="true" tabindex="-1"></a>    <span class="at">labels =</span> <span class="fu">c</span>(<span class="st">"Q1</span><span class="sc">\n</span><span class="st">(lowest)"</span>, <span class="st">"Q2"</span>, <span class="st">"Q3</span><span class="sc">\n</span><span class="st">(mid)"</span>, <span class="st">"Q4"</span>, <span class="st">"Q5</span><span class="sc">\n</span><span class="st">(highest)"</span>)</span>
+<span id="cb90-91"><a href="#cb90-91" aria-hidden="true" tabindex="-1"></a>  ) <span class="sc">+</span></span>
+<span id="cb90-92"><a href="#cb90-92" aria-hidden="true" tabindex="-1"></a>  <span class="fu">facet_wrap</span>(<span class="sc">~</span> model) <span class="sc">+</span></span>
+<span id="cb90-93"><a href="#cb90-93" aria-hidden="true" tabindex="-1"></a>  <span class="fu">guides</span>(<span class="at">color =</span> <span class="st">"none"</span>, <span class="at">fill =</span> <span class="st">"none"</span>) <span class="sc">+</span></span>
+<span id="cb90-94"><a href="#cb90-94" aria-hidden="true" tabindex="-1"></a>  <span class="fu">labs</span>(</span>
+<span id="cb90-95"><a href="#cb90-95" aria-hidden="true" tabindex="-1"></a>    <span class="at">title =</span> <span class="st">"Residuals Stratified by Predicted Value Quantiles"</span>,</span>
+<span id="cb90-96"><a href="#cb90-96" aria-hidden="true" tabindex="-1"></a>    <span class="at">subtitle =</span> <span class="st">"Diamond = Median  |  Box = Median ± MAD  |  Whishers = P10–P90"</span>,</span>
+<span id="cb90-97"><a href="#cb90-97" aria-hidden="true" tabindex="-1"></a>    <span class="at">x =</span> <span class="st">"Predicted value bin"</span>,</span>
+<span id="cb90-98"><a href="#cb90-98" aria-hidden="true" tabindex="-1"></a>    <span class="at">y =</span> <span class="st">"Residual"</span></span>
+<span id="cb90-99"><a href="#cb90-99" aria-hidden="true" tabindex="-1"></a>  ) <span class="sc">+</span></span>
+<span id="cb90-100"><a href="#cb90-100" aria-hidden="true" tabindex="-1"></a>  <span class="fu">theme_notebook</span>()</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
 </details>
 <ul>
 <li>Given the distributions of the residuals for both models — long outlier tails and slightly skewed — this method (median + mad) provides a more robust description of the residual distributions.</li>
@@ -8090,98 +8160,101 @@ Code
 <span id="cb91-84"><a href="#cb91-84" aria-hidden="true" tabindex="-1"></a>    <span class="at">color =</span> lag_label</span>
 <span id="cb91-85"><a href="#cb91-85" aria-hidden="true" tabindex="-1"></a>  )) <span class="sc">+</span></span>
 <span id="cb91-86"><a href="#cb91-86" aria-hidden="true" tabindex="-1"></a>  <span class="fu">geom_line</span>(<span class="at">linewidth =</span> <span class="fl">1.75</span>) <span class="sc">+</span></span>
-<span id="cb91-87"><a href="#cb91-87" aria-hidden="true" tabindex="-1"></a>  <span class="co"># geom_point(shape = 1, size = 1.5) +</span></span>
-<span id="cb91-88"><a href="#cb91-88" aria-hidden="true" tabindex="-1"></a>  <span class="fu">scale_color_manual</span>(</span>
-<span id="cb91-89"><a href="#cb91-89" aria-hidden="true" tabindex="-1"></a>    <span class="at">values =</span> lag_colors,</span>
-<span id="cb91-90"><a href="#cb91-90" aria-hidden="true" tabindex="-1"></a>    <span class="at">name =</span> <span class="cn">NULL</span></span>
-<span id="cb91-91"><a href="#cb91-91" aria-hidden="true" tabindex="-1"></a>  ) <span class="sc">+</span></span>
-<span id="cb91-92"><a href="#cb91-92" aria-hidden="true" tabindex="-1"></a>  <span class="fu">guides</span>(<span class="at">color =</span> <span class="fu">guide_legend</span>(<span class="at">reverse =</span> <span class="cn">TRUE</span>)) <span class="sc">+</span></span>
-<span id="cb91-93"><a href="#cb91-93" aria-hidden="true" tabindex="-1"></a>  <span class="fu">labs</span>(</span>
-<span id="cb91-94"><a href="#cb91-94" aria-hidden="true" tabindex="-1"></a>    <span class="at">title =</span> <span class="st">"Spatio-Temporal Variogram of KrigeST Residuals"</span>,</span>
-<span id="cb91-95"><a href="#cb91-95" aria-hidden="true" tabindex="-1"></a>    <span class="at">x =</span> <span class="st">"Distance (km)"</span>,</span>
-<span id="cb91-96"><a href="#cb91-96" aria-hidden="true" tabindex="-1"></a>    <span class="at">y =</span> <span class="st">"Semivariance"</span></span>
-<span id="cb91-97"><a href="#cb91-97" aria-hidden="true" tabindex="-1"></a>  ) <span class="sc">+</span></span>
-<span id="cb91-98"><a href="#cb91-98" aria-hidden="true" tabindex="-1"></a>  <span class="fu">theme_notebook</span>(<span class="at">legend.key.width =</span> <span class="fu">unit</span>(<span class="dv">1</span>, <span class="st">"cm"</span>))</span>
-<span id="cb91-99"><a href="#cb91-99" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb91-87"><a href="#cb91-87" aria-hidden="true" tabindex="-1"></a>  <span class="fu">scale_y_continuous</span>(<span class="at">breaks =</span> <span class="fu">seq</span>(<span class="dv">0</span>, <span class="dv">175</span>, <span class="at">by =</span> <span class="dv">25</span>)) <span class="sc">+</span></span>
+<span id="cb91-88"><a href="#cb91-88" aria-hidden="true" tabindex="-1"></a>  <span class="fu">expand_limits</span>(<span class="at">y =</span> <span class="fu">c</span>(<span class="dv">0</span>, <span class="dv">125</span>)) <span class="sc">+</span></span>
+<span id="cb91-89"><a href="#cb91-89" aria-hidden="true" tabindex="-1"></a>  <span class="fu">scale_color_manual</span>(</span>
+<span id="cb91-90"><a href="#cb91-90" aria-hidden="true" tabindex="-1"></a>    <span class="at">values =</span> lag_colors,</span>
+<span id="cb91-91"><a href="#cb91-91" aria-hidden="true" tabindex="-1"></a>    <span class="at">name =</span> <span class="cn">NULL</span></span>
+<span id="cb91-92"><a href="#cb91-92" aria-hidden="true" tabindex="-1"></a>  ) <span class="sc">+</span></span>
+<span id="cb91-93"><a href="#cb91-93" aria-hidden="true" tabindex="-1"></a>  <span class="fu">guides</span>(<span class="at">color =</span> <span class="fu">guide_legend</span>(<span class="at">reverse =</span> <span class="cn">TRUE</span>)) <span class="sc">+</span></span>
+<span id="cb91-94"><a href="#cb91-94" aria-hidden="true" tabindex="-1"></a>  <span class="fu">labs</span>(</span>
+<span id="cb91-95"><a href="#cb91-95" aria-hidden="true" tabindex="-1"></a>    <span class="at">title =</span> <span class="st">"Spatio-Temporal Variogram of KrigeST Residuals"</span>,</span>
+<span id="cb91-96"><a href="#cb91-96" aria-hidden="true" tabindex="-1"></a>    <span class="at">x =</span> <span class="st">"Distance (km)"</span>,</span>
+<span id="cb91-97"><a href="#cb91-97" aria-hidden="true" tabindex="-1"></a>    <span class="at">y =</span> <span class="st">"Semivariance"</span></span>
+<span id="cb91-98"><a href="#cb91-98" aria-hidden="true" tabindex="-1"></a>  ) <span class="sc">+</span></span>
+<span id="cb91-99"><a href="#cb91-99" aria-hidden="true" tabindex="-1"></a>  <span class="fu">theme_notebook</span>(<span class="at">legend.key.width =</span> <span class="fu">unit</span>(<span class="dv">1</span>, <span class="st">"cm"</span>))</span>
 <span id="cb91-100"><a href="#cb91-100" aria-hidden="true" tabindex="-1"></a></span>
-<span id="cb91-101"><a href="#cb91-101" aria-hidden="true" tabindex="-1"></a><span class="co"># -------------- Catboost --------------</span></span>
-<span id="cb91-102"><a href="#cb91-102" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb91-101"><a href="#cb91-101" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb91-102"><a href="#cb91-102" aria-hidden="true" tabindex="-1"></a><span class="co"># -------------- Catboost --------------</span></span>
 <span id="cb91-103"><a href="#cb91-103" aria-hidden="true" tabindex="-1"></a></span>
-<span id="cb91-104"><a href="#cb91-104" aria-hidden="true" tabindex="-1"></a>cv_combined_full_cat <span class="ot">&lt;-</span> cv_combined <span class="sc">|&gt;</span> </span>
-<span id="cb91-105"><a href="#cb91-105" aria-hidden="true" tabindex="-1"></a>  <span class="fu">filter</span>(model <span class="sc">==</span> <span class="st">"Catboost"</span>) <span class="sc">|&gt;</span> </span>
-<span id="cb91-106"><a href="#cb91-106" aria-hidden="true" tabindex="-1"></a>  <span class="fu">select</span>(date, station_id, residual) <span class="sc">|&gt;</span> </span>
-<span id="cb91-107"><a href="#cb91-107" aria-hidden="true" tabindex="-1"></a>  <span class="fu">group_split</span>(station_id) <span class="sc">|&gt;</span> </span>
-<span id="cb91-108"><a href="#cb91-108" aria-hidden="true" tabindex="-1"></a>  purrr<span class="sc">::</span><span class="fu">map</span>(\(x) {</span>
-<span id="cb91-109"><a href="#cb91-109" aria-hidden="true" tabindex="-1"></a>    current_station <span class="ot">&lt;-</span> x <span class="sc">|&gt;</span> </span>
-<span id="cb91-110"><a href="#cb91-110" aria-hidden="true" tabindex="-1"></a>      <span class="fu">select</span>(station_id) <span class="sc">|&gt;</span> </span>
-<span id="cb91-111"><a href="#cb91-111" aria-hidden="true" tabindex="-1"></a>      <span class="fu">pull</span>(station_id) <span class="sc">|&gt;</span> </span>
-<span id="cb91-112"><a href="#cb91-112" aria-hidden="true" tabindex="-1"></a>      <span class="fu">first</span>()</span>
-<span id="cb91-113"><a href="#cb91-113" aria-hidden="true" tabindex="-1"></a>    cv_combined_full_station <span class="ot">&lt;-</span> cv_dates_full <span class="sc">|&gt;</span> </span>
-<span id="cb91-114"><a href="#cb91-114" aria-hidden="true" tabindex="-1"></a>      <span class="fu">left_join</span>(x, <span class="at">by =</span> <span class="st">"date"</span>) <span class="sc">|&gt;</span> </span>
-<span id="cb91-115"><a href="#cb91-115" aria-hidden="true" tabindex="-1"></a>      <span class="fu">mutate</span>(<span class="at">station_id =</span> <span class="fu">ifelse</span>(<span class="fu">is.na</span>(station_id), current_station, station_id))</span>
-<span id="cb91-116"><a href="#cb91-116" aria-hidden="true" tabindex="-1"></a>  }</span>
-<span id="cb91-117"><a href="#cb91-117" aria-hidden="true" tabindex="-1"></a>  ) <span class="sc">|&gt;</span> </span>
-<span id="cb91-118"><a href="#cb91-118" aria-hidden="true" tabindex="-1"></a>  purrr<span class="sc">::</span><span class="fu">list_rbind</span>() <span class="sc">|&gt;</span> </span>
-<span id="cb91-119"><a href="#cb91-119" aria-hidden="true" tabindex="-1"></a>  <span class="fu">arrange</span>(date)</span>
-<span id="cb91-120"><a href="#cb91-120" aria-hidden="true" tabindex="-1"></a></span>
-<span id="cb91-121"><a href="#cb91-121" aria-hidden="true" tabindex="-1"></a>cv_coords_full_cat <span class="ot">&lt;-</span> cv_combined_full_cat <span class="sc">|&gt;</span> </span>
-<span id="cb91-122"><a href="#cb91-122" aria-hidden="true" tabindex="-1"></a>  <span class="fu">slice_min</span>(date) <span class="sc">|&gt;</span> </span>
-<span id="cb91-123"><a href="#cb91-123" aria-hidden="true" tabindex="-1"></a>  <span class="fu">select</span>(station_id) <span class="sc">|&gt;</span> </span>
-<span id="cb91-124"><a href="#cb91-124" aria-hidden="true" tabindex="-1"></a>  <span class="fu">left_join</span>(tib_station_coords_ll, <span class="at">by =</span> <span class="st">"station_id"</span>) <span class="sc">|&gt;</span> </span>
-<span id="cb91-125"><a href="#cb91-125" aria-hidden="true" tabindex="-1"></a>  tibble<span class="sc">::</span><span class="fu">column_to_rownames</span>(<span class="st">"station_id"</span>) <span class="sc">|&gt;</span> </span>
-<span id="cb91-126"><a href="#cb91-126" aria-hidden="true" tabindex="-1"></a>  <span class="fu">as.matrix</span>(<span class="at">rownames.force =</span> <span class="cn">TRUE</span>)</span>
-<span id="cb91-127"><a href="#cb91-127" aria-hidden="true" tabindex="-1"></a></span>
-<span id="cb91-128"><a href="#cb91-128" aria-hidden="true" tabindex="-1"></a>stfdf_resid_cat <span class="ot">&lt;-</span> spacetime<span class="sc">::</span><span class="fu">STFDF</span>(</span>
-<span id="cb91-129"><a href="#cb91-129" aria-hidden="true" tabindex="-1"></a>  <span class="at">sp =</span> sp<span class="sc">::</span><span class="fu">SpatialPoints</span>(</span>
-<span id="cb91-130"><a href="#cb91-130" aria-hidden="true" tabindex="-1"></a>    <span class="at">coords =</span> cv_coords_full_cat,</span>
-<span id="cb91-131"><a href="#cb91-131" aria-hidden="true" tabindex="-1"></a>    <span class="at">proj4string =</span> sp<span class="sc">::</span><span class="fu">CRS</span>(<span class="st">"+proj=longlat +datum=WGS84 +no_defs"</span>)</span>
-<span id="cb91-132"><a href="#cb91-132" aria-hidden="true" tabindex="-1"></a>  ),                                                       <span class="co"># 53 stations (rows of coords)</span></span>
-<span id="cb91-133"><a href="#cb91-133" aria-hidden="true" tabindex="-1"></a>  <span class="at">time =</span> <span class="fu">as.POSIXct</span>(cv_dates_full<span class="sc">$</span>date),                   <span class="co"># 1826 dates</span></span>
-<span id="cb91-134"><a href="#cb91-134" aria-hidden="true" tabindex="-1"></a>  <span class="at">data =</span> <span class="fu">data.frame</span>(<span class="at">residual =</span> cv_combined_full_cat<span class="sc">$</span>residual) <span class="co"># 96778 observations = 53 * 1826</span></span>
-<span id="cb91-135"><a href="#cb91-135" aria-hidden="true" tabindex="-1"></a>)</span>
-<span id="cb91-136"><a href="#cb91-136" aria-hidden="true" tabindex="-1"></a></span>
-<span id="cb91-137"><a href="#cb91-137" aria-hidden="true" tabindex="-1"></a><span class="co"># w/na.omit = TRUE you get an identical plot</span></span>
-<span id="cb91-138"><a href="#cb91-138" aria-hidden="true" tabindex="-1"></a>vario_resid_cat <span class="ot">&lt;-</span> gstat<span class="sc">::</span><span class="fu">variogramST</span>(</span>
-<span id="cb91-139"><a href="#cb91-139" aria-hidden="true" tabindex="-1"></a>  residual <span class="sc">~</span> <span class="dv">1</span>,</span>
-<span id="cb91-140"><a href="#cb91-140" aria-hidden="true" tabindex="-1"></a>  <span class="at">data =</span> stfdf_resid_cat,</span>
-<span id="cb91-141"><a href="#cb91-141" aria-hidden="true" tabindex="-1"></a>  <span class="at">tlags =</span> <span class="dv">0</span><span class="sc">:</span><span class="dv">14</span></span>
-<span id="cb91-142"><a href="#cb91-142" aria-hidden="true" tabindex="-1"></a>)</span>
-<span id="cb91-143"><a href="#cb91-143" aria-hidden="true" tabindex="-1"></a></span>
-<span id="cb91-144"><a href="#cb91-144" aria-hidden="true" tabindex="-1"></a>tib_resid_vario_cat <span class="ot">&lt;-</span> vario_resid_cat <span class="sc">|&gt;</span></span>
-<span id="cb91-145"><a href="#cb91-145" aria-hidden="true" tabindex="-1"></a>  <span class="fu">filter</span>(<span class="sc">!</span><span class="fu">is.na</span>(gamma)) <span class="sc">|&gt;</span></span>
-<span id="cb91-146"><a href="#cb91-146" aria-hidden="true" tabindex="-1"></a>  <span class="fu">mutate</span>(</span>
-<span id="cb91-147"><a href="#cb91-147" aria-hidden="true" tabindex="-1"></a>    <span class="at">timelag_num =</span> <span class="fu">as.numeric</span>(timelag),</span>
-<span id="cb91-148"><a href="#cb91-148" aria-hidden="true" tabindex="-1"></a>    <span class="at">lag_label =</span> <span class="fu">factor</span>(</span>
-<span id="cb91-149"><a href="#cb91-149" aria-hidden="true" tabindex="-1"></a>      <span class="fu">paste0</span>(<span class="st">"lag"</span>, timelag_num),</span>
-<span id="cb91-150"><a href="#cb91-150" aria-hidden="true" tabindex="-1"></a>      <span class="at">levels =</span> <span class="fu">paste0</span>(<span class="st">"lag"</span>, <span class="dv">0</span><span class="sc">:</span>(<span class="fu">length</span>(<span class="fu">unique</span>(<span class="fu">as.numeric</span>(timelag))) <span class="sc">-</span> <span class="dv">1</span>))</span>
-<span id="cb91-151"><a href="#cb91-151" aria-hidden="true" tabindex="-1"></a>    )</span>
-<span id="cb91-152"><a href="#cb91-152" aria-hidden="true" tabindex="-1"></a>  )</span>
-<span id="cb91-153"><a href="#cb91-153" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb91-104"><a href="#cb91-104" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb91-105"><a href="#cb91-105" aria-hidden="true" tabindex="-1"></a>cv_combined_full_cat <span class="ot">&lt;-</span> cv_combined <span class="sc">|&gt;</span> </span>
+<span id="cb91-106"><a href="#cb91-106" aria-hidden="true" tabindex="-1"></a>  <span class="fu">filter</span>(model <span class="sc">==</span> <span class="st">"Catboost"</span>) <span class="sc">|&gt;</span> </span>
+<span id="cb91-107"><a href="#cb91-107" aria-hidden="true" tabindex="-1"></a>  <span class="fu">select</span>(date, station_id, residual) <span class="sc">|&gt;</span> </span>
+<span id="cb91-108"><a href="#cb91-108" aria-hidden="true" tabindex="-1"></a>  <span class="fu">group_split</span>(station_id) <span class="sc">|&gt;</span> </span>
+<span id="cb91-109"><a href="#cb91-109" aria-hidden="true" tabindex="-1"></a>  purrr<span class="sc">::</span><span class="fu">map</span>(\(x) {</span>
+<span id="cb91-110"><a href="#cb91-110" aria-hidden="true" tabindex="-1"></a>    current_station <span class="ot">&lt;-</span> x <span class="sc">|&gt;</span> </span>
+<span id="cb91-111"><a href="#cb91-111" aria-hidden="true" tabindex="-1"></a>      <span class="fu">select</span>(station_id) <span class="sc">|&gt;</span> </span>
+<span id="cb91-112"><a href="#cb91-112" aria-hidden="true" tabindex="-1"></a>      <span class="fu">pull</span>(station_id) <span class="sc">|&gt;</span> </span>
+<span id="cb91-113"><a href="#cb91-113" aria-hidden="true" tabindex="-1"></a>      <span class="fu">first</span>()</span>
+<span id="cb91-114"><a href="#cb91-114" aria-hidden="true" tabindex="-1"></a>    cv_combined_full_station <span class="ot">&lt;-</span> cv_dates_full <span class="sc">|&gt;</span> </span>
+<span id="cb91-115"><a href="#cb91-115" aria-hidden="true" tabindex="-1"></a>      <span class="fu">left_join</span>(x, <span class="at">by =</span> <span class="st">"date"</span>) <span class="sc">|&gt;</span> </span>
+<span id="cb91-116"><a href="#cb91-116" aria-hidden="true" tabindex="-1"></a>      <span class="fu">mutate</span>(<span class="at">station_id =</span> <span class="fu">ifelse</span>(<span class="fu">is.na</span>(station_id), current_station, station_id))</span>
+<span id="cb91-117"><a href="#cb91-117" aria-hidden="true" tabindex="-1"></a>  }</span>
+<span id="cb91-118"><a href="#cb91-118" aria-hidden="true" tabindex="-1"></a>  ) <span class="sc">|&gt;</span> </span>
+<span id="cb91-119"><a href="#cb91-119" aria-hidden="true" tabindex="-1"></a>  purrr<span class="sc">::</span><span class="fu">list_rbind</span>() <span class="sc">|&gt;</span> </span>
+<span id="cb91-120"><a href="#cb91-120" aria-hidden="true" tabindex="-1"></a>  <span class="fu">arrange</span>(date)</span>
+<span id="cb91-121"><a href="#cb91-121" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb91-122"><a href="#cb91-122" aria-hidden="true" tabindex="-1"></a>cv_coords_full_cat <span class="ot">&lt;-</span> cv_combined_full_cat <span class="sc">|&gt;</span> </span>
+<span id="cb91-123"><a href="#cb91-123" aria-hidden="true" tabindex="-1"></a>  <span class="fu">slice_min</span>(date) <span class="sc">|&gt;</span> </span>
+<span id="cb91-124"><a href="#cb91-124" aria-hidden="true" tabindex="-1"></a>  <span class="fu">select</span>(station_id) <span class="sc">|&gt;</span> </span>
+<span id="cb91-125"><a href="#cb91-125" aria-hidden="true" tabindex="-1"></a>  <span class="fu">left_join</span>(tib_station_coords_ll, <span class="at">by =</span> <span class="st">"station_id"</span>) <span class="sc">|&gt;</span> </span>
+<span id="cb91-126"><a href="#cb91-126" aria-hidden="true" tabindex="-1"></a>  tibble<span class="sc">::</span><span class="fu">column_to_rownames</span>(<span class="st">"station_id"</span>) <span class="sc">|&gt;</span> </span>
+<span id="cb91-127"><a href="#cb91-127" aria-hidden="true" tabindex="-1"></a>  <span class="fu">as.matrix</span>(<span class="at">rownames.force =</span> <span class="cn">TRUE</span>)</span>
+<span id="cb91-128"><a href="#cb91-128" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb91-129"><a href="#cb91-129" aria-hidden="true" tabindex="-1"></a>stfdf_resid_cat <span class="ot">&lt;-</span> spacetime<span class="sc">::</span><span class="fu">STFDF</span>(</span>
+<span id="cb91-130"><a href="#cb91-130" aria-hidden="true" tabindex="-1"></a>  <span class="at">sp =</span> sp<span class="sc">::</span><span class="fu">SpatialPoints</span>(</span>
+<span id="cb91-131"><a href="#cb91-131" aria-hidden="true" tabindex="-1"></a>    <span class="at">coords =</span> cv_coords_full_cat,</span>
+<span id="cb91-132"><a href="#cb91-132" aria-hidden="true" tabindex="-1"></a>    <span class="at">proj4string =</span> sp<span class="sc">::</span><span class="fu">CRS</span>(<span class="st">"+proj=longlat +datum=WGS84 +no_defs"</span>)</span>
+<span id="cb91-133"><a href="#cb91-133" aria-hidden="true" tabindex="-1"></a>  ),                                                       <span class="co"># 53 stations (rows of coords)</span></span>
+<span id="cb91-134"><a href="#cb91-134" aria-hidden="true" tabindex="-1"></a>  <span class="at">time =</span> <span class="fu">as.POSIXct</span>(cv_dates_full<span class="sc">$</span>date),                   <span class="co"># 1826 dates</span></span>
+<span id="cb91-135"><a href="#cb91-135" aria-hidden="true" tabindex="-1"></a>  <span class="at">data =</span> <span class="fu">data.frame</span>(<span class="at">residual =</span> cv_combined_full_cat<span class="sc">$</span>residual) <span class="co"># 96778 observations = 53 * 1826</span></span>
+<span id="cb91-136"><a href="#cb91-136" aria-hidden="true" tabindex="-1"></a>)</span>
+<span id="cb91-137"><a href="#cb91-137" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb91-138"><a href="#cb91-138" aria-hidden="true" tabindex="-1"></a><span class="co"># w/na.omit = TRUE you get an identical plot</span></span>
+<span id="cb91-139"><a href="#cb91-139" aria-hidden="true" tabindex="-1"></a>vario_resid_cat <span class="ot">&lt;-</span> gstat<span class="sc">::</span><span class="fu">variogramST</span>(</span>
+<span id="cb91-140"><a href="#cb91-140" aria-hidden="true" tabindex="-1"></a>  residual <span class="sc">~</span> <span class="dv">1</span>,</span>
+<span id="cb91-141"><a href="#cb91-141" aria-hidden="true" tabindex="-1"></a>  <span class="at">data =</span> stfdf_resid_cat,</span>
+<span id="cb91-142"><a href="#cb91-142" aria-hidden="true" tabindex="-1"></a>  <span class="at">tlags =</span> <span class="dv">0</span><span class="sc">:</span><span class="dv">14</span></span>
+<span id="cb91-143"><a href="#cb91-143" aria-hidden="true" tabindex="-1"></a>)</span>
+<span id="cb91-144"><a href="#cb91-144" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb91-145"><a href="#cb91-145" aria-hidden="true" tabindex="-1"></a>tib_resid_vario_cat <span class="ot">&lt;-</span> vario_resid_cat <span class="sc">|&gt;</span></span>
+<span id="cb91-146"><a href="#cb91-146" aria-hidden="true" tabindex="-1"></a>  <span class="fu">filter</span>(<span class="sc">!</span><span class="fu">is.na</span>(gamma)) <span class="sc">|&gt;</span></span>
+<span id="cb91-147"><a href="#cb91-147" aria-hidden="true" tabindex="-1"></a>  <span class="fu">mutate</span>(</span>
+<span id="cb91-148"><a href="#cb91-148" aria-hidden="true" tabindex="-1"></a>    <span class="at">timelag_num =</span> <span class="fu">as.numeric</span>(timelag),</span>
+<span id="cb91-149"><a href="#cb91-149" aria-hidden="true" tabindex="-1"></a>    <span class="at">lag_label =</span> <span class="fu">factor</span>(</span>
+<span id="cb91-150"><a href="#cb91-150" aria-hidden="true" tabindex="-1"></a>      <span class="fu">paste0</span>(<span class="st">"lag"</span>, timelag_num),</span>
+<span id="cb91-151"><a href="#cb91-151" aria-hidden="true" tabindex="-1"></a>      <span class="at">levels =</span> <span class="fu">paste0</span>(<span class="st">"lag"</span>, <span class="dv">0</span><span class="sc">:</span>(<span class="fu">length</span>(<span class="fu">unique</span>(<span class="fu">as.numeric</span>(timelag))) <span class="sc">-</span> <span class="dv">1</span>))</span>
+<span id="cb91-152"><a href="#cb91-152" aria-hidden="true" tabindex="-1"></a>    )</span>
+<span id="cb91-153"><a href="#cb91-153" aria-hidden="true" tabindex="-1"></a>  )</span>
 <span id="cb91-154"><a href="#cb91-154" aria-hidden="true" tabindex="-1"></a></span>
-<span id="cb91-155"><a href="#cb91-155" aria-hidden="true" tabindex="-1"></a>lag_colors_cat <span class="ot">&lt;-</span> <span class="fu">setNames</span>(</span>
-<span id="cb91-156"><a href="#cb91-156" aria-hidden="true" tabindex="-1"></a>  <span class="fu">rev</span>(scico<span class="sc">::</span><span class="fu">scico</span>(<span class="fu">length</span>(<span class="fu">unique</span>(tib_resid_vario_cat<span class="sc">$</span>timelag)), <span class="at">palette =</span> <span class="st">"glasgow"</span>)),</span>
-<span id="cb91-157"><a href="#cb91-157" aria-hidden="true" tabindex="-1"></a>  <span class="fu">paste0</span>(<span class="st">"lag"</span>, <span class="dv">0</span><span class="sc">:</span>(<span class="fu">length</span>(<span class="fu">unique</span>(tib_resid_vario_cat<span class="sc">$</span>timelag))<span class="sc">-</span><span class="dv">1</span>))</span>
-<span id="cb91-158"><a href="#cb91-158" aria-hidden="true" tabindex="-1"></a>)</span>
-<span id="cb91-159"><a href="#cb91-159" aria-hidden="true" tabindex="-1"></a></span>
-<span id="cb91-160"><a href="#cb91-160" aria-hidden="true" tabindex="-1"></a>p_resid_vario_cat <span class="ot">&lt;-</span> tib_resid_vario_cat <span class="sc">|&gt;</span></span>
-<span id="cb91-161"><a href="#cb91-161" aria-hidden="true" tabindex="-1"></a>  <span class="fu">ggplot</span>(<span class="fu">aes</span>(</span>
-<span id="cb91-162"><a href="#cb91-162" aria-hidden="true" tabindex="-1"></a>    <span class="at">x =</span> avgDist,</span>
-<span id="cb91-163"><a href="#cb91-163" aria-hidden="true" tabindex="-1"></a>    <span class="at">y =</span> gamma,</span>
-<span id="cb91-164"><a href="#cb91-164" aria-hidden="true" tabindex="-1"></a>    <span class="at">group =</span> lag_label,</span>
-<span id="cb91-165"><a href="#cb91-165" aria-hidden="true" tabindex="-1"></a>    <span class="at">color =</span> lag_label</span>
-<span id="cb91-166"><a href="#cb91-166" aria-hidden="true" tabindex="-1"></a>  )) <span class="sc">+</span></span>
-<span id="cb91-167"><a href="#cb91-167" aria-hidden="true" tabindex="-1"></a>  <span class="fu">geom_line</span>(<span class="at">linewidth =</span> <span class="fl">1.75</span>) <span class="sc">+</span></span>
-<span id="cb91-168"><a href="#cb91-168" aria-hidden="true" tabindex="-1"></a>  <span class="fu">scale_color_manual</span>(</span>
-<span id="cb91-169"><a href="#cb91-169" aria-hidden="true" tabindex="-1"></a>    <span class="at">values =</span> lag_colors_cat,</span>
-<span id="cb91-170"><a href="#cb91-170" aria-hidden="true" tabindex="-1"></a>    <span class="at">name =</span> <span class="cn">NULL</span></span>
-<span id="cb91-171"><a href="#cb91-171" aria-hidden="true" tabindex="-1"></a>  ) <span class="sc">+</span></span>
-<span id="cb91-172"><a href="#cb91-172" aria-hidden="true" tabindex="-1"></a>  <span class="fu">guides</span>(<span class="at">color =</span> <span class="fu">guide_legend</span>(<span class="at">reverse =</span> <span class="cn">TRUE</span>)) <span class="sc">+</span></span>
-<span id="cb91-173"><a href="#cb91-173" aria-hidden="true" tabindex="-1"></a>  <span class="fu">labs</span>(</span>
-<span id="cb91-174"><a href="#cb91-174" aria-hidden="true" tabindex="-1"></a>    <span class="at">title =</span> <span class="st">"Spatio-Temporal Variogram of Catboost Residuals"</span>,</span>
-<span id="cb91-175"><a href="#cb91-175" aria-hidden="true" tabindex="-1"></a>    <span class="at">x =</span> <span class="st">"Distance (km)"</span>,</span>
-<span id="cb91-176"><a href="#cb91-176" aria-hidden="true" tabindex="-1"></a>    <span class="at">y =</span> <span class="st">"Semivariance"</span></span>
-<span id="cb91-177"><a href="#cb91-177" aria-hidden="true" tabindex="-1"></a>  ) <span class="sc">+</span></span>
-<span id="cb91-178"><a href="#cb91-178" aria-hidden="true" tabindex="-1"></a>  <span class="fu">theme_notebook</span>(<span class="at">legend.key.width =</span> <span class="fu">unit</span>(<span class="dv">1</span>, <span class="st">"cm"</span>))</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
+<span id="cb91-155"><a href="#cb91-155" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb91-156"><a href="#cb91-156" aria-hidden="true" tabindex="-1"></a>lag_colors_cat <span class="ot">&lt;-</span> <span class="fu">setNames</span>(</span>
+<span id="cb91-157"><a href="#cb91-157" aria-hidden="true" tabindex="-1"></a>  <span class="fu">rev</span>(scico<span class="sc">::</span><span class="fu">scico</span>(<span class="fu">length</span>(<span class="fu">unique</span>(tib_resid_vario_cat<span class="sc">$</span>timelag)), <span class="at">palette =</span> <span class="st">"glasgow"</span>)),</span>
+<span id="cb91-158"><a href="#cb91-158" aria-hidden="true" tabindex="-1"></a>  <span class="fu">paste0</span>(<span class="st">"lag"</span>, <span class="dv">0</span><span class="sc">:</span>(<span class="fu">length</span>(<span class="fu">unique</span>(tib_resid_vario_cat<span class="sc">$</span>timelag))<span class="sc">-</span><span class="dv">1</span>))</span>
+<span id="cb91-159"><a href="#cb91-159" aria-hidden="true" tabindex="-1"></a>)</span>
+<span id="cb91-160"><a href="#cb91-160" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb91-161"><a href="#cb91-161" aria-hidden="true" tabindex="-1"></a>p_resid_vario_cat <span class="ot">&lt;-</span> tib_resid_vario_cat <span class="sc">|&gt;</span></span>
+<span id="cb91-162"><a href="#cb91-162" aria-hidden="true" tabindex="-1"></a>  <span class="fu">ggplot</span>(<span class="fu">aes</span>(</span>
+<span id="cb91-163"><a href="#cb91-163" aria-hidden="true" tabindex="-1"></a>    <span class="at">x =</span> avgDist,</span>
+<span id="cb91-164"><a href="#cb91-164" aria-hidden="true" tabindex="-1"></a>    <span class="at">y =</span> gamma,</span>
+<span id="cb91-165"><a href="#cb91-165" aria-hidden="true" tabindex="-1"></a>    <span class="at">group =</span> lag_label,</span>
+<span id="cb91-166"><a href="#cb91-166" aria-hidden="true" tabindex="-1"></a>    <span class="at">color =</span> lag_label</span>
+<span id="cb91-167"><a href="#cb91-167" aria-hidden="true" tabindex="-1"></a>  )) <span class="sc">+</span></span>
+<span id="cb91-168"><a href="#cb91-168" aria-hidden="true" tabindex="-1"></a>  <span class="fu">geom_line</span>(<span class="at">linewidth =</span> <span class="fl">1.75</span>) <span class="sc">+</span></span>
+<span id="cb91-169"><a href="#cb91-169" aria-hidden="true" tabindex="-1"></a>  <span class="fu">scale_y_continuous</span>(<span class="at">breaks =</span> <span class="fu">seq</span>(<span class="dv">0</span>, <span class="dv">175</span>, <span class="at">by =</span> <span class="dv">25</span>)) <span class="sc">+</span></span>
+<span id="cb91-170"><a href="#cb91-170" aria-hidden="true" tabindex="-1"></a>  <span class="fu">expand_limits</span>(<span class="at">y =</span> <span class="fu">c</span>(<span class="dv">0</span>, <span class="dv">125</span>)) <span class="sc">+</span></span>
+<span id="cb91-171"><a href="#cb91-171" aria-hidden="true" tabindex="-1"></a>  <span class="fu">scale_color_manual</span>(</span>
+<span id="cb91-172"><a href="#cb91-172" aria-hidden="true" tabindex="-1"></a>    <span class="at">values =</span> lag_colors_cat,</span>
+<span id="cb91-173"><a href="#cb91-173" aria-hidden="true" tabindex="-1"></a>    <span class="at">name =</span> <span class="cn">NULL</span></span>
+<span id="cb91-174"><a href="#cb91-174" aria-hidden="true" tabindex="-1"></a>  ) <span class="sc">+</span></span>
+<span id="cb91-175"><a href="#cb91-175" aria-hidden="true" tabindex="-1"></a>  <span class="fu">guides</span>(<span class="at">color =</span> <span class="fu">guide_legend</span>(<span class="at">reverse =</span> <span class="cn">TRUE</span>)) <span class="sc">+</span></span>
+<span id="cb91-176"><a href="#cb91-176" aria-hidden="true" tabindex="-1"></a>  <span class="fu">labs</span>(</span>
+<span id="cb91-177"><a href="#cb91-177" aria-hidden="true" tabindex="-1"></a>    <span class="at">title =</span> <span class="st">"Spatio-Temporal Variogram of Catboost Residuals"</span>,</span>
+<span id="cb91-178"><a href="#cb91-178" aria-hidden="true" tabindex="-1"></a>    <span class="at">x =</span> <span class="st">"Distance (km)"</span>,</span>
+<span id="cb91-179"><a href="#cb91-179" aria-hidden="true" tabindex="-1"></a>    <span class="at">y =</span> <span class="st">"Semivariance"</span></span>
+<span id="cb91-180"><a href="#cb91-180" aria-hidden="true" tabindex="-1"></a>  ) <span class="sc">+</span></span>
+<span id="cb91-181"><a href="#cb91-181" aria-hidden="true" tabindex="-1"></a>  <span class="fu">theme_notebook</span>(<span class="at">legend.key.width =</span> <span class="fu">unit</span>(<span class="dv">1</span>, <span class="st">"cm"</span>))</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
 </details>
 <ul>
 <li>CatBoost residuals are better behaved. Lower overall semivariance (spatial autocorrelation) and tighter lag clustering (temporal autocorrelation) indicate that CatBoost captured more of the spatio-temporal signal, leaving less structured variance in its residuals.</li>
@@ -8203,14 +8276,15 @@ Code
 <span id="cb92-5"><a href="#cb92-5" aria-hidden="true" tabindex="-1"></a>) <span class="sc">|&gt;</span></span>
 <span id="cb92-6"><a href="#cb92-6" aria-hidden="true" tabindex="-1"></a>  sf<span class="sc">::</span><span class="fu">st_transform</span>(<span class="at">crs =</span> <span class="dv">25832</span>)</span>
 <span id="cb92-7"><a href="#cb92-7" aria-hidden="true" tabindex="-1"></a></span>
-<span id="cb92-8"><a href="#cb92-8" aria-hidden="true" tabindex="-1"></a>tib_station_metrics <span class="ot">&lt;-</span> cv_combined <span class="sc">|&gt;</span></span>
-<span id="cb92-9"><a href="#cb92-9" aria-hidden="true" tabindex="-1"></a>  <span class="fu">summarize</span>(</span>
-<span id="cb92-10"><a href="#cb92-10" aria-hidden="true" tabindex="-1"></a>    <span class="at">RMSE =</span> <span class="fu">sqrt</span>(<span class="fu">mean</span>(residual<span class="sc">^</span><span class="dv">2</span>, <span class="at">na.rm =</span> <span class="cn">TRUE</span>)),</span>
-<span id="cb92-11"><a href="#cb92-11" aria-hidden="true" tabindex="-1"></a>    <span class="at">ME =</span> <span class="fu">mean</span>(residual, <span class="at">na.rm =</span> <span class="cn">TRUE</span>),</span>
-<span id="cb92-12"><a href="#cb92-12" aria-hidden="true" tabindex="-1"></a>    <span class="at">.by =</span> <span class="fu">c</span>(model, station_id)</span>
-<span id="cb92-13"><a href="#cb92-13" aria-hidden="true" tabindex="-1"></a>  ) <span class="sc">|&gt;</span></span>
-<span id="cb92-14"><a href="#cb92-14" aria-hidden="true" tabindex="-1"></a>  <span class="fu">left_join</span>(tib_station_coords, <span class="at">by =</span> <span class="st">"station_id"</span>) <span class="sc">|&gt;</span></span>
-<span id="cb92-15"><a href="#cb92-15" aria-hidden="true" tabindex="-1"></a>  sf<span class="sc">::</span><span class="fu">st_as_sf</span>(<span class="at">coords =</span> <span class="fu">c</span>(<span class="st">"x"</span>, <span class="st">"y"</span>), <span class="at">crs =</span> <span class="dv">25832</span>)</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
+<span id="cb92-8"><a href="#cb92-8" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb92-9"><a href="#cb92-9" aria-hidden="true" tabindex="-1"></a>tib_station_metrics <span class="ot">&lt;-</span> cv_combined <span class="sc">|&gt;</span></span>
+<span id="cb92-10"><a href="#cb92-10" aria-hidden="true" tabindex="-1"></a>  <span class="fu">summarize</span>(</span>
+<span id="cb92-11"><a href="#cb92-11" aria-hidden="true" tabindex="-1"></a>    <span class="at">RMSE =</span> <span class="fu">sqrt</span>(<span class="fu">mean</span>(residual<span class="sc">^</span><span class="dv">2</span>, <span class="at">na.rm =</span> <span class="cn">TRUE</span>)),</span>
+<span id="cb92-12"><a href="#cb92-12" aria-hidden="true" tabindex="-1"></a>    <span class="at">ME =</span> <span class="fu">mean</span>(residual, <span class="at">na.rm =</span> <span class="cn">TRUE</span>),</span>
+<span id="cb92-13"><a href="#cb92-13" aria-hidden="true" tabindex="-1"></a>    <span class="at">.by =</span> <span class="fu">c</span>(model, station_id)</span>
+<span id="cb92-14"><a href="#cb92-14" aria-hidden="true" tabindex="-1"></a>  ) <span class="sc">|&gt;</span></span>
+<span id="cb92-15"><a href="#cb92-15" aria-hidden="true" tabindex="-1"></a>  <span class="fu">left_join</span>(tib_station_coords, <span class="at">by =</span> <span class="st">"station_id"</span>) <span class="sc">|&gt;</span></span>
+<span id="cb92-16"><a href="#cb92-16" aria-hidden="true" tabindex="-1"></a>  sf<span class="sc">::</span><span class="fu">st_as_sf</span>(<span class="at">coords =</span> <span class="fu">c</span>(<span class="st">"x"</span>, <span class="st">"y"</span>), <span class="at">crs =</span> <span class="dv">25832</span>)</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
 <ul>
 <li>Getting the base map and calculating metrics per station and model</li>
 </ul>
@@ -8243,8 +8317,8 @@ Code
 <span id="cb93-20"><a href="#cb93-20" aria-hidden="true" tabindex="-1"></a>  ) <span class="sc">+</span></span>
 <span id="cb93-21"><a href="#cb93-21" aria-hidden="true" tabindex="-1"></a>  <span class="fu">geom_sf</span>(<span class="fu">aes</span>(<span class="at">color =</span> RMSE, <span class="at">size =</span> RMSE)) <span class="sc">+</span></span>
 <span id="cb93-22"><a href="#cb93-22" aria-hidden="true" tabindex="-1"></a>  <span class="fu">geom_sf_label</span>(</span>
-<span id="cb93-23"><a href="#cb93-23" aria-hidden="true" tabindex="-1"></a>    <span class="at">data =</span> tib_rmse_outliers <span class="sc">|&gt;</span></span>
-<span id="cb93-24"><a href="#cb93-24" aria-hidden="true" tabindex="-1"></a>      <span class="fu">filter</span>(<span class="sc">!</span>station_id <span class="sc">%in%</span> <span class="fu">c</span>(<span class="st">"DETH042"</span>, <span class="st">"DEUB035"</span>)),</span>
+<span id="cb93-23"><a href="#cb93-23" aria-hidden="true" tabindex="-1"></a>    <span class="at">data =</span> tib_rmse_outliers <span class="sc">|&gt;</span> </span>
+<span id="cb93-24"><a href="#cb93-24" aria-hidden="true" tabindex="-1"></a>      <span class="fu">filter</span>(<span class="sc">!</span>station_id <span class="sc">%in%</span> <span class="fu">c</span>(<span class="st">"DEBE056"</span>, <span class="st">"DESN051"</span>)),</span>
 <span id="cb93-25"><a href="#cb93-25" aria-hidden="true" tabindex="-1"></a>    <span class="fu">aes</span>(<span class="at">label =</span> <span class="fu">paste0</span>(station_id, <span class="st">"</span><span class="sc">\n</span><span class="st">"</span>, <span class="fu">round</span>(RMSE, <span class="dv">2</span>))),</span>
 <span id="cb93-26"><a href="#cb93-26" aria-hidden="true" tabindex="-1"></a>    <span class="at">nudge_x =</span> <span class="sc">-</span><span class="dv">40000</span>,</span>
 <span id="cb93-27"><a href="#cb93-27" aria-hidden="true" tabindex="-1"></a>    <span class="at">nudge_y =</span> <span class="dv">35000</span>,</span>
@@ -8252,31 +8326,39 @@ Code
 <span id="cb93-29"><a href="#cb93-29" aria-hidden="true" tabindex="-1"></a>  ) <span class="sc">+</span></span>
 <span id="cb93-30"><a href="#cb93-30" aria-hidden="true" tabindex="-1"></a>  <span class="fu">geom_sf_label</span>(</span>
 <span id="cb93-31"><a href="#cb93-31" aria-hidden="true" tabindex="-1"></a>    <span class="at">data =</span> tib_rmse_outliers <span class="sc">|&gt;</span></span>
-<span id="cb93-32"><a href="#cb93-32" aria-hidden="true" tabindex="-1"></a>      <span class="fu">filter</span>(station_id <span class="sc">%in%</span> <span class="fu">c</span>(<span class="st">"DETH042"</span>, <span class="st">"DEUB035"</span>)),</span>
+<span id="cb93-32"><a href="#cb93-32" aria-hidden="true" tabindex="-1"></a>      <span class="fu">filter</span>(station_id <span class="sc">==</span> <span class="st">"DEBE056"</span>),</span>
 <span id="cb93-33"><a href="#cb93-33" aria-hidden="true" tabindex="-1"></a>    <span class="fu">aes</span>(<span class="at">label =</span> <span class="fu">paste0</span>(station_id, <span class="st">"</span><span class="sc">\n</span><span class="st">"</span>, <span class="fu">round</span>(RMSE, <span class="dv">2</span>))),</span>
-<span id="cb93-34"><a href="#cb93-34" aria-hidden="true" tabindex="-1"></a>    <span class="at">nudge_x =</span> <span class="dv">47000</span>,</span>
-<span id="cb93-35"><a href="#cb93-35" aria-hidden="true" tabindex="-1"></a>    <span class="at">nudge_y =</span> <span class="sc">-</span><span class="dv">32000</span>,</span>
+<span id="cb93-34"><a href="#cb93-34" aria-hidden="true" tabindex="-1"></a>    <span class="at">nudge_x =</span> <span class="dv">0</span>,</span>
+<span id="cb93-35"><a href="#cb93-35" aria-hidden="true" tabindex="-1"></a>    <span class="at">nudge_y =</span> <span class="sc">-</span><span class="dv">35000</span>,</span>
 <span id="cb93-36"><a href="#cb93-36" aria-hidden="true" tabindex="-1"></a>    <span class="at">size =</span> <span class="dv">3</span></span>
 <span id="cb93-37"><a href="#cb93-37" aria-hidden="true" tabindex="-1"></a>  ) <span class="sc">+</span></span>
-<span id="cb93-38"><a href="#cb93-38" aria-hidden="true" tabindex="-1"></a>  <span class="fu">scale_color_gradientn</span>(</span>
-<span id="cb93-39"><a href="#cb93-39" aria-hidden="true" tabindex="-1"></a>    <span class="co"># sunsetdark from CARTOColors</span></span>
-<span id="cb93-40"><a href="#cb93-40" aria-hidden="true" tabindex="-1"></a>    <span class="at">colors =</span> <span class="fu">colorRampPalette</span>(<span class="fu">c</span>(</span>
-<span id="cb93-41"><a href="#cb93-41" aria-hidden="true" tabindex="-1"></a>      <span class="st">"#fcde9c"</span>,<span class="st">"#faa476"</span>,<span class="st">"#f0746e"</span>,<span class="st">"#e34f6f"</span>,</span>
-<span id="cb93-42"><a href="#cb93-42" aria-hidden="true" tabindex="-1"></a>      <span class="st">"#dc3977"</span>,<span class="st">"#b9257a"</span>,<span class="st">"#7c1d6f"</span>))(<span class="dv">100</span>)</span>
-<span id="cb93-43"><a href="#cb93-43" aria-hidden="true" tabindex="-1"></a>  ) <span class="sc">+</span></span>
-<span id="cb93-44"><a href="#cb93-44" aria-hidden="true" tabindex="-1"></a>  <span class="fu">facet_wrap</span>(<span class="sc">~</span>model) <span class="sc">+</span></span>
-<span id="cb93-45"><a href="#cb93-45" aria-hidden="true" tabindex="-1"></a>  <span class="fu">guides</span>(<span class="at">size =</span> <span class="fu">guide_legend</span>(</span>
-<span id="cb93-46"><a href="#cb93-46" aria-hidden="true" tabindex="-1"></a>    <span class="at">reverse =</span> <span class="cn">TRUE</span>,</span>
-<span id="cb93-47"><a href="#cb93-47" aria-hidden="true" tabindex="-1"></a>    <span class="at">override.aes =</span> <span class="fu">list</span>(<span class="at">color =</span> <span class="st">"#fcde9c"</span>))</span>
-<span id="cb93-48"><a href="#cb93-48" aria-hidden="true" tabindex="-1"></a>  ) <span class="sc">+</span></span>
-<span id="cb93-49"><a href="#cb93-49" aria-hidden="true" tabindex="-1"></a>  <span class="fu">labs</span>(</span>
-<span id="cb93-50"><a href="#cb93-50" aria-hidden="true" tabindex="-1"></a>    <span class="at">title =</span> <span class="st">"RMSE by Station"</span>,</span>
-<span id="cb93-51"><a href="#cb93-51" aria-hidden="true" tabindex="-1"></a>    <span class="at">subtitle =</span> <span class="st">"Stations with greatest difference are highlighted</span></span>
-<span id="cb93-52"><a href="#cb93-52" aria-hidden="true" tabindex="-1"></a><span class="st">"</span>,</span>
-<span id="cb93-53"><a href="#cb93-53" aria-hidden="true" tabindex="-1"></a>    <span class="at">color =</span> <span class="st">"RMSE"</span>,</span>
-<span id="cb93-54"><a href="#cb93-54" aria-hidden="true" tabindex="-1"></a>    <span class="at">size =</span> <span class="st">"RMSE"</span></span>
-<span id="cb93-55"><a href="#cb93-55" aria-hidden="true" tabindex="-1"></a>  ) <span class="sc">+</span></span>
-<span id="cb93-56"><a href="#cb93-56" aria-hidden="true" tabindex="-1"></a>  <span class="fu">theme_slate_map</span>()</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
+<span id="cb93-38"><a href="#cb93-38" aria-hidden="true" tabindex="-1"></a>  <span class="fu">geom_sf_label</span>(</span>
+<span id="cb93-39"><a href="#cb93-39" aria-hidden="true" tabindex="-1"></a>    <span class="at">data =</span> tib_rmse_outliers <span class="sc">|&gt;</span></span>
+<span id="cb93-40"><a href="#cb93-40" aria-hidden="true" tabindex="-1"></a>      <span class="fu">filter</span>(station_id <span class="sc">==</span> <span class="st">"DESN051"</span>),</span>
+<span id="cb93-41"><a href="#cb93-41" aria-hidden="true" tabindex="-1"></a>    <span class="fu">aes</span>(<span class="at">label =</span> <span class="fu">paste0</span>(station_id, <span class="st">"</span><span class="sc">\n</span><span class="st">"</span>, <span class="fu">round</span>(RMSE, <span class="dv">2</span>))),</span>
+<span id="cb93-42"><a href="#cb93-42" aria-hidden="true" tabindex="-1"></a>    <span class="at">nudge_x =</span> <span class="dv">47000</span>,</span>
+<span id="cb93-43"><a href="#cb93-43" aria-hidden="true" tabindex="-1"></a>    <span class="at">nudge_y =</span> <span class="dv">32000</span>,</span>
+<span id="cb93-44"><a href="#cb93-44" aria-hidden="true" tabindex="-1"></a>    <span class="at">size =</span> <span class="dv">3</span></span>
+<span id="cb93-45"><a href="#cb93-45" aria-hidden="true" tabindex="-1"></a>  ) <span class="sc">+</span></span>
+<span id="cb93-46"><a href="#cb93-46" aria-hidden="true" tabindex="-1"></a>  <span class="fu">scale_color_gradientn</span>(</span>
+<span id="cb93-47"><a href="#cb93-47" aria-hidden="true" tabindex="-1"></a>    <span class="co"># sunsetdark from CARTOColors</span></span>
+<span id="cb93-48"><a href="#cb93-48" aria-hidden="true" tabindex="-1"></a>    <span class="at">colors =</span> <span class="fu">colorRampPalette</span>(<span class="fu">c</span>(</span>
+<span id="cb93-49"><a href="#cb93-49" aria-hidden="true" tabindex="-1"></a>      <span class="st">"#fcde9c"</span>,<span class="st">"#faa476"</span>,<span class="st">"#f0746e"</span>,<span class="st">"#e34f6f"</span>,</span>
+<span id="cb93-50"><a href="#cb93-50" aria-hidden="true" tabindex="-1"></a>      <span class="st">"#dc3977"</span>,<span class="st">"#b9257a"</span>,<span class="st">"#7c1d6f"</span>))(<span class="dv">100</span>)</span>
+<span id="cb93-51"><a href="#cb93-51" aria-hidden="true" tabindex="-1"></a>  ) <span class="sc">+</span></span>
+<span id="cb93-52"><a href="#cb93-52" aria-hidden="true" tabindex="-1"></a>  <span class="fu">facet_wrap</span>(<span class="sc">~</span>model) <span class="sc">+</span></span>
+<span id="cb93-53"><a href="#cb93-53" aria-hidden="true" tabindex="-1"></a>  <span class="fu">guides</span>(<span class="at">size =</span> <span class="fu">guide_legend</span>(</span>
+<span id="cb93-54"><a href="#cb93-54" aria-hidden="true" tabindex="-1"></a>    <span class="at">reverse =</span> <span class="cn">TRUE</span>,</span>
+<span id="cb93-55"><a href="#cb93-55" aria-hidden="true" tabindex="-1"></a>    <span class="at">override.aes =</span> <span class="fu">list</span>(<span class="at">color =</span> <span class="st">"#fcde9c"</span>))</span>
+<span id="cb93-56"><a href="#cb93-56" aria-hidden="true" tabindex="-1"></a>  ) <span class="sc">+</span></span>
+<span id="cb93-57"><a href="#cb93-57" aria-hidden="true" tabindex="-1"></a>  <span class="fu">labs</span>(</span>
+<span id="cb93-58"><a href="#cb93-58" aria-hidden="true" tabindex="-1"></a>    <span class="at">title =</span> <span class="st">"RMSE by Station"</span>,</span>
+<span id="cb93-59"><a href="#cb93-59" aria-hidden="true" tabindex="-1"></a>    <span class="at">subtitle =</span> <span class="st">"Stations with greatest difference are highlighted</span></span>
+<span id="cb93-60"><a href="#cb93-60" aria-hidden="true" tabindex="-1"></a><span class="st">"</span>,</span>
+<span id="cb93-61"><a href="#cb93-61" aria-hidden="true" tabindex="-1"></a>    <span class="at">color =</span> <span class="st">"RMSE"</span>,</span>
+<span id="cb93-62"><a href="#cb93-62" aria-hidden="true" tabindex="-1"></a>    <span class="at">size =</span> <span class="st">"RMSE"</span></span>
+<span id="cb93-63"><a href="#cb93-63" aria-hidden="true" tabindex="-1"></a>  ) <span class="sc">+</span></span>
+<span id="cb93-64"><a href="#cb93-64" aria-hidden="true" tabindex="-1"></a>  <span class="fu">theme_slate_map</span>()</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
 </details>
 <ul>
 <li>Top row of labels: up and left (in relation to their location)</li>
@@ -8325,8 +8407,8 @@ Code
 <span id="cb94-33"><a href="#cb94-33" aria-hidden="true" tabindex="-1"></a>    )</span>
 <span id="cb94-34"><a href="#cb94-34" aria-hidden="true" tabindex="-1"></a>  ) <span class="sc">+</span></span>
 <span id="cb94-35"><a href="#cb94-35" aria-hidden="true" tabindex="-1"></a>  <span class="fu">geom_sf_label</span>(</span>
-<span id="cb94-36"><a href="#cb94-36" aria-hidden="true" tabindex="-1"></a>    <span class="at">data =</span> tib_me_outliers <span class="sc">|&gt;</span></span>
-<span id="cb94-37"><a href="#cb94-37" aria-hidden="true" tabindex="-1"></a>      <span class="fu">filter</span>(station_id <span class="sc">==</span> <span class="st">"DEBB056"</span>),</span>
+<span id="cb94-36"><a href="#cb94-36" aria-hidden="true" tabindex="-1"></a>    <span class="at">data =</span> tib_me_outliers <span class="sc">|&gt;</span> </span>
+<span id="cb94-37"><a href="#cb94-37" aria-hidden="true" tabindex="-1"></a>      <span class="fu">filter</span>(station_id  <span class="sc">!=</span> <span class="st">"DEBB075"</span>),</span>
 <span id="cb94-38"><a href="#cb94-38" aria-hidden="true" tabindex="-1"></a>    <span class="fu">aes</span>(<span class="at">label =</span> <span class="fu">paste0</span>(station_id, <span class="st">"</span><span class="sc">\n</span><span class="st">"</span>, <span class="fu">round</span>(ME, <span class="dv">2</span>))),</span>
 <span id="cb94-39"><a href="#cb94-39" aria-hidden="true" tabindex="-1"></a>    <span class="at">nudge_x =</span> <span class="sc">-</span><span class="dv">40000</span>,</span>
 <span id="cb94-40"><a href="#cb94-40" aria-hidden="true" tabindex="-1"></a>    <span class="at">nudge_y =</span> <span class="dv">35000</span>,</span>
@@ -8334,41 +8416,25 @@ Code
 <span id="cb94-42"><a href="#cb94-42" aria-hidden="true" tabindex="-1"></a>  ) <span class="sc">+</span></span>
 <span id="cb94-43"><a href="#cb94-43" aria-hidden="true" tabindex="-1"></a>  <span class="fu">geom_sf_label</span>(</span>
 <span id="cb94-44"><a href="#cb94-44" aria-hidden="true" tabindex="-1"></a>    <span class="at">data =</span> tib_me_outliers <span class="sc">|&gt;</span></span>
-<span id="cb94-45"><a href="#cb94-45" aria-hidden="true" tabindex="-1"></a>      <span class="fu">filter</span>(station_id  <span class="sc">==</span> <span class="st">"DEUB039"</span>),</span>
+<span id="cb94-45"><a href="#cb94-45" aria-hidden="true" tabindex="-1"></a>      <span class="fu">filter</span>(station_id  <span class="sc">==</span> <span class="st">"DEBB075"</span>),</span>
 <span id="cb94-46"><a href="#cb94-46" aria-hidden="true" tabindex="-1"></a>    <span class="fu">aes</span>(<span class="at">label =</span> <span class="fu">paste0</span>(station_id, <span class="st">"</span><span class="sc">\n</span><span class="st">"</span>, <span class="fu">round</span>(ME, <span class="dv">2</span>))),</span>
-<span id="cb94-47"><a href="#cb94-47" aria-hidden="true" tabindex="-1"></a>    <span class="at">nudge_x =</span> <span class="dv">47000</span>,</span>
+<span id="cb94-47"><a href="#cb94-47" aria-hidden="true" tabindex="-1"></a>    <span class="at">nudge_x =</span> <span class="sc">-</span><span class="dv">47000</span>,</span>
 <span id="cb94-48"><a href="#cb94-48" aria-hidden="true" tabindex="-1"></a>    <span class="at">nudge_y =</span> <span class="sc">-</span><span class="dv">32000</span>,</span>
 <span id="cb94-49"><a href="#cb94-49" aria-hidden="true" tabindex="-1"></a>    <span class="at">size =</span> <span class="dv">3</span></span>
 <span id="cb94-50"><a href="#cb94-50" aria-hidden="true" tabindex="-1"></a>  ) <span class="sc">+</span></span>
-<span id="cb94-51"><a href="#cb94-51" aria-hidden="true" tabindex="-1"></a>  <span class="fu">geom_sf_label</span>(</span>
-<span id="cb94-52"><a href="#cb94-52" aria-hidden="true" tabindex="-1"></a>    <span class="at">data =</span> tib_me_outliers <span class="sc">|&gt;</span></span>
-<span id="cb94-53"><a href="#cb94-53" aria-hidden="true" tabindex="-1"></a>      <span class="fu">filter</span>(station_id <span class="sc">==</span> <span class="st">"DESN076"</span>),</span>
-<span id="cb94-54"><a href="#cb94-54" aria-hidden="true" tabindex="-1"></a>    <span class="fu">aes</span>(<span class="at">label =</span> <span class="fu">paste0</span>(station_id, <span class="st">"</span><span class="sc">\n</span><span class="st">"</span>, <span class="fu">round</span>(ME, <span class="dv">2</span>))),</span>
-<span id="cb94-55"><a href="#cb94-55" aria-hidden="true" tabindex="-1"></a>    <span class="at">nudge_x =</span> <span class="sc">-</span><span class="dv">40000</span>,</span>
-<span id="cb94-56"><a href="#cb94-56" aria-hidden="true" tabindex="-1"></a>    <span class="at">nudge_y =</span> <span class="sc">-</span><span class="dv">32000</span>,</span>
-<span id="cb94-57"><a href="#cb94-57" aria-hidden="true" tabindex="-1"></a>    <span class="at">size =</span> <span class="dv">3</span></span>
-<span id="cb94-58"><a href="#cb94-58" aria-hidden="true" tabindex="-1"></a>  ) <span class="sc">+</span></span>
-<span id="cb94-59"><a href="#cb94-59" aria-hidden="true" tabindex="-1"></a>  <span class="fu">geom_sf_label</span>(</span>
-<span id="cb94-60"><a href="#cb94-60" aria-hidden="true" tabindex="-1"></a>    <span class="at">data =</span> tib_me_outliers <span class="sc">|&gt;</span></span>
-<span id="cb94-61"><a href="#cb94-61" aria-hidden="true" tabindex="-1"></a>      <span class="fu">filter</span>(station_id <span class="sc">==</span> <span class="st">"DEBB053"</span>),</span>
-<span id="cb94-62"><a href="#cb94-62" aria-hidden="true" tabindex="-1"></a>    <span class="fu">aes</span>(<span class="at">label =</span> <span class="fu">paste0</span>(station_id, <span class="st">"</span><span class="sc">\n</span><span class="st">"</span>, <span class="fu">round</span>(ME, <span class="dv">2</span>))),</span>
-<span id="cb94-63"><a href="#cb94-63" aria-hidden="true" tabindex="-1"></a>    <span class="at">nudge_x =</span> <span class="dv">47000</span>,</span>
-<span id="cb94-64"><a href="#cb94-64" aria-hidden="true" tabindex="-1"></a>    <span class="at">nudge_y =</span> <span class="dv">32000</span>,</span>
-<span id="cb94-65"><a href="#cb94-65" aria-hidden="true" tabindex="-1"></a>    <span class="at">size =</span> <span class="dv">3</span></span>
-<span id="cb94-66"><a href="#cb94-66" aria-hidden="true" tabindex="-1"></a>  ) <span class="sc">+</span></span>
-<span id="cb94-67"><a href="#cb94-67" aria-hidden="true" tabindex="-1"></a>  <span class="fu">facet_wrap</span>(<span class="sc">~</span> model) <span class="sc">+</span></span>
-<span id="cb94-68"><a href="#cb94-68" aria-hidden="true" tabindex="-1"></a>  <span class="fu">guides</span>(<span class="at">size =</span> <span class="fu">guide_legend</span>(</span>
-<span id="cb94-69"><a href="#cb94-69" aria-hidden="true" tabindex="-1"></a>    <span class="at">reverse =</span> <span class="cn">TRUE</span>,</span>
-<span id="cb94-70"><a href="#cb94-70" aria-hidden="true" tabindex="-1"></a>    <span class="at">override.aes =</span> <span class="fu">list</span>(<span class="at">color =</span> <span class="st">"#f1eac8"</span>))</span>
-<span id="cb94-71"><a href="#cb94-71" aria-hidden="true" tabindex="-1"></a>  ) <span class="sc">+</span></span>
-<span id="cb94-72"><a href="#cb94-72" aria-hidden="true" tabindex="-1"></a>  <span class="fu">labs</span>(</span>
-<span id="cb94-73"><a href="#cb94-73" aria-hidden="true" tabindex="-1"></a>    <span class="at">title =</span> <span class="st">"Mean Error by Station"</span>,</span>
-<span id="cb94-74"><a href="#cb94-74" aria-hidden="true" tabindex="-1"></a>    <span class="at">subtitle =</span> <span class="st">"Stations with greatest difference are highlighted</span></span>
-<span id="cb94-75"><a href="#cb94-75" aria-hidden="true" tabindex="-1"></a><span class="st">"</span>,</span>
-<span id="cb94-76"><a href="#cb94-76" aria-hidden="true" tabindex="-1"></a>    <span class="at">color =</span> <span class="st">"ME"</span>,</span>
-<span id="cb94-77"><a href="#cb94-77" aria-hidden="true" tabindex="-1"></a>    <span class="at">size =</span> <span class="st">"|ME|"</span></span>
-<span id="cb94-78"><a href="#cb94-78" aria-hidden="true" tabindex="-1"></a>  ) <span class="sc">+</span></span>
-<span id="cb94-79"><a href="#cb94-79" aria-hidden="true" tabindex="-1"></a>  <span class="fu">theme_charcoal_map</span>()</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
+<span id="cb94-51"><a href="#cb94-51" aria-hidden="true" tabindex="-1"></a>  <span class="fu">facet_wrap</span>(<span class="sc">~</span> model) <span class="sc">+</span></span>
+<span id="cb94-52"><a href="#cb94-52" aria-hidden="true" tabindex="-1"></a>  <span class="fu">guides</span>(<span class="at">size =</span> <span class="fu">guide_legend</span>(</span>
+<span id="cb94-53"><a href="#cb94-53" aria-hidden="true" tabindex="-1"></a>    <span class="at">reverse =</span> <span class="cn">TRUE</span>,</span>
+<span id="cb94-54"><a href="#cb94-54" aria-hidden="true" tabindex="-1"></a>    <span class="at">override.aes =</span> <span class="fu">list</span>(<span class="at">color =</span> <span class="st">"#f1eac8"</span>))</span>
+<span id="cb94-55"><a href="#cb94-55" aria-hidden="true" tabindex="-1"></a>  ) <span class="sc">+</span></span>
+<span id="cb94-56"><a href="#cb94-56" aria-hidden="true" tabindex="-1"></a>  <span class="fu">labs</span>(</span>
+<span id="cb94-57"><a href="#cb94-57" aria-hidden="true" tabindex="-1"></a>    <span class="at">title =</span> <span class="st">"Mean Error by Station"</span>,</span>
+<span id="cb94-58"><a href="#cb94-58" aria-hidden="true" tabindex="-1"></a>    <span class="at">subtitle =</span> <span class="st">"Stations with greatest difference are highlighted</span></span>
+<span id="cb94-59"><a href="#cb94-59" aria-hidden="true" tabindex="-1"></a><span class="st">"</span>,</span>
+<span id="cb94-60"><a href="#cb94-60" aria-hidden="true" tabindex="-1"></a>    <span class="at">color =</span> <span class="st">"ME"</span>,</span>
+<span id="cb94-61"><a href="#cb94-61" aria-hidden="true" tabindex="-1"></a>    <span class="at">size =</span> <span class="st">"|ME|"</span></span>
+<span id="cb94-62"><a href="#cb94-62" aria-hidden="true" tabindex="-1"></a>  ) <span class="sc">+</span></span>
+<span id="cb94-63"><a href="#cb94-63" aria-hidden="true" tabindex="-1"></a>  <span class="fu">theme_charcoal_map</span>()</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
 </details>
 <ul>
 <li>Top row of labels (left to right): up and left, up and right (in relation to their location)</li>
@@ -8491,61 +8557,74 @@ Code
 <div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb98"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb98-1"><a href="#cb98-1" aria-hidden="true" tabindex="-1"></a>tib_pi <span class="ot">&lt;-</span> tib_res_cv_krige_fin <span class="sc">|&gt;</span></span>
 <span id="cb98-2"><a href="#cb98-2" aria-hidden="true" tabindex="-1"></a>  <span class="fu">mutate</span>(</span>
 <span id="cb98-3"><a href="#cb98-3" aria-hidden="true" tabindex="-1"></a>    <span class="at">se =</span> <span class="fu">sqrt</span>(pred_var),</span>
-<span id="cb98-4"><a href="#cb98-4" aria-hidden="true" tabindex="-1"></a>    <span class="at">lower_95 =</span> predicted <span class="sc">-</span> <span class="fl">1.96</span> <span class="sc">*</span> se,</span>
-<span id="cb98-5"><a href="#cb98-5" aria-hidden="true" tabindex="-1"></a>    <span class="at">upper_95 =</span> predicted <span class="sc">+</span> <span class="fl">1.96</span> <span class="sc">*</span> se,</span>
-<span id="cb98-6"><a href="#cb98-6" aria-hidden="true" tabindex="-1"></a>    <span class="at">covered =</span> observed <span class="sc">&gt;=</span> lower_95 <span class="sc">&amp;</span> observed <span class="sc">&lt;=</span> upper_95</span>
-<span id="cb98-7"><a href="#cb98-7" aria-hidden="true" tabindex="-1"></a>  )</span>
-<span id="cb98-8"><a href="#cb98-8" aria-hidden="true" tabindex="-1"></a></span>
-<span id="cb98-9"><a href="#cb98-9" aria-hidden="true" tabindex="-1"></a>tib_pi_station <span class="ot">&lt;-</span> tib_pi <span class="sc">|&gt;</span></span>
-<span id="cb98-10"><a href="#cb98-10" aria-hidden="true" tabindex="-1"></a>  <span class="fu">summarize</span>(</span>
-<span id="cb98-11"><a href="#cb98-11" aria-hidden="true" tabindex="-1"></a>    <span class="at">coverage =</span> <span class="fu">mean</span>(covered, <span class="at">na.rm =</span> <span class="cn">TRUE</span>),</span>
-<span id="cb98-12"><a href="#cb98-12" aria-hidden="true" tabindex="-1"></a>    <span class="at">.by =</span> station_id</span>
-<span id="cb98-13"><a href="#cb98-13" aria-hidden="true" tabindex="-1"></a>  ) <span class="sc">|&gt;</span></span>
-<span id="cb98-14"><a href="#cb98-14" aria-hidden="true" tabindex="-1"></a>  <span class="fu">left_join</span>(tib_station_coords, <span class="at">by =</span> <span class="st">"station_id"</span>) <span class="sc">|&gt;</span></span>
-<span id="cb98-15"><a href="#cb98-15" aria-hidden="true" tabindex="-1"></a>  sf<span class="sc">::</span><span class="fu">st_as_sf</span>(<span class="at">coords =</span> <span class="fu">c</span>(<span class="st">"x"</span>, <span class="st">"y"</span>), <span class="at">crs =</span> <span class="dv">25832</span>)</span>
-<span id="cb98-16"><a href="#cb98-16" aria-hidden="true" tabindex="-1"></a></span>
-<span id="cb98-17"><a href="#cb98-17" aria-hidden="true" tabindex="-1"></a>tib_pi_outlier <span class="ot">&lt;-</span> tib_pi_station <span class="sc">|&gt;</span> </span>
-<span id="cb98-18"><a href="#cb98-18" aria-hidden="true" tabindex="-1"></a>  <span class="fu">slice_min</span>(coverage)</span>
-<span id="cb98-19"><a href="#cb98-19" aria-hidden="true" tabindex="-1"></a></span>
-<span id="cb98-20"><a href="#cb98-20" aria-hidden="true" tabindex="-1"></a>p_pi_map <span class="ot">&lt;-</span> tib_pi_station <span class="sc">|&gt;</span></span>
-<span id="cb98-21"><a href="#cb98-21" aria-hidden="true" tabindex="-1"></a>  <span class="fu">ggplot</span>() <span class="sc">+</span></span>
-<span id="cb98-22"><a href="#cb98-22" aria-hidden="true" tabindex="-1"></a>  <span class="fu">geom_sf</span>(</span>
-<span id="cb98-23"><a href="#cb98-23" aria-hidden="true" tabindex="-1"></a>    <span class="at">data =</span> germany, </span>
-<span id="cb98-24"><a href="#cb98-24" aria-hidden="true" tabindex="-1"></a>    <span class="at">fill =</span> <span class="st">"#263238"</span>,</span>
-<span id="cb98-25"><a href="#cb98-25" aria-hidden="true" tabindex="-1"></a>    <span class="at">color =</span> <span class="st">"#37474F"</span>,</span>
-<span id="cb98-26"><a href="#cb98-26" aria-hidden="true" tabindex="-1"></a>    <span class="at">linewidth =</span> <span class="fl">0.2</span></span>
-<span id="cb98-27"><a href="#cb98-27" aria-hidden="true" tabindex="-1"></a>  ) <span class="sc">+</span></span>
-<span id="cb98-28"><a href="#cb98-28" aria-hidden="true" tabindex="-1"></a>  <span class="fu">geom_sf</span>(<span class="fu">aes</span>(<span class="at">color =</span> coverage, <span class="at">size =</span> coverage)) <span class="sc">+</span></span>
-<span id="cb98-29"><a href="#cb98-29" aria-hidden="true" tabindex="-1"></a>  <span class="fu">geom_sf_label</span>(</span>
-<span id="cb98-30"><a href="#cb98-30" aria-hidden="true" tabindex="-1"></a>    <span class="at">data =</span> tib_pi_outlier,</span>
-<span id="cb98-31"><a href="#cb98-31" aria-hidden="true" tabindex="-1"></a>    <span class="fu">aes</span>(<span class="at">label =</span> <span class="fu">paste0</span>(station_id, <span class="st">"</span><span class="sc">\n</span><span class="st">"</span>, <span class="fu">round</span>(coverage, <span class="dv">2</span>))),</span>
-<span id="cb98-32"><a href="#cb98-32" aria-hidden="true" tabindex="-1"></a>    <span class="at">nudge_x =</span> <span class="sc">-</span><span class="dv">40000</span>,</span>
-<span id="cb98-33"><a href="#cb98-33" aria-hidden="true" tabindex="-1"></a>    <span class="at">nudge_y =</span> <span class="dv">35000</span>,</span>
-<span id="cb98-34"><a href="#cb98-34" aria-hidden="true" tabindex="-1"></a>    <span class="at">size =</span> <span class="dv">3</span></span>
-<span id="cb98-35"><a href="#cb98-35" aria-hidden="true" tabindex="-1"></a>  ) <span class="sc">+</span></span>
-<span id="cb98-36"><a href="#cb98-36" aria-hidden="true" tabindex="-1"></a>  <span class="fu">scale_color_gradientn</span>(</span>
-<span id="cb98-37"><a href="#cb98-37" aria-hidden="true" tabindex="-1"></a>    <span class="co"># sunsetdark from CARTOColors</span></span>
-<span id="cb98-38"><a href="#cb98-38" aria-hidden="true" tabindex="-1"></a>    <span class="at">colors =</span> <span class="fu">colorRampPalette</span>(<span class="fu">c</span>(</span>
-<span id="cb98-39"><a href="#cb98-39" aria-hidden="true" tabindex="-1"></a>      <span class="st">"#fcde9c"</span>,<span class="st">"#faa476"</span>,<span class="st">"#f0746e"</span>,<span class="st">"#e34f6f"</span>,</span>
-<span id="cb98-40"><a href="#cb98-40" aria-hidden="true" tabindex="-1"></a>      <span class="st">"#dc3977"</span>,<span class="st">"#b9257a"</span>,<span class="st">"#7c1d6f"</span>))(<span class="dv">100</span>)</span>
-<span id="cb98-41"><a href="#cb98-41" aria-hidden="true" tabindex="-1"></a>  ) <span class="sc">+</span></span>
-<span id="cb98-42"><a href="#cb98-42" aria-hidden="true" tabindex="-1"></a>  <span class="fu">guides</span>(<span class="at">size =</span> <span class="fu">guide_legend</span>(</span>
-<span id="cb98-43"><a href="#cb98-43" aria-hidden="true" tabindex="-1"></a>    <span class="at">reverse =</span> <span class="cn">TRUE</span>,</span>
-<span id="cb98-44"><a href="#cb98-44" aria-hidden="true" tabindex="-1"></a>    <span class="at">override.aes =</span> <span class="fu">list</span>(<span class="at">color =</span> <span class="st">"#fcde9c"</span>))</span>
-<span id="cb98-45"><a href="#cb98-45" aria-hidden="true" tabindex="-1"></a>  ) <span class="sc">+</span></span>
-<span id="cb98-46"><a href="#cb98-46" aria-hidden="true" tabindex="-1"></a>  <span class="fu">labs</span>(</span>
-<span id="cb98-47"><a href="#cb98-47" aria-hidden="true" tabindex="-1"></a>    <span class="at">title =</span> <span class="st">"95% Prediction Interval Coverage by Station"</span>,</span>
-<span id="cb98-48"><a href="#cb98-48" aria-hidden="true" tabindex="-1"></a>    <span class="at">color =</span> <span class="st">"Coverage"</span>,</span>
-<span id="cb98-49"><a href="#cb98-49" aria-hidden="true" tabindex="-1"></a>    <span class="at">size =</span> <span class="st">"Coverage"</span></span>
-<span id="cb98-50"><a href="#cb98-50" aria-hidden="true" tabindex="-1"></a>  ) <span class="sc">+</span></span>
-<span id="cb98-51"><a href="#cb98-51" aria-hidden="true" tabindex="-1"></a>  <span class="fu">theme_slate_map</span>()</span>
-<span id="cb98-52"><a href="#cb98-52" aria-hidden="true" tabindex="-1"></a></span>
-<span id="cb98-53"><a href="#cb98-53" aria-hidden="true" tabindex="-1"></a>tib_pi <span class="sc">|&gt;</span></span>
-<span id="cb98-54"><a href="#cb98-54" aria-hidden="true" tabindex="-1"></a>  <span class="fu">summarize</span>(<span class="at">overall_coverage =</span> <span class="fu">mean</span>(covered, <span class="at">na.rm =</span> <span class="cn">TRUE</span>))</span>
-<span id="cb98-55"><a href="#cb98-55" aria-hidden="true" tabindex="-1"></a><span class="co">#&gt; # A tibble: 1 × 1</span></span>
-<span id="cb98-56"><a href="#cb98-56" aria-hidden="true" tabindex="-1"></a><span class="co">#&gt;   overall_coverage</span></span>
-<span id="cb98-57"><a href="#cb98-57" aria-hidden="true" tabindex="-1"></a><span class="co">#&gt;              &lt;dbl&gt;</span></span>
-<span id="cb98-58"><a href="#cb98-58" aria-hidden="true" tabindex="-1"></a><span class="co">#&gt; 1            0.971</span></span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
+<span id="cb98-4"><a href="#cb98-4" aria-hidden="true" tabindex="-1"></a>    <span class="at">lower_95_log =</span> predicted <span class="sc">-</span> <span class="fl">1.96</span> <span class="sc">*</span> se,</span>
+<span id="cb98-5"><a href="#cb98-5" aria-hidden="true" tabindex="-1"></a>    <span class="at">upper_95_log =</span> predicted <span class="sc">+</span> <span class="fl">1.96</span> <span class="sc">*</span> se,</span>
+<span id="cb98-6"><a href="#cb98-6" aria-hidden="true" tabindex="-1"></a>    <span class="co"># back-transform to original scale after arithmetic</span></span>
+<span id="cb98-7"><a href="#cb98-7" aria-hidden="true" tabindex="-1"></a>    <span class="at">lower_95 =</span> <span class="fu">exp</span>(lower_95_log),</span>
+<span id="cb98-8"><a href="#cb98-8" aria-hidden="true" tabindex="-1"></a>    <span class="at">upper_95 =</span> <span class="fu">exp</span>(upper_95_log),</span>
+<span id="cb98-9"><a href="#cb98-9" aria-hidden="true" tabindex="-1"></a>    <span class="at">observed_bt =</span> <span class="fu">exp</span>(observed),</span>
+<span id="cb98-10"><a href="#cb98-10" aria-hidden="true" tabindex="-1"></a>    <span class="at">covered =</span> observed_bt <span class="sc">&gt;=</span> lower_95 <span class="sc">&amp;</span> observed_bt <span class="sc">&lt;=</span> upper_95</span>
+<span id="cb98-11"><a href="#cb98-11" aria-hidden="true" tabindex="-1"></a>  )</span>
+<span id="cb98-12"><a href="#cb98-12" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb98-13"><a href="#cb98-13" aria-hidden="true" tabindex="-1"></a>tib_pi_station <span class="ot">&lt;-</span> tib_pi <span class="sc">|&gt;</span></span>
+<span id="cb98-14"><a href="#cb98-14" aria-hidden="true" tabindex="-1"></a>  <span class="fu">summarize</span>(</span>
+<span id="cb98-15"><a href="#cb98-15" aria-hidden="true" tabindex="-1"></a>    <span class="at">coverage =</span> <span class="fu">mean</span>(covered, <span class="at">na.rm =</span> <span class="cn">TRUE</span>),</span>
+<span id="cb98-16"><a href="#cb98-16" aria-hidden="true" tabindex="-1"></a>    <span class="at">.by =</span> station_id</span>
+<span id="cb98-17"><a href="#cb98-17" aria-hidden="true" tabindex="-1"></a>  ) <span class="sc">|&gt;</span></span>
+<span id="cb98-18"><a href="#cb98-18" aria-hidden="true" tabindex="-1"></a>  <span class="fu">left_join</span>(tib_station_coords, <span class="at">by =</span> <span class="st">"station_id"</span>) <span class="sc">|&gt;</span></span>
+<span id="cb98-19"><a href="#cb98-19" aria-hidden="true" tabindex="-1"></a>  sf<span class="sc">::</span><span class="fu">st_as_sf</span>(<span class="at">coords =</span> <span class="fu">c</span>(<span class="st">"x"</span>, <span class="st">"y"</span>), <span class="at">crs =</span> <span class="dv">25832</span>)</span>
+<span id="cb98-20"><a href="#cb98-20" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb98-21"><a href="#cb98-21" aria-hidden="true" tabindex="-1"></a>tib_pi_outlier <span class="ot">&lt;-</span> tib_pi_station <span class="sc">|&gt;</span> </span>
+<span id="cb98-22"><a href="#cb98-22" aria-hidden="true" tabindex="-1"></a>  <span class="fu">filter</span>(coverage <span class="sc">&lt;</span> <span class="fl">0.95</span>)</span>
+<span id="cb98-23"><a href="#cb98-23" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb98-24"><a href="#cb98-24" aria-hidden="true" tabindex="-1"></a>p_pi_map <span class="ot">&lt;-</span> tib_pi_station <span class="sc">|&gt;</span></span>
+<span id="cb98-25"><a href="#cb98-25" aria-hidden="true" tabindex="-1"></a>  <span class="fu">ggplot</span>() <span class="sc">+</span></span>
+<span id="cb98-26"><a href="#cb98-26" aria-hidden="true" tabindex="-1"></a>  <span class="fu">geom_sf</span>(</span>
+<span id="cb98-27"><a href="#cb98-27" aria-hidden="true" tabindex="-1"></a>    <span class="at">data =</span> germany, </span>
+<span id="cb98-28"><a href="#cb98-28" aria-hidden="true" tabindex="-1"></a>    <span class="at">fill =</span> <span class="st">"#263238"</span>,</span>
+<span id="cb98-29"><a href="#cb98-29" aria-hidden="true" tabindex="-1"></a>    <span class="at">color =</span> <span class="st">"#37474F"</span>,</span>
+<span id="cb98-30"><a href="#cb98-30" aria-hidden="true" tabindex="-1"></a>    <span class="at">linewidth =</span> <span class="fl">0.2</span></span>
+<span id="cb98-31"><a href="#cb98-31" aria-hidden="true" tabindex="-1"></a>  ) <span class="sc">+</span></span>
+<span id="cb98-32"><a href="#cb98-32" aria-hidden="true" tabindex="-1"></a>  <span class="fu">geom_sf</span>(<span class="fu">aes</span>(<span class="at">color =</span> coverage, <span class="at">size =</span> coverage)) <span class="sc">+</span></span>
+<span id="cb98-33"><a href="#cb98-33" aria-hidden="true" tabindex="-1"></a>  <span class="fu">geom_sf_label</span>(</span>
+<span id="cb98-34"><a href="#cb98-34" aria-hidden="true" tabindex="-1"></a>    <span class="at">data =</span> tib_pi_outlier <span class="sc">|&gt;</span> </span>
+<span id="cb98-35"><a href="#cb98-35" aria-hidden="true" tabindex="-1"></a>      <span class="fu">filter</span>(station_id <span class="sc">!=</span> <span class="st">"DEBW031"</span>),</span>
+<span id="cb98-36"><a href="#cb98-36" aria-hidden="true" tabindex="-1"></a>    <span class="fu">aes</span>(<span class="at">label =</span> <span class="fu">paste0</span>(station_id, <span class="st">"</span><span class="sc">\n</span><span class="st">"</span>, <span class="fu">round</span>(coverage, <span class="dv">2</span>))),</span>
+<span id="cb98-37"><a href="#cb98-37" aria-hidden="true" tabindex="-1"></a>    <span class="at">nudge_x =</span> <span class="sc">-</span><span class="dv">40000</span>,</span>
+<span id="cb98-38"><a href="#cb98-38" aria-hidden="true" tabindex="-1"></a>    <span class="at">nudge_y =</span> <span class="dv">35000</span>,</span>
+<span id="cb98-39"><a href="#cb98-39" aria-hidden="true" tabindex="-1"></a>    <span class="at">size =</span> <span class="dv">3</span></span>
+<span id="cb98-40"><a href="#cb98-40" aria-hidden="true" tabindex="-1"></a>  ) <span class="sc">+</span></span>
+<span id="cb98-41"><a href="#cb98-41" aria-hidden="true" tabindex="-1"></a>  <span class="fu">geom_sf_label</span>(</span>
+<span id="cb98-42"><a href="#cb98-42" aria-hidden="true" tabindex="-1"></a>    <span class="at">data =</span> tib_pi_outlier <span class="sc">|&gt;</span> </span>
+<span id="cb98-43"><a href="#cb98-43" aria-hidden="true" tabindex="-1"></a>      <span class="fu">filter</span>(station_id <span class="sc">==</span> <span class="st">"DEBW031"</span>),</span>
+<span id="cb98-44"><a href="#cb98-44" aria-hidden="true" tabindex="-1"></a>    <span class="fu">aes</span>(<span class="at">label =</span> <span class="fu">paste0</span>(station_id, <span class="st">"</span><span class="sc">\n</span><span class="st">"</span>, <span class="fu">round</span>(coverage, <span class="dv">2</span>))),</span>
+<span id="cb98-45"><a href="#cb98-45" aria-hidden="true" tabindex="-1"></a>    <span class="at">nudge_x =</span> <span class="sc">-</span><span class="dv">40000</span>,</span>
+<span id="cb98-46"><a href="#cb98-46" aria-hidden="true" tabindex="-1"></a>    <span class="at">nudge_y =</span> <span class="sc">-</span><span class="dv">35000</span>,</span>
+<span id="cb98-47"><a href="#cb98-47" aria-hidden="true" tabindex="-1"></a>    <span class="at">size =</span> <span class="dv">3</span></span>
+<span id="cb98-48"><a href="#cb98-48" aria-hidden="true" tabindex="-1"></a>  ) <span class="sc">+</span></span>
+<span id="cb98-49"><a href="#cb98-49" aria-hidden="true" tabindex="-1"></a>  <span class="fu">scale_color_gradientn</span>(</span>
+<span id="cb98-50"><a href="#cb98-50" aria-hidden="true" tabindex="-1"></a>    <span class="co"># sunsetdark from CARTOColors</span></span>
+<span id="cb98-51"><a href="#cb98-51" aria-hidden="true" tabindex="-1"></a>    <span class="at">colors =</span> <span class="fu">colorRampPalette</span>(<span class="fu">c</span>(</span>
+<span id="cb98-52"><a href="#cb98-52" aria-hidden="true" tabindex="-1"></a>      <span class="st">"#fcde9c"</span>,<span class="st">"#faa476"</span>,<span class="st">"#f0746e"</span>,<span class="st">"#e34f6f"</span>,</span>
+<span id="cb98-53"><a href="#cb98-53" aria-hidden="true" tabindex="-1"></a>      <span class="st">"#dc3977"</span>,<span class="st">"#b9257a"</span>,<span class="st">"#7c1d6f"</span>))(<span class="dv">100</span>)</span>
+<span id="cb98-54"><a href="#cb98-54" aria-hidden="true" tabindex="-1"></a>  ) <span class="sc">+</span></span>
+<span id="cb98-55"><a href="#cb98-55" aria-hidden="true" tabindex="-1"></a>  <span class="fu">guides</span>(<span class="at">size =</span> <span class="fu">guide_legend</span>(</span>
+<span id="cb98-56"><a href="#cb98-56" aria-hidden="true" tabindex="-1"></a>    <span class="at">reverse =</span> <span class="cn">TRUE</span>,</span>
+<span id="cb98-57"><a href="#cb98-57" aria-hidden="true" tabindex="-1"></a>    <span class="at">override.aes =</span> <span class="fu">list</span>(<span class="at">color =</span> <span class="st">"#fcde9c"</span>))</span>
+<span id="cb98-58"><a href="#cb98-58" aria-hidden="true" tabindex="-1"></a>  ) <span class="sc">+</span></span>
+<span id="cb98-59"><a href="#cb98-59" aria-hidden="true" tabindex="-1"></a>  <span class="fu">labs</span>(</span>
+<span id="cb98-60"><a href="#cb98-60" aria-hidden="true" tabindex="-1"></a>    <span class="at">title =</span> <span class="st">"95% Prediction Interval Coverage by Station"</span>,</span>
+<span id="cb98-61"><a href="#cb98-61" aria-hidden="true" tabindex="-1"></a>    <span class="at">color =</span> <span class="st">"Coverage"</span>,</span>
+<span id="cb98-62"><a href="#cb98-62" aria-hidden="true" tabindex="-1"></a>    <span class="at">size =</span> <span class="st">"Coverage"</span></span>
+<span id="cb98-63"><a href="#cb98-63" aria-hidden="true" tabindex="-1"></a>  ) <span class="sc">+</span></span>
+<span id="cb98-64"><a href="#cb98-64" aria-hidden="true" tabindex="-1"></a>  <span class="fu">theme_slate_map</span>()</span>
+<span id="cb98-65"><a href="#cb98-65" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb98-66"><a href="#cb98-66" aria-hidden="true" tabindex="-1"></a>tib_pi <span class="sc">|&gt;</span></span>
+<span id="cb98-67"><a href="#cb98-67" aria-hidden="true" tabindex="-1"></a>  <span class="fu">summarize</span>(<span class="at">overall_coverage =</span> <span class="fu">mean</span>(covered, <span class="at">na.rm =</span> <span class="cn">TRUE</span>))</span>
+<span id="cb98-68"><a href="#cb98-68" aria-hidden="true" tabindex="-1"></a><span class="co">#&gt; # A tibble: 1 × 1</span></span>
+<span id="cb98-69"><a href="#cb98-69" aria-hidden="true" tabindex="-1"></a><span class="co">#&gt;   overall_coverage</span></span>
+<span id="cb98-70"><a href="#cb98-70" aria-hidden="true" tabindex="-1"></a><span class="co">#&gt;              &lt;dbl&gt;</span></span>
+<span id="cb98-71"><a href="#cb98-71" aria-hidden="true" tabindex="-1"></a><span class="co">#&gt; 1            0.981</span></span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
 </details>
 <ul>
 <li>Overall average coverage is 97.1% (see code)</li>
@@ -8558,7 +8637,7 @@ Code
 </summary>
 <div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb99"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb99-1"><a href="#cb99-1" aria-hidden="true" tabindex="-1"></a></span>
 <span id="cb99-2"><a href="#cb99-2" aria-hidden="true" tabindex="-1"></a><span class="co"># 3.3.2 https://mlr3book.mlr-org.com/chapters/chapter3/evaluation_and_benchmarking.html#sec-bm-resamp</span></span>
-<span id="cb99-3"><a href="#cb99-3" aria-hidden="true" tabindex="-1"></a>learner_cat_final <span class="ot">&lt;-</span> readr<span class="sc">::</span><span class="fu">read_rds</span>( <span class="st">"../../temp-storage/gstat-vig-krig-mlr-cat-final.rds"</span>)</span>
+<span id="cb99-3"><a href="#cb99-3" aria-hidden="true" tabindex="-1"></a>learner_cat_final <span class="ot">&lt;-</span> readr<span class="sc">::</span><span class="fu">read_rds</span>( <span class="st">"../../temp-storage/gstat-krig-log/lrn-cat-final.rds"</span>)</span>
 <span id="cb99-4"><a href="#cb99-4" aria-hidden="true" tabindex="-1"></a></span>
 <span id="cb99-5"><a href="#cb99-5" aria-hidden="true" tabindex="-1"></a><span class="co"># PredictionValuesChange shows how much on average the prediction changes if the feature value changes. The bigger the value of the importance the bigger on average is the change to the prediction value, if this feature is changed.</span></span>
 <span id="cb99-6"><a href="#cb99-6" aria-hidden="true" tabindex="-1"></a>cat_import_raw <span class="ot">&lt;-</span> <span class="fu">tibble</span>(</span>
@@ -8613,62 +8692,54 @@ Code
 <summary>
 Code
 </summary>
-<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb100"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb100-1"><a href="#cb100-1" aria-hidden="true" tabindex="-1"></a>tib_pm10 <span class="ot">&lt;-</span> sf_pm10 <span class="sc">|&gt;</span> </span>
-<span id="cb100-2"><a href="#cb100-2" aria-hidden="true" tabindex="-1"></a>  sf<span class="sc">::</span><span class="fu">st_drop_geometry</span>() <span class="sc">|&gt;</span> </span>
-<span id="cb100-3"><a href="#cb100-3" aria-hidden="true" tabindex="-1"></a>  <span class="fu">mutate</span>(</span>
-<span id="cb100-4"><a href="#cb100-4" aria-hidden="true" tabindex="-1"></a>    <span class="at">date_feat =</span> date, <span class="co"># extra for feat eng</span></span>
-<span id="cb100-5"><a href="#cb100-5" aria-hidden="true" tabindex="-1"></a>    <span class="at">X =</span> sf<span class="sc">::</span><span class="fu">st_coordinates</span>(sf_pm10)[, <span class="dv">1</span>],</span>
-<span id="cb100-6"><a href="#cb100-6" aria-hidden="true" tabindex="-1"></a>    <span class="at">Y =</span> sf<span class="sc">::</span><span class="fu">st_coordinates</span>(sf_pm10)[, <span class="dv">2</span>]</span>
-<span id="cb100-7"><a href="#cb100-7" aria-hidden="true" tabindex="-1"></a>  )</span>
-<span id="cb100-8"><a href="#cb100-8" aria-hidden="true" tabindex="-1"></a></span>
-<span id="cb100-9"><a href="#cb100-9" aria-hidden="true" tabindex="-1"></a>exp_cat <span class="ot">&lt;-</span> <span class="fu">explain_mlr3</span>(</span>
-<span id="cb100-10"><a href="#cb100-10" aria-hidden="true" tabindex="-1"></a>  learner_cat_final,</span>
-<span id="cb100-11"><a href="#cb100-11" aria-hidden="true" tabindex="-1"></a>  <span class="at">data =</span> tib_pm10,</span>
-<span id="cb100-12"><a href="#cb100-12" aria-hidden="true" tabindex="-1"></a>  <span class="at">y =</span> tib_pm10<span class="sc">$</span>pm10,</span>
-<span id="cb100-13"><a href="#cb100-13" aria-hidden="true" tabindex="-1"></a>  <span class="at">label =</span> <span class="st">""</span></span>
-<span id="cb100-14"><a href="#cb100-14" aria-hidden="true" tabindex="-1"></a>)</span>
-<span id="cb100-15"><a href="#cb100-15" aria-hidden="true" tabindex="-1"></a></span>
-<span id="cb100-16"><a href="#cb100-16" aria-hidden="true" tabindex="-1"></a>cat_prof <span class="ot">&lt;-</span> <span class="fu">model_profile</span>(exp_cat, <span class="at">k =</span> <span class="dv">2</span>, <span class="at">variables =</span> <span class="fu">c</span>(<span class="st">"X"</span>, <span class="st">"Y"</span>))</span>
-<span id="cb100-17"><a href="#cb100-17" aria-hidden="true" tabindex="-1"></a></span>
-<span id="cb100-18"><a href="#cb100-18" aria-hidden="true" tabindex="-1"></a>p_pdp <span class="ot">&lt;-</span> <span class="fu">plot</span>(</span>
-<span id="cb100-19"><a href="#cb100-19" aria-hidden="true" tabindex="-1"></a>  cat_prof,</span>
-<span id="cb100-20"><a href="#cb100-20" aria-hidden="true" tabindex="-1"></a>  <span class="at">geom =</span> <span class="st">"profiles"</span></span>
-<span id="cb100-21"><a href="#cb100-21" aria-hidden="true" tabindex="-1"></a>) <span class="sc">+</span></span>
-<span id="cb100-22"><a href="#cb100-22" aria-hidden="true" tabindex="-1"></a>  <span class="fu">labs</span>(</span>
-<span id="cb100-23"><a href="#cb100-23" aria-hidden="true" tabindex="-1"></a>    <span class="at">title =</span> <span class="st">"Ceteris Paribus Profiles"</span>,</span>
-<span id="cb100-24"><a href="#cb100-24" aria-hidden="true" tabindex="-1"></a>    <span class="at">subtitle =</span> <span class="st">"Catboost"</span></span>
-<span id="cb100-25"><a href="#cb100-25" aria-hidden="true" tabindex="-1"></a>  ) <span class="sc">+</span></span>
-<span id="cb100-26"><a href="#cb100-26" aria-hidden="true" tabindex="-1"></a>  <span class="fu">theme_notebook</span>()</span>
-<span id="cb100-27"><a href="#cb100-27" aria-hidden="true" tabindex="-1"></a></span>
-<span id="cb100-28"><a href="#cb100-28" aria-hidden="true" tabindex="-1"></a>p_pdp<span class="sc">@</span>layers[[<span class="dv">2</span>]]<span class="sc">$</span>aes_params<span class="sc">$</span>colour <span class="ot">&lt;-</span> notebook_colors[[<span class="dv">6</span>]]</span>
-<span id="cb100-29"><a href="#cb100-29" aria-hidden="true" tabindex="-1"></a></span>
-<span id="cb100-30"><a href="#cb100-30" aria-hidden="true" tabindex="-1"></a><span class="co"># find facet variable</span></span>
-<span id="cb100-31"><a href="#cb100-31" aria-hidden="true" tabindex="-1"></a>p_pdp<span class="sc">$</span>facet<span class="sc">$</span>params<span class="sc">$</span>facets</span>
-<span id="cb100-32"><a href="#cb100-32" aria-hidden="true" tabindex="-1"></a><span class="co">#&gt; &lt;list_of&lt;quosure&gt;&gt;</span></span>
-<span id="cb100-33"><a href="#cb100-33" aria-hidden="true" tabindex="-1"></a><span class="co">#&gt; </span></span>
-<span id="cb100-34"><a href="#cb100-34" aria-hidden="true" tabindex="-1"></a><span class="co">#&gt; $`_vname_`</span></span>
-<span id="cb100-35"><a href="#cb100-35" aria-hidden="true" tabindex="-1"></a><span class="co">#&gt; &lt;quosure&gt;</span></span>
-<span id="cb100-36"><a href="#cb100-36" aria-hidden="true" tabindex="-1"></a><span class="co">#&gt; expr: ^`_vname_`</span></span>
-<span id="cb100-37"><a href="#cb100-37" aria-hidden="true" tabindex="-1"></a><span class="co">#&gt; env:  0x000002100f466a68</span></span>
+<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb100"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb100-1"><a href="#cb100-1" aria-hidden="true" tabindex="-1"></a>exp_cat <span class="ot">&lt;-</span> <span class="fu">explain_mlr3</span>(</span>
+<span id="cb100-2"><a href="#cb100-2" aria-hidden="true" tabindex="-1"></a>  learner_cat_final,</span>
+<span id="cb100-3"><a href="#cb100-3" aria-hidden="true" tabindex="-1"></a>  <span class="at">data =</span> tib_pm10,</span>
+<span id="cb100-4"><a href="#cb100-4" aria-hidden="true" tabindex="-1"></a>  <span class="at">y =</span> tib_pm10<span class="sc">$</span>pm10,</span>
+<span id="cb100-5"><a href="#cb100-5" aria-hidden="true" tabindex="-1"></a>  <span class="at">label =</span> <span class="st">""</span></span>
+<span id="cb100-6"><a href="#cb100-6" aria-hidden="true" tabindex="-1"></a>)</span>
+<span id="cb100-7"><a href="#cb100-7" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb100-8"><a href="#cb100-8" aria-hidden="true" tabindex="-1"></a>cat_prof <span class="ot">&lt;-</span> <span class="fu">model_profile</span>(exp_cat, <span class="at">variables =</span> <span class="fu">c</span>(<span class="st">"X"</span>, <span class="st">"Y"</span>))</span>
+<span id="cb100-9"><a href="#cb100-9" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb100-10"><a href="#cb100-10" aria-hidden="true" tabindex="-1"></a>p_pdp <span class="ot">&lt;-</span> <span class="fu">plot</span>(</span>
+<span id="cb100-11"><a href="#cb100-11" aria-hidden="true" tabindex="-1"></a>  cat_prof,</span>
+<span id="cb100-12"><a href="#cb100-12" aria-hidden="true" tabindex="-1"></a>  <span class="at">geom =</span> <span class="st">"profiles"</span></span>
+<span id="cb100-13"><a href="#cb100-13" aria-hidden="true" tabindex="-1"></a>) <span class="sc">+</span></span>
+<span id="cb100-14"><a href="#cb100-14" aria-hidden="true" tabindex="-1"></a>  <span class="fu">labs</span>(</span>
+<span id="cb100-15"><a href="#cb100-15" aria-hidden="true" tabindex="-1"></a>    <span class="at">title =</span> <span class="st">"Ceteris Paribus Profiles"</span>,</span>
+<span id="cb100-16"><a href="#cb100-16" aria-hidden="true" tabindex="-1"></a>    <span class="at">subtitle =</span> <span class="st">"Catboost"</span></span>
+<span id="cb100-17"><a href="#cb100-17" aria-hidden="true" tabindex="-1"></a>  ) <span class="sc">+</span></span>
+<span id="cb100-18"><a href="#cb100-18" aria-hidden="true" tabindex="-1"></a>  <span class="fu">theme_notebook</span>()</span>
+<span id="cb100-19"><a href="#cb100-19" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb100-20"><a href="#cb100-20" aria-hidden="true" tabindex="-1"></a>p_pdp<span class="sc">@</span>layers[[<span class="dv">2</span>]]<span class="sc">$</span>aes_params<span class="sc">$</span>colour <span class="ot">&lt;-</span> notebook_colors[[<span class="dv">6</span>]]</span>
+<span id="cb100-21"><a href="#cb100-21" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb100-22"><a href="#cb100-22" aria-hidden="true" tabindex="-1"></a><span class="co"># find facet variable</span></span>
+<span id="cb100-23"><a href="#cb100-23" aria-hidden="true" tabindex="-1"></a>p_pdp<span class="sc">$</span>facet<span class="sc">$</span>params<span class="sc">$</span>facets</span>
+<span id="cb100-24"><a href="#cb100-24" aria-hidden="true" tabindex="-1"></a><span class="co">#&gt; &lt;list_of&lt;quosure&gt;&gt;</span></span>
+<span id="cb100-25"><a href="#cb100-25" aria-hidden="true" tabindex="-1"></a><span class="co">#&gt; </span></span>
+<span id="cb100-26"><a href="#cb100-26" aria-hidden="true" tabindex="-1"></a><span class="co">#&gt; $`_vname_`</span></span>
+<span id="cb100-27"><a href="#cb100-27" aria-hidden="true" tabindex="-1"></a><span class="co">#&gt; &lt;quosure&gt;</span></span>
+<span id="cb100-28"><a href="#cb100-28" aria-hidden="true" tabindex="-1"></a><span class="co">#&gt; expr: ^`_vname_`</span></span>
+<span id="cb100-29"><a href="#cb100-29" aria-hidden="true" tabindex="-1"></a><span class="co">#&gt; env:  0x000002100f466a68</span></span>
+<span id="cb100-30"><a href="#cb100-30" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb100-31"><a href="#cb100-31" aria-hidden="true" tabindex="-1"></a><span class="co"># confirm</span></span>
+<span id="cb100-32"><a href="#cb100-32" aria-hidden="true" tabindex="-1"></a>moose <span class="ot">&lt;-</span> <span class="fu">ggplot_build</span>(p_pdp)</span>
+<span id="cb100-33"><a href="#cb100-33" aria-hidden="true" tabindex="-1"></a>moose<span class="sc">$</span>layout<span class="sc">$</span>layout</span>
+<span id="cb100-34"><a href="#cb100-34" aria-hidden="true" tabindex="-1"></a><span class="co">#&gt;   PANEL ROW COL _vname_ SCALE_X SCALE_Y COORD</span></span>
+<span id="cb100-35"><a href="#cb100-35" aria-hidden="true" tabindex="-1"></a><span class="co">#&gt; 1     1   1   1     doy       1       1     1</span></span>
+<span id="cb100-36"><a href="#cb100-36" aria-hidden="true" tabindex="-1"></a><span class="co">#&gt; 2     2   1   2       X       2       1     2</span></span>
+<span id="cb100-37"><a href="#cb100-37" aria-hidden="true" tabindex="-1"></a><span class="co">#&gt; 3     3   1   3       Y       3       1     3</span></span>
 <span id="cb100-38"><a href="#cb100-38" aria-hidden="true" tabindex="-1"></a></span>
-<span id="cb100-39"><a href="#cb100-39" aria-hidden="true" tabindex="-1"></a><span class="co"># confirm</span></span>
-<span id="cb100-40"><a href="#cb100-40" aria-hidden="true" tabindex="-1"></a>moose <span class="ot">&lt;-</span> <span class="fu">ggplot_build</span>(p_pdp)</span>
-<span id="cb100-41"><a href="#cb100-41" aria-hidden="true" tabindex="-1"></a>moose<span class="sc">$</span>layout<span class="sc">$</span>layout</span>
-<span id="cb100-42"><a href="#cb100-42" aria-hidden="true" tabindex="-1"></a><span class="co">#&gt;   PANEL ROW COL _vname_ SCALE_X SCALE_Y COORD</span></span>
-<span id="cb100-43"><a href="#cb100-43" aria-hidden="true" tabindex="-1"></a><span class="co">#&gt; 1     1   1   1     doy       1       1     1</span></span>
-<span id="cb100-44"><a href="#cb100-44" aria-hidden="true" tabindex="-1"></a><span class="co">#&gt; 2     2   1   2       X       2       1     2</span></span>
-<span id="cb100-45"><a href="#cb100-45" aria-hidden="true" tabindex="-1"></a><span class="co">#&gt; 3     3   1   3       Y       3       1     3</span></span>
-<span id="cb100-46"><a href="#cb100-46" aria-hidden="true" tabindex="-1"></a></span>
-<span id="cb100-47"><a href="#cb100-47" aria-hidden="true" tabindex="-1"></a>p_pdp <span class="ot">&lt;-</span> p_pdp <span class="sc">+</span></span>
-<span id="cb100-48"><a href="#cb100-48" aria-hidden="true" tabindex="-1"></a>  <span class="fu">facet_wrap</span>(</span>
-<span id="cb100-49"><a href="#cb100-49" aria-hidden="true" tabindex="-1"></a>    <span class="fu">vars</span>(<span class="st">`</span><span class="at">_vname_</span><span class="st">`</span>),</span>
-<span id="cb100-50"><a href="#cb100-50" aria-hidden="true" tabindex="-1"></a>    <span class="at">scales =</span> <span class="st">"free_x"</span>,</span>
-<span id="cb100-51"><a href="#cb100-51" aria-hidden="true" tabindex="-1"></a>    <span class="at">labeller =</span> <span class="fu">as_labeller</span>(<span class="fu">c</span>(</span>
-<span id="cb100-52"><a href="#cb100-52" aria-hidden="true" tabindex="-1"></a>      <span class="co"># "doy" = "Day of the Year",</span></span>
-<span id="cb100-53"><a href="#cb100-53" aria-hidden="true" tabindex="-1"></a>      <span class="st">"X"</span> <span class="ot">=</span> <span class="st">"Easting (m)"</span>,</span>
-<span id="cb100-54"><a href="#cb100-54" aria-hidden="true" tabindex="-1"></a>      <span class="st">"Y"</span> <span class="ot">=</span> <span class="st">"Northing (m)"</span></span>
-<span id="cb100-55"><a href="#cb100-55" aria-hidden="true" tabindex="-1"></a>    ))</span>
-<span id="cb100-56"><a href="#cb100-56" aria-hidden="true" tabindex="-1"></a>  )</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
+<span id="cb100-39"><a href="#cb100-39" aria-hidden="true" tabindex="-1"></a>p_pdp <span class="ot">&lt;-</span> p_pdp <span class="sc">+</span></span>
+<span id="cb100-40"><a href="#cb100-40" aria-hidden="true" tabindex="-1"></a>  <span class="fu">facet_wrap</span>(</span>
+<span id="cb100-41"><a href="#cb100-41" aria-hidden="true" tabindex="-1"></a>    <span class="fu">vars</span>(<span class="st">`</span><span class="at">_vname_</span><span class="st">`</span>),</span>
+<span id="cb100-42"><a href="#cb100-42" aria-hidden="true" tabindex="-1"></a>    <span class="at">scales =</span> <span class="st">"free_x"</span>,</span>
+<span id="cb100-43"><a href="#cb100-43" aria-hidden="true" tabindex="-1"></a>    <span class="at">labeller =</span> <span class="fu">as_labeller</span>(<span class="fu">c</span>(</span>
+<span id="cb100-44"><a href="#cb100-44" aria-hidden="true" tabindex="-1"></a>      <span class="co"># "doy" = "Day of the Year",</span></span>
+<span id="cb100-45"><a href="#cb100-45" aria-hidden="true" tabindex="-1"></a>      <span class="st">"X"</span> <span class="ot">=</span> <span class="st">"Easting (m)"</span>,</span>
+<span id="cb100-46"><a href="#cb100-46" aria-hidden="true" tabindex="-1"></a>      <span class="st">"Y"</span> <span class="ot">=</span> <span class="st">"Northing (m)"</span></span>
+<span id="cb100-47"><a href="#cb100-47" aria-hidden="true" tabindex="-1"></a>    ))</span>
+<span id="cb100-48"><a href="#cb100-48" aria-hidden="true" tabindex="-1"></a>  )</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
 </details>
 <ul>
 <li>Thoughts</li>
@@ -8702,7 +8773,7 @@ Code
 <li>Thoughts</li>
 </ul>
 <h6 id="rmse-and-me-by-observed-range" class="anchored">RMSE and ME by Observed Range</h6>
-<p><a href="_resources/Geospatial-Spatio-Temporal.resources/krig-interp-ex2-resid-rmse-range-1.png" class="lightbox" data-gallery="quarto-lightbox-gallery-56"><img src="_resources/Geospatial-Spatio-Temporal.resources/krig-interp-ex2-resid-rmse-range-1.png" class="img-fluid" data-gjroup="krig-interp-ex2-other" width="582"></a></p>
+<p><a href="_resources/Geospatial-Spatio-Temporal.resources/krig-interp-ex2-comp-rmse-range-1.png" class="lightbox" data-gallery="quarto-lightbox-gallery-56"><img src="_resources/Geospatial-Spatio-Temporal.resources/krig-interp-ex2-comp-rmse-range-1.png" class="img-fluid" data-gjroup="krig-interp-ex2-other" width="582"></a></p>
 <details>
 <summary>
 Code
@@ -8729,7 +8800,7 @@ Code
 <span id="cb102-20"><a href="#cb102-20" aria-hidden="true" tabindex="-1"></a>  ) <span class="sc">+</span></span>
 <span id="cb102-21"><a href="#cb102-21" aria-hidden="true" tabindex="-1"></a>  <span class="fu">facet_wrap</span>(<span class="sc">~</span>metric, <span class="at">scales =</span> <span class="st">"free_y"</span>) <span class="sc">+</span></span>
 <span id="cb102-22"><a href="#cb102-22" aria-hidden="true" tabindex="-1"></a>  <span class="fu">labs</span>(</span>
-<span id="cb102-23"><a href="#cb102-23" aria-hidden="true" tabindex="-1"></a>    <span class="at">title =</span> <span class="st">"RMSE and ME by PM10 Range"</span>,</span>
+<span id="cb102-23"><a href="#cb102-23" aria-hidden="true" tabindex="-1"></a>    <span class="at">title =</span> <span class="st">"RMSE and ME by Observed PM10 Range"</span>,</span>
 <span id="cb102-24"><a href="#cb102-24" aria-hidden="true" tabindex="-1"></a>    <span class="at">x =</span> <span class="st">"PM10 Range (µg/m³)"</span>,</span>
 <span id="cb102-25"><a href="#cb102-25" aria-hidden="true" tabindex="-1"></a>    <span class="at">y =</span> <span class="st">"Value"</span>,</span>
 <span id="cb102-26"><a href="#cb102-26" aria-hidden="true" tabindex="-1"></a>    <span class="at">color =</span> <span class="st">"Model"</span></span>
