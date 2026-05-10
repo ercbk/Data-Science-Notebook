@@ -5023,11 +5023,12 @@ lightbox:
   ###### Run CV
 
   ``` r
-  # 90 models
+  # tune nmax. then tune bufferNmax. then tune nmax again
+  # settings for final cv run
   krig_grid <- expand.grid(
     fold_idx = 1:15,
-    nmax = c(10, 15, 20), # only 53 locations
-    bufferNmax = c(1, 2) #
+    nmax = c(8, 9, 11, 12),
+    bufferNmax = 132
   ) |> 
     mutate(
       cv_folds = list(rcv_st_pm10),
@@ -5039,7 +5040,9 @@ lightbox:
 
   tictoc::tic()
   # run CV across all folds
-  # 8265.92 sec or 2.3 hrs with 12 workers
+  # 8265.92 sec or 3.15 hrs with 12 workers w/nmax = c(10, 15, 20), bufferNmax = c(1, 2)
+  # 6077.15 sec or 1.68 hrs with 12 workers w/nmax = 10, bufferNmax = c(1, 2, 3)
+  # 7479.77 sec or 2.08 hrs with 12 workers w/nmax = c(8, 9, 11, 12), bufferNmax = 132
   tib_res_cv_krige <- purrr::pmap(
     krig_grid,
     run_krigeST_fold
@@ -5050,87 +5053,95 @@ lightbox:
 
   mirai::daemons(0)
 
+  # showing last two cv runs
+  # winner: RMSE = 0.4947919
   (res_scores <- tib_res_cv_krige |>
-    # score each fold
     summarize(
-      RMSE = sqrt(mean((exp(observed) - exp(predicted))^2, na.rm = TRUE)),
-      ME = mean(exp(observed) - exp(predicted), na.rm = TRUE),
-      .by = c(nmax, bufferNmax, fold)
-    ) |>
-    # average fold scores
-    summarize(
-      RMSE = mean(RMSE),
-      ME   = mean(ME),
+      RMSE = sqrt(mean((observed - predicted)^2, na.rm = TRUE)),
+      ME = mean(observed - predicted, na.rm = TRUE),
       .by = c(nmax, bufferNmax)
-    ) |>
+    ) |> 
     arrange(RMSE))
-  #> # A tibble: 6 × 4
-  #>    nmax bufferNmax  RMSE    ME
-  #>   <dbl>      <dbl> <dbl> <dbl>
-  #> 1    10          2  9.93  1.56
-  #> 2    10          1  9.94  1.56
-  #> 3    15          2 10.0   1.67
-  #> 4    15          1 10.0   1.68
-  #> 5    20          2 10.1   1.77
-  #> 6    20          1 10.1   1.77
+  #> # A tibble: 9 × 4
+  #>    nmax bufferNmax  RMSE      ME
+  #>   <dbl>      <int> <dbl>   <dbl>
+  #> 1    10        132 0.495 -0.0123
+  #> 2    10        131 0.495 -0.0124
+  #> 3    10        133 0.495 -0.0123
+  #> 4    10        134 0.495 -0.0122
+  #> 5    10        135 0.495 -0.0121
+  #> 6    10        136 0.496 -0.0119
+  #> 7    10        137 0.496 -0.0118
+  #> 8    10        138 0.496 -0.0118
+  #> 9    10        139 0.496 -0.0119
+
+  #> # A tibble: 4 × 4
+  #>    nmax bufferNmax  RMSE       ME
+  #>   <dbl>      <dbl> <dbl>    <dbl>
+  #> 1     9        132 0.495 -0.0154 
+  #> 2     8        132 0.495 -0.0190 
+  #> 3    11        132 0.496 -0.0116 
+  #> 4    12        132 0.497 -0.00908
 
 
   tib_res_cv_krige |>
     filter(
       nmax == 10,
-      bufferNmax == 2
+      bufferNmax == 132
     ) |>
     summarize(
-      RMSE = sqrt(mean((exp(observed) - exp(predicted))^2, na.rm = TRUE)),
-      ME   = mean(exp(observed) - exp(predicted), na.rm = TRUE),
+      RMSE = sqrt(mean((observed - predicted)^2, na.rm = TRUE)),
+      ME   = mean(observed - predicted, na.rm = TRUE),
       .by = fold
     )
   #> # A tibble: 15 × 3
-  #>     fold  RMSE     ME
-  #>    <int> <dbl>  <dbl>
-  #>  1     1  8.88  1.47 
-  #>  2     2 10.4   0.603
-  #>  3     3  9.58 -0.147
-  #>  4     4  9.13  1.68 
-  #>  5     5 11.1   2.26 
-  #>  6     6  9.44  2.10 
-  #>  7     7  9.24  1.21 
-  #>  8     8 10.9   0.401
-  #>  9     9 10.4   1.76 
-  #> 10    10  9.61  2.71 
-  #> 11    11  9.82  0.684
-  #> 12    12  9.53  1.82 
-  #> 13    13  9.84  2.19 
-  #> 14    14 11.5   2.21 
-  #> 15    15  9.56  2.44 
+  #>     fold  RMSE      ME
+  #>    <int> <dbl>   <dbl>
+  #>  1     1 0.438 -0.0191
+  #>  2     2 0.455 -0.0269
+  #>  3     3 0.631 -0.173 
+  #>  4     4 0.462  0.100 
+  #>  5     5 0.481  0.0341
+  #>  6     6 0.507 -0.0467
+  #>  7     7 0.495 -0.0741
+  #>  8     8 0.509 -0.0852
+  #>  9     9 0.430  0.116 
+  #> 10    10 0.497  0.0586
+  #> 11    11 0.503 -0.0977
+  #> 12    12 0.486 -0.0345
+  #> 13    13 0.443  0.0401
+  #> 14    14 0.499  0.0831
+  #> 15    15 0.532 -0.0198
 
 
+  # lower is better
+  # guidelines say "weakly informative"
   res_scores |> 
-    slice_min(RMSE) |> 
-    summarize(rmse_ratio = RMSE/sd(exp(tib_pm10$pm10)))
+    filter(nmax == 10, bufferNmax == 132) |> 
+    summarize(rmse_ratio = mean(RMSE)/sd(tib_pm10$pm10))
   #> # A tibble: 1 × 1
   #>   rmse_ratio
   #>        <dbl>
-  #> 1      0.925
+  #> 1      0.789
 
 
   moose <- tib_res_cv_krige |>
     filter(
       nmax == 10,
-      bufferNmax == 2
+      bufferNmax == 132
     )
-  yardstick::rsq_vec(moose, exp(observed), exp(predicted))
-  #> [1] 0.1784053
+  yardstick::rsq_vec(moose$observed, moose$predicted)
+  #> [1] 0.3840644
   ```
 
-  - Along with running the CV, I'm also tuning nmax and bufferNmax.
-    - Given the spread of the station locations across the country and the fact, there are only 53 possible stations on any given day, I can't imagine more than 20 of the nearest stations would have any significant information.
-    - I only allowed for double the search radius, but given the spread, maybe I should have allowed for larger factors.
-  - Results show a nmax = 10 and bufferNmax = 2 with the lowest RMSE
-  - Process took around 2.3 hrs with 12 workers on my rig.
+  - Using CV to also tune nmax and bufferNmax.
+    - Results show a nmax = 10 and bufferNmax = 132 with the lowest RMSE
+    - Process: Tune nmax. Then tune bufferNmax. Then tune nmax again
+    - Tuning bufferNmax, while grooling because I didn't have any kind of heuristic at the time, bettered my RMSE by around 20%.
+  - Process time varied based on the tuning grid, but it typically ranged beween 1.68 and 3.15 hrs per run using using 12 workers on my rig.
     - Claude and I came up with some speed-up ideas. Hopefully I'll apply those someday and create a pull request or package out it.
   - I experimented with a logged PM10 (results shown) and not-logged PM10. It doesn't seem to affect the scores much at all, but hopefully the residuals will look better
-  - Neither the Catboost nor this kriging model are good models, but they're better than taking the mean. They're also basic models with no real predictors. Adding informative predictors (e.g. wind speed, distance from factories, interstates, elevation, weather, population, etc.) would hopefully make these much better.
+  - Neither the Catboost nor this kriging model are *good* models, but they're better than taking the mean. They're also basic models with no real predictors. Adding informative predictors (e.g. wind speed, distance from factories, interstates, elevation, weather, population, etc.) would hopefully make these much better.
     - The Catboost has a few engineered variables but those (basic space and time variables) are just so it can play on the same field as a true spatio-temporal model.
     - Claude has suggested more than once that using a Catboost model along with a krigeST model trained on the Catboost's residuals would peform better.
   :::
@@ -5168,12 +5179,60 @@ lightbox:
   tib_res_cv_krige_fin <- tib_res_cv_krige |> 
     filter(
       nmax == 10,
-      bufferNmax == 2
+      bufferNmax == 132
     )
 
   set.seed(2026)
   options(scipen = 999)
   notebook_colors <- unname(swatches::read_ase(here::here("palettes/Forest Floor.ase")))
+
+
+  data(air, package = "spacetime")
+
+  # get rural location time series from 2005 to 2010
+  rural_log <- spacetime::STFDF(
+    sp = stations, 
+    time = dates, 
+    data = data.frame(PM10 = log(as.vector(air)))
+  )
+  rr <- rural_log[,"2005::2010"]
+
+  # remove station ts w/all NAs
+  unsel <- which(apply(
+    as(rr, "xts"), 
+    2, 
+    function(x) all(is.na(x)))
+  )
+  r5to10 <- rr[-unsel,]
+
+  sf_r5 <- r5to10 |> # STFDF object
+    stars::st_as_stars() |> 
+    sf::st_as_sf(long = TRUE) |> 
+    rename(geometry = sfc)
+
+  tib_stations <- as_tibble(stations@coords) |> 
+    mutate(station_id = rownames(stations@coords))
+
+  sf_stations <- sf::st_as_sf(
+    tib_stations,
+    coords = c("coords.x1", "coords.x2"),
+    crs = sf::st_crs(sf_r5)
+  )
+
+  sf_pm10 <- sf_r5 |> 
+    sf::st_join(sf_stations) |> 
+    sf::st_transform(crs = 25832) |> # projected, UTM zone 32N
+    filter(!is.na(PM10)) |> 
+    rename(date = time, pm10 = PM10)
+
+
+  tib_pm10 <- sf_pm10 |> 
+    sf::st_drop_geometry() |> 
+    mutate(
+      date_feat = date, # extra for feat eng
+      X = sf::st_coordinates(sf_pm10)[, 1],
+      Y = sf::st_coordinates(sf_pm10)[, 2]
+    )
 
   # ---- Prepare CV Results ----
 
@@ -5188,8 +5247,8 @@ lightbox:
     tibble(
       fold = i,
       row_id = pred$row_ids,
-      observed = exp(pred$truth),
-      predicted = exp(pred$response)
+      observed = pred$truth,
+      predicted = pred$response
     )
   }) |>
     purrr::list_rbind() |>
@@ -5200,7 +5259,10 @@ lightbox:
       observed = first(observed),
       .by = c(station_id, date)
     ) |>
+    # apply backtransform after combining multiple predictions of the same observation across repeats
     mutate(
+      predicted = exp(predicted),
+      observed = exp(observed),    
       residual = observed - predicted,
       model = "Catboost"
     )
@@ -5209,12 +5271,15 @@ lightbox:
   # each model's results have 36402 out of 74799 observations covered (~49%) after 3 repeats × 5 folds = 15 folds is actually consistent with that coverage rate (15 × ~4% ≈ 60%, minus overlaps between folds reducing it to ~49%).
   cv_combined <- tib_res_cv_krige_fin |>
     summarize(
-      predicted = mean(exp(predicted), na.rm = TRUE),
-      pred_var = mean(exp(pred_var), na.rm = TRUE),
-      observed = first(exp(observed)),
+      predicted = mean(predicted, na.rm = TRUE),
+      pred_var = mean(pred_var, na.rm = TRUE),
+      observed = first(observed),
       .by = c(station_id, date)
     ) |>
     mutate(
+      # apply bias correction and bias correction after combining multiple predictions of the same observation across repeats
+      predicted = exp(predicted + (pred_var / 2)),
+      observed = exp(observed),
       residual = observed - predicted,
       model = "krigeST"
     ) |> 
@@ -5288,6 +5353,7 @@ lightbox:
     xlab("Residual") +
     guides(fill = "none") +
     theme_notebook(
+      plot.title.position = "plot",
       axis.title.y = element_blank(),
       axis.text.y = element_text(size = 14, face = "bold"),
       panel.border = element_rect(color = "#FFFDF9FF", 
@@ -5403,10 +5469,12 @@ lightbox:
       .by = c(model, pred_bin)
     )
 
-  ggplot(tib_quant_bins, 
-         aes(x = pred_bin, 
-             y = residual,
-             color = model)) +
+  p_res_pred_bin <- ggplot(
+    tib_quant_bins, 
+    aes(x = pred_bin, 
+        y = residual,
+        color = model)
+  ) +
     geom_hline(
       yintercept = 0, 
       linetype = "dashed", 
@@ -5427,15 +5495,6 @@ lightbox:
       inherit.aes = FALSE,
       width = 0.25,
       linewidth = 0.8
-    ) +
-    # median residual (diamond shape)
-    geom_point(
-      data = bin_stats,
-      mapping = aes(x = pred_bin, y = median_res),
-      inherit.aes = FALSE,
-      size = 3.5,
-      shape = 18,
-      color = prismatic::clr_lighten(notebook_colors[[7]], shift = 0.6)
     ) +
     # custom IQR box based median and mad residual
     geom_crossbar(
@@ -5460,6 +5519,17 @@ lightbox:
       "krigeST" = prismatic::clr_lighten(notebook_colors[[5]], shift = 0.6), 
       "Catboost" = prismatic::clr_lighten(notebook_colors[[6]], shift = 0.6)
     )) +
+    # median residual (diamond shape)
+    geom_point(
+      data = bin_stats,
+      aes(x = pred_bin, 
+          y = median_res),
+      inherit.aes = FALSE,
+      size = 3.5,
+      shape = 18,
+      fill = prismatic::clr_lighten(notebook_colors[[7]], shift = 0.6),
+      color = prismatic::clr_lighten(notebook_colors[[7]], shift = 0.6)
+    ) +  
     scale_x_discrete(
       labels = c("Q1\n(lowest)", "Q2", "Q3\n(mid)", "Q4", "Q5\n(highest)")
     ) +
@@ -5582,7 +5652,8 @@ lightbox:
       color = lag_label
     )) +
     geom_line(linewidth = 1.75) +
-    # geom_point(shape = 1, size = 1.5) +
+    scale_y_continuous(breaks = seq(0, 175, by = 25)) +
+    expand_limits(y = c(0, 125)) +
     scale_color_manual(
       values = lag_colors,
       name = NULL
@@ -5663,6 +5734,8 @@ lightbox:
       color = lag_label
     )) +
     geom_line(linewidth = 1.75) +
+    scale_y_continuous(breaks = seq(0, 175, by = 25)) +
+    expand_limits(y = c(0, 125)) +
     scale_color_manual(
       values = lag_colors_cat,
       name = NULL
@@ -5698,6 +5771,7 @@ lightbox:
     returnclass = "sf"
   ) |>
     sf::st_transform(crs = 25832)
+
 
   tib_station_metrics <- cv_combined |>
     summarize(
@@ -5744,8 +5818,8 @@ lightbox:
     ) +
     geom_sf(aes(color = RMSE, size = RMSE)) +
     geom_sf_label(
-      data = tib_rmse_outliers |>
-        filter(!station_id %in% c("DETH042", "DEUB035")),
+      data = tib_rmse_outliers |> 
+        filter(!station_id %in% c("DEBE056", "DESN051")),
       aes(label = paste0(station_id, "\n", round(RMSE, 2))),
       nudge_x = -40000,
       nudge_y = 35000,
@@ -5753,10 +5827,18 @@ lightbox:
     ) +
     geom_sf_label(
       data = tib_rmse_outliers |>
-        filter(station_id %in% c("DETH042", "DEUB035")),
+        filter(station_id == "DEBE056"),
+      aes(label = paste0(station_id, "\n", round(RMSE, 2))),
+      nudge_x = 0,
+      nudge_y = -35000,
+      size = 3
+    ) +
+    geom_sf_label(
+      data = tib_rmse_outliers |>
+        filter(station_id == "DESN051"),
       aes(label = paste0(station_id, "\n", round(RMSE, 2))),
       nudge_x = 47000,
-      nudge_y = -32000,
+      nudge_y = 32000,
       size = 3
     ) +
     scale_color_gradientn(
@@ -5831,8 +5913,8 @@ lightbox:
       )
     ) +
     geom_sf_label(
-      data = tib_me_outliers |>
-        filter(station_id == "DEBB056"),
+      data = tib_me_outliers |> 
+        filter(station_id  != "DEBB075"),
       aes(label = paste0(station_id, "\n", round(ME, 2))),
       nudge_x = -40000,
       nudge_y = 35000,
@@ -5840,26 +5922,10 @@ lightbox:
     ) +
     geom_sf_label(
       data = tib_me_outliers |>
-        filter(station_id  == "DEUB039"),
+        filter(station_id  == "DEBB075"),
       aes(label = paste0(station_id, "\n", round(ME, 2))),
-      nudge_x = 47000,
+      nudge_x = -47000,
       nudge_y = -32000,
-      size = 3
-    ) +
-    geom_sf_label(
-      data = tib_me_outliers |>
-        filter(station_id == "DESN076"),
-      aes(label = paste0(station_id, "\n", round(ME, 2))),
-      nudge_x = -40000,
-      nudge_y = -32000,
-      size = 3
-    ) +
-    geom_sf_label(
-      data = tib_me_outliers |>
-        filter(station_id == "DEBB053"),
-      aes(label = paste0(station_id, "\n", round(ME, 2))),
-      nudge_x = 47000,
-      nudge_y = 32000,
       size = 3
     ) +
     facet_wrap(~ model) +
@@ -6017,9 +6083,13 @@ lightbox:
   tib_pi <- tib_res_cv_krige_fin |>
     mutate(
       se = sqrt(pred_var),
-      lower_95 = predicted - 1.96 * se,
-      upper_95 = predicted + 1.96 * se,
-      covered = observed >= lower_95 & observed <= upper_95
+      lower_95_log = predicted - 1.96 * se,
+      upper_95_log = predicted + 1.96 * se,
+      # back-transform to original scale after arithmetic
+      lower_95 = exp(lower_95_log),
+      upper_95 = exp(upper_95_log),
+      observed_bt = exp(observed),
+      covered = observed_bt >= lower_95 & observed_bt <= upper_95
     )
 
   tib_pi_station <- tib_pi |>
@@ -6031,7 +6101,7 @@ lightbox:
     sf::st_as_sf(coords = c("x", "y"), crs = 25832)
 
   tib_pi_outlier <- tib_pi_station |> 
-    slice_min(coverage)
+    filter(coverage < 0.95)
 
   p_pi_map <- tib_pi_station |>
     ggplot() +
@@ -6043,10 +6113,19 @@ lightbox:
     ) +
     geom_sf(aes(color = coverage, size = coverage)) +
     geom_sf_label(
-      data = tib_pi_outlier,
+      data = tib_pi_outlier |> 
+        filter(station_id != "DEBW031"),
       aes(label = paste0(station_id, "\n", round(coverage, 2))),
       nudge_x = -40000,
       nudge_y = 35000,
+      size = 3
+    ) +
+    geom_sf_label(
+      data = tib_pi_outlier |> 
+        filter(station_id == "DEBW031"),
+      aes(label = paste0(station_id, "\n", round(coverage, 2))),
+      nudge_x = -40000,
+      nudge_y = -35000,
       size = 3
     ) +
     scale_color_gradientn(
@@ -6071,7 +6150,7 @@ lightbox:
   #> # A tibble: 1 × 1
   #>   overall_coverage
   #>              <dbl>
-  #> 1            0.971
+  #> 1            0.981
   ```
 
   </Details>
@@ -6089,7 +6168,7 @@ lightbox:
   ``` r
 
   # 3.3.2 https://mlr3book.mlr-org.com/chapters/chapter3/evaluation_and_benchmarking.html#sec-bm-resamp
-  learner_cat_final <- readr::read_rds( "../../temp-storage/gstat-vig-krig-mlr-cat-final.rds")
+  learner_cat_final <- readr::read_rds( "../../temp-storage/gstat-krig-log/lrn-cat-final.rds")
 
   # PredictionValuesChange shows how much on average the prediction changes if the feature value changes. The bigger the value of the importance the bigger on average is the change to the prediction value, if this feature is changed.
   cat_import_raw <- tibble(
@@ -6149,14 +6228,6 @@ lightbox:
   <Summary>Code</Summary>
 
   ``` r
-  tib_pm10 <- sf_pm10 |> 
-    sf::st_drop_geometry() |> 
-    mutate(
-      date_feat = date, # extra for feat eng
-      X = sf::st_coordinates(sf_pm10)[, 1],
-      Y = sf::st_coordinates(sf_pm10)[, 2]
-    )
-
   exp_cat <- explain_mlr3(
     learner_cat_final,
     data = tib_pm10,
@@ -6164,7 +6235,7 @@ lightbox:
     label = ""
   )
 
-  cat_prof <- model_profile(exp_cat, k = 2, variables = c("X", "Y"))
+  cat_prof <- model_profile(exp_cat, variables = c("X", "Y"))
 
   p_pdp <- plot(
     cat_prof,
@@ -6246,7 +6317,7 @@ lightbox:
 
   ###### RMSE and ME by Observed Range
 
-  ![](_resources/Geospatial-Spatio-Temporal.resources/krig-interp-ex2-resid-rmse-range-1.png){.lightbox gjroup="krig-interp-ex2-other" width="582"}
+  ![](_resources/Geospatial-Spatio-Temporal.resources/krig-interp-ex2-comp-rmse-range-1.png){.lightbox gjroup="krig-interp-ex2-other" width="582"}
 
   <Details>
 
@@ -6275,7 +6346,7 @@ lightbox:
     ) +
     facet_wrap(~metric, scales = "free_y") +
     labs(
-      title = "RMSE and ME by PM10 Range",
+      title = "RMSE and ME by Observed PM10 Range",
       x = "PM10 Range (µg/m³)",
       y = "Value",
       color = "Model"
