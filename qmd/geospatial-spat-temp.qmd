@@ -987,12 +987,12 @@ lightbox:
   data(air)
 
   # get rural location time series from 2005 to 2010
-  rural <- STFDF(
+  rural_log <- STFDF(
     sp = stations, 
     time = dates, 
-    data = data.frame(PM10 = as.vector(air))
+    data = data.frame(PM10 = log(as.vector(air)))
   )
-  rr <- rural[,"2005::2010"]
+  rr <- rural_log[,"2005::2010"]
 
   # remove station ts w/all NAs
   unsel <- which(apply(
@@ -4372,7 +4372,7 @@ lightbox:
 
   Cross-Validation is peformed using [{mlr3spatiotempcv}]{style="color: #990000"}. The models include Random Forest, Light GBM, Catboost and krigeST.
 
-  **tl;dr** Catboost performs the best out of the ML models by barely beating the RF. Neither the Catboost nor the krigeST model is very good.
+  **tl;dr** Catboost performs the best out of the ML models by barely beating the RF, but krigeST outperformed Catboost after extensive tuning of nmax and bufferNmax. Catboost nor the krigeST model considered "weakly predictive," so not good models but better than naive models on average.
 
   Alternative idea for the future: Using a Catboost model along with a krigeST model trained on the Catboost's residuals would probably peform better (i.e. the Catboost and krigeST predictions would be added together)
 
@@ -6379,6 +6379,12 @@ lightbox:
   - [Variogram \>\> Examples](geospatial-spat-temp.qmd#sec-geo-sptemp-krig-var-ex){style="color: green"} \>\> Example 1
   - [Examples](geospatial-spat-temp.qmd#sec-geo-sptemp-krig-ex){style="color: green"} \>\> Example 1 and Example 2
 
+  ###### Non-logged pm10 versions
+
+  <Details>
+
+  <Summary>Code</Summary>
+
   ``` r
   pacman::p_load(
     dplyr,
@@ -6387,12 +6393,59 @@ lightbox:
     sf
   )
 
-  learner_cat_final <- readr::read_rds( "../../temp-storage/gstat-vig-krig-mlr-cat-final.rds")
-  fit_vario_sm <- readr::read_rds("../../temp-storage/gstat-vig9-sm-mod.rds")
-
   set.seed(2026)
   options(scipen = 999)
 
+  # get rural location time series from 2005 to 2010
+  rural_nl <- spacetime::STFDF(
+    sp = stations, 
+    time = dates, 
+    data = data.frame(PM10 = as.vector(air))
+  )
+  rr_nl <- rural_nl[,"2005::2010"]
+
+  # remove station ts w/all NAs
+  unsel_nl <- which(apply(
+    as(rr_nl, "xts"), 
+    2, 
+    function(x) all(is.na(x)))
+  )
+  r5to10_nl <- rr_nl[-unsel,]
+
+
+  # Convert to Long Format
+  crs_r5_nl <- sp::proj4string(r5to10_nl@sp)
+  sf_r5_nl <- as.data.frame(r5to10_nl) |> 
+    sf::st_as_sf(coords = c("coords.x1", "coords.x2"), crs = crs_r5_nl) |>
+    sf::st_transform(crs = 25832) |> # projected, UTM zone 32N
+    filter(!is.na(PM10)) |> 
+    rename(
+      date = time, 
+      pm10 = PM10,
+      station_id = sp.ID
+    ) |> 
+    select(-endTime, -timeIndex)
+
+  tib_pm10_nl <- sf_r5_nl |> 
+    mutate(
+      date_feat = date, # extra for feat eng
+      X = sf::st_coordinates(geometry)[, 1],
+      Y = sf::st_coordinates(geometry)[, 2]
+    ) |> 
+    sf::st_drop_geometry()
+  ```
+
+  </Details>
+
+  - sf_pm10 is from
+
+  ###### Create Prediction Grid
+
+  <Details>
+
+  <Summary>Code</Summary>
+
+  ``` r
   # no days with all stations having observations
   tib_almost_complete_days <- sf_pm10 |>
     st_drop_geometry() |>
@@ -6407,13 +6460,29 @@ lightbox:
   max(tib_almost_complete_days$date)
   #> [1] "2006-12-28"
 
-  vec_sample_days <- tib_almost_complete_days |>
-    slice_sample(n = 6) |>
+  tib_high_var_pm10 <- tib_pm10 |> 
+    filter(date %in% tib_almost_complete_days$date) |> 
+    summarize(sd_pm10 = sd(pm10), .by = date) |> 
+    arrange(desc(sd_pm10)) |> 
+    slice_max(sd_pm10, n = 30)
+
+  # sample two high variance days from each season
+  vec_sample_days <- tib_high_var_pm10 |>
+    mutate(
+      month = lubridate::month(date),
+      season = case_when(
+        month %in% c(12, 1, 2, 3) ~ "DJFM",
+        month %in% c(4, 5, 6, 7) ~ "AMJJ",
+        month %in% c(8, 9, 10, 11) ~ "ASON"
+      )
+    ) |>
+    group_by(season) |> 
+    slice_sample(n = 2) |>
     pull(date) |>
     sort()
 
   vec_sample_days
-  #> [1] "2005-02-21" "2005-05-15" "2005-05-26" "2005-10-08" "2006-05-08" "2006-10-23""
+  #> [1] "2005-04-19" "2006-04-17" "2006-09-25" "2006-11-14" "2006-12-13" "2006-12-14"
 
   sf_germany <- rnaturalearth::ne_countries(
     country = "Germany",
@@ -6448,47 +6517,83 @@ lightbox:
     st_set_crs(25832)
   ```
 
+  </Details>
+
   - Thoughts
 
   ## krigeST
 
-  words
+  ###### Predict
 
   ``` r
   # outputs stars obj
   # ~ 40 min for 2 days at 10k cells
   # 23879.57 sec or ~6.63 hrs for 6 days at 5k cells w/nmax = 15, bufferNmax = 2
   # 28742.18 sec or ~7.98 hrs for 6 days at 5k cells w/nmax = 120, bufferNmax = default
+  # 30205.98 sec or ~8.39 hrs for 6 days at 5k cells w/nmax = 200, bufferNmax = 3
+  # 24967.48 sec or ~6.94 hrs for 6 days at 5k cells w/nmax = 10, bufferNmax = 132
   tictoc::tic()
   krige_grid_pred <- gstat::krigeST(
     PM10 ~ 1,
     data = stars::st_as_stars(r5to10) |> st_transform(25832),
     newdata = grd_st,
     modelList = fit_vario_sm,
-    nmax = 120,
+    nmax = 10,
+    bufferNmax = 132,
+    computeVar = TRUE,
     progress = TRUE
   )
   tictoc::toc()
+  ```
 
+  - [fit_vario_sm]{.var-text} is from [Variogram \>\> Examples](geospatial-spat-temp.qmd#sec-geo-sptemp-krig-var-ex){style="color: green"} \>\> Example 1 \>\> Fit Sum Metric \>\> Fit Sum Metric
+
+  ###### Process Predictions
+
+  <Details>
+
+  <Summary>Code</Summary>
+
+  ``` r
   sf_krige_pred <- krige_grid_pred |>
     as.data.frame() |>
     filter(!is.na(var1.pred)) |>
     st_as_sf(coords = c("x", "y"), crs = 25832) |>
     rename(
-      predicted = var1.pred
+      predicted = var1.pred,
+      pred_var = var1.var
     ) |>
     mutate(
       date = as.Date(time),
-      model = "krigeST"
+      model = "krigeST",
+      predicted = exp(predicted + (pred_var / 2))
     ) |>
     select(date, predicted, model, geometry)
+
+
+  ls_krige_stars <- purrr::map(vec_sample_days, \(d) {
+    sf_krige_pred |>
+      filter(date == d) |>
+      select(predicted, geometry) |>
+      stars::st_rasterize(
+        stars::st_as_stars(st_bbox(sf_germany), dx = 5000)
+      ) |>
+      st_crop(sf_germany)
+  })
+
+  krige_stars_combined <- do.call(
+    c,
+    c(ls_krige_stars, list(along = list(time = vec_sample_days)))
+  )
   ```
 
-  - Thoughts
+  </Details>
+
+  - thoughts
 
   ## Catboost
 
-  words
+  ###### Create Grid and Predict
 
   ``` r
   tib_grid_coords <- grd_st |>
@@ -6516,20 +6621,53 @@ lightbox:
 
   # predict using final trained learner
   cat_grid_pred <- learner_cat_final$predict_newdata(tib_newdata_cat)
+  ```
 
+  - [learner_cat_final]{.var-text} is from [Example 1 \>\> {mlr}](geospatial-spat-temp.qmd#sec-geo-sptemp-krig-ex){style="color: green"} \>\> Run CV
+
+  ###### Process Predictions
+
+  <Details>
+
+  <Summary>Code</Summary>
+
+  ``` r
   sf_cat_pred <- sf_cat_grid |>
     mutate(
-      predicted = cat_grid_pred$response,
+      predicted = exp(cat_grid_pred$response),
       model = "Catboost"
     ) |>
     select(date, predicted, model, geometry)
+
+  ls_cat_stars <- purrr::map(vec_sample_days, \(d) {
+    sf_cat_pred |>
+      filter(date == d) |>
+      select(predicted, geometry) |>
+      stars::st_rasterize(
+        stars::st_as_stars(st_bbox(sf_germany), dx = 5000)
+      ) |>
+      st_crop(sf_germany)
+  })
+
+  cat_stars_combined <- do.call(
+    c,
+    c(ls_cat_stars, list(along = list(time = vec_sample_days)))
+  )
   ```
+
+  </Details>
 
   - Thoughts
 
   ## Visualize
 
-  ![](_resources/Geospatial-Spatio-Temporal.resources/krig-interp-ex3-preds.png){.lightbox width="632"}
+  ###### Predictions
+
+  ![](_resources/Geospatial-Spatio-Temporal.resources/krig-interp-ex3-preds.png){.lightbox group="krig-ex3" width="632"}
+
+  <Details>
+
+  <Summary>Code</Summary>
 
   ``` r
   legend_limits <- sf_krige_pred |>
@@ -6542,9 +6680,13 @@ lightbox:
     )) |> 
     pull(range_pred)
 
-  sf_obs_sample <- sf_pm10 |>
+  sf_obs_sample_nl <- sf_r5_nl |>
     filter(date %in% vec_sample_days) |>
-    select(date, station_id, pm10, geometry)
+    mutate(
+      x = st_coordinates(geometry)[, "X"],
+      y = st_coordinates(geometry)[, "Y"]
+    ) |> 
+    select(date, station_id, pm10, x, y, geometry)
 
   # germany boundary as multilinestring for overlay
   sf_germany_line <- sf_germany |>
@@ -6552,21 +6694,29 @@ lightbox:
 
   p_krige_pred <- ggplot() +
     stars::geom_stars(
-      data = krige_grid_pred |> st_crop(sf_germany),
+      data = krige_stars_combined,
       aes(x = x,
           y = y,
-          fill = var1.pred)
+          fill = predicted)
     ) +
     geom_sf(
       data = sf_germany_line, 
       color = "grey40", 
       linewidth = 0.3
-    ) +
+    ) +  
     geom_sf(
-      data = sf_obs_sample,
+      data = sf_obs_sample_nl,
       color = "white",
       size = 0.8,
       alpha = 0.7
+    ) +
+    geom_point(
+      data = sf_obs_sample_nl |> st_drop_geometry(),
+      aes(x = x, y = y, fill = pm10),
+      shape = 21,
+      size = 3,
+      color = "white",
+      stroke = 0.1
     ) +
     facet_wrap(~ as.Date(time), nrow = 1) +
     scico::scale_fill_scico(
@@ -6599,6 +6749,14 @@ lightbox:
       size = 0.8,
       alpha = 0.7
     ) +
+    geom_point(
+      data = sf_obs_sample_nl |> st_drop_geometry(),
+      aes(x = x, y = y, fill = pm10),
+      shape = 21,
+      size = 3,
+      color = "white",
+      stroke = 0.1
+    ) +
     facet_wrap(~as.Date(time), nrow = 1) +
     scico::scale_fill_scico(
       palette = "glasgow",
@@ -6611,6 +6769,7 @@ lightbox:
     labs(title = "Catboost") +
     theme_charcoal_map()
 
+
   theme_patch <- theme(
     plot.title = element_text(
       family = "Anybody",
@@ -6618,12 +6777,159 @@ lightbox:
       color = "white",
       face = "bold"
     ),
+    plot.subtitle = element_text(
+      family = "Anybody",
+      size = 16, 
+      color = "white"
+    ),
     plot.background = element_rect(fill = "#191a1a", color = NA)
   )
   p_krige_pred / p_cat_pred + 
     plot_layout(guides = "collect") + 
-    plot_annotation(title = "PM10 Predictions", theme = theme_patch)
+    plot_annotation(
+      title = "PM10 Predictions", 
+      subtitle = "Station location color represents observed PM10 level",
+      theme = theme_patch
+    )
   ```
 
+  </Details>
+
   - Thoughts
+
+  ###### Standardized Prediction Error
+
+  ![](_resources/Geospatial-Spatio-Temporal.resources/krig-interp-ex3-std-err.png){.lightbox group="krig-ex3" width="632"}
+
+  <Details>
+
+  <Summary>Code</Summary>
+
+  ``` r
+  tib_station_sd <- sf_r5_nl |>
+    st_drop_geometry() |>
+    summarize(pm10_sd = sd(pm10, na.rm = TRUE), .by = station_id)
+
+  sf_skill <- cv_combined |>
+    filter(date %in% vec_sample_days) |>
+    left_join(tib_station_sd, by = "station_id") |> 
+    mutate(
+      std_error = abs(residual) / pm10_sd,
+      std_error_cat = ifelse(std_error > 2, "bad", "good")
+    ) |> 
+    left_join(tib_station_coords, by = "station_id") |>
+    sf::st_as_sf(coords = c("x", "y"), crs = 25832)
+
+
+  # compute limits from full cv_combined, not just sampled days
+  legend_limits <- cv_combined |>
+    left_join(tib_station_sd, by = "station_id") |>
+    mutate(std_error = abs(residual) / pm10_sd) |>
+    filter(std_error > 2) |>
+    reframe(range_error = range(std_error, na.rm = TRUE)) |>
+    mutate(
+      range_error = case_when(
+        range_error == min(range_error) ~ floor(range_error),
+        range_error == max(range_error) ~ ceiling(range_error)
+      )
+    )
+
+
+  make_std_error_map <- function(mod_name, sf_skill, sf_germany, germany_line) {
+
+    sf_bad <- sf_skill |>
+      filter(model == mod_name, std_error_cat == "bad")
+    sf_good <- sf_skill |>
+      filter(model == mod_name, std_error_cat == "good")
+
+    ggplot() +
+      geom_sf(
+        data = sf_germany,
+        fill = "#263238",
+        color = "#37474F",
+        linewidth = 0.2
+      ) +
+      geom_sf(
+        data = sf_good,
+        color = "grey70",
+        size = 1.5,
+        shape = 16
+      ) +
+      geom_sf(
+        data = sf_bad,
+        aes(color = std_error, size = std_error),
+        shape = 16
+      ) +
+      geom_sf(
+        data = germany_line,
+        color = "grey40",
+        linewidth = 0.3
+      ) +
+      facet_wrap(~date, nrow = 1) +
+      rcartocolor::scale_color_carto_c(
+        palette = "SunsetDark",
+        name = "Std\nError",
+        limits = c(
+          legend_limits$range_error[1],
+          legend_limits$range_error[2]
+        )
+      ) +
+      scale_size_continuous(
+        name = "Std\nError",
+        range = c(3, 7),
+        limits = c(
+          legend_limits$range_error[1],
+          legend_limits$range_error[2]
+        )
+      ) +
+      coord_sf(lims_method = "geometry_bbox") +
+      guides(size = guide_legend(
+        reverse = TRUE,
+        override.aes = list(color = "#fcde9c"))
+      ) +
+      labs(title = mod_name) +
+      theme_slate_map(legend.position = "right")
+  }
+
+
+  theme_patch <- theme(
+    plot.title = element_text(
+      family = "Anybody",
+      size = 25, 
+      color = "white",
+      face = "bold"
+    ),
+    plot.subtitle = element_text(
+      family = "Anybody",
+      size = 16, 
+      color = "white"
+    ),
+    plot.background = element_rect(fill = "#1a2327", color = NA)
+  )
+
+  purrr::map(
+    c("krigeST", "Catboost"),
+    \(x) {
+      make_std_error_map(
+        x,
+        sf_skill,
+        sf_germany,
+        sf_germany_line
+      )
+    }
+  ) |> 
+    purrr::reduce(
+      `/`
+    ) +
+    plot_layout(guides = "collect") + 
+    plot_annotation(
+      title = "Standardized Prediction Error",
+      subtitle = "Colored locations have a standardized error greater than two standard deviations",
+      theme = theme_patch
+    )
+  ```
+
+  </Details>
+
+  - These are locations that were predicted poorly.
   :::
