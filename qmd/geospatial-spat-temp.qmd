@@ -62,20 +62,6 @@ lightbox:
   - [Introduction to Spatio-Temporal Variography](https://cran.r-project.org/web/packages/gstat/vignettes/st.pdf) ([{gstat}]{style="color: #990000"} vignette)
   - [Spatio-Temporal Kriging in R](https://www.r-bloggers.com/2015/08/spatio-temporal-kriging-in-r/)
     - Also shows how to create a prediction grid of roads
-- Recommended Workflow ([source](https://www.youtube.com/watch?v=P18CZinoKos&list=WL&index=2))
-  - Go from simple analysis to complex (analysis) to get a feel for your data first. A lot of times, you probably will not need to do a spatio-temporal analysis at all.
-  - Steps
-    1.  Run univariate/multivariate analysis while ignoring space and time variables
-    2.  Aggregate over locations (e.g. average across all time points for each location). Then run spatial analysis (e.g. spatial regression, kriging, etc.).
-        - Looking for patterns, hotspots, etc.
-        - `group_by(location) |> summarize(median_val = median(val))`
-        - e.g. min, mean, median, or max depending on the project
-    3.  Aggregate over time (e.g. average across all locations for each time point). Then run time series analysis (e.g. moving average, arima, etc.).
-        - Looking trend, seasonality, shocks, etc.
-        - `group_by(date) |> summarize(max_val = max(val))`
-    4.  Select interesting or important locations (e.g. top sales store, crime hotspot) and run a time series analysis on that location's data
-    5.  Select interesting or important time points (e.g. holiday, noon) and run a spatial analysis on that time point
-    6.  Run a spatio-temporal analysis
 
 ## Terms {#sec-geo-sptemp-terms .unnumbered}
 
@@ -674,6 +660,20 @@ lightbox:
 ### Misc {#sec-geo-sptemp-eda-misc .unnumbered}
 
 - Also see [EDA, Time Series](eda-time-series.qmd#sec-eda-ts){style="color: green"}
+- Recommended workflow prior to starting spatio-temporal analysis ([source](https://www.youtube.com/watch?v=P18CZinoKos&list=WL&index=2))
+  - Go from simple analysis to complex (analysis) to get a feel for your data first. A lot of times, you probably will not need to do a spatio-temporal analysis at all.
+  - Steps
+    1.  Run univariate/multivariate analysis while ignoring space and time variables
+    2.  Aggregate over locations (e.g. average across all time points for each location). Then run spatial analysis (e.g. spatial regression, kriging, etc.).
+        - Looking for patterns, hotspots, etc.
+        - `group_by(location) |> summarize(median_val = median(val))`
+        - e.g. min, mean, median, or max depending on the project
+    3.  Aggregate over time (e.g. average across all locations for each time point). Then run time series analysis (e.g. moving average, arima, etc.).
+        - Looking trend, seasonality, shocks, etc.
+        - `group_by(date) |> summarize(max_val = max(val))`
+    4.  Select interesting or important locations (e.g. top sales store, crime hotspot) and run a time series analysis on that location's data
+    5.  Select interesting or important time points (e.g. holiday, noon) and run a spatial analysis on that time point
+    6.  Run a spatio-temporal analysis
 - Check for duplicate locations:
   - Kriging cannot handle duplicate locations and returns an error, generally in the form of a “singular matrix”.
 
@@ -4362,6 +4362,12 @@ lightbox:
 
     </Details>
 - `stplot(preds)` will plot the results
+- Regarding Discrete Prediction Zones
+  - From the vignette: "An additional consideration is that in space-time, observations may not be regularly spaced. In some cases, the nearest n observations may come from a single measurement location, which may lead to sharp jumps/boundaries in the interpolated values. This might be solved by using larger neighbourhoods, or by setting the omax in krige or gstat calls to the neighbourhood size to select per octant (this should be combined with specifying maxdist)."
+    - These options are not currently available for `krigeST`
+  - From SDS, end of Ch.13: "A larger value for nmax was needed here to decrease the visible disturbance (sharp edges) caused by discrete neighbourhood selections, which are now done in space and time."
+    - This may be the case, but adjusting nmax affects your SSE score. So the choice is often going to be whether you want accurate prediction maps or prettier ones.
+  - The best case would be you have a substantial number of measurement locations and they're sufficiently dispersed in the study area.
 - Vignette raw notes
   - we could have fitted the spatial variogram for each day separately using observations from that day only. However, given the small number of observation stations, this produced unstable variograms for several days and we decided to use the single spatial variogram derived from all spatio-temporal locations treating time slices as uncorrelated copies of the spatial random field.
 
@@ -5169,6 +5175,12 @@ lightbox:
 
   Diagnostics are peformed on the cross-validation results of Catboost and Ordiary Kriging models
 
+  **tl;dr**
+
+  - krigeST and Catboost have a persistent over and under-prediction bias respectively.
+  - The biases show no spatial or temporal patterns
+  - krigeST's residual distribution is symmetric showing that it is "reliably" biased and not being skewed by
+
   This is the PM10 air pollution dataset for Germany that’s from [{spacetime}]{style="color: #990000"} and used in many of my examples.
 
   This example is a continuation from getting starting values for the marginal components (space and time), getting starting values for the joint components, fitting the variogram, and running cross-validation on predictive models. See:
@@ -5335,7 +5347,7 @@ lightbox:
   </Details>
 
   - This code backtransforms the logged observed and predicted variables, calculates the residuals, and creates some coordinate dataframes.
-    - There is a bias when back-transforming logged variables. The prediciton variance computed by the krigeST model function is used to correct this bias.
+    - There is a bias when back-transforming logged variables. The prediction variance computed by the krigeST model function is used to correct this bias.
   - [cv_cat_pm10]{.var-text} and [tib_res_cv_krige]{.var-text} are the cross-validation results from Example 1
 
   ## Residuals
@@ -6395,8 +6407,7 @@ lightbox:
   cv_combined |>
     filter(model == "krigeST") |>
     mutate(pm10_bin = cut(observed, breaks = seq(0, max(observed) + 10, by = 20))) |>
-    count(pm10_bin) |>
-    arrange(pm10_bin)
+    count(pm10_bin, sort = TRUE)
   #> # A tibble: 10 × 2
   #>    pm10_bin      n
   #>    <fct>     <int>
@@ -6418,7 +6429,7 @@ lightbox:
     - Except for krigeST's 0 to 20 bin which shows over-prediction.
   - For krigeST, something interesting happens at the bins spanning 160 to 220.
     - Could indicate sparse observations in that range making the estimates unstable, or a genuine feature of the spatial correlation structure at those concentration levels
-    - Unfortunately, it just indicates sparsity — only 6 total observations in those bins.
+    - Unfortunately, it just indicates sparsity — only 6 total observations in those bins (see code).
   ::::
 
 - [Example 3]{.ribbon-highlight}: Prediction
@@ -6427,6 +6438,8 @@ lightbox:
   ## Data and Set-Up
 
   Predictions using Catboost and Spatio-Temporal Kriging are calculated and visualized
+
+  The over and under-prediction biases are again shown in the predictions for a few sampled days. krigeST's over-prediction bias is preferred given the context of this use case.
 
   This is the PM10 air pollution dataset for Germany that’s from [{spacetime}]{style="color: #990000"} and used in many of my examples.
 
@@ -6580,7 +6593,7 @@ lightbox:
 
   - sf_pm10 and tib_pm10 are from Example 2 \>\> Data and Set-Up
   - I chose the pool of potential sample days based on days with the most stations reporting and had the most PM10 variance at the stations.
-    - Was trying to get some decent predicitons and colorful maps
+    - Was trying to get some decent predictions and colorful maps
   - The grid is 5km cells but the vignette used a 10km x 10km (dx = 10000) grid. I used the 5km x 5km grid because my prediction maps weren't coming out with that smooth interpolated prediction surface that is so nice to look at. I wrongly thought that increasing the resolution would help. It does not. What it does do is increase an already long computation time.
     - tl;dr You can probably use a 10km x 10km grid (dx = 10000) unless your use case requires something finer.
   - Could've used {sp} and created STFDF grid (newdata) objects, but I think stars objects are probably easier to post-process and create maps with ggplot2, etc.
@@ -6729,7 +6742,7 @@ lightbox:
 
   </Details>
 
-  - Thoughts
+  - Predictions are back-transformed and the {stars} object is reconstituted.
 
   ## Visualize
 
@@ -6867,7 +6880,12 @@ lightbox:
 
   </Details>
 
-  - Thoughts
+  - When you examine the maps closely, the spatial prediction surfaces of both models are quite different. The krigeST surface is zonal and Catboost is the kind of a nonlinear, contour-looking surface.
+    - For krigeSt, the zonal pattern is due to the number of stations and their dispersal pattern. See [Interpolate](geospatial-spat-temp.qmd#sec-geo-sptemp-krig-inter){style="color: green"} for more details
+    - For Catboost, the contour pattern is likely due to the thin plate spline I used for the spatial coordinate features. I didn't check performance differences, but I'd wager this transformation results in a better model. Without the transformation, you get a prediction surface that looks like a paint brush has ran across it horizontally and vertically\
+      ![](_resources/Geospatial-Spatio-Temporal.resources/krig-interp-ex3-rf-no-x.png){.lightbox width="232"}
+  - The location coloration (observed PM10 levels) confirm yet again the over and under-prediction biases of these two models.
+  - Along with considering the CV prediction scores, you can't choose a model that under-predicts to the degree that Catboost does in this context. If these are the model choices, krigeST is the obvious winner.
 
   ###### Standardized Prediction Error
 
@@ -6878,25 +6896,30 @@ lightbox:
   <Summary>Code</Summary>
 
   ``` r
-  tib_station_sd <- sf_r5_nl |>
-    st_drop_geometry() |>
-    summarize(pm10_sd = sd(pm10, na.rm = TRUE), .by = station_id)
+  tib_station_residual_sd <- cv_combined |>
+    summarize(
+      residual_sd = sd(residual, na.rm = TRUE),
+      .by = c(station_id, model)
+    )
 
   sf_skill <- cv_combined |>
     filter(date %in% vec_sample_days) |>
-    left_join(tib_station_sd, by = "station_id") |> 
+    left_join(tib_station_residual_sd, by = c("station_id", "model")) |>
     mutate(
-      std_error = abs(residual) / pm10_sd,
+      std_error = abs(residual) / residual_sd,
       std_error_cat = ifelse(std_error > 2, "bad", "good")
-    ) |> 
+    ) |>
     left_join(tib_station_coords, by = "station_id") |>
     sf::st_as_sf(coords = c("x", "y"), crs = 25832)
 
-
   # compute limits from full cv_combined, not just sampled days
   legend_limits <- cv_combined |>
-    left_join(tib_station_sd, by = "station_id") |>
-    mutate(std_error = abs(residual) / pm10_sd) |>
+    left_join(
+      tib_station_residual_sd, 
+      by = "station_id",
+      relationship = "many-to-many"
+    ) |>
+    mutate(std_error = abs(residual) / residual_sd) |>
     filter(std_error > 2) |>
     reframe(range_error = range(std_error, na.rm = TRUE)) |>
     mutate(
@@ -6905,7 +6928,6 @@ lightbox:
         range_error == max(range_error) ~ ceiling(range_error)
       )
     )
-
 
   make_std_error_map <- function(mod_name, sf_skill, sf_germany, germany_line) {
 
@@ -6955,14 +6977,17 @@ lightbox:
         )
       ) +
       coord_sf(lims_method = "geometry_bbox") +
-      guides(size = guide_legend(
-        reverse = TRUE,
-        override.aes = list(color = "#fcde9c"))
+      guides(
+        # fix order (top to bottom) that legends displayed
+        color = guide_colorbar(order = 2),
+        size = guide_legend(
+          order = 1,
+          reverse = TRUE,
+          override.aes = list(color = "#fcde9c"))
       ) +
       labs(title = mod_name) +
       theme_slate_map(legend.position = "right")
   }
-
 
   theme_patch <- theme(
     plot.title = element_text(
@@ -7003,5 +7028,8 @@ lightbox:
 
   </Details>
 
-  - These are locations that were predicted poorly.
+  - These are locations that were predicted poorly relative to each model's overall peformance. Comparing bad station predictions to the prediction map can give insight into how off the predictions around that station are.
+  - Cross-validation errors for each station on the sampled days are standardized by the standard deviation of the residuals of each station across all test folds.
+  - Stations with a standardized residual greater than two are deemed "bad."
+  - krigeST didn't perform well in predicting the PM10 levels at a large proportion of the stations on April 19^th^, 2005
   :::
