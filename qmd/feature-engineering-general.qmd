@@ -468,10 +468,12 @@
 
 - Backtransforming Options
 
+  - There's a backtransformation bias when exponentiating a logged variable which comes from Jenson's inequality because exponentiation is a convex function:\
+    $\mathbb{E}[\exp(X)] \ne \exp(\mathbb{E}[X])$
   - Median $\rightarrow$ Use the exponential function: `exp(prediction`)
     - Use when you want the "typical" value of the outcome variable
       - You don't want extreme values/spike/rare events to influence the prediction
-      - **Aggregation** over an area or time period
+      - *Aggregation* over an area or time period
     - Exposure Mapping: The median is robust to hotspots, so it gives a cleaner representation of “usual exposure.”
     - Smoothing: The median provides a more stable surfaces that reflects underlying gradients rather than spikes
   - Mean $\rightarrow$ Use the Gaussian bias correction or Global or Local (Duan) Smearing provide unbiasted estimates of the mean
@@ -583,7 +585,20 @@
 
       - [Example]{.ribbon-highlight}:
 
+        ::: panel-tabset
+        ## Process CV Results
+
+        <Details>
+
+        <Summary>Code</Summary>
+
         ``` r
+        tib_sf_pm10_ids <- sf_pm10 |>
+          sf::st_drop_geometry() |>
+          mutate(row_id = row_number()) |>
+          select(row_id, station_id, date)
+
+
         # calculate log residuals from test folds
         cv_krige_log <- tib_res_cv_krige_fin |>
           summarize(
@@ -593,18 +608,34 @@
             .by = c(station_id, date) # stratification vars
           ) |>
           mutate(
-            residual_log = observed - predicted
+            residual_log = observed - predicted,
+            model = "krigeST"
           )
 
-        # global smear factor
-        smear_factor_global <- cv_krige_log |>
+        cv_cat_log <- purrr::map(1:15, \(i) {
+          pred <- cv_cat_pm10$resample_result(3)$predictions()[[i]]
+          tibble(
+            fold = i,
+            row_id = pred$row_ids,
+            observed = pred$truth,
+            predicted = pred$response
+          )
+        }) |>
+          purrr::list_rbind() |>
+          left_join(tib_sf_pm10_ids, by = "row_id") |>
+          # averages predictions by location and data across all test folds and repeats
           summarize(
-            smear = mean(exp(residual_log), na.rm = TRUE)
-          ) |>
-          pull(smear)
+            predicted = mean(predicted, na.rm = TRUE),
+            observed = first(observed),
+            .by = c(station_id, date)
+          ) |> 
+          mutate(
+            residual_log = observed - predicted,
+            model = "Catboost"
+          )
 
-        # seasonal smear factor
-        cv_krige_log <- cv_krige_log |>
+        cv_log <- cv_krige_log |>
+          bind_rows(cv_cat_log) |>
           mutate(
             month = lubridate::month(date),
             season = case_when(
@@ -615,15 +646,31 @@
             ) |>
               factor(levels = c("DJF", "MAM", "JJA", "SON"))
           )
-        seasonal_smear <- cv_krige_log |>
+        ```
+
+        </Details>
+
+        ## Calculate Factors and Evaluate
+
+        ``` r
+        # global smear factor
+        smear_factor_global <- cv_log |>
+          summarize(
+            smear_global = mean(exp(residual_log), na.rm = TRUE),
+            .by = model
+          )
+
+        # seasonal smear factor
+        smear_factor_seasonal <- cv_log |>
           summarize(
             smear_season = mean(exp(residual_log), na.rm = TRUE),
-            .by = season
+            .by = c(season, model)
           )
 
         # backtransform
-        cv_krige_bt <- cv_krige_log |>
-          left_join(seasonal_smear, by = "season") |>
+        cv_bt <- cv_log |>
+          left_join(smear_factor_global, by = "model") |>
+          left_join(smear_factor_seasonal, by = c("model", "season")) |> 
           mutate(
             # observed on original scale
             observed_orig = exp(observed),
@@ -632,52 +679,73 @@
             # gaussian lognormal correction
             pred_gaussian = exp(predicted + (pred_var / 2)),
             # global smearing
-            pred_smear_global = exp(predicted) * smear_factor_global,
+            pred_smear_global = exp(predicted) * smear_global,
             # seasonal (local) smearing
             pred_smear_seasonal = exp(predicted) * smear_season
           ) |> 
           select(-pred_var)
 
-        # evaluate
-        cv_eval <- cv_krige_bt |>
+        # residual processing for metrics
+        cv_eval <- cv_bt |>
           select(
+            model,
             station_id,
             date,
             observed_orig,
             starts_with("pred_")
           ) |>
-          pivot_longer(
+          tidyr::pivot_longer(
             cols = starts_with("pred_"),
             names_to = "method",
             values_to = "prediction"
           ) |>
           mutate(
             residual = observed_orig - prediction,
-            residual_abs = abs(residual)
-          ) |> 
+            residual_abs = abs(residual),
+            residual_log = log(observed_orig) - log(prediction)
+          )
+
+        # evaluate
+        metrics_tbl <- cv_eval |>
           summarize(
+            # original scale
             ME = mean(residual, na.rm = TRUE),
             MAE = mean(residual_abs, na.rm = TRUE),
             RMSE = sqrt(mean(residual^2, na.rm = TRUE)),
-            .by = method
+            # log scale (after backtransformation)
+            ME_log = mean(residual_log, na.rm = TRUE),
+            RMSLE = sqrt(mean(residual_log^2, na.rm = TRUE)),
+            .by = c(method, model)
           ) |>
-          arrange(RMSE)  
-
-        cv_eval
-        #> # A tibble: 4 × 4
-        #>   method                  ME   MAE  RMSE
-        #>   <chr>                <dbl> <dbl> <dbl>
-        #> 1 pred_smear_global   -0.449  5.58  8.22
-        #> 2 pred_median          1.14   5.41  8.22
-        #> 3 pred_smear_seasonal -0.459  5.58  8.23
-        #> 4 pred_gaussian       -2.89   6.42  8.92
+          arrange(RMSE) |> 
+          relocate(model, everything())
+        metrics_tbl
+        #> # A tibble: 8 × 7
+        #>   model    method                   ME    MAE   RMSE   ME_log   RMSLE
+        #>   <chr>    <chr>                 <dbl>  <dbl>  <dbl>    <dbl>   <dbl>
+        #> 1 krigeST  pred_smear_global    -0.449   5.58   8.22  -0.113    0.505
+        #> 2 krigeST  pred_median           1.14    5.41   8.22  -0.0125   0.493
+        #> 3 krigeST  pred_smear_seasonal  -0.459   5.58   8.23  -0.112    0.507
+        #> 4 krigeST  pred_gaussian        -2.89    6.42   8.92  -0.249    0.552
+        #> 5 Catboost pred_smear_global    -0.358   6.52   9.40  -0.145    0.570
+        #> 6 Catboost pred_smear_seasonal  -0.365   6.52   9.40  -0.144    0.571
+        #> 7 Catboost pred_median           2.28    6.28   9.63   0.0290   0.552
+        #> 8 Catboost pred_gaussian         NaN     NaN    NaN    NaN      NaN  
         ```
 
         - Based on [Geospatial, Spatio-Temporal \>\> Kriging \>\> Examples](geospatial-spat-temp.qmd#sec-geo-sptemp-krig-ex){style="color: green"} \>\> Example 2
-        - [pred_median]{.var-text} should win on MAE since that is median-based and it does.
-          - Also outperforms [pred_smear_seasonal]{.var-text} and [pred_gaussian]{.var-text} on RMSE even though those are mean-based
-        - [pred_smear_global]{.var-text} outperforms [pred_median]{.var-text} on ME (bias) since it's closer to zero and ties it for RMSE (predictive performance).
-        - [pred_gaussian]{.var-text} really sucks. Normal assumption must not fail hard.
+        - For kriging
+          - [pred_median]{.var-text} should win on MAE since that is median-based and it does.
+            - Also outperforms [pred_smear_seasonal]{.var-text} and [pred_gaussian]{.var-text} on RMSE even though those are mean-based
+          - [pred_smear_global]{.var-text} outperforms [pred_median]{.var-text} on ME (bias) since it's closer to zero and ties it for RMSE (predictive performance).
+          - [pred_gaussian]{.var-text} really sucks. Normal assumption must fail hard.
+        - For Catboost
+          - [pred_smear_global]{.var-text} has the lowest ME and lowest RMSE
+          - No performance (RMSE) benefit for using [pred_smear_seasonal]{.var-text} and it has a worse bias (ME)
+        - [pred_smear_global]{.var-text} is the best choice for both models for this use case (daily pollution interpolation)
+        - The log metrics (ME_log, RMSLE) aren't particularly useful, as they won't change your choice of model during CV, but I think it's interesting to see how the backtransforming methods affect the CV scores.
+          - Note that logging the backtransformed variable doesn't produce a bias since log is a concave function.
+        :::
 
 - Combos
 

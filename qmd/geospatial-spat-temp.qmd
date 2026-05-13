@@ -5262,68 +5262,13 @@ lightbox:
       Y = sf::st_coordinates(sf_pm10)[, 2]
     )
 
-  # ---- Prepare CV Results ----
-
+  # used for joining station_ids
   tib_sf_pm10_ids <- sf_pm10 |>
     sf::st_drop_geometry() |>
     mutate(row_id = row_number()) |>
     select(row_id, station_id, date)
 
-
-  cat_cv_results <- purrr::map(1:15, \(i) {
-    pred <- cv_cat_pm10$resample_result(3)$predictions()[[i]]
-    tibble(
-      fold = i,
-      row_id = pred$row_ids,
-      observed = pred$truth,
-      predicted = pred$response
-    )
-  }) |>
-    purrr::list_rbind() |>
-    left_join(tib_sf_pm10_ids, by = "row_id") |> 
-    # averages predictions by location and data across all test folds and repeats
-    summarize(
-      predicted = mean(predicted, na.rm = TRUE),
-      observed = first(observed),
-      .by = c(station_id, date)
-    ) |>
-    # apply backtransform after combining multiple predictions of the same observation across repeats
-    mutate(
-      predicted = exp(predicted),
-      observed = exp(observed),    
-      residual = observed - predicted,
-      model = "Catboost"
-    )
-
-
-  # each model's results have 36402 out of 74799 observations covered (~49%) after 3 repeats × 5 folds = 15 folds is actually consistent with that coverage rate (15 × ~4% ≈ 60%, minus overlaps between folds reducing it to ~49%).
-  cv_combined <- tib_res_cv_krige_fin |>
-    summarize(
-      predicted = mean(predicted, na.rm = TRUE),
-      pred_var = mean(pred_var, na.rm = TRUE),
-      observed = first(observed),
-      .by = c(station_id, date)
-    ) |>
-    mutate(
-      # apply bias correction and bias correction after combining multiple predictions of the same observation across repeats
-      predicted = exp(predicted + (pred_var / 2)),
-      observed = exp(observed),
-      residual = observed - predicted,
-      model = "krigeST"
-    ) |> 
-    bind_rows(cat_cv_results) |>
-    mutate(
-      model = factor(model, levels = c("krigeST", "Catboost")),
-      month = lubridate::month(date),
-      season = case_when(
-        month %in% c(12, 1, 2) ~ "DJF",
-        month %in% c(3, 4, 5) ~ "MAM",
-        month %in% c(6, 7, 8) ~ "JJA",
-        month %in% c(9, 10, 11) ~ "SON"
-      ) |>
-        factor(levels = c("DJF", "MAM", "JJA", "SON"))
-    )
-
+  # used for joining station coords --- projected and geographic
   tib_station_coords <- sf_pm10 |>
     select(station_id) |>
     mutate(
@@ -5342,6 +5287,73 @@ lightbox:
     ) |>
     sf::st_drop_geometry() |> 
     distinct()
+
+
+  # ---- Prepare CV Results ----
+
+  # calculate log residuals from test folds
+  cv_krige_log <- tib_res_cv_krige_fin |>
+    summarize(
+      predicted = mean(predicted, na.rm = TRUE),
+      pred_var  = mean(pred_var, na.rm = TRUE),
+      observed  = first(observed),
+      .by = c(station_id, date) # stratification vars
+    ) |>
+    mutate(
+      residual_log = observed - predicted,
+      model = "krigeST"
+    )
+
+  cv_cat_log <- purrr::map(1:15, \(i) {
+    pred <- cv_cat_pm10$resample_result(3)$predictions()[[i]]
+    tibble(
+      fold = i,
+      row_id = pred$row_ids,
+      observed = pred$truth,
+      predicted = pred$response
+    )
+  }) |>
+    purrr::list_rbind() |>
+    left_join(tib_sf_pm10_ids, by = "row_id") |>
+    # averages predictions by location and data across all test folds and repeats
+    summarize(
+      predicted = mean(predicted, na.rm = TRUE),
+      observed = first(observed),
+      .by = c(station_id, date)
+    ) |> 
+    mutate(
+      residual_log = observed - predicted,
+      model = "Catboost"
+    )
+
+  cv_log <- cv_krige_log |>
+    bind_rows(cv_cat_log) |>
+    mutate(
+      month = lubridate::month(date),
+      season = case_when(
+        month %in% c(12, 1, 2)  ~ "DJF",
+        month %in% c(3, 4, 5)   ~ "MAM",
+        month %in% c(6, 7, 8)   ~ "JJA",
+        month %in% c(9, 10, 11) ~ "SON"
+      ) |>
+        factor(levels = c("DJF", "MAM", "JJA", "SON"))
+    )
+
+  # global smear factor
+  smear_factor_global <- cv_log |>
+    summarize(
+      smear_global = mean(exp(residual_log), na.rm = TRUE),
+      .by = model
+    )
+
+  cv_combined <- cv_log |>
+    left_join(smear_factor_global, by = "model") |>
+    mutate(
+      predicted = exp(predicted) * smear_global,
+      observed = exp(observed),
+      residual = observed - predicted,
+      model = factor(model, levels = c("krigeST", "Catboost")),
+    )
   ```
 
   </Details>
@@ -5852,8 +5864,8 @@ lightbox:
     ) +
     geom_sf(aes(color = RMSE, size = RMSE)) +
     geom_sf_label(
-      data = tib_rmse_outliers |> 
-        filter(!station_id %in% c("DEBE056", "DESN051")),
+      data = tib_rmse_outliers |>
+        filter(station_id == "DEBB056"),
       aes(label = paste0(station_id, "\n", round(RMSE, 2))),
       nudge_x = -40000,
       nudge_y = 35000,
@@ -5869,7 +5881,7 @@ lightbox:
     ) +
     geom_sf_label(
       data = tib_rmse_outliers |>
-        filter(station_id == "DESN051"),
+        filter(station_id %in% c("DEBB053", "DEBW030")),
       aes(label = paste0(station_id, "\n", round(RMSE, 2))),
       nudge_x = 47000,
       nudge_y = 32000,
@@ -5882,9 +5894,12 @@ lightbox:
         "#dc3977","#b9257a","#7c1d6f"))(100)
     ) +
     facet_wrap(~model) +
-    guides(size = guide_legend(
-      reverse = TRUE,
-      override.aes = list(color = "#fcde9c"))
+    guides(
+      color = guide_colorbar(order = 2),
+      size = guide_legend(
+        order = 1,
+        reverse = TRUE,
+        override.aes = list(color = "#fcde9c"))
     ) +
     labs(
       title = "RMSE by Station",
@@ -5950,19 +5965,10 @@ lightbox:
       )
     ) +
     geom_sf_label(
-      data = tib_me_outliers |> 
-        filter(station_id  != "DEBB075"),
+      data = tib_me_outliers,
       aes(label = paste0(station_id, "\n", round(ME, 2))),
       nudge_x = -40000,
       nudge_y = 35000,
-      size = 3
-    ) +
-    geom_sf_label(
-      data = tib_me_outliers |>
-        filter(station_id  == "DEBB075"),
-      aes(label = paste0(station_id, "\n", round(ME, 2))),
-      nudge_x = -47000,
-      nudge_y = -32000,
       size = 3
     ) +
     facet_wrap(~ model) +
@@ -5982,8 +5988,7 @@ lightbox:
 
   </Details>
 
-  - Top locations: label is top-left
-  - Bottom location: label is bottom-left
+  - All locations: label is top-left
   - The greatest difference in performance is clustered in the northeast.
   - Easy to see the under and over-prediction for each model respectively
 
@@ -6192,7 +6197,8 @@ lightbox:
 
   </Details>
 
-  - Overall average coverage is 98.1% (see code)
+  - Overall average coverage is 98.1% (see code) which is pretty convservative. This is likely caused by the Gaussian assumption of the residuals failing and inflating the prediction variance calculated by `krigeST`.
+    - The interval still could be useful.
   - No apparent pattern to the under-covered locations
 
   ###### Catboost Variable Importance
@@ -6257,6 +6263,7 @@ lightbox:
 
   - The Spatial Splines, Year, and Day of Year are supremely important
   - Might be able to get rid of Quarter, Month, and Day of Week and not lose much.
+  - Feature importance procedure covered in [Ch.3.3.2](https://mlr3book.mlr-org.com/chapters/chapter3/evaluation_and_benchmarking.html#sec-bm-resamp) of the [{mlr3}]{style="color: #990000"} book
 
   ###### Catboost CP Profiles
 
@@ -6417,10 +6424,10 @@ lightbox:
   #>  4 (60,80]     159
   #>  5 (80,100]     39
   #>  6 (100,120]    20
-  #>  7 (120,140]     4
-  #>  8 (140,160]     2
-  #>  9 (160,180]     5
-  #> 10 (200,220]     1
+  #>  7 (160,180]     5
+  #>  8 (120,140]     4
+  #>  9 (140,160]     2
+  #> 10 (200,220]     1 
   ```
 
   </Details>
