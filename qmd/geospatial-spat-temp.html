@@ -2366,28 +2366,6 @@ window.Quarto = {
 <li>Also shows how to create a prediction grid of roads</li>
 </ul></li>
 </ul></li>
-<li>Recommended Workflow (<a href="https://www.youtube.com/watch?v=P18CZinoKos&amp;list=WL&amp;index=2">source</a>)
-<ul>
-<li>Go from simple analysis to complex (analysis) to get a feel for your data first. A lot of times, you probably will not need to do a spatio-temporal analysis at all.</li>
-<li>Steps
-<ol type="1">
-<li>Run univariate/multivariate analysis while ignoring space and time variables</li>
-<li>Aggregate over locations (e.g.&nbsp;average across all time points for each location). Then run spatial analysis (e.g.&nbsp;spatial regression, kriging, etc.).
-<ul>
-<li>Looking for patterns, hotspots, etc.</li>
-<li><code>group_by(location) |&gt; summarize(median_val = median(val))</code></li>
-<li>e.g.&nbsp;min, mean, median, or max depending on the project</li>
-</ul></li>
-<li>Aggregate over time (e.g.&nbsp;average across all locations for each time point). Then run time series analysis (e.g.&nbsp;moving average, arima, etc.).
-<ul>
-<li>Looking trend, seasonality, shocks, etc.</li>
-<li><code>group_by(date) |&gt; summarize(max_val = max(val))</code></li>
-</ul></li>
-<li>Select interesting or important locations (e.g.&nbsp;top sales store, crime hotspot) and run a time series analysis on that location’s data</li>
-<li>Select interesting or important time points (e.g.&nbsp;holiday, noon) and run a spatial analysis on that time point</li>
-<li>Run a spatio-temporal analysis</li>
-</ol></li>
-</ul></li>
 </ul>
 </section>
 <section id="sec-geo-sptemp-terms" class="level2 unnumbered">
@@ -3034,6 +3012,28 @@ window.Quarto = {
 <h3 class="unnumbered anchored" data-anchor-id="sec-geo-sptemp-eda-misc">Misc</h3>
 <ul>
 <li>Also see <a href="../qmd/eda-time-series.html#sec-eda-ts" style="color: green">EDA, Time Series</a></li>
+<li>Recommended workflow prior to starting spatio-temporal analysis (<a href="https://www.youtube.com/watch?v=P18CZinoKos&amp;list=WL&amp;index=2">source</a>)
+<ul>
+<li>Go from simple analysis to complex (analysis) to get a feel for your data first. A lot of times, you probably will not need to do a spatio-temporal analysis at all.</li>
+<li>Steps
+<ol type="1">
+<li>Run univariate/multivariate analysis while ignoring space and time variables</li>
+<li>Aggregate over locations (e.g.&nbsp;average across all time points for each location). Then run spatial analysis (e.g.&nbsp;spatial regression, kriging, etc.).
+<ul>
+<li>Looking for patterns, hotspots, etc.</li>
+<li><code>group_by(location) |&gt; summarize(median_val = median(val))</code></li>
+<li>e.g.&nbsp;min, mean, median, or max depending on the project</li>
+</ul></li>
+<li>Aggregate over time (e.g.&nbsp;average across all locations for each time point). Then run time series analysis (e.g.&nbsp;moving average, arima, etc.).
+<ul>
+<li>Looking trend, seasonality, shocks, etc.</li>
+<li><code>group_by(date) |&gt; summarize(max_val = max(val))</code></li>
+</ul></li>
+<li>Select interesting or important locations (e.g.&nbsp;top sales store, crime hotspot) and run a time series analysis on that location’s data</li>
+<li>Select interesting or important time points (e.g.&nbsp;holiday, noon) and run a spatial analysis on that time point</li>
+<li>Run a spatio-temporal analysis</li>
+</ol></li>
+</ul></li>
 <li>Check for duplicate locations:
 <ul>
 <li><p>Kriging cannot handle duplicate locations and returns an error, generally in the form of a “singular matrix”.</p></li>
@@ -6855,6 +6855,18 @@ Code
 </details></li>
 </ul></li>
 <li><code>stplot(preds)</code> will plot the results</li>
+<li>Regarding Discrete Prediction Zones
+<ul>
+<li>From the vignette: “An additional consideration is that in space-time, observations may not be regularly spaced. In some cases, the nearest n observations may come from a single measurement location, which may lead to sharp jumps/boundaries in the interpolated values. This might be solved by using larger neighbourhoods, or by setting the omax in krige or gstat calls to the neighbourhood size to select per octant (this should be combined with specifying maxdist).”
+<ul>
+<li>These options are not currently available for <code>krigeST</code></li>
+</ul></li>
+<li>From SDS, end of Ch.13: “A larger value for nmax was needed here to decrease the visible disturbance (sharp edges) caused by discrete neighbourhood selections, which are now done in space and time.”
+<ul>
+<li>This may be the case, but adjusting nmax affects your SSE score. So the choice is often going to be whether you want accurate prediction maps or prettier ones.</li>
+</ul></li>
+<li>The best case would be you have a substantial number of measurement locations and they’re sufficiently dispersed in the study area.</li>
+</ul></li>
 <li>Vignette raw notes
 <ul>
 <li><p>we could have fitted the spatial variogram for each day separately using observations from that day only. However, given the small number of observation stations, this produced unstable variograms for several days and we decided to use the single spatial variogram derived from all spatio-temporal locations treating time slices as uncorrelated copies of the spatial random field.</p>
@@ -7663,6 +7675,12 @@ Code
 <div class="tab-content">
 <div id="tabset-9-1" class="tab-pane active" role="tabpanel" aria-labelledby="tabset-9-1-tab">
 <p>Diagnostics are peformed on the cross-validation results of Catboost and Ordiary Kriging models</p>
+<p><strong>tl;dr</strong></p>
+<ul>
+<li>krigeST and Catboost have a persistent over and under-prediction bias respectively.</li>
+<li>The biases show no spatial or temporal patterns</li>
+<li>krigeST’s residual distribution is symmetric showing that it is “reliably” biased and not being skewed by</li>
+</ul>
 <p>This is the PM10 air pollution dataset for Germany that’s from <span style="color: #990000">{spacetime}</span> and used in many of my examples.</p>
 <p>This example is a continuation from getting starting values for the marginal components (space and time), getting starting values for the joint components, fitting the variogram, and running cross-validation on predictive models. See:</p>
 <ul>
@@ -7826,7 +7844,7 @@ Code
 <ul>
 <li>This code backtransforms the logged observed and predicted variables, calculates the residuals, and creates some coordinate dataframes.
 <ul>
-<li>There is a bias when back-transforming logged variables. The prediciton variance computed by the krigeST model function is used to correct this bias.</li>
+<li>There is a bias when back-transforming logged variables. The prediction variance computed by the krigeST model function is used to correct this bias.</li>
 </ul></li>
 <li><span class="var-text">cv_cat_pm10</span> and <span class="var-text">tib_res_cv_krige</span> are the cross-validation results from Example 1</li>
 </ul>
@@ -8849,21 +8867,20 @@ Code
 <span id="cb102-33"><a href="#cb102-33" aria-hidden="true" tabindex="-1"></a>cv_combined <span class="sc">|&gt;</span></span>
 <span id="cb102-34"><a href="#cb102-34" aria-hidden="true" tabindex="-1"></a>  <span class="fu">filter</span>(model <span class="sc">==</span> <span class="st">"krigeST"</span>) <span class="sc">|&gt;</span></span>
 <span id="cb102-35"><a href="#cb102-35" aria-hidden="true" tabindex="-1"></a>  <span class="fu">mutate</span>(<span class="at">pm10_bin =</span> <span class="fu">cut</span>(observed, <span class="at">breaks =</span> <span class="fu">seq</span>(<span class="dv">0</span>, <span class="fu">max</span>(observed) <span class="sc">+</span> <span class="dv">10</span>, <span class="at">by =</span> <span class="dv">20</span>))) <span class="sc">|&gt;</span></span>
-<span id="cb102-36"><a href="#cb102-36" aria-hidden="true" tabindex="-1"></a>  <span class="fu">count</span>(pm10_bin) <span class="sc">|&gt;</span></span>
-<span id="cb102-37"><a href="#cb102-37" aria-hidden="true" tabindex="-1"></a>  <span class="fu">arrange</span>(pm10_bin)</span>
-<span id="cb102-38"><a href="#cb102-38" aria-hidden="true" tabindex="-1"></a><span class="co">#&gt; # A tibble: 10 × 2</span></span>
-<span id="cb102-39"><a href="#cb102-39" aria-hidden="true" tabindex="-1"></a><span class="co">#&gt;    pm10_bin      n</span></span>
-<span id="cb102-40"><a href="#cb102-40" aria-hidden="true" tabindex="-1"></a><span class="co">#&gt;    &lt;fct&gt;     &lt;int&gt;</span></span>
-<span id="cb102-41"><a href="#cb102-41" aria-hidden="true" tabindex="-1"></a><span class="co">#&gt;  1 (0,20]    27100</span></span>
-<span id="cb102-42"><a href="#cb102-42" aria-hidden="true" tabindex="-1"></a><span class="co">#&gt;  2 (20,40]    8138</span></span>
-<span id="cb102-43"><a href="#cb102-43" aria-hidden="true" tabindex="-1"></a><span class="co">#&gt;  3 (40,60]     934</span></span>
-<span id="cb102-44"><a href="#cb102-44" aria-hidden="true" tabindex="-1"></a><span class="co">#&gt;  4 (60,80]     159</span></span>
-<span id="cb102-45"><a href="#cb102-45" aria-hidden="true" tabindex="-1"></a><span class="co">#&gt;  5 (80,100]     39</span></span>
-<span id="cb102-46"><a href="#cb102-46" aria-hidden="true" tabindex="-1"></a><span class="co">#&gt;  6 (100,120]    20</span></span>
-<span id="cb102-47"><a href="#cb102-47" aria-hidden="true" tabindex="-1"></a><span class="co">#&gt;  7 (120,140]     4</span></span>
-<span id="cb102-48"><a href="#cb102-48" aria-hidden="true" tabindex="-1"></a><span class="co">#&gt;  8 (140,160]     2</span></span>
-<span id="cb102-49"><a href="#cb102-49" aria-hidden="true" tabindex="-1"></a><span class="co">#&gt;  9 (160,180]     5</span></span>
-<span id="cb102-50"><a href="#cb102-50" aria-hidden="true" tabindex="-1"></a><span class="co">#&gt; 10 (200,220]     1</span></span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
+<span id="cb102-36"><a href="#cb102-36" aria-hidden="true" tabindex="-1"></a>  <span class="fu">count</span>(pm10_bin, <span class="at">sort =</span> <span class="cn">TRUE</span>)</span>
+<span id="cb102-37"><a href="#cb102-37" aria-hidden="true" tabindex="-1"></a><span class="co">#&gt; # A tibble: 10 × 2</span></span>
+<span id="cb102-38"><a href="#cb102-38" aria-hidden="true" tabindex="-1"></a><span class="co">#&gt;    pm10_bin      n</span></span>
+<span id="cb102-39"><a href="#cb102-39" aria-hidden="true" tabindex="-1"></a><span class="co">#&gt;    &lt;fct&gt;     &lt;int&gt;</span></span>
+<span id="cb102-40"><a href="#cb102-40" aria-hidden="true" tabindex="-1"></a><span class="co">#&gt;  1 (0,20]    27100</span></span>
+<span id="cb102-41"><a href="#cb102-41" aria-hidden="true" tabindex="-1"></a><span class="co">#&gt;  2 (20,40]    8138</span></span>
+<span id="cb102-42"><a href="#cb102-42" aria-hidden="true" tabindex="-1"></a><span class="co">#&gt;  3 (40,60]     934</span></span>
+<span id="cb102-43"><a href="#cb102-43" aria-hidden="true" tabindex="-1"></a><span class="co">#&gt;  4 (60,80]     159</span></span>
+<span id="cb102-44"><a href="#cb102-44" aria-hidden="true" tabindex="-1"></a><span class="co">#&gt;  5 (80,100]     39</span></span>
+<span id="cb102-45"><a href="#cb102-45" aria-hidden="true" tabindex="-1"></a><span class="co">#&gt;  6 (100,120]    20</span></span>
+<span id="cb102-46"><a href="#cb102-46" aria-hidden="true" tabindex="-1"></a><span class="co">#&gt;  7 (120,140]     4</span></span>
+<span id="cb102-47"><a href="#cb102-47" aria-hidden="true" tabindex="-1"></a><span class="co">#&gt;  8 (140,160]     2</span></span>
+<span id="cb102-48"><a href="#cb102-48" aria-hidden="true" tabindex="-1"></a><span class="co">#&gt;  9 (160,180]     5</span></span>
+<span id="cb102-49"><a href="#cb102-49" aria-hidden="true" tabindex="-1"></a><span class="co">#&gt; 10 (200,220]     1</span></span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
 </details>
 <ul>
 <li>Systematic under-prediction for observed PM10 ranges for both models
@@ -8873,7 +8890,7 @@ Code
 <li>For krigeST, something interesting happens at the bins spanning 160 to 220.
 <ul>
 <li>Could indicate sparse observations in that range making the estimates unstable, or a genuine feature of the spatial correlation structure at those concentration levels</li>
-<li>Unfortunately, it just indicates sparsity — only 6 total observations in those bins.</li>
+<li>Unfortunately, it just indicates sparsity — only 6 total observations in those bins (see code).</li>
 </ul></li>
 </ul>
 </div>
@@ -8885,6 +8902,7 @@ Code
 <div class="tab-content">
 <div id="tabset-10-1" class="tab-pane active" role="tabpanel" aria-labelledby="tabset-10-1-tab">
 <p>Predictions using Catboost and Spatio-Temporal Kriging are calculated and visualized</p>
+<p>The over and under-prediction biases are again shown in the predictions for a few sampled days. krigeST’s over-prediction bias is preferred given the context of this use case.</p>
 <p>This is the PM10 air pollution dataset for Germany that’s from <span style="color: #990000">{spacetime}</span> and used in many of my examples.</p>
 <p>This example is a continuation from getting starting values for the marginal components (space and time) and getting starting values for the joint components. See:</p>
 <ul>
@@ -9029,7 +9047,7 @@ Code
 <li>sf_pm10 and tib_pm10 are from Example 2 &gt;&gt; Data and Set-Up</li>
 <li>I chose the pool of potential sample days based on days with the most stations reporting and had the most PM10 variance at the stations.
 <ul>
-<li>Was trying to get some decent predicitons and colorful maps</li>
+<li>Was trying to get some decent predictions and colorful maps</li>
 </ul></li>
 <li>The grid is 5km cells but the vignette used a 10km x 10km (dx = 10000) grid. I used the 5km x 5km grid because my prediction maps weren’t coming out with that smooth interpolated prediction surface that is so nice to look at. I wrongly thought that increasing the resolution would help. It does not. What it does do is increase an already long computation time.
 <ul>
@@ -9169,7 +9187,7 @@ Code
 <span id="cb108-21"><a href="#cb108-21" aria-hidden="true" tabindex="-1"></a>)</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
 </details>
 <ul>
-<li>Thoughts</li>
+<li>Predictions are back-transformed and the {stars} object is reconstituted.</li>
 </ul>
 </div>
 <div id="tabset-10-4" class="tab-pane" role="tabpanel" aria-labelledby="tabset-10-4-tab">
@@ -9302,7 +9320,14 @@ Code
 <span id="cb109-121"><a href="#cb109-121" aria-hidden="true" tabindex="-1"></a>  )</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
 </details>
 <ul>
-<li>Thoughts</li>
+<li>When you examine the maps closely, the spatial prediction surfaces of both models are quite different. The krigeST surface is zonal and Catboost is the kind of a nonlinear, contour-looking surface.
+<ul>
+<li>For krigeSt, the zonal pattern is due to the number of stations and their dispersal pattern. See <a href="../qmd/geospatial-spat-temp.html#sec-geo-sptemp-krig-inter" style="color: green">Interpolate</a> for more details</li>
+<li>For Catboost, the contour pattern is likely due to the thin plate spline I used for the spatial coordinate features. I didn’t check performance differences, but I’d wager this transformation results in a better model. Without the transformation, you get a prediction surface that looks like a paint brush has ran across it horizontally and vertically<br>
+<a href="_resources/Geospatial-Spatio-Temporal.resources/krig-interp-ex3-rf-no-x.png" class="lightbox" data-gallery="quarto-lightbox-gallery-58"><img src="_resources/Geospatial-Spatio-Temporal.resources/krig-interp-ex3-rf-no-x.png" class="img-fluid" width="232"></a></li>
+</ul></li>
+<li>The location coloration (observed PM10 levels) confirm yet again the over and under-prediction biases of these two models.</li>
+<li>Along with considering the CV prediction scores, you can’t choose a model that under-predicts to the degree that Catboost does in this context. If these are the model choices, krigeST is the obvious winner.</li>
 </ul>
 <h6 id="standardized-prediction-error" class="anchored">Standardized Prediction Error</h6>
 <p><a href="_resources/Geospatial-Spatio-Temporal.resources/krig-interp-ex3-std-err.png" class="lightbox" data-gallery="krig-ex3"><img src="_resources/Geospatial-Spatio-Temporal.resources/krig-interp-ex3-std-err.png" class="img-fluid" width="632"></a></p>
@@ -9310,130 +9335,140 @@ Code
 <summary>
 Code
 </summary>
-<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb110"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb110-1"><a href="#cb110-1" aria-hidden="true" tabindex="-1"></a>tib_station_sd <span class="ot">&lt;-</span> sf_r5_nl <span class="sc">|&gt;</span></span>
-<span id="cb110-2"><a href="#cb110-2" aria-hidden="true" tabindex="-1"></a>  <span class="fu">st_drop_geometry</span>() <span class="sc">|&gt;</span></span>
-<span id="cb110-3"><a href="#cb110-3" aria-hidden="true" tabindex="-1"></a>  <span class="fu">summarize</span>(<span class="at">pm10_sd =</span> <span class="fu">sd</span>(pm10, <span class="at">na.rm =</span> <span class="cn">TRUE</span>), <span class="at">.by =</span> station_id)</span>
-<span id="cb110-4"><a href="#cb110-4" aria-hidden="true" tabindex="-1"></a></span>
-<span id="cb110-5"><a href="#cb110-5" aria-hidden="true" tabindex="-1"></a>sf_skill <span class="ot">&lt;-</span> cv_combined <span class="sc">|&gt;</span></span>
-<span id="cb110-6"><a href="#cb110-6" aria-hidden="true" tabindex="-1"></a>  <span class="fu">filter</span>(date <span class="sc">%in%</span> vec_sample_days) <span class="sc">|&gt;</span></span>
-<span id="cb110-7"><a href="#cb110-7" aria-hidden="true" tabindex="-1"></a>  <span class="fu">left_join</span>(tib_station_sd, <span class="at">by =</span> <span class="st">"station_id"</span>) <span class="sc">|&gt;</span> </span>
-<span id="cb110-8"><a href="#cb110-8" aria-hidden="true" tabindex="-1"></a>  <span class="fu">mutate</span>(</span>
-<span id="cb110-9"><a href="#cb110-9" aria-hidden="true" tabindex="-1"></a>    <span class="at">std_error =</span> <span class="fu">abs</span>(residual) <span class="sc">/</span> pm10_sd,</span>
-<span id="cb110-10"><a href="#cb110-10" aria-hidden="true" tabindex="-1"></a>    <span class="at">std_error_cat =</span> <span class="fu">ifelse</span>(std_error <span class="sc">&gt;</span> <span class="dv">2</span>, <span class="st">"bad"</span>, <span class="st">"good"</span>)</span>
-<span id="cb110-11"><a href="#cb110-11" aria-hidden="true" tabindex="-1"></a>  ) <span class="sc">|&gt;</span> </span>
-<span id="cb110-12"><a href="#cb110-12" aria-hidden="true" tabindex="-1"></a>  <span class="fu">left_join</span>(tib_station_coords, <span class="at">by =</span> <span class="st">"station_id"</span>) <span class="sc">|&gt;</span></span>
-<span id="cb110-13"><a href="#cb110-13" aria-hidden="true" tabindex="-1"></a>  sf<span class="sc">::</span><span class="fu">st_as_sf</span>(<span class="at">coords =</span> <span class="fu">c</span>(<span class="st">"x"</span>, <span class="st">"y"</span>), <span class="at">crs =</span> <span class="dv">25832</span>)</span>
-<span id="cb110-14"><a href="#cb110-14" aria-hidden="true" tabindex="-1"></a></span>
-<span id="cb110-15"><a href="#cb110-15" aria-hidden="true" tabindex="-1"></a></span>
-<span id="cb110-16"><a href="#cb110-16" aria-hidden="true" tabindex="-1"></a><span class="co"># compute limits from full cv_combined, not just sampled days</span></span>
-<span id="cb110-17"><a href="#cb110-17" aria-hidden="true" tabindex="-1"></a>legend_limits <span class="ot">&lt;-</span> cv_combined <span class="sc">|&gt;</span></span>
-<span id="cb110-18"><a href="#cb110-18" aria-hidden="true" tabindex="-1"></a>  <span class="fu">left_join</span>(tib_station_sd, <span class="at">by =</span> <span class="st">"station_id"</span>) <span class="sc">|&gt;</span></span>
-<span id="cb110-19"><a href="#cb110-19" aria-hidden="true" tabindex="-1"></a>  <span class="fu">mutate</span>(<span class="at">std_error =</span> <span class="fu">abs</span>(residual) <span class="sc">/</span> pm10_sd) <span class="sc">|&gt;</span></span>
-<span id="cb110-20"><a href="#cb110-20" aria-hidden="true" tabindex="-1"></a>  <span class="fu">filter</span>(std_error <span class="sc">&gt;</span> <span class="dv">2</span>) <span class="sc">|&gt;</span></span>
-<span id="cb110-21"><a href="#cb110-21" aria-hidden="true" tabindex="-1"></a>  <span class="fu">reframe</span>(<span class="at">range_error =</span> <span class="fu">range</span>(std_error, <span class="at">na.rm =</span> <span class="cn">TRUE</span>)) <span class="sc">|&gt;</span></span>
-<span id="cb110-22"><a href="#cb110-22" aria-hidden="true" tabindex="-1"></a>  <span class="fu">mutate</span>(</span>
-<span id="cb110-23"><a href="#cb110-23" aria-hidden="true" tabindex="-1"></a>    <span class="at">range_error =</span> <span class="fu">case_when</span>(</span>
-<span id="cb110-24"><a href="#cb110-24" aria-hidden="true" tabindex="-1"></a>      range_error <span class="sc">==</span> <span class="fu">min</span>(range_error) <span class="sc">~</span> <span class="fu">floor</span>(range_error),</span>
-<span id="cb110-25"><a href="#cb110-25" aria-hidden="true" tabindex="-1"></a>      range_error <span class="sc">==</span> <span class="fu">max</span>(range_error) <span class="sc">~</span> <span class="fu">ceiling</span>(range_error)</span>
-<span id="cb110-26"><a href="#cb110-26" aria-hidden="true" tabindex="-1"></a>    )</span>
-<span id="cb110-27"><a href="#cb110-27" aria-hidden="true" tabindex="-1"></a>  )</span>
-<span id="cb110-28"><a href="#cb110-28" aria-hidden="true" tabindex="-1"></a></span>
-<span id="cb110-29"><a href="#cb110-29" aria-hidden="true" tabindex="-1"></a></span>
-<span id="cb110-30"><a href="#cb110-30" aria-hidden="true" tabindex="-1"></a>make_std_error_map <span class="ot">&lt;-</span> <span class="cf">function</span>(mod_name, sf_skill, sf_germany, germany_line) {</span>
-<span id="cb110-31"><a href="#cb110-31" aria-hidden="true" tabindex="-1"></a></span>
-<span id="cb110-32"><a href="#cb110-32" aria-hidden="true" tabindex="-1"></a>  sf_bad <span class="ot">&lt;-</span> sf_skill <span class="sc">|&gt;</span></span>
-<span id="cb110-33"><a href="#cb110-33" aria-hidden="true" tabindex="-1"></a>    <span class="fu">filter</span>(model <span class="sc">==</span> mod_name, std_error_cat <span class="sc">==</span> <span class="st">"bad"</span>)</span>
-<span id="cb110-34"><a href="#cb110-34" aria-hidden="true" tabindex="-1"></a>  sf_good <span class="ot">&lt;-</span> sf_skill <span class="sc">|&gt;</span></span>
-<span id="cb110-35"><a href="#cb110-35" aria-hidden="true" tabindex="-1"></a>    <span class="fu">filter</span>(model <span class="sc">==</span> mod_name, std_error_cat <span class="sc">==</span> <span class="st">"good"</span>)</span>
-<span id="cb110-36"><a href="#cb110-36" aria-hidden="true" tabindex="-1"></a></span>
-<span id="cb110-37"><a href="#cb110-37" aria-hidden="true" tabindex="-1"></a>  <span class="fu">ggplot</span>() <span class="sc">+</span></span>
-<span id="cb110-38"><a href="#cb110-38" aria-hidden="true" tabindex="-1"></a>    <span class="fu">geom_sf</span>(</span>
-<span id="cb110-39"><a href="#cb110-39" aria-hidden="true" tabindex="-1"></a>      <span class="at">data =</span> sf_germany,</span>
-<span id="cb110-40"><a href="#cb110-40" aria-hidden="true" tabindex="-1"></a>      <span class="at">fill =</span> <span class="st">"#263238"</span>,</span>
-<span id="cb110-41"><a href="#cb110-41" aria-hidden="true" tabindex="-1"></a>      <span class="at">color =</span> <span class="st">"#37474F"</span>,</span>
-<span id="cb110-42"><a href="#cb110-42" aria-hidden="true" tabindex="-1"></a>      <span class="at">linewidth =</span> <span class="fl">0.2</span></span>
-<span id="cb110-43"><a href="#cb110-43" aria-hidden="true" tabindex="-1"></a>    ) <span class="sc">+</span></span>
-<span id="cb110-44"><a href="#cb110-44" aria-hidden="true" tabindex="-1"></a>    <span class="fu">geom_sf</span>(</span>
-<span id="cb110-45"><a href="#cb110-45" aria-hidden="true" tabindex="-1"></a>      <span class="at">data =</span> sf_good,</span>
-<span id="cb110-46"><a href="#cb110-46" aria-hidden="true" tabindex="-1"></a>      <span class="at">color =</span> <span class="st">"grey70"</span>,</span>
-<span id="cb110-47"><a href="#cb110-47" aria-hidden="true" tabindex="-1"></a>      <span class="at">size =</span> <span class="fl">1.5</span>,</span>
-<span id="cb110-48"><a href="#cb110-48" aria-hidden="true" tabindex="-1"></a>      <span class="at">shape =</span> <span class="dv">16</span></span>
-<span id="cb110-49"><a href="#cb110-49" aria-hidden="true" tabindex="-1"></a>    ) <span class="sc">+</span></span>
-<span id="cb110-50"><a href="#cb110-50" aria-hidden="true" tabindex="-1"></a>    <span class="fu">geom_sf</span>(</span>
-<span id="cb110-51"><a href="#cb110-51" aria-hidden="true" tabindex="-1"></a>      <span class="at">data =</span> sf_bad,</span>
-<span id="cb110-52"><a href="#cb110-52" aria-hidden="true" tabindex="-1"></a>      <span class="fu">aes</span>(<span class="at">color =</span> std_error, <span class="at">size =</span> std_error),</span>
-<span id="cb110-53"><a href="#cb110-53" aria-hidden="true" tabindex="-1"></a>      <span class="at">shape =</span> <span class="dv">16</span></span>
-<span id="cb110-54"><a href="#cb110-54" aria-hidden="true" tabindex="-1"></a>    ) <span class="sc">+</span></span>
-<span id="cb110-55"><a href="#cb110-55" aria-hidden="true" tabindex="-1"></a>    <span class="fu">geom_sf</span>(</span>
-<span id="cb110-56"><a href="#cb110-56" aria-hidden="true" tabindex="-1"></a>      <span class="at">data =</span> germany_line,</span>
-<span id="cb110-57"><a href="#cb110-57" aria-hidden="true" tabindex="-1"></a>      <span class="at">color =</span> <span class="st">"grey40"</span>,</span>
-<span id="cb110-58"><a href="#cb110-58" aria-hidden="true" tabindex="-1"></a>      <span class="at">linewidth =</span> <span class="fl">0.3</span></span>
-<span id="cb110-59"><a href="#cb110-59" aria-hidden="true" tabindex="-1"></a>    ) <span class="sc">+</span></span>
-<span id="cb110-60"><a href="#cb110-60" aria-hidden="true" tabindex="-1"></a>    <span class="fu">facet_wrap</span>(<span class="sc">~</span>date, <span class="at">nrow =</span> <span class="dv">1</span>) <span class="sc">+</span></span>
-<span id="cb110-61"><a href="#cb110-61" aria-hidden="true" tabindex="-1"></a>    rcartocolor<span class="sc">::</span><span class="fu">scale_color_carto_c</span>(</span>
-<span id="cb110-62"><a href="#cb110-62" aria-hidden="true" tabindex="-1"></a>      <span class="at">palette =</span> <span class="st">"SunsetDark"</span>,</span>
-<span id="cb110-63"><a href="#cb110-63" aria-hidden="true" tabindex="-1"></a>      <span class="at">name =</span> <span class="st">"Std</span><span class="sc">\n</span><span class="st">Error"</span>,</span>
-<span id="cb110-64"><a href="#cb110-64" aria-hidden="true" tabindex="-1"></a>      <span class="at">limits =</span> <span class="fu">c</span>(</span>
-<span id="cb110-65"><a href="#cb110-65" aria-hidden="true" tabindex="-1"></a>        legend_limits<span class="sc">$</span>range_error[<span class="dv">1</span>],</span>
-<span id="cb110-66"><a href="#cb110-66" aria-hidden="true" tabindex="-1"></a>        legend_limits<span class="sc">$</span>range_error[<span class="dv">2</span>]</span>
-<span id="cb110-67"><a href="#cb110-67" aria-hidden="true" tabindex="-1"></a>      )</span>
-<span id="cb110-68"><a href="#cb110-68" aria-hidden="true" tabindex="-1"></a>    ) <span class="sc">+</span></span>
-<span id="cb110-69"><a href="#cb110-69" aria-hidden="true" tabindex="-1"></a>    <span class="fu">scale_size_continuous</span>(</span>
-<span id="cb110-70"><a href="#cb110-70" aria-hidden="true" tabindex="-1"></a>      <span class="at">name =</span> <span class="st">"Std</span><span class="sc">\n</span><span class="st">Error"</span>,</span>
-<span id="cb110-71"><a href="#cb110-71" aria-hidden="true" tabindex="-1"></a>      <span class="at">range =</span> <span class="fu">c</span>(<span class="dv">3</span>, <span class="dv">7</span>),</span>
-<span id="cb110-72"><a href="#cb110-72" aria-hidden="true" tabindex="-1"></a>      <span class="at">limits =</span> <span class="fu">c</span>(</span>
-<span id="cb110-73"><a href="#cb110-73" aria-hidden="true" tabindex="-1"></a>        legend_limits<span class="sc">$</span>range_error[<span class="dv">1</span>],</span>
-<span id="cb110-74"><a href="#cb110-74" aria-hidden="true" tabindex="-1"></a>        legend_limits<span class="sc">$</span>range_error[<span class="dv">2</span>]</span>
-<span id="cb110-75"><a href="#cb110-75" aria-hidden="true" tabindex="-1"></a>      )</span>
-<span id="cb110-76"><a href="#cb110-76" aria-hidden="true" tabindex="-1"></a>    ) <span class="sc">+</span></span>
-<span id="cb110-77"><a href="#cb110-77" aria-hidden="true" tabindex="-1"></a>    <span class="fu">coord_sf</span>(<span class="at">lims_method =</span> <span class="st">"geometry_bbox"</span>) <span class="sc">+</span></span>
-<span id="cb110-78"><a href="#cb110-78" aria-hidden="true" tabindex="-1"></a>    <span class="fu">guides</span>(<span class="at">size =</span> <span class="fu">guide_legend</span>(</span>
-<span id="cb110-79"><a href="#cb110-79" aria-hidden="true" tabindex="-1"></a>      <span class="at">reverse =</span> <span class="cn">TRUE</span>,</span>
-<span id="cb110-80"><a href="#cb110-80" aria-hidden="true" tabindex="-1"></a>      <span class="at">override.aes =</span> <span class="fu">list</span>(<span class="at">color =</span> <span class="st">"#fcde9c"</span>))</span>
-<span id="cb110-81"><a href="#cb110-81" aria-hidden="true" tabindex="-1"></a>    ) <span class="sc">+</span></span>
-<span id="cb110-82"><a href="#cb110-82" aria-hidden="true" tabindex="-1"></a>    <span class="fu">labs</span>(<span class="at">title =</span> mod_name) <span class="sc">+</span></span>
-<span id="cb110-83"><a href="#cb110-83" aria-hidden="true" tabindex="-1"></a>    <span class="fu">theme_slate_map</span>(<span class="at">legend.position =</span> <span class="st">"right"</span>)</span>
-<span id="cb110-84"><a href="#cb110-84" aria-hidden="true" tabindex="-1"></a>}</span>
-<span id="cb110-85"><a href="#cb110-85" aria-hidden="true" tabindex="-1"></a></span>
-<span id="cb110-86"><a href="#cb110-86" aria-hidden="true" tabindex="-1"></a></span>
-<span id="cb110-87"><a href="#cb110-87" aria-hidden="true" tabindex="-1"></a>theme_patch <span class="ot">&lt;-</span> <span class="fu">theme</span>(</span>
-<span id="cb110-88"><a href="#cb110-88" aria-hidden="true" tabindex="-1"></a>  <span class="at">plot.title =</span> <span class="fu">element_text</span>(</span>
-<span id="cb110-89"><a href="#cb110-89" aria-hidden="true" tabindex="-1"></a>    <span class="at">family =</span> <span class="st">"Anybody"</span>,</span>
-<span id="cb110-90"><a href="#cb110-90" aria-hidden="true" tabindex="-1"></a>    <span class="at">size =</span> <span class="dv">25</span>, </span>
-<span id="cb110-91"><a href="#cb110-91" aria-hidden="true" tabindex="-1"></a>    <span class="at">color =</span> <span class="st">"white"</span>,</span>
-<span id="cb110-92"><a href="#cb110-92" aria-hidden="true" tabindex="-1"></a>    <span class="at">face =</span> <span class="st">"bold"</span></span>
-<span id="cb110-93"><a href="#cb110-93" aria-hidden="true" tabindex="-1"></a>  ),</span>
-<span id="cb110-94"><a href="#cb110-94" aria-hidden="true" tabindex="-1"></a>  <span class="at">plot.subtitle =</span> <span class="fu">element_text</span>(</span>
-<span id="cb110-95"><a href="#cb110-95" aria-hidden="true" tabindex="-1"></a>    <span class="at">family =</span> <span class="st">"Anybody"</span>,</span>
-<span id="cb110-96"><a href="#cb110-96" aria-hidden="true" tabindex="-1"></a>    <span class="at">size =</span> <span class="dv">16</span>, </span>
-<span id="cb110-97"><a href="#cb110-97" aria-hidden="true" tabindex="-1"></a>    <span class="at">color =</span> <span class="st">"white"</span></span>
-<span id="cb110-98"><a href="#cb110-98" aria-hidden="true" tabindex="-1"></a>  ),</span>
-<span id="cb110-99"><a href="#cb110-99" aria-hidden="true" tabindex="-1"></a>  <span class="at">plot.background =</span> <span class="fu">element_rect</span>(<span class="at">fill =</span> <span class="st">"#1a2327"</span>, <span class="at">color =</span> <span class="cn">NA</span>)</span>
-<span id="cb110-100"><a href="#cb110-100" aria-hidden="true" tabindex="-1"></a>)</span>
-<span id="cb110-101"><a href="#cb110-101" aria-hidden="true" tabindex="-1"></a></span>
-<span id="cb110-102"><a href="#cb110-102" aria-hidden="true" tabindex="-1"></a>purrr<span class="sc">::</span><span class="fu">map</span>(</span>
-<span id="cb110-103"><a href="#cb110-103" aria-hidden="true" tabindex="-1"></a>  <span class="fu">c</span>(<span class="st">"krigeST"</span>, <span class="st">"Catboost"</span>),</span>
-<span id="cb110-104"><a href="#cb110-104" aria-hidden="true" tabindex="-1"></a>  \(x) {</span>
-<span id="cb110-105"><a href="#cb110-105" aria-hidden="true" tabindex="-1"></a>    <span class="fu">make_std_error_map</span>(</span>
-<span id="cb110-106"><a href="#cb110-106" aria-hidden="true" tabindex="-1"></a>      x,</span>
-<span id="cb110-107"><a href="#cb110-107" aria-hidden="true" tabindex="-1"></a>      sf_skill,</span>
-<span id="cb110-108"><a href="#cb110-108" aria-hidden="true" tabindex="-1"></a>      sf_germany,</span>
-<span id="cb110-109"><a href="#cb110-109" aria-hidden="true" tabindex="-1"></a>      sf_germany_line</span>
-<span id="cb110-110"><a href="#cb110-110" aria-hidden="true" tabindex="-1"></a>    )</span>
-<span id="cb110-111"><a href="#cb110-111" aria-hidden="true" tabindex="-1"></a>  }</span>
-<span id="cb110-112"><a href="#cb110-112" aria-hidden="true" tabindex="-1"></a>) <span class="sc">|&gt;</span> </span>
-<span id="cb110-113"><a href="#cb110-113" aria-hidden="true" tabindex="-1"></a>  purrr<span class="sc">::</span><span class="fu">reduce</span>(</span>
-<span id="cb110-114"><a href="#cb110-114" aria-hidden="true" tabindex="-1"></a>    <span class="st">`</span><span class="at">/</span><span class="st">`</span></span>
-<span id="cb110-115"><a href="#cb110-115" aria-hidden="true" tabindex="-1"></a>  ) <span class="sc">+</span></span>
-<span id="cb110-116"><a href="#cb110-116" aria-hidden="true" tabindex="-1"></a>  <span class="fu">plot_layout</span>(<span class="at">guides =</span> <span class="st">"collect"</span>) <span class="sc">+</span> </span>
-<span id="cb110-117"><a href="#cb110-117" aria-hidden="true" tabindex="-1"></a>  <span class="fu">plot_annotation</span>(</span>
-<span id="cb110-118"><a href="#cb110-118" aria-hidden="true" tabindex="-1"></a>    <span class="at">title =</span> <span class="st">"Standardized Prediction Error"</span>,</span>
-<span id="cb110-119"><a href="#cb110-119" aria-hidden="true" tabindex="-1"></a>    <span class="at">subtitle =</span> <span class="st">"Colored locations have a standardized error greater than two standard deviations"</span>,</span>
-<span id="cb110-120"><a href="#cb110-120" aria-hidden="true" tabindex="-1"></a>    <span class="at">theme =</span> theme_patch</span>
-<span id="cb110-121"><a href="#cb110-121" aria-hidden="true" tabindex="-1"></a>  )</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
+<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb110"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb110-1"><a href="#cb110-1" aria-hidden="true" tabindex="-1"></a>tib_station_residual_sd <span class="ot">&lt;-</span> cv_combined <span class="sc">|&gt;</span></span>
+<span id="cb110-2"><a href="#cb110-2" aria-hidden="true" tabindex="-1"></a>  <span class="fu">summarize</span>(</span>
+<span id="cb110-3"><a href="#cb110-3" aria-hidden="true" tabindex="-1"></a>    <span class="at">residual_sd =</span> <span class="fu">sd</span>(residual, <span class="at">na.rm =</span> <span class="cn">TRUE</span>),</span>
+<span id="cb110-4"><a href="#cb110-4" aria-hidden="true" tabindex="-1"></a>    <span class="at">.by =</span> <span class="fu">c</span>(station_id, model)</span>
+<span id="cb110-5"><a href="#cb110-5" aria-hidden="true" tabindex="-1"></a>  )</span>
+<span id="cb110-6"><a href="#cb110-6" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb110-7"><a href="#cb110-7" aria-hidden="true" tabindex="-1"></a>sf_skill <span class="ot">&lt;-</span> cv_combined <span class="sc">|&gt;</span></span>
+<span id="cb110-8"><a href="#cb110-8" aria-hidden="true" tabindex="-1"></a>  <span class="fu">filter</span>(date <span class="sc">%in%</span> vec_sample_days) <span class="sc">|&gt;</span></span>
+<span id="cb110-9"><a href="#cb110-9" aria-hidden="true" tabindex="-1"></a>  <span class="fu">left_join</span>(tib_station_residual_sd, <span class="at">by =</span> <span class="fu">c</span>(<span class="st">"station_id"</span>, <span class="st">"model"</span>)) <span class="sc">|&gt;</span></span>
+<span id="cb110-10"><a href="#cb110-10" aria-hidden="true" tabindex="-1"></a>  <span class="fu">mutate</span>(</span>
+<span id="cb110-11"><a href="#cb110-11" aria-hidden="true" tabindex="-1"></a>    <span class="at">std_error =</span> <span class="fu">abs</span>(residual) <span class="sc">/</span> residual_sd,</span>
+<span id="cb110-12"><a href="#cb110-12" aria-hidden="true" tabindex="-1"></a>    <span class="at">std_error_cat =</span> <span class="fu">ifelse</span>(std_error <span class="sc">&gt;</span> <span class="dv">2</span>, <span class="st">"bad"</span>, <span class="st">"good"</span>)</span>
+<span id="cb110-13"><a href="#cb110-13" aria-hidden="true" tabindex="-1"></a>  ) <span class="sc">|&gt;</span></span>
+<span id="cb110-14"><a href="#cb110-14" aria-hidden="true" tabindex="-1"></a>  <span class="fu">left_join</span>(tib_station_coords, <span class="at">by =</span> <span class="st">"station_id"</span>) <span class="sc">|&gt;</span></span>
+<span id="cb110-15"><a href="#cb110-15" aria-hidden="true" tabindex="-1"></a>  sf<span class="sc">::</span><span class="fu">st_as_sf</span>(<span class="at">coords =</span> <span class="fu">c</span>(<span class="st">"x"</span>, <span class="st">"y"</span>), <span class="at">crs =</span> <span class="dv">25832</span>)</span>
+<span id="cb110-16"><a href="#cb110-16" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb110-17"><a href="#cb110-17" aria-hidden="true" tabindex="-1"></a><span class="co"># compute limits from full cv_combined, not just sampled days</span></span>
+<span id="cb110-18"><a href="#cb110-18" aria-hidden="true" tabindex="-1"></a>legend_limits <span class="ot">&lt;-</span> cv_combined <span class="sc">|&gt;</span></span>
+<span id="cb110-19"><a href="#cb110-19" aria-hidden="true" tabindex="-1"></a>  <span class="fu">left_join</span>(</span>
+<span id="cb110-20"><a href="#cb110-20" aria-hidden="true" tabindex="-1"></a>    tib_station_residual_sd, </span>
+<span id="cb110-21"><a href="#cb110-21" aria-hidden="true" tabindex="-1"></a>    <span class="at">by =</span> <span class="st">"station_id"</span>,</span>
+<span id="cb110-22"><a href="#cb110-22" aria-hidden="true" tabindex="-1"></a>    <span class="at">relationship =</span> <span class="st">"many-to-many"</span></span>
+<span id="cb110-23"><a href="#cb110-23" aria-hidden="true" tabindex="-1"></a>  ) <span class="sc">|&gt;</span></span>
+<span id="cb110-24"><a href="#cb110-24" aria-hidden="true" tabindex="-1"></a>  <span class="fu">mutate</span>(<span class="at">std_error =</span> <span class="fu">abs</span>(residual) <span class="sc">/</span> residual_sd) <span class="sc">|&gt;</span></span>
+<span id="cb110-25"><a href="#cb110-25" aria-hidden="true" tabindex="-1"></a>  <span class="fu">filter</span>(std_error <span class="sc">&gt;</span> <span class="dv">2</span>) <span class="sc">|&gt;</span></span>
+<span id="cb110-26"><a href="#cb110-26" aria-hidden="true" tabindex="-1"></a>  <span class="fu">reframe</span>(<span class="at">range_error =</span> <span class="fu">range</span>(std_error, <span class="at">na.rm =</span> <span class="cn">TRUE</span>)) <span class="sc">|&gt;</span></span>
+<span id="cb110-27"><a href="#cb110-27" aria-hidden="true" tabindex="-1"></a>  <span class="fu">mutate</span>(</span>
+<span id="cb110-28"><a href="#cb110-28" aria-hidden="true" tabindex="-1"></a>    <span class="at">range_error =</span> <span class="fu">case_when</span>(</span>
+<span id="cb110-29"><a href="#cb110-29" aria-hidden="true" tabindex="-1"></a>      range_error <span class="sc">==</span> <span class="fu">min</span>(range_error) <span class="sc">~</span> <span class="fu">floor</span>(range_error),</span>
+<span id="cb110-30"><a href="#cb110-30" aria-hidden="true" tabindex="-1"></a>      range_error <span class="sc">==</span> <span class="fu">max</span>(range_error) <span class="sc">~</span> <span class="fu">ceiling</span>(range_error)</span>
+<span id="cb110-31"><a href="#cb110-31" aria-hidden="true" tabindex="-1"></a>    )</span>
+<span id="cb110-32"><a href="#cb110-32" aria-hidden="true" tabindex="-1"></a>  )</span>
+<span id="cb110-33"><a href="#cb110-33" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb110-34"><a href="#cb110-34" aria-hidden="true" tabindex="-1"></a>make_std_error_map <span class="ot">&lt;-</span> <span class="cf">function</span>(mod_name, sf_skill, sf_germany, germany_line) {</span>
+<span id="cb110-35"><a href="#cb110-35" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb110-36"><a href="#cb110-36" aria-hidden="true" tabindex="-1"></a>  sf_bad <span class="ot">&lt;-</span> sf_skill <span class="sc">|&gt;</span></span>
+<span id="cb110-37"><a href="#cb110-37" aria-hidden="true" tabindex="-1"></a>    <span class="fu">filter</span>(model <span class="sc">==</span> mod_name, std_error_cat <span class="sc">==</span> <span class="st">"bad"</span>)</span>
+<span id="cb110-38"><a href="#cb110-38" aria-hidden="true" tabindex="-1"></a>  sf_good <span class="ot">&lt;-</span> sf_skill <span class="sc">|&gt;</span></span>
+<span id="cb110-39"><a href="#cb110-39" aria-hidden="true" tabindex="-1"></a>    <span class="fu">filter</span>(model <span class="sc">==</span> mod_name, std_error_cat <span class="sc">==</span> <span class="st">"good"</span>)</span>
+<span id="cb110-40"><a href="#cb110-40" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb110-41"><a href="#cb110-41" aria-hidden="true" tabindex="-1"></a>  <span class="fu">ggplot</span>() <span class="sc">+</span></span>
+<span id="cb110-42"><a href="#cb110-42" aria-hidden="true" tabindex="-1"></a>    <span class="fu">geom_sf</span>(</span>
+<span id="cb110-43"><a href="#cb110-43" aria-hidden="true" tabindex="-1"></a>      <span class="at">data =</span> sf_germany,</span>
+<span id="cb110-44"><a href="#cb110-44" aria-hidden="true" tabindex="-1"></a>      <span class="at">fill =</span> <span class="st">"#263238"</span>,</span>
+<span id="cb110-45"><a href="#cb110-45" aria-hidden="true" tabindex="-1"></a>      <span class="at">color =</span> <span class="st">"#37474F"</span>,</span>
+<span id="cb110-46"><a href="#cb110-46" aria-hidden="true" tabindex="-1"></a>      <span class="at">linewidth =</span> <span class="fl">0.2</span></span>
+<span id="cb110-47"><a href="#cb110-47" aria-hidden="true" tabindex="-1"></a>    ) <span class="sc">+</span></span>
+<span id="cb110-48"><a href="#cb110-48" aria-hidden="true" tabindex="-1"></a>    <span class="fu">geom_sf</span>(</span>
+<span id="cb110-49"><a href="#cb110-49" aria-hidden="true" tabindex="-1"></a>      <span class="at">data =</span> sf_good,</span>
+<span id="cb110-50"><a href="#cb110-50" aria-hidden="true" tabindex="-1"></a>      <span class="at">color =</span> <span class="st">"grey70"</span>,</span>
+<span id="cb110-51"><a href="#cb110-51" aria-hidden="true" tabindex="-1"></a>      <span class="at">size =</span> <span class="fl">1.5</span>,</span>
+<span id="cb110-52"><a href="#cb110-52" aria-hidden="true" tabindex="-1"></a>      <span class="at">shape =</span> <span class="dv">16</span></span>
+<span id="cb110-53"><a href="#cb110-53" aria-hidden="true" tabindex="-1"></a>    ) <span class="sc">+</span></span>
+<span id="cb110-54"><a href="#cb110-54" aria-hidden="true" tabindex="-1"></a>    <span class="fu">geom_sf</span>(</span>
+<span id="cb110-55"><a href="#cb110-55" aria-hidden="true" tabindex="-1"></a>      <span class="at">data =</span> sf_bad,</span>
+<span id="cb110-56"><a href="#cb110-56" aria-hidden="true" tabindex="-1"></a>      <span class="fu">aes</span>(<span class="at">color =</span> std_error, <span class="at">size =</span> std_error),</span>
+<span id="cb110-57"><a href="#cb110-57" aria-hidden="true" tabindex="-1"></a>      <span class="at">shape =</span> <span class="dv">16</span></span>
+<span id="cb110-58"><a href="#cb110-58" aria-hidden="true" tabindex="-1"></a>    ) <span class="sc">+</span></span>
+<span id="cb110-59"><a href="#cb110-59" aria-hidden="true" tabindex="-1"></a>    <span class="fu">geom_sf</span>(</span>
+<span id="cb110-60"><a href="#cb110-60" aria-hidden="true" tabindex="-1"></a>      <span class="at">data =</span> germany_line,</span>
+<span id="cb110-61"><a href="#cb110-61" aria-hidden="true" tabindex="-1"></a>      <span class="at">color =</span> <span class="st">"grey40"</span>,</span>
+<span id="cb110-62"><a href="#cb110-62" aria-hidden="true" tabindex="-1"></a>      <span class="at">linewidth =</span> <span class="fl">0.3</span></span>
+<span id="cb110-63"><a href="#cb110-63" aria-hidden="true" tabindex="-1"></a>    ) <span class="sc">+</span></span>
+<span id="cb110-64"><a href="#cb110-64" aria-hidden="true" tabindex="-1"></a>    <span class="fu">facet_wrap</span>(<span class="sc">~</span>date, <span class="at">nrow =</span> <span class="dv">1</span>) <span class="sc">+</span></span>
+<span id="cb110-65"><a href="#cb110-65" aria-hidden="true" tabindex="-1"></a>    rcartocolor<span class="sc">::</span><span class="fu">scale_color_carto_c</span>(</span>
+<span id="cb110-66"><a href="#cb110-66" aria-hidden="true" tabindex="-1"></a>      <span class="at">palette =</span> <span class="st">"SunsetDark"</span>,</span>
+<span id="cb110-67"><a href="#cb110-67" aria-hidden="true" tabindex="-1"></a>      <span class="at">name =</span> <span class="st">"Std</span><span class="sc">\n</span><span class="st">Error"</span>,</span>
+<span id="cb110-68"><a href="#cb110-68" aria-hidden="true" tabindex="-1"></a>      <span class="at">limits =</span> <span class="fu">c</span>(</span>
+<span id="cb110-69"><a href="#cb110-69" aria-hidden="true" tabindex="-1"></a>        legend_limits<span class="sc">$</span>range_error[<span class="dv">1</span>],</span>
+<span id="cb110-70"><a href="#cb110-70" aria-hidden="true" tabindex="-1"></a>        legend_limits<span class="sc">$</span>range_error[<span class="dv">2</span>]</span>
+<span id="cb110-71"><a href="#cb110-71" aria-hidden="true" tabindex="-1"></a>      )</span>
+<span id="cb110-72"><a href="#cb110-72" aria-hidden="true" tabindex="-1"></a>    ) <span class="sc">+</span></span>
+<span id="cb110-73"><a href="#cb110-73" aria-hidden="true" tabindex="-1"></a>    <span class="fu">scale_size_continuous</span>(</span>
+<span id="cb110-74"><a href="#cb110-74" aria-hidden="true" tabindex="-1"></a>      <span class="at">name =</span> <span class="st">"Std</span><span class="sc">\n</span><span class="st">Error"</span>,</span>
+<span id="cb110-75"><a href="#cb110-75" aria-hidden="true" tabindex="-1"></a>      <span class="at">range =</span> <span class="fu">c</span>(<span class="dv">3</span>, <span class="dv">7</span>),</span>
+<span id="cb110-76"><a href="#cb110-76" aria-hidden="true" tabindex="-1"></a>      <span class="at">limits =</span> <span class="fu">c</span>(</span>
+<span id="cb110-77"><a href="#cb110-77" aria-hidden="true" tabindex="-1"></a>        legend_limits<span class="sc">$</span>range_error[<span class="dv">1</span>],</span>
+<span id="cb110-78"><a href="#cb110-78" aria-hidden="true" tabindex="-1"></a>        legend_limits<span class="sc">$</span>range_error[<span class="dv">2</span>]</span>
+<span id="cb110-79"><a href="#cb110-79" aria-hidden="true" tabindex="-1"></a>      )</span>
+<span id="cb110-80"><a href="#cb110-80" aria-hidden="true" tabindex="-1"></a>    ) <span class="sc">+</span></span>
+<span id="cb110-81"><a href="#cb110-81" aria-hidden="true" tabindex="-1"></a>    <span class="fu">coord_sf</span>(<span class="at">lims_method =</span> <span class="st">"geometry_bbox"</span>) <span class="sc">+</span></span>
+<span id="cb110-82"><a href="#cb110-82" aria-hidden="true" tabindex="-1"></a>    <span class="fu">guides</span>(</span>
+<span id="cb110-83"><a href="#cb110-83" aria-hidden="true" tabindex="-1"></a>      <span class="co"># fix order (top to bottom) that legends displayed</span></span>
+<span id="cb110-84"><a href="#cb110-84" aria-hidden="true" tabindex="-1"></a>      <span class="at">color =</span> <span class="fu">guide_colorbar</span>(<span class="at">order =</span> <span class="dv">2</span>),</span>
+<span id="cb110-85"><a href="#cb110-85" aria-hidden="true" tabindex="-1"></a>      <span class="at">size =</span> <span class="fu">guide_legend</span>(</span>
+<span id="cb110-86"><a href="#cb110-86" aria-hidden="true" tabindex="-1"></a>        <span class="at">order =</span> <span class="dv">1</span>,</span>
+<span id="cb110-87"><a href="#cb110-87" aria-hidden="true" tabindex="-1"></a>        <span class="at">reverse =</span> <span class="cn">TRUE</span>,</span>
+<span id="cb110-88"><a href="#cb110-88" aria-hidden="true" tabindex="-1"></a>        <span class="at">override.aes =</span> <span class="fu">list</span>(<span class="at">color =</span> <span class="st">"#fcde9c"</span>))</span>
+<span id="cb110-89"><a href="#cb110-89" aria-hidden="true" tabindex="-1"></a>    ) <span class="sc">+</span></span>
+<span id="cb110-90"><a href="#cb110-90" aria-hidden="true" tabindex="-1"></a>    <span class="fu">labs</span>(<span class="at">title =</span> mod_name) <span class="sc">+</span></span>
+<span id="cb110-91"><a href="#cb110-91" aria-hidden="true" tabindex="-1"></a>    <span class="fu">theme_slate_map</span>(<span class="at">legend.position =</span> <span class="st">"right"</span>)</span>
+<span id="cb110-92"><a href="#cb110-92" aria-hidden="true" tabindex="-1"></a>}</span>
+<span id="cb110-93"><a href="#cb110-93" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb110-94"><a href="#cb110-94" aria-hidden="true" tabindex="-1"></a>theme_patch <span class="ot">&lt;-</span> <span class="fu">theme</span>(</span>
+<span id="cb110-95"><a href="#cb110-95" aria-hidden="true" tabindex="-1"></a>  <span class="at">plot.title =</span> <span class="fu">element_text</span>(</span>
+<span id="cb110-96"><a href="#cb110-96" aria-hidden="true" tabindex="-1"></a>    <span class="at">family =</span> <span class="st">"Anybody"</span>,</span>
+<span id="cb110-97"><a href="#cb110-97" aria-hidden="true" tabindex="-1"></a>    <span class="at">size =</span> <span class="dv">25</span>, </span>
+<span id="cb110-98"><a href="#cb110-98" aria-hidden="true" tabindex="-1"></a>    <span class="at">color =</span> <span class="st">"white"</span>,</span>
+<span id="cb110-99"><a href="#cb110-99" aria-hidden="true" tabindex="-1"></a>    <span class="at">face =</span> <span class="st">"bold"</span></span>
+<span id="cb110-100"><a href="#cb110-100" aria-hidden="true" tabindex="-1"></a>  ),</span>
+<span id="cb110-101"><a href="#cb110-101" aria-hidden="true" tabindex="-1"></a>  <span class="at">plot.subtitle =</span> <span class="fu">element_text</span>(</span>
+<span id="cb110-102"><a href="#cb110-102" aria-hidden="true" tabindex="-1"></a>    <span class="at">family =</span> <span class="st">"Anybody"</span>,</span>
+<span id="cb110-103"><a href="#cb110-103" aria-hidden="true" tabindex="-1"></a>    <span class="at">size =</span> <span class="dv">16</span>, </span>
+<span id="cb110-104"><a href="#cb110-104" aria-hidden="true" tabindex="-1"></a>    <span class="at">color =</span> <span class="st">"white"</span></span>
+<span id="cb110-105"><a href="#cb110-105" aria-hidden="true" tabindex="-1"></a>  ),</span>
+<span id="cb110-106"><a href="#cb110-106" aria-hidden="true" tabindex="-1"></a>  <span class="at">plot.background =</span> <span class="fu">element_rect</span>(<span class="at">fill =</span> <span class="st">"#1a2327"</span>, <span class="at">color =</span> <span class="cn">NA</span>)</span>
+<span id="cb110-107"><a href="#cb110-107" aria-hidden="true" tabindex="-1"></a>)</span>
+<span id="cb110-108"><a href="#cb110-108" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb110-109"><a href="#cb110-109" aria-hidden="true" tabindex="-1"></a>purrr<span class="sc">::</span><span class="fu">map</span>(</span>
+<span id="cb110-110"><a href="#cb110-110" aria-hidden="true" tabindex="-1"></a>  <span class="fu">c</span>(<span class="st">"krigeST"</span>, <span class="st">"Catboost"</span>),</span>
+<span id="cb110-111"><a href="#cb110-111" aria-hidden="true" tabindex="-1"></a>  \(x) {</span>
+<span id="cb110-112"><a href="#cb110-112" aria-hidden="true" tabindex="-1"></a>    <span class="fu">make_std_error_map</span>(</span>
+<span id="cb110-113"><a href="#cb110-113" aria-hidden="true" tabindex="-1"></a>      x,</span>
+<span id="cb110-114"><a href="#cb110-114" aria-hidden="true" tabindex="-1"></a>      sf_skill,</span>
+<span id="cb110-115"><a href="#cb110-115" aria-hidden="true" tabindex="-1"></a>      sf_germany,</span>
+<span id="cb110-116"><a href="#cb110-116" aria-hidden="true" tabindex="-1"></a>      sf_germany_line</span>
+<span id="cb110-117"><a href="#cb110-117" aria-hidden="true" tabindex="-1"></a>    )</span>
+<span id="cb110-118"><a href="#cb110-118" aria-hidden="true" tabindex="-1"></a>  }</span>
+<span id="cb110-119"><a href="#cb110-119" aria-hidden="true" tabindex="-1"></a>) <span class="sc">|&gt;</span> </span>
+<span id="cb110-120"><a href="#cb110-120" aria-hidden="true" tabindex="-1"></a>  purrr<span class="sc">::</span><span class="fu">reduce</span>(</span>
+<span id="cb110-121"><a href="#cb110-121" aria-hidden="true" tabindex="-1"></a>    <span class="st">`</span><span class="at">/</span><span class="st">`</span></span>
+<span id="cb110-122"><a href="#cb110-122" aria-hidden="true" tabindex="-1"></a>  ) <span class="sc">+</span></span>
+<span id="cb110-123"><a href="#cb110-123" aria-hidden="true" tabindex="-1"></a>  <span class="fu">plot_layout</span>(<span class="at">guides =</span> <span class="st">"collect"</span>) <span class="sc">+</span> </span>
+<span id="cb110-124"><a href="#cb110-124" aria-hidden="true" tabindex="-1"></a>  <span class="fu">plot_annotation</span>(</span>
+<span id="cb110-125"><a href="#cb110-125" aria-hidden="true" tabindex="-1"></a>    <span class="at">title =</span> <span class="st">"Standardized Prediction Error"</span>,</span>
+<span id="cb110-126"><a href="#cb110-126" aria-hidden="true" tabindex="-1"></a>    <span class="at">subtitle =</span> <span class="st">"Colored locations have a standardized error greater than two standard deviations"</span>,</span>
+<span id="cb110-127"><a href="#cb110-127" aria-hidden="true" tabindex="-1"></a>    <span class="at">theme =</span> theme_patch</span>
+<span id="cb110-128"><a href="#cb110-128" aria-hidden="true" tabindex="-1"></a>  )</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
 </details>
 <ul>
-<li>These are locations that were predicted poorly.</li>
+<li>These are locations that were predicted poorly relative to each model’s overall peformance. Comparing bad station predictions to the prediction map can give insight into how off the predictions around that station are.</li>
+<li>Cross-validation errors for each station on the sampled days are standardized by the standard deviation of the residuals of each station across all test folds.</li>
+<li>Stations with a standardized residual greater than two are deemed “bad.”</li>
+<li>krigeST didn’t perform well in predicting the PM10 levels at a large proportion of the stations on April 19<sup>th</sup>, 2005</li>
 </ul>
 </div>
 </div>
