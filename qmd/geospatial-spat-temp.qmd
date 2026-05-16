@@ -2322,7 +2322,7 @@ lightbox:
 
 - The added value of spatio-temporal kriging lies in the flexibility to not only interpolate at unobserved locations in space, but also at unobserved time instances.
 
-  - This makes spatio-temporal kriging a suitable tool to fill gaps in time series not only based on the time series solely, but also including some of its spatial neighbours.
+  - This makes spatio-temporal kriging a suitable tool to fill gaps in time series not only based on the time series solely, but also including some of its spatial neighbors.
 
 - A potential alternative to spatio-temporal kriging is co-kriging.
 
@@ -4248,9 +4248,21 @@ lightbox:
 
 ### Interpolate {#sec-geo-sptemp-krig-inter .unnumbered}
 
+#### Misc
+
 - A joint distance is formulated in the same manner as the metric covariance model, and then used to find a subset of data with k-NN for a prediction location. The interpolation performs iteratively for each spatiotemporal prediction location with that local subset of data.
   - Other methods (staged search) and (octant search) are briefly described in the vignette but not implemented in [{gstat}]{style="color: #990000"}
 - No parallel option!
+- `stplot(preds)` will plot the results. For sure with a {spacetime}, not sure with stars or sftime prediciton output classes
+- Regarding Discrete Prediction Zones
+  - From the vignette: "An additional consideration is that in space-time, observations may not be regularly spaced. In some cases, the nearest n observations may come from a single measurement location, which may lead to sharp jumps/boundaries in the interpolated values. This might be solved by using larger neighborhoods, or by setting the omax in krige or gstat calls to the neighborhood size to select per octant (this should be combined with specifying maxdist)."
+    - These options are not currently available for `krigeST`
+  - From SDS, end of Ch.13: "A larger value for nmax was needed here to decrease the visible disturbance (sharp edges) caused by discrete neighborhood selections, which are now done in space and time."
+    - This may be the case, but adjusting nmax affects your SSE score. So the choice is often going to be whether you want accurate prediction maps or prettier ones.
+  - The best case would be you have a substantial number of measurement locations and they're sufficiently dispersed in the study area.
+
+#### `krigeST`
+
 - `krigeST(formula, data, modelList, newdata)`
   - [data]{.arg-text} - Original dataset (used to fit `variogramST`)
     - From docs, "ST object: should contain the dependent variable and independent variables."
@@ -4260,114 +4272,235 @@ lightbox:
     - From docs, "ST object with prediction/simulation locations in space and time; should contain attribute columns with the independent variables (if present)."
   - [computeVar = TRUE]{.arg-text} - Returns prediction variances
     - [fullCovariance = TRUE]{.arg-text} - Returns the full covariance matrix
-  - [bufferNmax = 1]{.arg-text} (default) - Used to increase the search radius for neighbors (e.g. 2 would be double the default radius.)
-    - A larger neighbourhood is evaluated within the covariance model and the strongest correlated [nmax]{.arg-text} neighbors are selected
-    - If the prediction variances are large, then this parameter should help by gathering more data points.
-  - [nmax]{.arg-text} - The maximum number of neighboring locations for a spatio-temporal local neighborhood
+  - [bufferNmax = 1]{.arg-text} (default) - A factor that get multiplied times [nmax]{.arg-text}. This product is the number of clusters (neighborhoods) created from all spatio-temporal observations. Eventually a certain number ([nmax]{.arg-text}) of spatio-temporal observations will be chosen from one of those clusters to be used to calculate a prediction.
+  - [nmax]{.arg-text} - The maximum number of spatio-temporal observations selected (based on strength of covariance) to be used to calculate a prediction for a time and locations.
   - [stAni]{.arg-text} - Only needs to be set if the provided variogram model doesn't include a [stAni]{.arg-text} parameter (Seperable and Product-Sum)
-  - **Regarding the [data]{.arg-text} and [newdata]{.arg-text} objects**
-    - BOTH must be same class — e.g. both must be [STFDF]{.arg-text} objects or both must be [{stars}]{style="color: #990000"} objects
-    - BOTH objects' time components must be the same class — e.g. both must be a [Date]{.arg-text} class or both must be [POSIXct]{.arg-text} class
-- [Prediction Grids]{.underline} (i.e. [newdata]{.arg-text} input)
-  - [Example]{.ribbon-highlight}: [{sp}]{style="color: #990000"} `SpatialGrid` and `GridTopology` method ([github](https://github.com/r-spatial/gstat/blob/c1df8b864e96a25e2f3e24c4662884734e50d326/demo/stkrige-prediction.R#L15-L21), [vignette](https://cran.r-project.org/web/packages/gstat/vignettes/spatio-temporal-kriging.pdf))
+- **Regarding the [data]{.arg-text} and [newdata]{.arg-text} objects**
+  - BOTH must be same class — e.g. both must be [STFDF]{.arg-text} objects or both must be [{stars}]{style="color: #990000"} objects
+  - BOTH objects' time components must be the same class — e.g. both must be a [Date]{.arg-text} class or both must be [POSIXct]{.arg-text} class
 
-    <Details>
+#### Tuning nmax and bufferNmax
 
-    <Summary>Code</Summary>
+- Tuning bufferNmax increased performance by 20% in [Examples](geospatial-spat-temp.qmd#sec-geo-sptemp-krig-ex){style="color: green"} \>\> Example 1 which ended up beating ML models handily (not the case before tuning).
+- Process
+  1.  Order is important. [nmax]{.arg-text} should tuned first.
+      - The [nmax]{.arg-text} value should be obtained via cross-validation. Just use a 1, 2, or 3 for [bufferNmax]{.arg-text} and select the best [nmax]{.arg-text} according to which model has the lowest SSE.
+  2.  Tune [bufferNmax]{.arg-text}. Use `est_buffernmax` (see Estimate bufferNmax below) to find an estimate of the optimal [bufferNmax]{.arg-text} value. Use this value to create a search grid from.
+      1.  Create a 3 number sequence (estimate $\pm$ 10). For example, if the estimate is 132 and your [nmax]{.arg-text} value is 10, then your grid is: `expand.grid(nmax = 10, bufferNmax = c(122, 132, 142))`
+          - I've currently only used this once, but the reasoning behind `est_buffernmax` is pretty sound, and I think it can get pretty close the optimal value. So perhaps, a spread of 5 instead of 10 would be enough.
+      2.  Whichever direction yields the lower SSE, Then do a fine search of that region. For example, if the optimal value is between 132 and 142, the next grid would be: `expand.grid(nmax =10, bufferNmax = seq(133, 141))`
+          - No need to include 132 and 142 since we already have their SSE scores.
+  3.  (Optional) Tune [nmax]{.arg-text} again for peace of mind that you didn't find a local minimum the first time. For example, if your [nmax]{.arg-text} value has been 10 and the optimal [bufferNmax]{.arg-text} value is 134, then your grid would be: `expand.grid(nmax = c(8, 9, 11, 12), bufferNmax = 134)`
+      - After various stages during my experimentation, I would stop tuning [befferNmax]{.arg-text}. Select the current best [bufferNmax]{.arg-text} value and tune [nmax]{.arg-text} again. The optimal value of nmax never changed. So, I'm not sure this step needs to occur.
 
-    ``` r
-    gridDE <- sp::SpatialGrid(sp::GridTopology(
-      cellcentre.offset = DE_RB_2005@sp@bbox[,1] %/% 10000 * 10000, 
-      cellsize = c(10000, 10000),
-      # number of cells in each dimension
-      cells.dim = ceiling(apply(
-        DE_RB_2005@sp@bbox,
-        1,
-        diff
-      )/10000) #  10 km × 10 km
-    ))
-    # projected coords
-    sp::proj4string(gridDE) <- sp::CRS("+init=epsg:32632")
-    # "demotes a gridded structure back to a non-structured one"
-    sp::fullgrid(gridDE) <- F
+#### Estimate bufferNmax
 
-    ind <- sp::over(x = gridDE, y = as(DE_NUTS1,"SpatialPolygons"))
-    gridDE <- gridDE[!is.na(ind)]
+- [{]{style="color: #990000"}[ebtools::est_bufferNmax](https://ercbk.github.io/ebtools/reference/est_buffernmax.html){style="color: #990000"}[}]{style="color: #990000"} ([code](https://github.com/ercbk/ebtools/blob/master/R/est_buffernmax.R))
 
-    smplDays <- sort(sample(365,8)) # from stkrige.R
-    DE_pred <- STF(gridDE, DE_RB_2005@time[smplDays])
+  - See [Details \>\> How the function works](https://ercbk.github.io/ebtools/reference/est_buffernmax.html#how-the-function-works) for a breakdown of the process
 
-    tIDS <- unique(pmax(1,pmin(as.numeric(outer(-5:5, smplDays, "+")), 365)))
+- [Example]{.ribbon-highlight}: Based on [Examples](geospatial-spat-temp.qmd#sec-geo-sptemp-krig-ex){style="color: green"} \>\> Example 1 (and previous examples in series)
 
-    sumPred <- krigeST(
-      PM10 ~ 1, 
-      data=DE_RB_2005[,tIDS],
-      newdata = DE_pred, 
-      fitSumMetricModel, 
-      nmax = 50,
-      stAni = fitMetricModel$stAni/24/3600
+  <Details>
+
+  <Summary>Code</Summary>
+
+  ``` r
+  library(ebtools)
+
+  data(air, package = "spacetime")
+
+  # get all unique dates and coordiantes of all locations
+  rural_log <- spacetime::STFDF(
+    sp = stations,
+    time = dates,
+    data = data.frame(PM10 = log(as.vector(air)))
+  )
+  rr <- rural_log[, "2005::2010"]
+
+  unsel <- which(apply(
+    as(rr, "xts"),
+    2,
+    function(x) all(is.na(x)))
+  )
+  r5to10 <- rr[-unsel, ]
+
+  coords_mat <- r5to10@sp@coords
+  all_dates <- as.Date(zoo::index(r5to10@time))
+
+
+  # estimate stani from marginal spatial variogram
+  space_vgm_mat <- vgm(
+    model = "Mat",
+    psill = 0.20,
+    range = 110.83,
+    nugget = 0.01,
+    kappa = 0.40
+  )
+
+  num_stani_mat <- estiStAni(
+    empVgm = vario_emp, # computation not shown
+    method = "metric",
+    interval = c(1, 1000),
+    spatialVgm = space_vgm_mat
+  )
+
+  # compute pairwise spatial distance matrix in km
+  sf_locs <- sf::st_as_sf(r5to10@sp)
+  mat_dist_sf <- sf::st_distance(sf_locs)
+  dist_matrix <- mat_dist_sf |>
+    units::set_units("km") |>
+    units::drop_units() |>
+    as.matrix()
+  rownames(dist_matrix) <- rownames(r5to10@sp@coords)
+  colnames(dist_matrix) <- rownames(r5to10@sp@coords)
+
+  est_buffernmax(
+    dates = all_dates,
+    coords = coords_mat,
+    vario_mod = fit_vario_sm, # computation not shown
+    dist_spatial = dist_matrix,
+    nmax = 10,
+    stani = num_stani_mat,
+    samp_size = 1000,
+    seed = NULL,
+    cor_level = 0.01
+  )
+  #> [1] 132
+  ```
+
+  - [vario_emp]{.var-text} from [Starting Values \>\> Joint Models](geospatial-spat-temp.qmd#sec-geo-sptemp-krig-stval-joint){style="color: green"} \>\> Example 1 \>\> Empirical Variogram and Anistropy
+  - [space_vgm_mat]{.var-text} settings from [EDA \>\> Spatial Dependence](geospatial-spat-temp.qmd#sec-geo-sptemp-eda-spdep){style="color: green"} \>\> Example 1 \>\> Blocked Bootstrap \>\> Results
+  - [fit_vario_sm]{.var-text} from [Variogram \>\> Examples](geospatial-spat-temp.qmd#sec-geo-sptemp-krig-ex){style="color: green"} \>\> Example 1 \>\> Fit Sum Metric \>\> Fit Sum Metric
+
+  </Details>
+
+#### Prediction Grids
+
+- i.e. [newdata]{.arg-text} input
+
+- [Example]{.ribbon-highlight}: [{sp}]{style="color: #990000"} `SpatialGrid` and `GridTopology` method ([github](https://github.com/r-spatial/gstat/blob/c1df8b864e96a25e2f3e24c4662884734e50d326/demo/stkrige-prediction.R#L15-L21), [vignette](https://cran.r-project.org/web/packages/gstat/vignettes/spatio-temporal-kriging.pdf))
+
+  <Details>
+
+  <Summary>Code</Summary>
+
+  ``` r
+  gridDE <- sp::SpatialGrid(sp::GridTopology(
+    cellcentre.offset = DE_RB_2005@sp@bbox[,1] %/% 10000 * 10000, 
+    cellsize = c(10000, 10000),
+    # number of cells in each dimension
+    cells.dim = ceiling(apply(
+      DE_RB_2005@sp@bbox,
+      1,
+      diff
+    )/10000) #  10 km × 10 km
+  ))
+  # projected coords
+  sp::proj4string(gridDE) <- sp::CRS("+init=epsg:32632")
+  # "demotes a gridded structure back to a non-structured one"
+  sp::fullgrid(gridDE) <- F
+
+  ind <- sp::over(x = gridDE, y = as(DE_NUTS1,"SpatialPolygons"))
+  gridDE <- gridDE[!is.na(ind)]
+
+  smplDays <- sort(sample(365,8)) # from stkrige.R
+  DE_pred <- STF(gridDE, DE_RB_2005@time[smplDays])
+
+  tIDS <- unique(pmax(1,pmin(as.numeric(outer(-5:5, smplDays, "+")), 365)))
+
+  sumPred <- krigeST(
+    PM10 ~ 1, 
+    data=DE_RB_2005[,tIDS],
+    newdata = DE_pred, 
+    fitSumMetricModel, 
+    nmax = 50,
+    stAni = fitMetricModel$stAni/24/3600
+  )
+  ```
+
+  - DE_RB_2005 dataset from [{gstat}]{style="color: #990000"}. Creates a grid over Germany for PM10 pollution interpolation
+  - [cellcentre.offset]{.arg-text}: Numeric; vector with the smallest centroid coordinates for each dimension; coordinates refer to the cell centre
+  - `over`: "at the spatial locations of object x retrieves the indexes or attributes from spatial object y"
+  - Only interpolates an 8 day sample
+
+  </Details>
+
+- [Example]{.ribbon-highlight}: Using [{stars}]{style="color: #990000"} ([SDS, Ch 13.3](https://r-spatial.org/book/13-Geostatistics.html#a-spatiotemporal-variogram-model))
+
+  <Details>
+
+  <Summary>Code</Summary>
+
+  ``` r
+  crs <- st_crs('EPSG:32632')
+  de <- read_sf("data/de_nuts1.gpkg") |> st_transform(crs)
+
+  grd <- sf::st_bbox(de) |>
+    st_as_stars(dx = 10000) |>
+    sf::st_crop(de)
+
+  d <- dim(grd)
+
+  # no2.st is a stars obj
+  t <- st_get_dimension_values(x = no2.st, which = 1)
+  # 1080 3240 5400 7560
+  t4 <- t[(1:4 - 0.5) * (3*24*30)]
+
+  grd.st <- st_as_stars(
+    pts = array(
+      1, 
+      c(d[1], d[2], time = length(t4))
     )
-    ```
+  ) |>
+      st_set_dimensions("time", t4) |>
+      st_set_dimensions("x", st_get_dimension_values(grd, "x")) |>
+      st_set_dimensions("y", st_get_dimension_values(grd, "y")) |>
+      sf::st_set_crs(crs)
 
-    - DE_RB_2005 dataset from [{gstat}]{style="color: #990000"}. Creates a grid over Germany for PM10 pollution interpolation
-    - [cellcentre.offset]{.arg-text}: Numeric; vector with the smallest centroid coordinates for each dimension; coordinates refer to the cell centre
-    - `over`: "at the spatial locations of object x retrieves the indexes or attributes from spatial object y"
-    - Only interpolates an 8 day sample
+  new_int <- krigeST(
+    NO2~1, 
+    data = no2.st["NO2"], 
+    newdata = grd.st,
+    nmax = 200, 
+    stAni = StAni, 
+    modelList = fitProdSumModel,
+    progress = FALSE
+  )
+  names(new_int)[2] = "NO2"
+  ```
 
-    </Details>
+  </Details>
 
-  - [Example]{.ribbon-highlight}: Using [{stars}]{style="color: #990000"} ([SDS, Ch 13.3](https://r-spatial.org/book/13-Geostatistics.html#a-spatiotemporal-variogram-model))
+#### Local Spatio-Temporal Kriging
 
-    <Details>
+- Including this section, because I don't want to have figure out exactly what `krigeST.local` is doing ever again. (in case I ever want to optimize this function)
+- When you include values for [nmax]{.arg-text} and [bufferNmax]{.arg-text}, the function performs local kriging which means instead of every observation being used to make a prediction, a neighborhood of spatio-temporal observations based on convariance is selected to make the prediction.
+- [Code](https://github.com/r-spatial/gstat/blob/2a578765502dd29520dcc3b40af42c953237faa3/R/krigeST.R#L227-L310) on github
+- Process
+  1.  Build the spatio-temporal coordinate matrices [df]{.var-text} (training data, i.e. [data]{.arg-text}) and [query]{.var-text} (prediction locations, i.e. [newdata]{.arg-text}) by extracting spatial coordinates and time, then scaling time by [stAni]{.arg-text}.
+      - For 2D spatial data, columns 1 and 2 are the x and y coordinates and column 4 is the time index. For 3D spatial data, columns 1, 2, and 3 are the coordinates and column 5 is the time index.
+      - Time is converted to numeric (seconds for `POSIXct`) and multiplied by [stAni]{.arg-text} which has been converted from km/day to km/second internally by dividing by 86400. The net effect is that time is expressed in equivalent spatial units (km), making Euclidean distance (for clustering) meaningful across all three dimensions simultaneously.
+      - Each row of [df]{.var-text} represents one training observation as `[x, y, time_scaled]` and each row of [query]{.var-text} represents one prediction location as `[x, y, time_scaled]`.
+  2.  For each prediction location in [query]{.var-text}, [k]{.arg-text} nearest neighbors is computed in [df]{.var-text} using Euclidean distance via `FNN::get.knnx`.
+      - The result, [nb]{.var-text}, is a matrix where row [i]{.arg-text} contains the sorted indices of the `ceiling(bufferNmax * nmax)` nearest training observations to prediction location [i]{.arg-text} in the spatio-temporal metric space.
+      - Metric distance is used here as a computationally efficient proxy for covariance strength. It is an imperfect proxy in sum-metric models because two observations at the same metric distance can have very different covariances depending on how their spatial and temporal distance components are distributed across the model's spatial, temporal, and joint components.
+  3.  For each prediction location [i]{.var-text}, subset the training data to the candidate neighbors identified in step 3.
+      - `nghbrData <- data[nb[i, ], , drop = FALSE]` retrieves the full spatio-temporal data object for the candidate neighbors, not just their coordinates. This is necessary because the subsequent covariance evaluation and kriging steps require the actual observed values.
+  4.  If `bufferNmax > 1`, refine the candidate neighbors by evaluating the actual spatio-temporal covariance between each candidate and the prediction location using the fitted variogram model, then retain only the [nmax]{.arg-text} candidates with the strongest covariance.
+      - `covfn.ST` evaluates the full sum-metric covariance function for each candidate, accounting for all components (spatial, temporal, and joint) simultaneously. This is the step that corrects for the imperfect metric distance proxy from step 3.
+      - The retained neighbors are re-sorted by their original index order (not by covariance strength) before being passed to the kriging solver, ensuring the covariance matrix is constructed consistently.
+      - If `bufferNmax = 1`, this refinement step is skipped entirely and the [nmax]{.arg-text} metric-nearest neighbors are used directly without covariance-based selection. This is faster but less accurate in sum-metric models where metric distance is a poor proxy for covariance.
+  5.  Solve the ordinary kriging system for prediction location [i]{.arg-text} using only the [nmax]{.arg-text} selected neighbors via `krigeST.df`, storing the predicted value (and optionally the kriging variance) in row [i]{.arg-text} of the result dataframe [res]{.var-text}.
+      - The kriging system is solved locally using only the selected neighborhood rather than all training observations, making computation tractable for large spatio-temporal datasets.
+      - If [computeVar = TRUE]{.arg-text}, the kriging variance is also computed and stored in `res$var1.var`. This variance reflects the uncertainty of the prediction given the local neighborhood structure and the fitted variogram model.
+      - Local kriging also implicitly allows the mean to vary smoothly across the domain since each prediction uses a different local subset of observations, partially relaxing the global stationarity assumption of ordinary kriging.
+  6.  Repeat steps 4 through 6 for every prediction location in [query]{.var-text} until [res]{.var-text} is fully populated.
+      - A progress bar is displayed if [progress = TRUE]{.arg-text}, updating after each prediction location is processed.
+      - The final [res]{.var-text} dataframe has one row per prediction location with columns [var1.pred]{.var-text} (predicted value) and optionally [var1.var]{.var-text} (kriging variance), which are then attached back to the [newdata]{.arg-text} object and returned in its original class format.
 
-    <Summary>Code</Summary>
+#### Other shit
 
-    ``` r
-    crs <- st_crs('EPSG:32632')
-    de <- read_sf("data/de_nuts1.gpkg") |> st_transform(crs)
-
-    grd <- sf::st_bbox(de) |>
-      st_as_stars(dx = 10000) |>
-      sf::st_crop(de)
-
-    d <- dim(grd)
-
-    # no2.st is a stars obj
-    t <- st_get_dimension_values(x = no2.st, which = 1)
-    # 1080 3240 5400 7560
-    t4 <- t[(1:4 - 0.5) * (3*24*30)]
-
-    grd.st <- st_as_stars(
-      pts = array(
-        1, 
-        c(d[1], d[2], time = length(t4))
-      )
-    ) |>
-        st_set_dimensions("time", t4) |>
-        st_set_dimensions("x", st_get_dimension_values(grd, "x")) |>
-        st_set_dimensions("y", st_get_dimension_values(grd, "y")) |>
-        sf::st_set_crs(crs)
-
-    new_int <- krigeST(
-      NO2~1, 
-      data = no2.st["NO2"], 
-      newdata = grd.st,
-      nmax = 200, 
-      stAni = StAni, 
-      modelList = fitProdSumModel,
-      progress = FALSE
-    )
-    names(new_int)[2] = "NO2"
-    ```
-
-    </Details>
-- `stplot(preds)` will plot the results
-- Regarding Discrete Prediction Zones
-  - From the vignette: "An additional consideration is that in space-time, observations may not be regularly spaced. In some cases, the nearest n observations may come from a single measurement location, which may lead to sharp jumps/boundaries in the interpolated values. This might be solved by using larger neighbourhoods, or by setting the omax in krige or gstat calls to the neighbourhood size to select per octant (this should be combined with specifying maxdist)."
-    - These options are not currently available for `krigeST`
-  - From SDS, end of Ch.13: "A larger value for nmax was needed here to decrease the visible disturbance (sharp edges) caused by discrete neighbourhood selections, which are now done in space and time."
-    - This may be the case, but adjusting nmax affects your SSE score. So the choice is often going to be whether you want accurate prediction maps or prettier ones.
-  - The best case would be you have a substantial number of measurement locations and they're sufficiently dispersed in the study area.
 - Vignette raw notes
   - we could have fitted the spatial variogram for each day separately using observations from that day only. However, given the small number of observation stations, this produced unstable variograms for several days and we decided to use the single spatial variogram derived from all spatio-temporal locations treating time slices as uncorrelated copies of the spatial random field.
 
@@ -4381,7 +4514,7 @@ lightbox:
 
     - Need to research the AR model part
 
-  - The prediction at an unobserved location with a cluster of observations at one side will be biased towards this cluster and neglect the locations towards the other directions. Similar as the quadrant search in the pure spatial case an octant wise search strategy for the local neighbourhood would solve this limitation. A simpler stepwise approach to define an n-dimensional neighbourhood might already be sufficient in which at first ns spatial neighbours and then from each spatial neighbour nt time instances are selected, such that
+  - The prediction at an unobserved location with a cluster of observations at one side will be biased towards this cluster and neglect the locations towards the other directions. Similar as the quadrant search in the pure spatial case an octant wise search strategy for the local neighborhood would solve this limitation. A simpler stepwise approach to define an n-dimensional neighborhood might already be sufficient in which at first ns spatial neighbors and then from each spatial neighbor nt time instances are selected, such that
 
   - Starting values can in most cases be read from the sample variogram
 
@@ -5366,7 +5499,7 @@ lightbox:
   </Details>
 
   - This code backtransforms the logged observed and predicted variables, calculates the residuals, and creates some coordinate dataframes.
-  - There is a bias when back-transforming logged variables. I tested four options: exponentiation, gaussian bias correction, Duan's global smear, and Duan's local smear.
+  - There is a bias when back-transforming logged expected values (outcome variables). I tested four options: exponentiation, gaussian bias correction, Duan's global smear, and Duan's local smear.
     - See [Feature Engineering, General \>\> Continuous \>\> Transformations \>\> Logging](feature-engineering-general.qmd#sec-feat-eng-gen-cont-tran-log){style="color: green"} for the testing code and further details on the backtransformation methods
     - Exponentiating to the median doesn't really fit the use case.
     - The gaussian bias corrections uses the prediction variance from `krigeST(computeVar=TRUE)` but requires the residual destribution to be Normal
