@@ -4248,12 +4248,12 @@ lightbox:
 
 ### Interpolate {#sec-geo-sptemp-krig-inter .unnumbered}
 
-#### Misc
+#### Misc {#sec-geo-sptemp-krig-inter-misc .unnumbered}
 
 - A joint distance is formulated in the same manner as the metric covariance model, and then used to find a subset of data with k-NN for a prediction location. The interpolation performs iteratively for each spatiotemporal prediction location with that local subset of data.
   - Other methods (staged search) and (octant search) are briefly described in the vignette but not implemented in [{gstat}]{style="color: #990000"}
-- No parallel option!
-- `stplot(preds)` will plot the results. For sure with a {spacetime}, not sure with stars or sftime prediciton output classes
+- No parallel option! (but one could be added)
+- `stplot(preds)` is a wrapper around `sp::spplot`. It will plot the results. For sure with a [{spacetime}]{style="color: #990000"} prediction object, not sure with [{stars}]{style="color: #990000"} or [{sftime}]{style="color: #990000"} classes.
 - Regarding Discrete Prediction Zones
   - From the vignette: "An additional consideration is that in space-time, observations may not be regularly spaced. In some cases, the nearest n observations may come from a single measurement location, which may lead to sharp jumps/boundaries in the interpolated values. This might be solved by using larger neighborhoods, or by setting the omax in krige or gstat calls to the neighborhood size to select per octant (this should be combined with specifying maxdist)."
     - These options are not currently available for `krigeST`
@@ -4261,39 +4261,42 @@ lightbox:
     - This may be the case, but adjusting nmax affects your SSE score. So the choice is often going to be whether you want accurate prediction maps or prettier ones.
   - The best case would be you have a substantial number of measurement locations and they're sufficiently dispersed in the study area.
 
-#### `krigeST`
+#### `krigeST` {#sec-geo-sptemp-krig-inter-krigest .unnumbered}
 
 - `krigeST(formula, data, modelList, newdata)`
   - [data]{.arg-text} - Original dataset (used to fit `variogramST`)
     - From docs, "ST object: should contain the dependent variable and independent variables."
-  - [modelList]{.arg-text} - Object returned from `fit.StVariogram`
+  - [modelList]{.arg-text} - Object (Variogram Model) returned from `fit.StVariogram`
   - [newdata]{.arg-text} - An ST object with prediction/simulation locations in space and time
     - Should contain attribute columns with the independent variables (if present).
     - From docs, "ST object with prediction/simulation locations in space and time; should contain attribute columns with the independent variables (if present)."
   - [computeVar = TRUE]{.arg-text} - Returns prediction variances
     - [fullCovariance = TRUE]{.arg-text} - Returns the full covariance matrix
-  - [bufferNmax = 1]{.arg-text} (default) - A factor that get multiplied times [nmax]{.arg-text}. This product is the number of clusters (neighborhoods) created from all spatio-temporal observations. Eventually a certain number ([nmax]{.arg-text}) of spatio-temporal observations will be chosen from one of those clusters to be used to calculate a prediction.
-  - [nmax]{.arg-text} - The maximum number of spatio-temporal observations selected (based on strength of covariance) to be used to calculate a prediction for a time and locations.
+    - Can be used for Prediction Intervals, but also for backtransforming predictions if the target variable has been logged.
+      - Be careful when using this Gaussian bias-correction backtransforming method. If the residual distribution isn't Normal, it could do a worse job than just backtransforming using an exponential. (See [Examples](geospatial-spat-temp.qmd#sec-geo-sptemp-krig-ex){style="color: green"} \>\> Example 2 \>\> Data and Set-Up for an example of this)
+      - In my example, I found these PIs to be pretty conservative. (See [Examples](geospatial-spat-temp.qmd#sec-geo-sptemp-krig-ex){style="color: green"} \>\> Example 2 \>\> Model-specific \>\> PI Coverage)
+  - [bufferNmax = 1]{.arg-text} (default) - A factor that get multiplied times [nmax]{.arg-text}. This product is the number of clusters (neighborhoods) created from all spatio-temporal observations. Eventually a certain number ([nmax]{.arg-text}) of spatio-temporal observations will be chosen from one of those clusters to be used to calculate a prediction. (See the [Local Spatio-Temporal Kriging](geospatial-spat-temp.qmd#sec-geo-sptemp-krig-inter-localk){style="color: green"} section for details)
+  - [nmax]{.arg-text} - The maximum number of spatio-temporal observations selected (based on strength of covariance) to be used to calculate a prediction for a time and locations. (See the [Local Spatio-Temporal Kriging](geospatial-spat-temp.qmd#sec-geo-sptemp-krig-inter-localk){style="color: green"} section for details)
   - [stAni]{.arg-text} - Only needs to be set if the provided variogram model doesn't include a [stAni]{.arg-text} parameter (Seperable and Product-Sum)
 - **Regarding the [data]{.arg-text} and [newdata]{.arg-text} objects**
   - BOTH must be same class — e.g. both must be [STFDF]{.arg-text} objects or both must be [{stars}]{style="color: #990000"} objects
   - BOTH objects' time components must be the same class — e.g. both must be a [Date]{.arg-text} class or both must be [POSIXct]{.arg-text} class
 
-#### Tuning nmax and bufferNmax
+#### Tuning nmax and bufferNmax {#sec-geo-sptemp-krig-inter-tunenb .unnumbered}
 
-- Tuning bufferNmax increased performance by 20% in [Examples](geospatial-spat-temp.qmd#sec-geo-sptemp-krig-ex){style="color: green"} \>\> Example 1 which ended up beating ML models handily (not the case before tuning).
+- Tuning [bufferNmax]{.arg-text} increased performance by 20% in [Examples](geospatial-spat-temp.qmd#sec-geo-sptemp-krig-ex){style="color: green"} \>\> Example 1 which ended up beating ML models handily (not the case before tuning).
 - Process
-  1.  Order is important. [nmax]{.arg-text} should tuned first.
+  1.  Order is important. [nmax]{.arg-text} should be tuned first.
       - The [nmax]{.arg-text} value should be obtained via cross-validation. Just use a 1, 2, or 3 for [bufferNmax]{.arg-text} and select the best [nmax]{.arg-text} according to which model has the lowest SSE.
-  2.  Tune [bufferNmax]{.arg-text}. Use `est_buffernmax` (see Estimate bufferNmax below) to find an estimate of the optimal [bufferNmax]{.arg-text} value. Use this value to create a search grid from.
+  2.  Tune [bufferNmax]{.arg-text}. Use `est_buffernmax` (see [Estimate bufferNmax](geospatial-spat-temp.qmd#sec-geo-sptemp-krig-inter-estbuf){style="color: green"} below) to find an estimate of the optimal [bufferNmax]{.arg-text} value. Use this value to create a search grid from.
       1.  Create a 3 number sequence (estimate $\pm$ 10). For example, if the estimate is 132 and your [nmax]{.arg-text} value is 10, then your grid is: `expand.grid(nmax = 10, bufferNmax = c(122, 132, 142))`
           - I've currently only used this once, but the reasoning behind `est_buffernmax` is pretty sound, and I think it can get pretty close the optimal value. So perhaps, a spread of 5 instead of 10 would be enough.
       2.  Whichever direction yields the lower SSE, Then do a fine search of that region. For example, if the optimal value is between 132 and 142, the next grid would be: `expand.grid(nmax =10, bufferNmax = seq(133, 141))`
           - No need to include 132 and 142 since we already have their SSE scores.
-  3.  (Optional) Tune [nmax]{.arg-text} again for peace of mind that you didn't find a local minimum the first time. For example, if your [nmax]{.arg-text} value has been 10 and the optimal [bufferNmax]{.arg-text} value is 134, then your grid would be: `expand.grid(nmax = c(8, 9, 11, 12), bufferNmax = 134)`
-      - After various stages during my experimentation, I would stop tuning [befferNmax]{.arg-text}. Select the current best [bufferNmax]{.arg-text} value and tune [nmax]{.arg-text} again. The optimal value of nmax never changed. So, I'm not sure this step needs to occur.
+  3.  (Optional) Tune [nmax]{.arg-text} again for peace of mind that you didn't find a local minimum the first time. For example, if your [nmax]{.arg-text} value has been 10 and you find the optimal [bufferNmax]{.arg-text} value is 134, then your grid would be: `expand.grid(nmax = c(8, 9, 11, 12), bufferNmax = 134)`
+      - After various stages during my experimentation, I would stop tuning [bufferNmax]{.arg-text}, select the current best [bufferNmax]{.arg-text} value, and tune [nmax]{.arg-text} again. The optimal value of nmax never changed. So, I'm not sure this step needs to occur.
 
-#### Estimate bufferNmax
+#### Estimate bufferNmax {#sec-geo-sptemp-krig-inter-estbuf .unnumbered}
 
 - [{]{style="color: #990000"}[ebtools::est_bufferNmax](https://ercbk.github.io/ebtools/reference/est_buffernmax.html){style="color: #990000"}[}]{style="color: #990000"} ([code](https://github.com/ercbk/ebtools/blob/master/R/est_buffernmax.R))
 
@@ -4375,7 +4378,7 @@ lightbox:
 
   </Details>
 
-#### Prediction Grids
+#### Prediction Grids {#sec-geo-sptemp-krig-inter-pgrid .unnumbered}
 
 - i.e. [newdata]{.arg-text} input
 
@@ -4472,31 +4475,28 @@ lightbox:
 
   </Details>
 
-#### Local Spatio-Temporal Kriging
+#### Local Spatio-Temporal Kriging {#sec-geo-sptemp-krig-inter-localk .unnumbered}
 
-- Including this section, because I don't want to have figure out exactly what `krigeST.local` is doing ever again. (in case I ever want to optimize this function)
+- Including this section, because I don't want to have figure out exactly what `krigeST.local` is doing ever again. ([Code](https://github.com/r-spatial/gstat/blob/2a578765502dd29520dcc3b40af42c953237faa3/R/krigeST.R#L227-L310)) (in case I ever want to optimize this function)
 - When you include values for [nmax]{.arg-text} and [bufferNmax]{.arg-text}, the function performs local kriging which means instead of every observation being used to make a prediction, a neighborhood of spatio-temporal observations based on convariance is selected to make the prediction.
-- [Code](https://github.com/r-spatial/gstat/blob/2a578765502dd29520dcc3b40af42c953237faa3/R/krigeST.R#L227-L310) on github
+  - Locally solving the kriging system, using only the selected neighborhood rather than all training observations (global kriging), makes computation tractable for large spatio-temporal datasets.
+  - Local kriging also implicitly allows the mean to vary smoothly across the domain since each prediction uses a different local subset of observations, partially relaxing the global stationarity assumption of ordinary kriging.
 - Process
   1.  Build the spatio-temporal coordinate matrices [df]{.var-text} (training data, i.e. [data]{.arg-text}) and [query]{.var-text} (prediction locations, i.e. [newdata]{.arg-text}) by extracting spatial coordinates and time, then scaling time by [stAni]{.arg-text}.
       - For 2D spatial data, columns 1 and 2 are the x and y coordinates and column 4 is the time index. For 3D spatial data, columns 1, 2, and 3 are the coordinates and column 5 is the time index.
-      - Time is converted to numeric (seconds for `POSIXct`) and multiplied by [stAni]{.arg-text} which has been converted from km/day to km/second internally by dividing by 86400. The net effect is that time is expressed in equivalent spatial units (km), making Euclidean distance (for clustering) meaningful across all three dimensions simultaneously.
+      - Time is converted to numeric (seconds for `POSIXct`) and multiplied by [stAni]{.arg-text}. The effect is that time is expressed in equivalent spatial units, making Euclidean distance (for clustering) meaningful across all three dimensions simultaneously.
       - Each row of [df]{.var-text} represents one training observation as `[x, y, time_scaled]` and each row of [query]{.var-text} represents one prediction location as `[x, y, time_scaled]`.
-  2.  For each prediction location in [query]{.var-text}, [k]{.arg-text} nearest neighbors is computed in [df]{.var-text} using Euclidean distance via `FNN::get.knnx`.
-      - The result, [nb]{.var-text}, is a matrix where row [i]{.arg-text} contains the sorted indices of the `ceiling(bufferNmax * nmax)` nearest training observations to prediction location [i]{.arg-text} in the spatio-temporal metric space.
-      - Metric distance is used here as a computationally efficient proxy for covariance strength. It is an imperfect proxy in sum-metric models because two observations at the same metric distance can have very different covariances depending on how their spatial and temporal distance components are distributed across the model's spatial, temporal, and joint components.
-  3.  For each prediction location [i]{.var-text}, subset the training data to the candidate neighbors identified in step 3.
-      - `nghbrData <- data[nb[i, ], , drop = FALSE]` retrieves the full spatio-temporal data object for the candidate neighbors, not just their coordinates. This is necessary because the subsequent covariance evaluation and kriging steps require the actual observed values.
-  4.  If `bufferNmax > 1`, refine the candidate neighbors by evaluating the actual spatio-temporal covariance between each candidate and the prediction location using the fitted variogram model, then retain only the [nmax]{.arg-text} candidates with the strongest covariance.
-      - `covfn.ST` evaluates the full sum-metric covariance function for each candidate, accounting for all components (spatial, temporal, and joint) simultaneously. This is the step that corrects for the imperfect metric distance proxy from step 3.
-      - The retained neighbors are re-sorted by their original index order (not by covariance strength) before being passed to the kriging solver, ensuring the covariance matrix is constructed consistently.
-      - If `bufferNmax = 1`, this refinement step is skipped entirely and the [nmax]{.arg-text} metric-nearest neighbors are used directly without covariance-based selection. This is faster but less accurate in sum-metric models where metric distance is a poor proxy for covariance.
-  5.  Solve the ordinary kriging system for prediction location [i]{.arg-text} using only the [nmax]{.arg-text} selected neighbors via `krigeST.df`, storing the predicted value (and optionally the kriging variance) in row [i]{.arg-text} of the result dataframe [res]{.var-text}.
-      - The kriging system is solved locally using only the selected neighborhood rather than all training observations, making computation tractable for large spatio-temporal datasets.
+  2.  For each prediction location in [query]{.var-text}, [k]{.arg-text} nearest neighbors is computed in [df]{.var-text} using Euclidean distance via [{]{style="color: #990000"}[FNN::get.knnx](https://cran.r-universe.dev/FNN/doc/manual.html#get.knn){style="color: #990000"}[}]{style="color: #990000"}.
+      - The result, [nb]{.var-text}, is a matrix where row [i]{.arg-text} contains the sorted indices of the `k = ceiling(bufferNmax * nmax)` nearest training observations to prediction location [i]{.arg-text} in the spatio-temporal metric space.
+      - `get.knnx` uses euclidean distance to find neighbors by default, but since the time component has been transformed using stAni, this is equivalent to using Metric Distance. (See [Variogram \>\> vgmST](geospatial-spat-temp.qmd#sec-geo-sptemp-krig-var-vgmst){style="color: green"} \>\> Metric for details)
+      - Metric distance is used here as a proxy for covariance strength.
+  3.  For each prediction location [i]{.var-text}, the STIDF training data object ([data]{.var-text}) is subset according to the candidate neighbors identified (nb).
+      - `nghbrData <- data[nb[i, ], , drop = FALSE]` retrieves the full spatio-temporal data object for the candidate neighbors, not just their coordinates and time.
+  4.  The candidate neighbors ([nghbrData]{.var-text}) are refined by evaluating the actual spatio-temporal covariance between each candidate and the prediction location using the fitted variogram model, then only the [nmax]{.arg-text} candidates with the strongest covariance are retained.
+      - `covfn.ST` evaluates the full covariance (variogram) model function for each candidate. This is the step that corrects for the imperfect metric distance proxy.
+      - The retained neighbors are re-sorted by their original index order (not by covariance strength).
+  5.  A (global) kriging model for each prediction location [i]{.arg-text} using [nghbrData]{.var-text} is fit via `krigeST.df`, and the predicted value is stored in row [i]{.arg-text} of the result dataframe, [res]{.var-text}.
       - If [computeVar = TRUE]{.arg-text}, the kriging variance is also computed and stored in `res$var1.var`. This variance reflects the uncertainty of the prediction given the local neighborhood structure and the fitted variogram model.
-      - Local kriging also implicitly allows the mean to vary smoothly across the domain since each prediction uses a different local subset of observations, partially relaxing the global stationarity assumption of ordinary kriging.
-  6.  Repeat steps 4 through 6 for every prediction location in [query]{.var-text} until [res]{.var-text} is fully populated.
-      - A progress bar is displayed if [progress = TRUE]{.arg-text}, updating after each prediction location is processed.
       - The final [res]{.var-text} dataframe has one row per prediction location with columns [var1.pred]{.var-text} (predicted value) and optionally [var1.var]{.var-text} (kriging variance), which are then attached back to the [newdata]{.arg-text} object and returned in its original class format.
 
 #### Other shit
