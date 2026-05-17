@@ -2329,37 +2329,44 @@ lightbox:
   - Only feasible if the number of time replicates is (very) small, as the number of cross variograms to be modelled equals the number of pairs of time replicates.
   - Co-kriging can only interpolate for these time slices, and *not inbetween or beyond them*. It does however provide prediction error covariances, which can help assessing the significance of estimated change parameters
 
-- The best fits of the respective spatio-temporal models might suggest different variogram families and parameters for the pure spatial and temporal ones.
-
 - Spatio-Temporal vs Purely Spatial
 
-  - By examining the spatio-temporal variogram plot, you
-    - [Example]{.ribbon-highlight} (gstat vignette): A temporal lag of one or a few days leads already to a large variability compared to spatial distances of few hundred kilometers, implying that the temporal correlation is too weak to considerably improve the overall prediction.
+  - You can try fitting a purely spatial variogram for each day separately using observations only from that day. However, if you have a small number of observation stations, this can produce unstable variograms. (e.g. montonicity gets broken, large variance between bins, etc.)
+  - Examine the spatio-temporal variogram plot and check the spread of the lags. If there's very little spread, then temporal correlation is weak compared to spatial correlation. Therefore, you can consider modeling each day separately with purely spatial kriging models.
 
 - For large datasets
 
-  - Try local kriging (instead of global kriging) by selecting data within some distance or by specifying [nmax]{.arg-text} (the nearest n observations). (See `krigeST` below)
+  - Use local kriging (instead of global kriging) by selecting data within some distance or by specifying [nmax]{.arg-text} (the nearest n observations). (See `krigeST` below)
+    - I'd argue to use local kriging unless the data require you to use global kriging (e.g. too few observations per station, dense station positioning).
 
-- Workflow
+- Basic Workflow
 
   ``` r
   # calculate sample/empirical variogram
-  vario_samp <- variogramST()
+  vario_emp <- variogramST(response ~ 1, data = stfdf)
 
   # specify covariance model
-  mod_cvar <- vgmST()
+  cvar_mod <- vgmST(cvar_mod_type_parameters)
 
   # fit variogram model
   vario_mod <- 
     fit.STVariogram(
-      object = vario_samp,
-      model = mod_cvar
+      object = vario_emp,
+      model = cvar_mod
     )
 
-  # run variogram diagnostics
+  # run variogram diagnostics for cvar mod selection
+  # sum of squared errors
   attr(vario_mod, "optim")$value
-  plot(vario_mod)
+  # compare fit (vario_mod) with observations (vario_emp)
   plot(vario_samp, vario_mod, wireframe = T)
+
+  # calculate predictions
+  preds <- krigeST(
+    data = stfdf,
+    newdata = pred_grid,
+    modelList = vario_mod
+  )
   ```
 
 ### Starting Values {#sec-geo-sptemp-krig-stval .unnumbered}
@@ -3046,6 +3053,7 @@ lightbox:
 
 - [Docs](https://cran.r-project.org/web/packages/gstat/refman/gstat.html#vgmST)
 - Specifies the variogram model function.
+- The best fits might have different variogram families and parameters for the pure spatial and temporal components.
 - [Misc]{.underline}
   - See [Geospatial, Kriging \>\> Variograms](geospatial-kriging.qmd#sec-geo-krig-vario){style="color: green"} \>\> Terms for descriptions of sill, nugget, and range.
   - For `vgm`, you can just use `vgm("exponential")` and not worry about setting parameters like sill, nugget, etc. This might also be the case with `vgmST`. (See comments below [Geospatial, Kriging \>\> Variograms](geospatial-kriging.qmd#sec-geo-krig-vario){style="color: green"} \>\> Example 1)
@@ -4250,15 +4258,14 @@ lightbox:
 
 #### Misc {#sec-geo-sptemp-krig-inter-misc .unnumbered}
 
-- A joint distance is formulated in the same manner as the metric covariance model, and then used to find a subset of data with k-NN for a prediction location. The interpolation performs iteratively for each spatiotemporal prediction location with that local subset of data.
-  - Other methods (staged search) and (octant search) are briefly described in the vignette but not implemented in [{gstat}]{style="color: #990000"}
-- No parallel option! (but one could be added)
+- No parallel option! (but one could be added for local kriging)
 - `stplot(preds)` is a wrapper around `sp::spplot`. It will plot the results. For sure with a [{spacetime}]{style="color: #990000"} prediction object, not sure with [{stars}]{style="color: #990000"} or [{sftime}]{style="color: #990000"} classes.
 - Regarding Discrete Prediction Zones
-  - From the vignette: "An additional consideration is that in space-time, observations may not be regularly spaced. In some cases, the nearest n observations may come from a single measurement location, which may lead to sharp jumps/boundaries in the interpolated values. This might be solved by using larger neighborhoods, or by setting the omax in krige or gstat calls to the neighborhood size to select per octant (this should be combined with specifying maxdist)."
+  - Sometimes the prediction surfaces look zonal or patchy (see [Examples](geospatial-spat-temp.qmd#sec-geo-sptemp-krig-ex){style="color: green"} \>\> Example 3 \>\> Visualize) instead of the smooth gradient blending of colors that is shown in gstat vignettes and the SDS book.
+  - From the vignette: "An additional consideration is that in space-time, observations may not be regularly spaced. In some cases, the nearest n observations may come from a single measurement location, which may lead to sharp jumps/boundaries in the interpolated values. This might be solved by using larger neighborhoods, or by setting the [omax]{.arg-text} in krige or gstat calls to the neighborhood size to select per octant (this should be combined with specifying [maxdist]{.arg-text})."
     - These options are not currently available for `krigeST`
-  - From SDS, end of Ch.13: "A larger value for nmax was needed here to decrease the visible disturbance (sharp edges) caused by discrete neighborhood selections, which are now done in space and time."
-    - This may be the case, but adjusting nmax affects your SSE score. So the choice is often going to be whether you want accurate prediction maps or prettier ones.
+  - From SDS, end of Ch.13: "A larger value for [nmax]{.arg-text} was needed here to decrease the visible disturbance (sharp edges) caused by discrete neighborhood selections, which are now done in space and time."
+    - This may be the case, but adjusting [nmax]{.arg-text} affects your SSE score. So the choice is often going to be whether you want accurate prediction maps or prettier ones.
   - The best case would be you have a substantial number of measurement locations and they're sufficiently dispersed in the study area.
 
 #### `krigeST` {#sec-geo-sptemp-krig-inter-krigest .unnumbered}
@@ -4498,27 +4505,6 @@ lightbox:
   5.  A (global) kriging model for each prediction location [i]{.arg-text} using [nghbrData]{.var-text} is fit via `krigeST.df`, and the predicted value is stored in row [i]{.arg-text} of the result dataframe, [res]{.var-text}.
       - If [computeVar = TRUE]{.arg-text}, the kriging variance is also computed and stored in `res$var1.var`. This variance reflects the uncertainty of the prediction given the local neighborhood structure and the fitted variogram model.
       - The final [res]{.var-text} dataframe has one row per prediction location with columns [var1.pred]{.var-text} (predicted value) and optionally [var1.var]{.var-text} (kriging variance), which are then attached back to the [newdata]{.arg-text} object and returned in its original class format.
-
-#### Other shit
-
-- Vignette raw notes
-  - we could have fitted the spatial variogram for each day separately using observations from that day only. However, given the small number of observation stations, this produced unstable variograms for several days and we decided to use the single spatial variogram derived from all spatio-temporal locations treating time slices as uncorrelated copies of the spatial random field.
-
-    - Either add to workflow or misc in kriging
-
-  - A temporal lag of one or a few days leads already to a large variability compared to spatial distances of few hundred kilometres, implying that the temporal correlation is too weak to considerably improve the overall prediction.
-
-    - Think this a comment about a table of results but it refers to the empircal variogram
-
-  - Further preprocessing steps might be necessary to improve the modelling of this PM10 data set such as for instance a temporal AR-model followed by spatio-temporal residual kriging or using further covariates in a preceding (linear) modelling step.
-
-    - Need to research the AR model part
-
-  - The prediction at an unobserved location with a cluster of observations at one side will be biased towards this cluster and neglect the locations towards the other directions. Similar as the quadrant search in the pure spatial case an octant wise search strategy for the local neighborhood would solve this limitation. A simpler stepwise approach to define an n-dimensional neighborhood might already be sufficient in which at first ns spatial neighbors and then from each spatial neighbor nt time instances are selected, such that
-
-  - Starting values can in most cases be read from the sample variogram
-
-    - need to see if a st empirical variogram can be plotted (or printed?) and what can actually be gleaned from it
 
 ### Examples {#sec-geo-sptemp-krig-ex .unnumbered}
 
