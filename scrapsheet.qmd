@@ -10,18 +10,9 @@ title: "Scrapsheet"
 
 - cereal
 - snacks
-  - bbq chips
-  - nuts
-  - popcorn
 - frozen
-  - ice cream
-  - frozen lunch?
-  - fries
-  - detroit pepperoi pizza
-  - french bread pizza
 - strawberry juice
 - orange juice
-- pepto
 
 ## Misc
 
@@ -70,6 +61,294 @@ title: "Scrapsheet"
     - Each EOF is an eigenvector ($V$) representing a spatial pattern, and its eigenvalue tells you how much variance that pattern explains. The PC is a time series ($\text{PC1}_i = V_{(,1)} \cdot A_{(i,)}$)
 
   - Example: In sea surface temperature data, EOF1 might reveal the El Niño/La Niña pattern — showing warming/cooling in the tropical Pacific. The associated PC would be a time series showing El Niño events as positive peaks and La Niña as negative troughs.
+
+## [{stars}]{style="color: #990000"}
+
+- Basic GeoTIFF inspection\
+  image\
+  image
+
+  ``` r
+  tif <- system.file("tif/L7_ETMs.tif", package = "stars")
+  library(stars)
+  # Loading required package: abind
+  (r <- read_stars(tif))
+  # stars object with 3 dimensions and 1 attribute
+  # attribute(s):
+  #              Min. 1st Qu. Median Mean 3rd Qu. Max.
+  # L7_ETMs.tif     1      54     69 68.9      86  255
+  # dimension(s):
+  #      from  to  offset delta            refsys point x/y
+  # x       1 349  288776  28.5 SIRGAS 2000 / ... FALSE [x]
+  # y       1 352 9120761 -28.5 SIRGAS 2000 / ... FALSE [y]
+  # band    1   6      NA    NA                NA    NA
+
+  length(r)
+  # [1] 1
+  class(r[[1]])
+  # [1] "array"
+  dim(r[[1]])
+  #    x    y band 
+  #  349  352    6
+
+  st_bbox(r)
+  #    xmin    ymin    xmax    ymax 
+  #  288776 9110729  298723 9120761
+
+  plot(r)
+
+  par(mfrow = c(1, 2))
+  plot(r, rgb = c(3,2,1), reset = FALSE, main = "RGB")    # rgb
+  plot(r, rgb = c(4,3,2), main = "False colour (NIR-R-G)") # false colour
+  ```
+
+  - Components
+    - `from`: starting index
+    - `to`: ending index
+    - `offset`: dimension value at the start (edge) of the first pixel
+    - `delta`: cell size; negative `delta` values indicate that pixel index increases with decreasing dimension values
+    - `refsys`: reference system
+    - `point`: logical, indicates whether cell values have point support or cell support
+    - `x/y`: indicates whether a dimension is associated with a spatial raster x- or y-axis
+  - For regular, rotated, or sheared grids or other regularly discretised dimensions (such as time), `offset` and `delta` are not `NA`
+  - irregular cases, `offset` and `delta` are `NA` and the `values` property contains one of:
+    - in case of a rectilinear spatial raster or irregular time dimension, the sequence of values or intervals
+
+    - in case of a vector data cube, geometries associated with the spatial dimension
+
+    - in case of a curvilinear raster, the matrix with coordinate values for each raster cell
+
+    - in case of a discrete dimension, the band names or labels associated with the dimension values
+  - See <https://r-spatial.org/book/07-Introsf.html#plotting-raster-data> for images
+
+- Subsetting
+
+  - By bracket
+
+    - attributes first (by name, index, or logical vector)
+    - followed by each dimension.
+    - Selecting discontinuous ranges is supported only when it is a regular sequence
+    - By default, `drop` is FALSE, when set to `TRUE` dimensions with a single value are dropped
+
+  - Example: bracket and dplyr
+
+    ``` r
+    r[1:2, 101:200, , 5:10]
+
+    # selecting particular ranges of dimension values
+    filter(r, x > 289000, x < 290000)
+    # stars object with 3 dimensions and 1 attribute
+    # attribute(s):
+    #              Min. 1st Qu. Median Mean 3rd Qu. Max.
+    # L7_ETMs.tif     5      51     63 64.3      75  242
+    # dimension(s):
+    #      from  to  offset delta            refsys point x/y
+    # x       1  35  289004  28.5 SIRGAS 2000 / ... FALSE [x]
+    # y       1 352 9120761 -28.5 SIRGAS 2000 / ... FALSE [y]
+    # band    1   6       1     1                NA    NA
+
+    slice(r, band, 3)
+    # stars object with 2 dimensions and 1 attribute
+    # attribute(s):
+    #              Min. 1st Qu. Median Mean 3rd Qu. Max.
+    # L7_ETMs.tif    21      49     63 64.4      77  255
+    # dimension(s):
+    #   from  to  offset delta            refsys point x/y
+    # x    1 349  288776  28.5 SIRGAS 2000 / ... FALSE [x]
+    # y    1 352 9120761 -28.5 SIRGAS 2000 / ... FALSE [y]
+    ```
+
+    - Selects from r attributes 1-2, index 101-200 for dimension 1, and index 5-10 for dimension 3; omitting dimension 2 means that no subsetting takes place.
+    - Note in components example, xmin of the bounding box was x's offset and ymax was y's offset. Now x's offset is 289004 after filtering.
+      - x's to index has changed
+    - `slice` selects the 3rd band and in the summary the band dimension is dropped since there's only 1 now
+      - Neither to index has changed
+    - `mutate` can be used on `stars` objects to add new arrays as functions of existing ones, `transmute` drops existing ones
+
+  - By buffer zone
+
+    ``` r
+    b <- st_bbox(r) |>
+        st_as_sfc() |>
+        st_centroid() |>
+        st_buffer(units::set_units(500, m))
+    r[b]
+    # stars object with 3 dimensions and 1 attribute
+    # attribute(s):
+    #              Min. 1st Qu. Median Mean 3rd Qu. Max. NA's
+    # L7_ETMs.tif    22      54     66 67.7    78.2  174 2184
+    # dimension(s):
+    #      from  to  offset delta            refsys point x/y
+    # x     157 193  288776  28.5 SIRGAS 2000 / ... FALSE [x]
+    # y     159 194 9120761 -28.5 SIRGAS 2000 / ... FALSE [y]
+    # band    1   6      NA    NA                NA    NA
+
+    r[b] |> st_normalize() |> st_dimensions()
+    #      from to  offset delta            refsys point x/y
+    # x       1 37  293222  28.5 SIRGAS 2000 / ... FALSE [x]
+    # y       1 36 9116258 -28.5 SIRGAS 2000 / ... FALSE [y]
+    # band    1  6      NA    NA                NA    NA
+
+    # alternatively
+    st_crop(r, b)
+    ```
+
+    - This object still has dimension indexes *relative to* the offset and delta values of r
+    - `st_normalize` and `st_dimensions` set the object with the new offset
+      - i.e. the indexes are reset so this r\[b\] is it's own independent stars object (if it was assigned to a variable). It's now been cropped
+
+  - Sample and Extract
+
+    ``` r
+    set.seed(115517)
+    pts <- st_bbox(r) |> st_as_sfc() |> st_sample(20)
+    (e <- st_extract(r, pts))
+    # stars object with 2 dimensions and 1 attribute
+    # attribute(s):
+    #              Min. 1st Qu. Median Mean 3rd Qu. Max.
+    # L7_ETMs.tif    12    41.8     63   61    80.5  145
+    # dimension(s):
+    #          from to            refsys point
+    # geometry    1 20 SIRGAS 2000 / ...  TRUE
+    # band        1  6                NA    NA
+    #                                           values
+    # geometry POINT (293002 ...,...,POINT (290941 ...
+    # band                                        NULL
+    ```
+
+    - The output is a **vector data cube**
+
+- Aggregate
+
+  - Aggregation over a temporal dimension is done by passing a time variable as the second argument (unclear to me how exactly this is done though)
+
+  - Example: Maximum pixel values in 3 buffer zones
+
+    ``` r
+    circles <- st_sample(st_as_sfc(st_bbox(r)), 3) |>
+        st_buffer(500)
+
+    aggregate(r, circles, max)
+    # stars object with 2 dimensions and 1 attribute
+    # attribute(s):
+    #              Min. 1st Qu. Median Mean 3rd Qu. Max.
+    # L7_ETMs.tif    73    94.2    117  121     142  205
+    # dimension(s):
+    #          from to            refsys point
+    # geometry    1  3 SIRGAS 2000 / ... FALSE
+    # band        1  6                NA    NA
+    #                                           values
+    # geometry POLYGON ((2913...,...,POLYGON ((2921...
+    # band                                        NULL
+    ```
+
+    - Says sample 3 points from r and create a buffer zones of 500m around each point. Output is a vector data cube.
+    - `aggregate` finds the max pixel value in each buffer zone
+      - Since r has six bands, this is done for all six bands.
+
+  - Example: Find mean of all six bands for each pixel
+
+    ``` r
+    st_apply(r, c("x", "y"), mean)
+    # stars object with 2 dimensions and 1 attribute
+    # attribute(s):
+    #       Min. 1st Qu. Median Mean 3rd Qu. Max.
+    # mean  25.5    53.3   68.3 68.9      82  255
+    # dimension(s):
+    #   from  to  offset delta            refsys point x/y
+    # x    1 349  288776  28.5 SIRGAS 2000 / ... FALSE [x]
+    # y    1 352 9120761 -28.5 SIRGAS 2000 / ... FALSE [y]
+    ```
+
+  - Example: Compute the NDVI (normalised differenced vegetation index)
+
+    ``` r
+    ndvi <- function(b1, b2, b3, b4, b5, b6) (b4 - b3)/(b4 + b3)
+    # alternatively
+    # ndvi2 <- function(x) (x[4]-x[3])/(x[4]+x[3])
+
+    st_apply(r, c("x", "y"), ndvi)
+    # stars object with 2 dimensions and 1 attribute
+    # attribute(s):
+    #         Min. 1st Qu.  Median    Mean 3rd Qu.  Max.
+    # ndvi  -0.753  -0.203 -0.0687 -0.0643   0.187 0.587
+    # dimension(s):
+    #   from  to  offset delta            refsys point x/y
+    # x    1 349  288776  28.5 SIRGAS 2000 / ... FALSE [x]
+    # y    1 352 9120761 -28.5 SIRGAS 2000 / ... FALSE [y]
+    ```
+
+  - Example: Mean of every pixel for each band
+
+    ``` r
+    st_apply(r, c("band"), mean) |> as.data.frame()
+    #   band mean
+    # 1    1 79.1
+    # 2    2 67.6
+    # 3    3 64.4
+    # 4    4 59.2
+    # 5    5 83.2
+    # 6    6 60.0
+    ```
+
+- Model
+
+  - Example: LDA
+
+    ``` r
+    # coerces bands to a predictor variable
+    rs <- split(r)
+
+    # create training set
+    trn <- st_extract(rs, pts)
+
+    # create target variable
+    trn$cls <- rep("land", 20)
+    trn$cls[c(8, 14, 15, 18, 19)] <- "water"
+
+    # train and predict
+    model <- MASS::lda(cls ~ ., st_drop_geometry(trn))
+    pr <- predict(rs, model)
+    ```
+
+    - split: Takes the bands dimension and makes it an attribute. The bands can now be used as predictors in the model
+    - st_extract subsets the pts (from Sample and Extract) example to create a training set.
+    - See source for basic plot of the predictions
+
+- Other
+
+  - Transforming values
+
+    - Arithmetic operations
+
+      ``` r
+      log(r)
+
+      r + 2 * log(r)
+      # stars object with 3 dimensions and 1 attribute
+      # attribute(s):
+      #              Min. 1st Qu. Median Mean 3rd Qu. Max.
+      # L7_ETMs.tif     1      62   77.5 77.1    94.9  266
+      # dimension(s):
+      #      from  to  offset delta            refsys point x/y
+      # x       1 349  288776  28.5 SIRGAS 2000 / ... FALSE [x]
+      # y       1 352 9120761 -28.5 SIRGAS 2000 / ... FALSE [y]
+      # band    1   6      NA    NA                NA    NA
+      ```
+
+      - Results can be seen in the summary statistics section
+
+  - Masking and unmasking
+
+    ``` r
+    # masking
+    r2 <- r
+    r2[r < 50] <- NA
+
+    # unmasking
+    r2[is.na(r2)] <- 0
+    r2
+    ```
 
 ## Multivariable Geostatistics
 
@@ -545,20 +824,27 @@ Z_n(s) &= X_n \beta_n + e_n(s)
   - only the Gaussian graphical model and the Gaussian mixture model have been enriched by the transfer learning framework.
 - Paper goals
   - Utilizing Bradley-Terry and its generalization the Plackett-Luce models – in order to improve inference on parameters underlying a primary attribute by utilising information contained in the secondary attributes
+
     - Models frequently used in pairwise comparison data
     - method is then incorporated into the transfer learning framework and extended upon, resulting in algorithms that generate estimates for the primary attribute with and without a known set of informative secondary attributes
+
   - typically only a subset of the secondary attributes is useful when estimating the primary attribute parameters, we adapt the framework proposed by Tian and Feng, where we introduce an algorithm that is able to effectively infer the set of informative secondary attributes
+
   - Bradley-Terry\
 
     $$\begin{aligned}
     &P(o_j > o_l) = \frac{e^{\alpha_j}}{e^{\alpha_j} + e^{\alpha_l}} \\
     &\text{where} \; 1 \le j \ne l \le M
     \end{aligned}$$
+
     - Each individual $i$ assigns their preference for one object $j$ over another object $l$ from a total pool of $M$ objects.
     - Assumes that underlying each object there exists some worth $\alpha$ that relates to its probability of being preferred over another objects.
     - These pairwise comparisons can be presented by an undirected graph $\mathcal{G} =(\mathcal{V}, \mathcal{E})$, with vertices $\mathcal{V} = \{1, \ldots, M\}$ and edge set $\mathcal{E}$ that has the property that $(j, l) \in \mathcal{E}$ if and only if objects $j$ and $l$ are compared at least once in the data. The following conditions are postulated for the pairwise comparison graph.
+
   - Assumptions
+
   - Data
+
     - partial ranking: $\{o_1 \gt \cdots \gt o_m\}$
     - pairwise comparisons: $\bigcap_{1 \le j \ne l \le M} \: \{o_j \gt o_l\}$
 
@@ -653,18 +939,23 @@ Z_n(s) &= X_n \beta_n + e_n(s)
 ## Signature Transform
 
 - Todo
+
   - Continue reading
   - Look at the separate papers from with the applied data examples are taken from
   - Go back to original Amazon paper and see if signature parts and its appendix make more sense.
   - Look at Discussion section in Signatory github and ask questions
+
 - Misc
+
   - $e$ is a monomial (pg 13)
   - $\lambda$ is a real number (pg 13)
   - $\otimes$ is defined as the the *joining* (i.e. concantenating) of multi-indexes of monomials: $e_{i_1} \cdots e_{i_k} \otimes e_{j_1} \cdots e_{j_m} = e_{i_1} \cdots e_{i_k} e_{j_1} \cdots e_{j_m}$ (pg 13)
     - Chen's Identity: $S(X*Y)_{a,c} = S(X)_{a,b} \otimes S(Y)_{b,c}$ where $X*Y$ is the concantenation of two paths (pg 14)
       - So the signature of a concantenated path is equal to the circle-product of the signatures of the component paths.
     - $\otimes n$ is the n^th^ power with respect to the circle product, $\otimes$ (pg15)\
+
 - Workflow
+
   - Create a continuous path $X_i$ from each time-series $\{Y_i\}$ (row-wise)
   - If needed, make use of the lead-lag transform to account for the variability in data
     - Cumalative sum transform is another
@@ -672,15 +963,21 @@ Z_n(s) &= X_n \beta_n + e_n(s)
     - Either a Full or Log signature
   - Standardize each signature column
   - Use the terms of signature $\{S^I_i\}$ as features
+
 - Issue
+
   - Degeneracy in the terms of the signature causes this representation not to be unique and introducing a problem of colinearity of the signature terms.
     - Solution: LASSO, ridge or elastic net regularization
     - Paper uses a 2-step lasso where signature features are selected by LASSO. Then those selected features are used in a second regression with other predictors.
+
 - Signature
+
   - $S^{(1)}_{a,b} = X_b - X_a$
   - $S^{(1,1)}_{a,b} = \frac{(X_b - X_a)^2}{2!}$
   - $S^{(1,1,1)}_{a,b} = \frac{(X_b - X_a)^3}{3!}$
+
 - Cumulative + Lead Lag Signature Truncated to Level 2
+
   - Signature
     - $S(\tilde X)|_{L=2} = (1, S^{(1)}, S^{(2)}, S^{(1,1)}, S^{(1,2)}, S^{(2,1)}, S^{(2,2)})$
     - $S^{(1)} = S^{(2)} = \sum_i^N X_i$
@@ -690,12 +987,15 @@ Z_n(s) &= X_n \beta_n + e_n(s)
   - Moments
     - Mean(X): $\frac{1}{N}S^{(1)}$
     - Var(X): $-\frac{N+1}{N^2}S^{(1,2)} + \frac{N-1}{N^2}S^{(2,1)}$
+
 - Lead Lag Signature Truncated to Level 2
+
   - $S(\tilde X)|_{L=2} = (1, S^{(1)}, S^{(2)}, S^{(1,1)}, S^{(1,2)}, S^{(2,1)}, S^{(2,2)})$
   - $S^{(1)} = S^{(2)} = \sum_i^{N-1} (X_{i+1} - X_i)$
   - $S^{(1,1)} = S^{(2,2)} = \frac{1}{2} \left(\sum_i^N (X_{i+1} - X_i) \right)^2$
   - $S^{(1,2)} = \frac{1}{2} \left[\left(\sum_i^N (X_{i+1} - X_i)\right)^2 + \sum_i^N (X_{i+1} - X_i) \right]$
   - $S^{(2,1)} = \frac{1}{2} \left[\left(\sum_i^N (X_{i+1} - X_i)\right)^2 - \sum_i^N (X_{i+1} - X_i) \right]$
+
 - Log Signature Truncated to Level 2\
 
   $$\begin{aligned}
@@ -705,6 +1005,7 @@ Z_n(s) &= X_n \beta_n + e_n(s)
   &\text{QV}(X)) = \sum_{i=1}^{N-1} (X_{i+1} - X_i)^2
   \end{aligned}
   \end{aligned}$$
+
   - [Example]{.ribbon-highlight}: eq 2.17, Calculation for Quadratic Variation (QV)
 
     ``` r
@@ -723,7 +1024,9 @@ Z_n(s) &= X_n \beta_n + e_n(s)
     QV(x, x_lead)
     #> [1] 29
     ```
+
 - Questions
+
   - $\otimes n$ makes no sense (pg 15) — just literally
   - Log transform makes no sense (pg 15, 16) in terms of applying it to data
   - Formula never provided lag-lead dimensions (pg 20)
@@ -737,7 +1040,9 @@ Z_n(s) &= X_n \beta_n + e_n(s)
     - In order to capture the quadratic variation of the price, the path is extended by means of a lead-lag transform ()
   - Annoying phrases
     - One can easily rewrite (pg 26) - then just spits out an answer with no previous example of how it was obtained.
+
 - Full Signature
+
   - The terms of the signature are iterated integrals of a path, while the path is normally constructed by an interpolation of data points. One can compute such iterated integrals using several computational algorithms (cubature methods) which are generally straightforward to implement. (sect 2.3, pg 34)
   - Signature approach is to convert data into paths and then compute the iterated integrals of the resulting paths (sect 2.4.1, pg 35)
 

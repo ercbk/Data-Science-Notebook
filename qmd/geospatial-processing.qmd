@@ -109,6 +109,36 @@
 
 ### Reading/Writing
 
+- Geopackage
+
+  - Check for available layers, Read, and Write
+
+    ``` r
+    st_layers("path/to/nc.gpkg")
+    # Driver: GPKG 
+    # Available layers:
+    #   layer_name geometry_type features fields crs_name
+    # 1    nc.gpkg Multi Polygon      100     14    NAD27
+
+    nc <- st_read("path/to/nc.gpkg")
+    # Reading layer `nc.gpkg' from data source 
+    #   `/home/edzer/R/x86_64-pc-linux-gnu-library/4.4/sf/gpkg/nc.gpkg' 
+    #   using driver `GPKG'
+    # Simple feature collection with 100 features and 14 fields
+    # Geometry type: MULTIPOLYGON
+    # Dimension:     XY
+    # Bounding box:  xmin: -84.3 ymin: 33.9 xmax: -75.5 ymax: 36.6
+    # Geodetic CRS:  NAD27
+
+    st_write(
+      nc, 
+      "path/to/nc.gpkg", 
+      layer = "layer_nc"
+    )
+    ```
+
+    - [append]{.arg-text}: Allows `st_write` to either append records to an existing layer or replace it
+
 - GeoJSON
 
   - Write data to geojson
@@ -611,16 +641,13 @@
 
 ### Misc {#sec-geo-proc-sf-misc .unnumbered}
 
-- [Docs](https://r-spatial.github.io/sf/), [tidyverse methods for sf objects](https://r-spatial.github.io/sf/reference/tidyverse.html)
+- [Docs](https://r-spatial.github.io/sf/)
 
 - Notes from [A Crash Course in Geographic Information Systems (GIS) using R](https://bookdown.org/michael_bcalles/gis-crash-course-in-r/)
 
 - sf vs sfc
 
   - sfc is a geometry column (just spatial data)
-
-  <!-- -->
-
   - sf is a data frame + geometry (full spatial dataset)
 
 - GEOS and S2 are engines
@@ -637,9 +664,42 @@
     #> [1] ‘1.1.7’
     ```
 
+- Create sf objects
+
+  - With point locations ([source](https://r-spatial.org/book/07-Introsf.html#creation))\
+    ![](_resources/Geospatial,_Processing.resources/sf-obj-components.png){.lightbox width="532"}
+
+    ``` r
+    # location coordinates
+    p1 <- st_point(c(7.35, 52.42))
+    p2 <- st_point(c(7.22, 52.18))
+    p3 <- st_point(c(7.44, 52.19))
+    # geometry column
+    sfc <- st_sfc(list(p1, p2, p3), crs = 'OGC:CRS84')
+    # sf class data.frame
+    st_sf(elev = c(33.2, 52.1, 81.2), 
+          marker = c("Id01", "Id02", "Id03"), geom = sfc)
+    # Simple feature collection with 3 features and 2 fields
+    # Geometry type: POINT
+    # Dimension:     XY
+    # Bounding box:  xmin: 7.22 ymin: 52.2 xmax: 7.44 ymax: 52.4
+    # Geodetic CRS:  WGS 84 (CRS84)
+    #   elev marker              geom
+    # 1 33.2   Id01 POINT (7.35 52.4)
+    # 2 52.1   Id02 POINT (7.22 52.2)
+    # 3 81.2   Id03 POINT (7.44 52.2)
+    ```
+
 ### Functions {#sec-geo-proc-sf-funs .unnumbered}
 
+- [tidyverse functions for sf objects](https://r-spatial.github.io/sf/reference/tidyverse.html)
+
+  - `summarize` has 2 extra arguments
+    - [do_union]{.arg-text} (default [TRUE]{.arg-text}) determines whether grouped geometries are unioned on return, so that they form a valid geometry
+    - [is_coverage]{.arg-text} (default [FALSE]{.arg-text}) in case the geometries grouped form a coverage (do not have overlaps), setting this to `TRUE` speeds up the unioning
+
 - `st_agr` - Gets or sets the “attribute-geometry relationship” (AGR) — that is, how each non-geometry attribute (column) relates to its geometry column
+
   - Certain geometric operations — like `st_union`, `st_intersection`, or `st_join` — may need to know how to handle attributes when geometries are modified or combined.
 
   - Possible Values
@@ -780,6 +840,47 @@
       - [nQuadSegs]{.arg-text} controls the number of segments used to approximate the circle. When set to 0, it returns a 2-point LINESTRING (center point and a point on the circle). This representation is more accurate (center + radius) and efficient than using a polygon. This setting is only available for GEOS \>= "3.9.0". In general, a higher value (e.g. default = 30) results in a smoother polygon.
     - `st_cast`: Converts the 2-point LINESTRING to just a (center) point ([to = "POINT"]{.arg-text})
 
+- [Example]{.ribbon-hilghlight}: Find counties within 50km from Orange County ([source](https://r-spatial.org/book/07-Introsf.html#tidyverse))\
+  ![](_resources/Geospatial,_Processing.resources/sf-meas-ex1-orangebuffer-1.png){.lightbox width="532"}
+
+  ``` r
+  file <- system.file("gpkg/nc.gpkg", package = "sf")
+  nc <- st_read(file)
+  # Reading layer `nc.gpkg' from data source 
+  #   `/home/edzer/R/x86_64-pc-linux-gnu-library/4.4/sf/gpkg/nc.gpkg' 
+  #   using driver `GPKG'
+  # Simple feature collection with 100 features and 14 fields
+  # Geometry type: MULTIPOLYGON
+  # Dimension:     XY
+  # Bounding box:  xmin: -84.3 ymin: 33.9 xmax: -75.5 ymax: 36.6
+  # Geodetic CRS:  NAD27
+
+  orange <- nc |> 
+    dplyr::filter(NAME == "Orange")
+
+  wd <- st_is_within_distance(
+    nc, 
+    orange, 
+    units::set_units(50, km)
+  )
+
+  # counties within 50km
+  o50 <- nc |> 
+    dplyr::filter(lengths(wd) > 0)
+  nrow(o50)
+  # [1] 17
+
+  # plot
+  og <- st_geometry(orange)
+  buf50 <- st_buffer(og, units::set_units(50, km))
+  all <- c(buf50, st_geometry(o50))
+
+  plot(st_geometry(o50), lwd = 2, extent = all)
+  plot(og, col = 'orange', add = TRUE)
+  plot(buf50, add = TRUE, col = NA, border = 'brown')
+  plot(st_geometry(nc), add = TRUE, border = 'grey')
+  ```
+
 ### Transformations {#sec-geo-proc-sf-trans .unnumbered}
 
 - [Buffer]{.underline}\
@@ -824,8 +925,7 @@
     - The overlapping polygons become one polygon
     - For big data, order points in both sets by latitude and longitude before using `st_union`. This can cut down processing time substantially. ([source](https://bsky.app/profile/fbabovic.bsky.social/post/3lsyraqgwik2z))
 
-- [Intersection\]{.underline}
-  ![st_intersection](_resources/Geospatial,_Processing.resources/sf-intersect-1.png){.lightbox width="482"}
+- \[Intersection\]{.underline} ![st_intersection](_resources/Geospatial,_Processing.resources/sf-intersect-1.png){.lightbox width="482"}
 
   - `st_intersect` - A binary predicate (i.e. logical) that tests whether a geometry/cell in a grid/etc. intersects another geometry/cell in a grid/etc. Outputs 1/0.
 
@@ -872,7 +972,48 @@
 
 ### Joins {#sec-geo-proc-sf-join .unnumbered}
 
-- [{]{style="color: #990000"}[fjoin](https://cran.r-project.org/web/packages/fjoin/index.html){style="color: #990000"}[}]{style="color: #990000"} - [{data.table}]{style="color: #990000"} extension that supports sf/sfc object joins (retains attributes)
+- Also see
+
+  - [Aggregations](geospatial-processing.qmd#sec-geo-proc-agg){style="color: green"} \>\> Example 5 \>\> Area Weighted Aggregation (`st_equals`)
+  - [Geospatial, Analysis \>\> Descriptive](geospatial-analysis.qmd#sec-geo-anal-desc){style="color: green"} \>\> Average Elevation for Areas (`st_intersects`)
+
+- Packages
+
+  - [{]{style="color: #990000"}[fjoin](https://cran.r-project.org/web/packages/fjoin/index.html){style="color: #990000"}[}]{style="color: #990000"} - [{data.table}]{style="color: #990000"} extension that supports sf/sfc object joins (retains attributes)
+
+- A spatial join is similar to a starndard dataframe join, but the criterion to join records is not equality of attributes but a spatial predicate. (e.g. st_intersects, st_equals, etc)
+
+  - `st_intersects` is the default
+
+- The concepts of “left”, “right”, “inner”, or “full” joins remain identical to the non-spatial join as the options for handling records that have no spatial match
+
+- [Example]{.ribbon-highlight}: [largest = TRUE]{.arg-text} ([source](https://r-spatial.org/book/07-Introsf.html#spatial-joins))\
+  ![](_resources/Geospatial,_Processing.resources/sf-join-largest-1.png){.lightbox width="632"}
+
+  ``` r
+  system.file("gpkg/nc.gpkg", package="sf") |> 
+      read_sf() |>
+      st_transform('EPSG:2264') -> nc
+
+  gr <- st_sf(
+    label = apply(
+      expand.grid(1:10, LETTERS[10:1])[,2:1],
+      1, 
+      paste0, 
+      collapse = ""
+    ),
+    geom = st_make_grid(nc)
+  )
+
+  gr$col <- sf.colors(10, categorical = TRUE, alpha = .3)
+
+  # cut, to verify that NA's work out:
+  gr <- gr[-(1:30),]
+
+  suppressWarnings(nc_j <- st_join(nc, gr, largest = TRUE))
+  ```
+
+  - The colored grid gets joined to the north carolina polygons and since [largest = TRUE]{.arg-text}, each grid cell gets matched to the polygon (aka record) with the largest overlap
 
 ### Bounding Boxes {#sec-geo-proc-sf-bbox .unnumbered}
 
@@ -949,7 +1090,9 @@
     &\hat Y_{j}(T_j)= \sum_{i=1}^p \frac{|A_{ij}|}{|S_i|} Y_i (S_i) \\
     &\text{where} \;\; A_{ij} = T_j \cap S_i
     \end{align}$$
+
   - Process
+
     1.  Calculate intersection area betweem the sub-area ($S_{i}$) and the target area ($T_{j}$) .
     2.  Calculate the proportion of the intersected area ($A_{ij}$) to the sub-area ($S_{i}$)
     3.  Multiply that proportion ($|A_{ij}|\;/\;|S_i|$) times the variable ($Y_i (S_i)$) to get the target subarea variable value.
@@ -957,12 +1100,14 @@
     5.  Sum all target subarea variable values to get the target area variable value ($\hat Y_{j}(T_j)$)
 - [Aggregating Intensive Variables]{.underline}
   - The assumption is that the variable has a *constant* value over each sub-area ($S_i$), and therefore has that same value for the intersection with target area ($T_j$)
+
   - Formula\
 
     $$\begin{align}
     &\hat Y_{j}(T_j)= \sum_{i=1}^p \frac{|A_{ij}|}{|T_i|} Y_i (S_i) \\
     &\text{where} \;\; A_{ij} = T_j \cap S_i
     \end{align}        $$
+
     - The difference here is the weight is the proportion of the intersection $A_{ij}$ to the target area ($T_j$)
 
 ### Examples {#sec-geo-proc-agg-exs .unnumbered}
