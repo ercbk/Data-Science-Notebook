@@ -38,6 +38,16 @@ lightbox:
     - Only handles **full lattice/grid** data
     - It supercedes [{spacetime}]{style="color: #990000"}, which extended the shared classes defined in [{sp}]{style="color: #990000"} for spatio-temporal data. [{stars}]{style="color: #990000"} uses PROJ and GDAL through [{sf}]{style="color: #990000"}.
       - Easily convert spacetime objects to stars object with `st_as_stars(spacetime_obj)`
+    - `st_as_stars` methods for these classes (and others): ([docs](https://r-spatial.github.io/stars/reference/st_as_stars.html))
+      - [data.frame]{.arg-text}
+      - [list]{.arg-text}
+      - [sf]{.arg-text}
+      - [bbox]{.arg-text}
+      - [xts]{.arg-text}
+      - [cubble_df]{.arg-text}
+      - [OpenStreetMap]{.arg-text}
+      - [Raster]{.arg-text}
+      - [SpatRaster]{.arg-text}
     - Has [dplyr verb methods](https://r-spatial.github.io/stars/reference/dplyr.html)
   - [{]{style="color: #990000"}[WaveST](https://cran.r-project.org/web/packages/WaveST/index.html){style="color: #990000"}[}]{style="color: #990000"} - An integrated **wavelet-based spatial time series modeling** framework designed to enhance predictive accuracy under noisy and nonstationary conditions by jointly exploiting multi-resolution (wavelet) information and spatial dependence
 - Resources
@@ -646,6 +656,139 @@ lightbox:
     - [SID74]{.var-text} contains to the infant death syndrome cases for each county at a particular time period (1974-1984). [SID79]{.var-text} are SIDS deaths from 1979-84.
       - [NWB]{.var-text} is non-white births, [BIR]{.var-text} is births.
     - Each row is a spatial unit and unique
+
+  - [Example]{.ribbon-highlight}: Space × Time Matrix to [{stars}]{style="color: #990000"} Object (i.e. [STFDF]{.arg-text})
+
+    ::: panel-tabset
+    ## Convert Matrix to stars
+
+    ``` r
+    library(stars)
+
+    data(air, package = "spacetime")
+    dim(air)
+    #> space  time 
+    #>    70  4383 
+    air[1:10, 1000:1010]
+    #>           [,1]   [,2]   [,3]   [,4]   [,5]   [,6]   [,7]   [,8]   [,9]  [,10]  [,11]
+    #> DESH001 25.521 34.833 25.854 36.021 52.562 59.833 29.458 26.146 22.312 32.789 15.729
+    #> DENI063 30.083 45.795 35.979 36.087 73.167 79.792 34.354 37.104 33.000 36.625 14.417
+    #> DEUB038     NA     NA     NA     NA     NA     NA     NA     NA     NA     NA     NA
+    #> DEBE056     NA     NA     NA     NA     NA     NA     NA     NA     NA     NA     NA
+    #> DEBE062     NA     NA     NA     NA     NA     NA     NA     NA     NA     NA     NA
+    #> DEBE032     NA     NA     NA     NA     NA     NA     NA     NA     NA     NA     NA
+    #> DEHE046 24.562 21.479 25.771 29.646 48.688 24.542 13.479  9.958 14.333 17.625 13.333
+    #> DEUB007     NA     NA     NA     NA     NA     NA     NA     NA     NA     NA     NA
+    #> DENW081     NA     NA     NA     NA     NA     NA     NA     NA     NA     NA     NA
+    #> DESH008 30.875 35.542 32.042 36.417 54.625 60.000 41.583 24.292 22.542 34.250 16.750
+
+    class(stations)
+    #> [1] "SpatialPoints"
+    #> attr(,"package")
+    #> [1] "sp"
+    head(stations)
+    #> SpatialPoints:
+    #>         coords.x1 coords.x2
+    #> DESH001  9.585911  53.67057
+    #> DENI063  9.685030  53.52418
+    #> DEUB038  9.791584  54.07312
+    #> DEBE056 13.647013  52.44775
+    #> DEBE062 13.296353  52.65315
+    #> DEBE032 13.225856  52.47309
+    #> Coordinate Reference System (CRS) arguments: +proj=longlat +datum=WGS84 +no_defs 
+
+    sfc_stations <- stations |>
+      sf::st_as_sf(coords = c("coords.x1", "coords.x2"), crs = 4326) |>
+      sf::st_geometry()
+    class(sfc_stations)
+    #> [1] "sfc_POINT" "sfc" 
+    head(sfc_stations)
+    #> Geometry set for 6 features 
+    #> Geometry type: POINT
+    #> Dimension:     XY
+    #> Bounding box:  xmin: 9.585911 ymin: 52.44775 xmax: 13.64701 ymax: 54.07312
+    #> Geodetic CRS:  +proj=longlat +datum=WGS84 +no_defs
+    #> First 5 geometries:
+    #> POINT (9.585911 53.67057)
+    #> POINT (9.68503 53.52418)
+    #> POINT (9.791584 54.07312)
+    #> POINT (13.64701 52.44775)
+    #> POINT (13.29635 52.65315)
+
+    class(dates)
+    #> [1] "Date"
+    summary(dates)
+    #>         Min.      1st Qu.       Median         Mean      3rd Qu.         Max. 
+    #> "1998-01-01" "2000-12-31" "2004-01-01" "2004-01-01" "2006-12-31" "2009-12-31"
+
+    star_dims <- st_dimensions(
+      station = sfc_stations, 
+      time = dates
+    )
+
+    star_air <- st_as_stars(
+      .x = list(pm10 = air), 
+      dimensions = star_dims
+    )
+    star_air
+    #> stars object with 2 dimensions and 1 attribute
+    #> attribute(s):
+    #>       Min. 1st Qu. Median     Mean 3rd Qu.    Max.   NA's
+    #> pm10     0   9.921 14.792 17.69728  21.992 274.333 157659
+    #> dimension(s):
+    #>         from   to     offset  delta                       refsys point
+    #> station    1   70         NA     NA +proj=longlat +datum=WGS8...  TRUE
+    #> time       1 4383 1998-01-01 1 days                         Date FALSE
+    #>                                                          values
+    #> station POINT (9.585911 53.67057),...,POINT (9.446661 49.24068)
+    #> time                                                       NULL
+    ```
+
+    - Similar contruction to a [STFDF]{.arg-text} object. Guessing order of dates and stations object need to have the same order as they are in the space-time matrix
+    - [sfc_stations]{.var-text} is the extracted geometry column of a [sf]{.arg-text} dataframe. It's essentially just a coordinates matrix with attributes.
+
+    ## Structure of Stars Object
+
+    ``` r
+    str(stars_air)
+    #> List of 1
+    #> $ pm10: num [1:70, 1:4383] NA NA NA NA NA NA NA NA NA NA ...
+    #> ..- attr(*, "dimnames")=List of 2
+    #> .. ..$ : chr [1:70] "DESH001" "DENI063" "DEUB038" "DEBE056" ...
+    #> .. ..$ : NULL
+    #> - attr(*, "dimensions")=List of 2
+    #> ..$ station:List of 7
+    #> .. ..$ from  : num 1
+    #> .. ..$ to    : int 70
+    #> .. ..$ offset: num NA
+    #> .. ..$ delta : num NA
+    #> .. ..$ refsys:List of 2
+    #> .. .. ..$ input: chr "+proj=longlat +datum=WGS84 +no_defs"
+    #> .. .. ..$ wkt  : chr "GEOGCRS[\"unknown\",\n    DATUM[\"World Geodetic System 1984\",\n        ELLIPSOID[\"WGS 84\",6378137,298.25722"| __truncated__
+    #> .. .. ..- attr(*, "class")= chr "crs"
+    #> .. ..$ point : logi TRUE
+    #> .. ..$ values:sfc_POINT of length 70; first list element:  'XY' num [1:2] 9.59 53.67
+    #> .. ..- attr(*, "class")= chr "dimension"
+    #> ..$ time   :List of 7
+    #> .. ..$ from  : num 1
+    #> .. ..$ to    : int 4383
+    #> .. ..$ offset: Date[1:1], format: "1998-01-01"
+    #> .. ..$ delta : 'difftime' num 1
+    #> .. .. ..- attr(*, "units")= chr "days"
+    #> .. ..$ refsys: chr "Date"
+    #> .. ..$ point : logi FALSE
+    #> .. ..$ values: NULL
+    #> .. ..- attr(*, "class")= chr "dimension"
+    #> ..- attr(*, "raster")=List of 4
+    #> .. ..$ affine     : num [1:2] 0 0
+    #> .. ..$ dimensions : chr [1:2] NA NA
+    #> .. ..$ curvilinear: logi FALSE
+    #> .. ..$ blocksizes : NULL
+    #> .. ..- attr(*, "class")= chr "stars_raster"
+    #> ..- attr(*, "class")= chr "dimensions"
+    #> - attr(*, "class")= chr "stars"
+    ```
+    :::
 - [Time and Movement]{.underline}\
   ![](_resources/Geospatial-Spatio-Temporal.resources/data-intervals-trajectories-1.png){.lightbox width="432"}
   - s1 refers to the first feature/location, t1 to the first time instance or interval, thick lines indicate time intervals, arrows indicate movement. Filled circles denote start time, empty circles end times, intervals are right-closed
