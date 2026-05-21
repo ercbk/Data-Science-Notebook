@@ -42,8 +42,8 @@ lightbox:
       - [data.frame]{.arg-text}
       - [list]{.arg-text}
         - This is the one used for matrices and arrays.
-          - [Data Formats \>\> Time-wide](geospatial-spat-temp.qmd#sec-geo-sptemp-datform-timew){style="color: green"} \>\> Example 2
-          - [Data Formats \>\> Long](geospatial-spat-temp.qmd#sec-geo-sptemp-datform-long){style="color: green"} \>\> Example 4
+        - [Data Formats \>\> Time-wide](geospatial-spat-temp.qmd#sec-geo-sptemp-datform-timew){style="color: green"} \>\> Example 2 (matrix)
+        - [Data Formats \>\> Long](geospatial-spat-temp.qmd#sec-geo-sptemp-datform-long){style="color: green"} \>\> Example 4 (array)
       - [sf]{.arg-text}
       - [bbox]{.arg-text}
       - [xts]{.arg-text}
@@ -385,6 +385,21 @@ lightbox:
   - Polygons: Values reflect aggregates (e.g., sums, or averages) over the polygon (SpatialPolygonsDataFrame, SpatialPolygons)
   - Grids: Values can be point data or aggregates over the cell.
 - `stConstruct` creates "a [STFDF]{.arg-text} (full lattice/full grid) object if all space and time combinations occur only once, or else an object of class [STIDF]{.arg-text} (irregular grid), which might be coerced into other representations."
+- [STFDF]{.arg-text} and [{stars}]{style="color: #990000"} objects require dimension elements to have the same order as the columns or rows in the attribute matrix or array.
+  - Order the space dimension to be the same as the attribute object ([Long](geospatial-spat-temp.qmd#sec-geo-sptemp-datform-long){style="color: green"} \>\> Example 4)
+
+    ``` r
+    bristol_longer <- bristol_od |> 
+        select(-all) |> 
+        pivot_longer(3:6, names_to = "mode", values_to = "n")
+    # unique origin locations
+    od <- bristol_tidy |> pull("o") |> unique()
+
+    # order of the rows of the eventual attribute
+    order <- match(od, bristol_zones$geo_code)
+    # reorders eventual space dimension to match attribute order
+    zones <- st_geometry(bristol_zones)[order]
+    ```
 - Latitude and Longitude to using [{sp}]{style="color: #990000"}
   - [Example]{.ribbon-highlight}: ([source](https://www.r-bloggers.com/2015/08/spatio-temporal-kriging-in-r/))
 
@@ -561,7 +576,7 @@ lightbox:
   ::: panel-tabset
   ## Data and Set-Up
 
-  A table which count trips from different origins to destinations using variouse modes of transporation gets converted to a [{stars}]{style="color: #990000"} object
+  A table which counts trips from different origins to destinations using various modes of transportation gets converted to a [{stars}]{style="color: #990000"} object
 
   Also see [Time-wide](geospatial-spat-temp.qmd#sec-geo-sptemp-datform-timew){style="color: green"} \>\> Example 2 for an example of space-time matrix being converted to a [{stars}]{style="color: #990000"} object
 
@@ -606,7 +621,7 @@ lightbox:
   ```
 
   - This doesn't have a time column, but I thought it was a good example of creating a [{stars}]{style="color: #990000"} object with multiple space dimensions and a categorical dimension
-    - Plus this is still a long format, and you imagine there being a time column. Creating a [{stars}]{style="color: #990000"} object from that would be a similar process. Just add [time = dates]{.arg-text} to `st_dimensions`.
+    - Plus this is still a long format, and you imagine there being a time column. Creating a [{stars}]{style="color: #990000"} object from that would be a similar process. Just add [time = dates]{.arg-text} (making sure [dates]{.var-text} is unique) to `st_dimensions`.
 
   ## Create Array
 
@@ -628,6 +643,7 @@ lightbox:
 
   bris_trans_modes <- bristol_longer |> pull("mode") |> unique()
 
+  # create zero-array with appropriate dims and dimnames
   arr_bris = array(
     0L,  
     dim = c(
@@ -654,6 +670,7 @@ lightbox:
     - In this case, [bristol_od]{.var-text} does happen to have all zones in [o]{.var-text} and [d]{.var-text}.
     - This could also be the case with [mode]{.var-text}, but there is nothing that looks like a mode of transportation look-up table in [{spDataLarge}]{style="color: #990000"}. So, I'm just trusting all possible [modes]{.var-text} are included in [bristol_od]{.var-text}.
   - The [array]{.arg-text} is filled with counts ([n]{.var-text}) according to the index ([bristol_longer]{.var-text}).
+    - The order of the columns in the [bristol_longer]{.var-text} are the same as the order of the dims and dimnames specified in the zero-array.
     - If it were the case that [bristol_od]{.var-text} didn't have one of the possible zones, this filling procedure would still be fine. The zone-to-zone combination in the zero-array that didn't get filled with a [n]{.var-text} value would just remain 0.
 
   ## Create stars Object
@@ -1127,6 +1144,67 @@ lightbox:
   - The bin width is set to 20 km (which is the setting for the variogram model in the [{gstat}]{style="color: #990000"} vignette)
   - For kriging, ideally we'd want at least around 100 pairwise distances in each of the first few bins (short pairwise distances) for a stable range estimate, but no pairwise distance bin has that many. (See [Geospatial, Kriging \>\> Bin Width](geospatial-kriging.html#sec-geo-krig-bw){style="color: green"})
     - This is due to there only being 53 locations and the selection of only rural locations
+
+- [Example]{.ribbon-highlight}: Which destination gets the most visitors per mode of transportation
+
+  ::: {layout-ncol="2"}
+  ![](_resources/Geospatial-Spatio-Temporal.resources/eda-gen-max-trips-dest-mode-1.png){.lightbox group="eda-gen-max-dest-mode" width="532"}
+
+  ![](_resources/Geospatial-Spatio-Temporal.resources/eda-gen-max-trips-dest-mode-2.png){.lightbox group="eda-gen-max-dest-mode" width="532"}
+  :::
+
+  <Details>
+
+  <Summary>Code</Summary>
+
+  ``` r
+  star_sum_dest <- st_apply(
+    star_bris_od,       # stars object
+    2,                  # index of dimension
+    sum                 # function to apply over dimension
+  )
+  which.max(star_sum_dest[[1]])
+  #> [1] 33
+
+  # verbose
+  # star_sum_dest <- st_apply(
+  #   star_bris_od, 
+  #   c("dest"), 
+  #   sum, 
+  #   .fname = "n_trips_per_dest" # changes attribute name
+  # )
+  # which.max(star_sum_dest$n_trips_per_dest)
+  #> [1] 33
+
+  plot(adrop(star_bris_od[,,33]) + 1, logz = TRUE)
+
+  ggplot() + 
+    geom_stars(data = adrop(star_bris_od[,,33]) + 1) +
+    coord_sf() +
+    facet_wrap(
+      ~ trans_mode,
+      labeller = as_labeller(c(
+        "bicycle" = "Bicycle",
+        "foot" = "Foot",
+        "car_driver" = "Car",
+        "train" = "Train"
+      ))
+    ) +
+    scico::scale_fill_scico(
+      palette = "navia",
+      transform = "log10"
+    ) +
+    labs(
+      title = paste0("Number of Trips to ", bristol_zones$name[[33]]),
+      subtitle = "Number of trips is on the logarithmic scale + 1",
+      fill = "Number of\nTrips"
+    ) +
+    theme_charcoal_map()
+  ```
+
+  - See [Data Formats \>\> Long](geospatial-spat-temp.qmd#sec-geo-sptemp-datform-long){style="color: green"} \>\> Example 4 for details on [star_bris_od]{.var-text}
+
+  </Details>
 
 - [Example]{.ribbon-highlight}: [{gglinedensity}]{style="color: #990000"}\
   ![](_resources/Geospatial-Spatio-Temporal.resources/eda-gglinedens-1.png){.lightbox width="432"}
