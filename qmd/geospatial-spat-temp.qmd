@@ -71,7 +71,7 @@ lightbox:
   - [Amortized Bayesian Inference for Spatio-Temporal Extremes: A Copula Factor Model with Autoregression](https://arxiv.org/abs/2510.02618)
 - Notes from
   - [spacetime: Spatio-Temporal Data in R](https://cran.r-project.org/web/packages/spacetime/vignettes/jss816.pdf) - It's been superseded by [{stars}]{style="color: #990000"}, but there didn't seem to be much about working with vector data in [{stars}]{style="color: #990000"} vignettes. So, it seemed like a better place to start for a beginner, and I think the concepts might transfer since the packages were created by the same people. Some packages still use sp and spacetime, so it could be useful in using with those packages
-  - SDS Chapters [6](https://r-spatial.org/book/06-Cubes.html), [13](https://r-spatial.org/book/13-Geostatistics.html)
+  - SDS Chapters [6](https://r-spatial.org/book/06-Cubes.html), [7](https://r-spatial.org/book/07-Introsf.html), [13](https://r-spatial.org/book/13-Geostatistics.html)
   - [Spatio-Temporal Interpolation using gstat](https://cran.r-project.org/web/packages/gstat/vignettes/spatio-temporal-kriging.pdf)
   - [Introduction to Spatio-Temporal Variography](https://cran.r-project.org/web/packages/gstat/vignettes/st.pdf) ([{gstat}]{style="color: #990000"} vignette)
   - [Spatio-Temporal Kriging in R](https://www.r-bloggers.com/2015/08/spatio-temporal-kriging-in-r/)
@@ -198,6 +198,8 @@ lightbox:
     - Trajectories of tornados where the tornado extent of each time stamp can be reflected by a different polygon
 
 ### Subsetting {#sec-geo-sptemp-grlay-sub .unnumbered}
+
+#### [{spacetime}]{style="color: #990000"} {#sec-geo-sptemp-grlay-sub-spacetime .unnumbered}
 
 - Notes from [Subsetting of Spatio-Temporal Objects](https://cran.r-project.org/web/packages/spacetime/vignettes/stsubs.pdf)
 
@@ -374,6 +376,164 @@ lightbox:
     ```
 
   - Subsetting by index is a pain and should be avoided. When you do it, you have to convert the resulting object back to a spacetime object.
+
+#### [{stars}]{style="color: #990000"} {#sec-geo-sptemp-grlay-sub-stars .unnumbered}
+
+- Used for [STFDF]{.arg-text} layouts
+
+- The example data is only a spatial raster, but all the concepts should translate. Time would just be an extra dimension I think.
+
+- See
+
+  - [EDA \>\> General](geospatial-spat-temp.qmd#sec-geo-sptemp-eda-gen){style="color: green"} \>\> Example 5 (subsets a dimension index)
+  - [Kriging \>\> Examples](geospatial-spat-temp.qmd#sec-geo-sptemp-krig-ex){style="color: green"} \>\> Example 3 \>\> krigeST, Catboost (transforms attribute)
+
+- Basic stars object inspection\
+  ![Left: RGB; Right: NIR-R-G](_resources/Geospatial-Spatio-Temporal.resources/subset-stars-rgb-1.png){.lightbox width="582"}
+
+  ``` r
+  tif <- system.file("tif/L7_ETMs.tif", package = "stars")
+  library(stars)
+  # Loading required package: abind
+  (r <- read_stars(tif))
+  # stars object with 3 dimensions and 1 attribute
+  # attribute(s):
+  #              Min. 1st Qu. Median Mean 3rd Qu. Max.
+  # L7_ETMs.tif     1      54     69 68.9      86  255
+  # dimension(s):
+  #      from  to  offset delta            refsys point x/y
+  # x       1 349  288776  28.5 SIRGAS 2000 / ... FALSE [x]
+  # y       1 352 9120761 -28.5 SIRGAS 2000 / ... FALSE [y]
+  # band    1   6      NA    NA                NA    NA
+
+  length(r)
+  # [1] 1
+  class(r[[1]])
+  # [1] "array"
+  dim(r[[1]])
+  #    x    y band 
+  #  349  352    6
+
+  st_bbox(r)
+  #    xmin    ymin    xmax    ymax 
+  #  288776 9110729  298723 9120761
+
+  plot(r)
+
+  par(mfrow = c(1, 2))
+  plot(r, rgb = c(3,2,1), reset = FALSE, main = "RGB")    # rgb
+  plot(r, rgb = c(4,3,2), main = "False colour (NIR-R-G)") # false colour
+  ```
+
+  - Components
+    - `from`: starting index
+    - `to`: ending index
+    - `offset`: dimension value at the start (edge) of the first pixel
+    - `delta`: cell size; negative `delta` values indicate that pixel index increases with decreasing dimension values
+    - `refsys`: reference system
+    - `point`: logical, indicates whether cell values have point support or cell support
+    - `x/y`: indicates whether a dimension is associated with a spatial raster x- or y-axis
+  - For regular, rotated, or sheared grids or other regularly discretised dimensions (such as time), `offset` and `delta` are not `NA`
+  - Irregular cases, `offset` and `delta` are `NA` and the `values` property contains one of:
+    - In case of a rectilinear spatial raster or irregular time dimension, the sequence of values or intervals
+    - In case of a vector data cube, geometries associated with the spatial dimension
+    - In case of a curvilinear raster, the matrix with coordinate values for each raster cell
+    - In case of a discrete dimension, the band names or labels associated with the dimension values
+
+- By bracket
+
+  - Attributes first (by name, index, or logical vector)
+  - Followed by each dimension.
+  - Selecting discontinuous ranges is supported only when it is a regular sequence
+  - By default, `drop` is FALSE, when set to `TRUE` dimensions with a single value are dropped
+
+- [Example]{.ribbon-highlight}: bracket and dplyr
+
+  ``` r
+  r[1:2, 101:200, , 5:10]
+
+  # selecting particular ranges of dimension values
+  filter(r, x > 289000, x < 290000)
+  # stars object with 3 dimensions and 1 attribute
+  # attribute(s):
+  #              Min. 1st Qu. Median Mean 3rd Qu. Max.
+  # L7_ETMs.tif     5      51     63 64.3      75  242
+  # dimension(s):
+  #      from  to  offset delta            refsys point x/y
+  # x       1  35  289004  28.5 SIRGAS 2000 / ... FALSE [x]
+  # y       1 352 9120761 -28.5 SIRGAS 2000 / ... FALSE [y]
+  # band    1   6       1     1                NA    NA
+
+  slice(r, band, 3)
+  # stars object with 2 dimensions and 1 attribute
+  # attribute(s):
+  #              Min. 1st Qu. Median Mean 3rd Qu. Max.
+  # L7_ETMs.tif    21      49     63 64.4      77  255
+  # dimension(s):
+  #   from  to  offset delta            refsys point x/y
+  # x    1 349  288776  28.5 SIRGAS 2000 / ... FALSE [x]
+  # y    1 352 9120761 -28.5 SIRGAS 2000 / ... FALSE [y]
+  ```
+
+  - Selects from r attributes 1-2, index 101-200 for dimension 1, and index 5-10 for dimension 3; omitting dimension 2 means that no subsetting takes place.
+  - Note in components example, xmin of the bounding box was x's offset and ymax was y's offset. Now x's offset is 289004 after filtering.
+    - x's to index has changed
+  - `slice` selects the 3rd band and in the summary the band dimension is dropped since there's only 1 now
+    - Neither to index has changed
+  - `mutate` can be used on `stars` objects to add new arrays as functions of existing ones, `transmute` drops existing ones
+
+- By buffer zone
+
+  ``` r
+  b <- st_bbox(r) |>
+      st_as_sfc() |>
+      st_centroid() |>
+      st_buffer(units::set_units(500, m))
+  r[b]
+  # stars object with 3 dimensions and 1 attribute
+  # attribute(s):
+  #              Min. 1st Qu. Median Mean 3rd Qu. Max. NA's
+  # L7_ETMs.tif    22      54     66 67.7    78.2  174 2184
+  # dimension(s):
+  #      from  to  offset delta            refsys point x/y
+  # x     157 193  288776  28.5 SIRGAS 2000 / ... FALSE [x]
+  # y     159 194 9120761 -28.5 SIRGAS 2000 / ... FALSE [y]
+  # band    1   6      NA    NA                NA    NA
+
+  r[b] |> st_normalize() |> st_dimensions()
+  #      from to  offset delta            refsys point x/y
+  # x       1 37  293222  28.5 SIRGAS 2000 / ... FALSE [x]
+  # y       1 36 9116258 -28.5 SIRGAS 2000 / ... FALSE [y]
+  # band    1  6      NA    NA                NA    NA
+
+  # alternatively
+  st_crop(r, b)
+  ```
+
+  - This object still has dimension indexes *relative to* the offset and delta values of r
+  - `st_normalize` and `st_dimensions` set the object with the new offset
+    - i.e. the indexes are reset so this r\[b\] is it's own independent stars object (if it was assigned to a variable). It's now been cropped
+
+- Sample and Extract
+
+  ``` r
+  set.seed(115517)
+  pts <- st_bbox(r) |> st_as_sfc() |> st_sample(20)
+  (e <- st_extract(r, pts))
+  # stars object with 2 dimensions and 1 attribute
+  # attribute(s):
+  #              Min. 1st Qu. Median Mean 3rd Qu. Max.
+  # L7_ETMs.tif    12    41.8     63   61    80.5  145
+  # dimension(s):
+  #          from to            refsys point
+  # geometry    1 20 SIRGAS 2000 / ...  TRUE
+  # band        1  6                NA    NA
+  #                                           values
+  # geometry POINT (293002 ...,...,POINT (290941 ...
+  # band                                        NULL
+  ```
+
+  - The output is a **vector data cube**
 
 ## Data Formats {#sec-geo-sptemp-datform .unnumbered}
 
@@ -621,7 +781,7 @@ lightbox:
   ```
 
   - This doesn't have a time column, but I thought it was a good example of creating a [{stars}]{style="color: #990000"} object with multiple space dimensions and a categorical dimension
-    - Plus this is still a long format, and you imagine there being a time column. Creating a [{stars}]{style="color: #990000"} object from that would be a similar process. Just add [time = dates]{.arg-text} (making sure [dates]{.var-text} is unique) to `st_dimensions`.
+    - To see how to do this with coordinates and a time dimension, see [Kriging \>\> Examples](geospatial-spat-temp.qmd#sec-geo-sptemp-krig-ex){style="color: green"} \>\> Example 3 \>\> Catboost \>\> Process Predictions
 
   ## Create Array
 
@@ -1025,7 +1185,7 @@ lightbox:
 
 ### General {#sec-geo-sptemp-eda-gen .unnumbered}
 
-- [Example]{.ribbon-highlight}: Days per Location\
+- [Example 1]{.ribbon-highlight}: Days per Location\
   ![](_resources/Geospatial-Spatio-Temporal.resources/eda-gen-ex-days-per-station.png){.lightbox width="532"}
 
   <Details>
@@ -1057,7 +1217,7 @@ lightbox:
 
   - If there's there are locations with few observations on too many days, this can result in volatile variograms.
 
-- [Example]{.ribbon-highlight}: Station vs. Days ([source](https://r-spatial.org/book/07-Introsf.html#example-aggregating-air-quality-time-series))\
+- [Example 2]{.ribbon-highlight}: Station vs. Days ([source](https://r-spatial.org/book/07-Introsf.html#example-aggregating-air-quality-time-series))\
   ![](_resources/Geospatial-Spatio-Temporal.resources/eda-stations-days-1.png){.lightbox}
 
   ``` r
@@ -1068,7 +1228,7 @@ lightbox:
   - See [Data Formats](geospatial-spat-temp.qmd#sec-geo-sptemp-datform){style="color: green"} \>\> Time-wide \>\> Example 2 for the code for [star_pm10]{.var-text}
   - Missing values in white I assume.
 
-- [Example]{.ribbon-highlight}: Mean Value by Location ([source](https://r-spatial.org/book/07-Introsf.html#example-aggregating-air-quality-time-series))\
+- [Example 3]{.ribbon-highlight}: Mean Value by Location ([source](https://r-spatial.org/book/07-Introsf.html#example-aggregating-air-quality-time-series))\
   ![](_resources/Geospatial-Spatio-Temporal.resources/eda-gen-mean-by-loc-1.png){.lightbox width="432"}
 
   ``` r
@@ -1081,7 +1241,7 @@ lightbox:
   - See [Data Formats](geospatial-spat-temp.qmd#sec-geo-sptemp-datform){style="color: green"} \>\> Time-wide \>\> Example 2 for the code for [star_pm10]{.var-text}
     - [de_nuts1]{.var-text} also loads with `data(air, package = "spacetime")`
 
-- [Example]{.ribbon-highlight}: Counts of pairwise distances between locations\
+- [Example 4]{.ribbon-highlight}: Counts of pairwise distances between locations\
   ![](_resources/Geospatial-Spatio-Temporal.resources/eda-gen-ex-pair-dist-1.png){.lightbox width="432"}
 
   <Details>
@@ -1145,7 +1305,7 @@ lightbox:
   - For kriging, ideally we'd want at least around 100 pairwise distances in each of the first few bins (short pairwise distances) for a stable range estimate, but no pairwise distance bin has that many. (See [Geospatial, Kriging \>\> Bin Width](geospatial-kriging.html#sec-geo-krig-bw){style="color: green"})
     - This is due to there only being 53 locations and the selection of only rural locations
 
-- [Example]{.ribbon-highlight}: Which destination gets the most visitors per mode of transportation
+- [Example 5]{.ribbon-highlight}: Which destination gets the most visitors per mode of transportation
 
   ::: {layout-ncol="2"}
   ![](_resources/Geospatial-Spatio-Temporal.resources/eda-gen-max-trips-dest-mode-1.png){.lightbox group="eda-gen-max-dest-mode" width="532"}
@@ -1158,6 +1318,8 @@ lightbox:
   <Summary>Code</Summary>
 
   ``` r
+  library(ggplot2); library(stars)
+
   star_sum_dest <- st_apply(
     star_bris_od,       # stars object
     2,                  # index of dimension
@@ -1196,17 +1358,19 @@ lightbox:
     ) +
     labs(
       title = paste0("Number of Trips to ", bristol_zones$name[[33]]),
-      subtitle = "Number of trips is on the logarithmic scale + 1",
+      subtitle = "The fill color is on the log10 + 1 scale",
       fill = "Number of\nTrips"
     ) +
     theme_charcoal_map()
   ```
 
   - See [Data Formats \>\> Long](geospatial-spat-temp.qmd#sec-geo-sptemp-datform-long){style="color: green"} \>\> Example 4 for details on [star_bris_od]{.var-text}
+  - `star_bris_od[,,33]` says take all attributes (there is only one: [n_trips]{.var-text}) since the first argument is empty, we take all [origin]{.var-text} regions (second argument empty), we take destination ([dest]{.var-text}) zone 33 (third argument), and all transportation modes ([trans_modes]{.var-text}) (fourth argument empty, or missing).
+  - `adrop` drops all other dimensions except the ones specified to be kept. So all destinations get dropped except the 33^rd^
 
   </Details>
 
-- [Example]{.ribbon-highlight}: [{gglinedensity}]{style="color: #990000"}\
+- [Example 6]{.ribbon-highlight}: [{gglinedensity}]{style="color: #990000"}\
   ![](_resources/Geospatial-Spatio-Temporal.resources/eda-gglinedens-1.png){.lightbox width="432"}
 
   <Details>
@@ -1271,7 +1435,7 @@ lightbox:
   - With a bunch of time series, it's difficult to distinguish a primary trend to the data (e.g. in a spaghetti line chart). This density gives a sense of the seasonality and the trend of most of the locations.
   - The summary says the median is around 14 and the max is around 270.
 
-- [Example]{.ribbon-highlight}: [{daiquiri}]{style="color: #990000"}\
+- [Example 7]{.ribbon-highlight}: [{daiquiri}]{style="color: #990000"}\
 
   ::: {layout-ncol="2"}
   ![](_resources/Geospatial-Spatio-Temporal.resources/eda-daiquiri-miss-1.png){.lightbox group="eda-daiq" width="332"}
@@ -7130,23 +7294,25 @@ lightbox:
     st_crop(sf_germany)
 
   dim_grd <- dim(grd_stars)
-
-  # build spatio-temporal stars grid for krigeST
-  grd_st <- stars::st_as_stars(
-    pts = array(
-      1,
-      c(dim_grd[1], dim_grd[2], time = length(vec_sample_days))
+  arr_grd <- array(
+    1,
+    dim = c(
+      x = dim_grd[1],
+      y = dim_grd[2],
+      time = length(vec_sample_days)
     )
-  ) |>
-    stars::st_set_dimensions("time", vec_sample_days) |>
-    stars::st_set_dimensions(
-      "x",
-      stars::st_get_dimension_values(grd_stars, "x")
-    ) |>
-    stars::st_set_dimensions(
-      "y",
-      stars::st_get_dimension_values(grd_stars, "y")
-    ) |>
+  )
+
+  star_dims_grd <- stars::st_dimensions(
+    x = stars::st_get_dimension_values(grd_stars, "x"),
+    y = stars::st_get_dimension_values(grd_stars, "y"),
+    time = vec_sample_days
+  )
+
+  grd_st <- stars::st_as_stars(
+    pts = arr_grd,
+    dimensions = star_dims_grd
+  ) |> 
     st_set_crs(25832)
   ```
 
@@ -7160,8 +7326,6 @@ lightbox:
   - Could've used [{sp}]{style="color: #990000"} and created [STFDF]{.arg-text} grid ([newdata]{.arg-text}) objects, but I think [{stars}]{style="color: #990000"} objects are probably easier to post-process and create maps with [{ggplot2}]{style="color: #990000"}, etc.
 
   ## krigeST
-
-  ###### Predict
 
   ``` r
   # outputs stars obj
@@ -7182,57 +7346,18 @@ lightbox:
     progress = TRUE
   )
   tictoc::toc()
+
+  star_preds_krig <- krige_grid_pred |>
+    mutate(predicted = exp(var1.pred) * smear_factor$krigeST[[1]]) |> 
+    select(predicted) |> 
+    st_crop(sf_germany)
   ```
 
   - [fit_vario_sm]{.var-text} is from [Variogram \>\> Examples](geospatial-spat-temp.qmd#sec-geo-sptemp-krig-var-ex){style="color: green"} \>\> Example 1 \>\> Fit Sum Metric \>\> Fit Sum Metric
   - There's no parallelization so it doesn't take up many computer resources. The downside is that it takes hours upon hours to finish.
   - I included other runtimes which show higher values of [nmax]{.arg-text} take longer. Which means the covariance model function that's used to pick the *best* neighbors is probably the bottleneck.
   - This is stated elsewhere but notice that both [data]{.arg-text} and [newdata]{.arg-text} have the same class ([{stars}]{style="color: #990000"}) object. That's required.
-
-  ###### Process Predictions
-
-  <Details>
-
-  <Summary>Code</Summary>
-
-  ``` r
-  sf_krige_pred <- krige_grid_pred |>
-    as.data.frame() |>
-    filter(!is.na(var1.pred)) |>
-    st_as_sf(coords = c("x", "y"), crs = 25832) |>
-    rename(
-      predicted = var1.pred,
-      pred_var = var1.var
-    ) |>
-    mutate(
-      date = as.Date(time),
-      model = "krigeST",
-      predicted = exp(predicted) * smear_factor$krigeST[[1]]
-    ) |>
-    select(date, predicted, model, geometry)
-
-
-  ls_krige_stars <- purrr::map(vec_sample_days, \(d) {
-    sf_krige_pred |>
-      filter(date == d) |>
-      select(predicted, geometry) |>
-      stars::st_rasterize(
-        stars::st_as_stars(st_bbox(sf_germany), dx = 5000)
-      ) |>
-      st_crop(sf_germany)
-  })
-
-  krige_stars_combined <- do.call(
-    c,
-    c(ls_krige_stars, list(along = list(time = vec_sample_days)))
-  )
-  ```
-
-  </Details>
-
   - [smear_factor]{.var-text} is from Example 2 \>\> Data and Set-Up
-  - The prediction output is the same class as both [newdata]{.arg-text} and [data]{.arg-text}. So it's converted to a dataframe so backtransformation of the predictions can take place.
-  - It's then rasterized which isn't technically necessary I don't think. I think `geom_stars` might handle this.
 
   ## Catboost
 
@@ -7279,32 +7404,61 @@ lightbox:
   <Summary>Code</Summary>
 
   ``` r
-  sf_cat_pred <- sf_cat_grid |>
+  # make sure same order and they are
+  match(sf_cat_grid$date[1:6], vec_sample_days)
+  #> [1] 1 2 3 4 5 6
+
+  # long format according to date which will be our index for filling array
+  df_cat_pred <- sf_cat_grid |>
+    st_drop_geometry() |> 
     mutate(
       predicted = exp(cat_grid_pred$response) * smear_factor$Catboost[[1]],
-      model = "Catboost"
-    ) |>
-    select(date, predicted, model, geometry)
+      x = as.character(st_coordinates(sf_cat_grid)[, 1]),
+      y = as.character(st_coordinates(sf_cat_grid)[, 2]),
+      date = as.character(date)
+    )
 
-  ls_cat_stars <- purrr::map(vec_sample_days, \(d) {
-    sf_cat_pred |>
-      filter(date == d) |>
-      select(predicted, geometry) |>
-      stars::st_rasterize(
-        stars::st_as_stars(st_bbox(sf_germany), dx = 5000)
-      ) |>
-      st_crop(sf_germany)
-  })
-
-  cat_stars_combined <- do.call(
-    c,
-    c(ls_cat_stars, list(along = list(time = vec_sample_days)))
+  # specify array
+  arr_cat_pred <- array(
+    0,
+    dim = c(
+      x = dim_grd[1],
+      y = dim_grd[2],
+      time = length(vec_sample_days)
+    ),
+    dimnames = list(
+      # for some reason, getting these values from grd_stars throws
+      # an error when filling the array
+      x = as.character(stars::st_get_dimension_values(grd_st, "x")),
+      y = as.character(stars::st_get_dimension_values(grd_st, "y")),
+      time = as.character(vec_sample_days)
+    )
   )
+
+  # fill array with predictions
+  mat_cat_idx <- as.matrix(df_cat_pred[c("x", "y", "date")])
+  arr_cat_pred[mat_cat_idx] <- df_cat_pred$predicted
+
+  # specify dimensions
+  star_dims_cat <- stars::st_dimensions(
+    x = stars::st_get_dimension_values(grd_st, "x"), 
+    y = stars::st_get_dimension_values(grd_st, "y"), 
+    time = vec_sample_days
+  )
+
+  # create stars object
+  star_preds_cat <- stars::st_as_stars(
+    list(predicted = arr_cat_pred), 
+    dimensions = star_dims_cat
+  ) |>
+    st_set_crs(25832) |> 
+    st_crop(sf_germany)
   ```
 
   </Details>
 
   - Predictions are backtransformed and the [{stars}]{style="color: #990000"} object is reconstituted.
+  - This follows the recipe from [Data Formats \>\> Long](geospatial-spat-temp.qmd#sec-geo-sptemp-datform-long){style="color: green"} \>\> Example 4
 
   ## Visualize
 
@@ -7317,9 +7471,10 @@ lightbox:
   <Summary>Code</Summary>
 
   ``` r
-  legend_limits <- sf_krige_pred |>
-    bind_rows(sf_cat_pred) |>
-    st_drop_geometry() |> 
+  legend_limits <- tibble(
+    predicted = as.data.frame(star_preds_krig)$predicted
+  ) |> 
+    bind_rows(as.data.frame(star_preds_cat)["predicted"]) |> 
     reframe(range_pred = range(predicted, na.rm = TRUE)) |> 
     mutate(range_pred = case_when(
       range_pred == min(range_pred) ~ floor(range_pred),
@@ -7341,7 +7496,7 @@ lightbox:
 
   p_krige_pred <- ggplot() +
     stars::geom_stars(
-      data = krige_stars_combined,
+      data = star_preds_krig,
       aes(x = x,
           y = y,
           fill = predicted)
@@ -7380,7 +7535,7 @@ lightbox:
 
   p_cat_pred <- ggplot() +
     stars::geom_stars(
-      data = cat_stars_combined,
+      data = star_preds_cat,
       aes(x = x, 
           y = y, 
           fill = predicted)
