@@ -2909,7 +2909,7 @@ lightbox:
   ## Other Aggregations
 
   ``` r
-  # --- total trips by each origin to destination combination ---
+  # --- total trips by each origin-to-destination combination ---
   st_apply(star_bris_od, 1:2, sum)
   #> stars object with 2 dimensions and 1 attribute
   #> attribute(s):
@@ -2944,7 +2944,8 @@ lightbox:
   #> 6 MULTIPOLYGON (((-2.639581 5...    bicycle 126
   ```
 
-  - Thoughts
+  - Including these other aggregations just for more experience with the syntax.
+  - Essentially, they're `summarize(.by = var)` calculations I think.
   ::::
 
 - [Example 2]{.ribbon-highlight}: Trip Density per Location
@@ -2952,11 +2953,20 @@ lightbox:
   ::: panel-tabset
   ## Calculate Trip Density for Origins and Destinations
 
+  The reason for the density calculation is because choropleths can be misleading. Small counts in large areas and vice versa can be misinterpreted.
+
+  This density is calculated using area (probably out of convenience?), but I might've chosen population as the denominator if it was available for these areas. Both are better that raw counts though.
+
   ![](_resources/Geospatial-Spatio-Temporal.resources/eda-gen-ex6-trip-dens-1.png){.lightbox width="632"}
+
+  <Details>
+
+  <Summary>Code</Summary>
 
   ``` r
   library(dplyr); library(ggplot2); library(stars)
 
+  # same for dest
   area_origins <- st_apply(
     star_bris_od, 
     1, 
@@ -2964,6 +2974,7 @@ lightbox:
   ) |> 
     st_as_sf() |> 
     st_area() |> 
+    # convert from m^2 to km^2
     units::set_units("km^2")
 
   star_dens_orig <-  st_apply(
@@ -3008,7 +3019,12 @@ lightbox:
   #> $ trip_dens [1/km^2] 126.33201 [1/km^2], 151.50352 [1/km^2], 9.28764 [1/km^2], 727.55372 [1/km^2], 1035.17163 [1/km^2], 146…
   ```
 
-  - Thoughts
+  </Details>
+
+  - This example primarily showcases the [{stars}]{style="color: #990000"} joining method, `c`. While it does result in one [{stars}]{style="color: #990000"} object, the data (attributes) are in a long format with a new grouping variable (dimension) created.
+    - While geo stuff gets merged, for the data, it's more of a `bind_rows` operation
+  - For two (or more? Or would that be a `reduce` use case?), they have to have the same attribute ([trip_dens]{.var-text}).
+  - The [along]{.arg-text} argument creates the new grouping variable (dimension), [location]{.var-text}, and the values it takes on (order is important here) are [Origin]{.var-text} and [Destination]{.var-text}.
 
   ## Visualize
 
@@ -3038,13 +3054,13 @@ lightbox:
     theme(
       legend.title = ggtext::element_markdown(
         family = "Anybody",
-        size = "12",
+        size = 12,
         face = "bold"
       )
     )
   ```
 
-  - Thoughts
+  - Tried to use `bquote` for km^2^ part in the legend title, but it overrid the styling specifcations in `theme_charcoal_map`. Had to use the [{ggtext}]{style="color: #990000"} alternative and specify the superscript in markdown.
   :::
 
 ## Kriging {#sec-geo-sptemp-krig .unnumbered}
@@ -3845,81 +3861,6 @@ lightbox:
 
 - [Docs](https://cran.r-project.org/web/packages/gstat/refman/gstat.html#fit.StVariogram)
 - Fits the variogram model using the empirical variogram (`variogramST`) and variogram model specification (`vgmST`)
-- [Misc]{.underline}
-  - Fitting tips, notes, etc.
-    1.  Get rid of errors that are the result from some parameter estimate being negative) from the get-go by restricting the search space to being positive for all estimated parameters for that model.
-        - You can use `extractPar(model)` or `extractParNames(model)` to extract the estimated parameters names and ORDER.
-
-        - **The order of parameter values in the vector is paramount.** The names are basically for you only. `optim` only cares about the order. Out of order parameters will like result in confusing errors like, "non-finite finite-difference value \[2\]" or something
-
-          ``` r
-          extractPar(sep_mod)
-          #>  range.s nugget.s  range.t nugget.t     sill 
-          #> 123.0000   0.5000  14.0000   0.1000 109.9943
-          ```
-
-          - If you set the bounds ([lower]{.arg-text} or [upper]{.arg-text}) and you give `optim` [range.t = 0.1]{.arg-text} first, it will think that is the value you want for [range.s]{.arg-text}. It doesn't care that you named it [range.t]{.arg-text}.
-          - So double check that you have the correct order using `extractPar` or `extractParNames`
-
-        - [Example]{.ribbon-highlight}:
-
-          ``` r
-          lower_bounds <- switch(
-            mod_type,
-            "separable" = c(
-              range.s  = 1,   nugget.s = 0,
-              range.t  = 0.1, nugget.t = 0,
-              sill     = 0
-            ),
-            "productSum" = c(
-             sill.s = 0, range.s = 1,
-             nugget.s = 0, sill.t = 0,
-             range.t = 0.1, nugget.t = 0,
-             k = 0.0001
-            ),
-            "metric" = c(
-             sill    = 0, range   = 1,
-             nugget  = 0, anis    = 1
-            ),
-            "simpleSumMetric" = c(
-             sill.s  = 0, range.s  = 1,
-             sill.t  = 0, range.t  = 0.1,
-             sill.st = 0, range.st = 1,
-             nugget  = 0, anis     = 1
-            )
-          )          
-
-          fit.StVariogram(
-            vario_emp, 
-            mod, 
-            lower = lower_bounds
-          )
-
-          sum_metric_lower_bounds <- c(
-            sill.s = 0,     range.s = 1,
-            nugget.s = 0,   sill.t = 0,
-            range.t = 0.1,  nugget.t = 0,
-            sill.st = 0,    range.st = 1,
-            nugget.st = 0,  anis = 1
-          )
-          ```
-
-          - Using floats is okay if the context of the data makes it plausible (e.g. temporal data is in days, but perhaps a range of less than a day (hours) is plausible)
-    2.  Make convergence more likely by increasing the optimization iterations
-        - [Example]{.ribbon-highlight}:
-
-          ``` r
-          fit.StVariogram(
-            vario_emp, 
-            mod,
-            control = list(maxit=10000)
-          )
-          ```
-    3.  Fit the *Simple Sum Metric* first. Then, use its estimated model parameters to fit the *Sum Metric*
-        - It's already mentioned in the notes under [Sum Metric](geospatial-spat-temp.html#sec-geo-sptemp-krig-var-vgmst){style="color: green"}, but it's worth emphasizing. The optimizer errors aren't really helpful, so the best course is to avoid them all together.
-        - See [Starting Values](geospatial-spat-temp.qmd#sec-geo-sptemp-krig-stval){style="color: green"} \>\> Joint Models \>\> Example 1
-    4.  Tune the weighting method ([fit.method]{.arg-text}) for `fit.StVariogram`
-        - For the Simple Sum Metric using the Matern model in [Starting Values](geospatial-spat-temp.qmd#sec-geo-sptemp-krig-stval){style="color: green"} \>\> Joint Models \>\> Example 1, changing to [fit.method = 7]{.arg-text} from [fit.method = 6]{.arg-text} resulted in a 300% decrease in sum of squared errors (SSE).
 - [Weighting Options]{.underline}\
   ![](_resources/Geospatial-Spatio-Temporal.resources/krig-wgt-methods1.png){.lightbox width="332"}
   - Controls the weighing of the residuals between empirical and model surface
@@ -4021,16 +3962,84 @@ lightbox:
 
 #### Convergence Help {#sec-geo-sptemp-krig-var-convh .unnumbered}
 
-- Starting values can affect the results (hitting local optima) or even success of the optimization
-  - Using a starting value grid search might better asses the sensitivity of the estimates.
-  - Starting values can in most cases be read from the sample variogram.
-  - Parameters of the spatial and temporal variograms can be assessed from the spatio-temporal surface fixing the counterpart at 0.
-    - Example: Inspection of the ranges of the variograms in the temporal domain, suggests that any station more than at most 6 days apart does not meaningfully contribute
-  - The overall spatio-temporal sill including the nugget can be deducted from the plateau that a nicely behaving sample variogram reaches for ’large’ spatial and temporal distances.
+- Fitting tips, notes, etc.
+  1.  Get rid of errors that are the result from some parameter estimate being negative) from the get-go by restricting the search space to being positive for all estimated parameters for that model.
+      - You can use `extractPar(model)` or `extractParNames(model)` to extract the estimated parameters names and ORDER.
+
+      - **The order of parameter values in the vector is paramount.** The names are basically for you only. `optim` only cares about the order. Out of order parameters will like result in confusing errors like, "non-finite finite-difference value \[2\]" or something
+
+        ``` r
+        extractPar(sep_mod)
+        #>  range.s nugget.s  range.t nugget.t     sill 
+        #> 123.0000   0.5000  14.0000   0.1000 109.9943
+        ```
+
+        - If you set the bounds ([lower]{.arg-text} or [upper]{.arg-text}) and you give `optim` [range.t = 0.1]{.arg-text} first, it will think that is the value you want for [range.s]{.arg-text}. It doesn't care that you named it [range.t]{.arg-text}.
+        - So double check that you have the correct order using `extractPar` or `extractParNames`
+
+      - [Example]{.ribbon-highlight}:
+
+        ``` r
+        lower_bounds <- switch(
+          mod_type,
+          "separable" = c(
+            range.s  = 1,   nugget.s = 0,
+            range.t  = 0.1, nugget.t = 0,
+            sill     = 0
+          ),
+          "productSum" = c(
+           sill.s = 0, range.s = 1,
+           nugget.s = 0, sill.t = 0,
+           range.t = 0.1, nugget.t = 0,
+           k = 0.0001
+          ),
+          "metric" = c(
+           sill    = 0, range   = 1,
+           nugget  = 0, anis    = 1
+          ),
+          "simpleSumMetric" = c(
+           sill.s  = 0, range.s  = 1,
+           sill.t  = 0, range.t  = 0.1,
+           sill.st = 0, range.st = 1,
+           nugget  = 0, anis     = 1
+          )
+        )          
+
+        fit.StVariogram(
+          vario_emp, 
+          mod, 
+          lower = lower_bounds
+        )
+
+        sum_metric_lower_bounds <- c(
+          sill.s = 0,     range.s = 1,
+          nugget.s = 0,   sill.t = 0,
+          range.t = 0.1,  nugget.t = 0,
+          sill.st = 0,    range.st = 1,
+          nugget.st = 0,  anis = 1
+        )
+        ```
+
+        - Using floats is okay if the context of the data makes it plausible (e.g. temporal data is in days, but perhaps a range of less than a day (hours) is plausible)
+  2.  Make convergence more likely by increasing the optimization iterations
+      - [Example]{.ribbon-highlight}:
+
+        ``` r
+        fit.StVariogram(
+          vario_emp, 
+          mod,
+          control = list(maxit=10000)
+        )
+        ```
+  3.  Fit the *Simple Sum Metric* first. Then, use its estimated model parameters to fit the *Sum Metric*
+      - It's already mentioned in the notes under [Sum Metric](geospatial-spat-temp.html#sec-geo-sptemp-krig-var-vgmst){style="color: green"}, but it's worth emphasizing. The optimizer errors aren't really helpful, so the best course is to avoid them all together.
+      - See [Starting Values](geospatial-spat-temp.qmd#sec-geo-sptemp-krig-stval){style="color: green"} \>\> Joint Models \>\> Example 1
+  4.  Tune the weighting method ([fit.method]{.arg-text}) for `fit.StVariogram`
+      - For the Simple Sum Metric using the Matern model in [Starting Values](geospatial-spat-temp.qmd#sec-geo-sptemp-krig-stval){style="color: green"} \>\> Joint Models \>\> Example 1, changing to [fit.method = 7]{.arg-text} from [fit.method = 6]{.arg-text} resulted in a 300% decrease in sum of squared errors (SSE).
 - In some cases, you should rescale spatial and temporal distances to ranges similar to the ones of sills and nuggets using the parameter [parscale]{.arg-text}.
   - [control = list(parscale=c())]{.arg-text} - Input a vector of the same length as the number of parameters to be optimized
 
-    - It's the same *number of parameters and order of parameters* as in the lower bounds specifications shown in [fit.StVariogram \>\> Misc](geospatial-spat-temp.qmd#sec-geo-sptemp-krig-var-fitstv){style="color: green"}
+    - It's the same *number of parameters and order of parameters* as in the lower bounds specifications shown in the Fitting Tips, notes, etc. section above.
 
   - In most applications, a change of 1 in the sills will have a stronger influence on the variogram surface than a change of 1 in the ranges.
 
@@ -4045,7 +4054,7 @@ lightbox:
     )
     ```
 
-    - Pretty sure what this says is to divide the [range.s]{.arg-text} parameter by 100, the [range.t]{.arg-text} parameter by 10, and the joint [sill]{.arg-text} by 100 — keep the rest the same.
+    - Pretty sure what this says is to divide the [range.s]{.arg-text} parameter by 100, the [range.t]{.arg-text} parameter by 10, and the joint [sill]{.arg-text} by 100 — keep the rest the same. (I haven't had to use this yet.)
     - The nugget is measured in semi-variance units. For this data, the spatial range is measured in kilometers and the temporal range is measured in days.
     - The sill is measured in semi-variance units, so I'm surprised it's being scaled as well. Joint components are typically quite a bit larger than their spatial or temporal components at least in my limited experience, but the joint sill being 100x larger in scale than the spatial and temporal nugget scales seems a bit much. ¯\\\_(ツ)\_/¯
 
@@ -4325,7 +4334,7 @@ lightbox:
 
   - The function that fits all the candidate spatio-temporal variogram models.
   - The appropriate lower bounds settings for the [lower]{.arg-text} argument are applied to each model. It helps prevent optimization errors that happen with invalid values (e.g. negative sill) are converged on.
-    - See [fit.StVariogram](geospatial-spat-temp.qmd#sec-geo-sptemp-krig-var-fitstv){style="color: green"} \>\> Misc \>\> Fitting tips, notes, etc. for more details
+    - See [Variogram \>\> Convergence Help](geospatial-spat-temp.qmd#sec-geo-sptemp-krig-var-convh){style="color: green"} \>\> Fitting tips, notes, etc. for more details
 
   ###### Results
 
@@ -5037,7 +5046,7 @@ lightbox:
   - [nmax]{.arg-text} - The maximum number of spatio-temporal observations selected (based on strength of covariance) to be used to calculate a prediction for a time and locations. (See the [Local Spatio-Temporal Kriging](geospatial-spat-temp.qmd#sec-geo-sptemp-krig-inter-localk){style="color: green"} section for details)
   - [stAni]{.arg-text} - Only needs to be set if the provided variogram model doesn't include a [stAni]{.arg-text} parameter (Seperable and Product-Sum)
 - **Regarding the [data]{.arg-text} and [newdata]{.arg-text} objects**
-  - BOTH must be same class — e.g. both must be [STFDF]{.arg-text} objects or both must be [{stars}]{style="color: #990000"} objects
+  - BOTH must be the same class — e.g. both must be [STFDF]{.arg-text} objects or both must be [{stars}]{style="color: #990000"} objects
   - BOTH objects' time components must be the same class — e.g. both must be a [Date]{.arg-text} class or both must be [POSIXct]{.arg-text} class
 
 #### Tuning nmax and bufferNmax {#sec-geo-sptemp-krig-inter-tunenb .unnumbered}
@@ -7622,6 +7631,40 @@ lightbox:
 
   - Predictions are backtransformed and the [{stars}]{style="color: #990000"} object is reconstituted.
   - This follows the recipe from [Data Formats \>\> Long](geospatial-spat-temp.qmd#sec-geo-sptemp-datform-long){style="color: green"} \>\> Example 4
+
+  ###### Process Predictions (alternative)
+
+  <Details>
+
+  <Summary>Code</Summary>
+
+  ``` r
+  sf_pred_cat <- sf_cat_grid |>
+    mutate(
+      predicted = exp(cat_grid_pred$response) * smear_factor$Catboost[[1]],
+      model = "Catboost"
+    ) |>
+    select(date, predicted, model, geometry)  
+
+  ls_star_cat <- purrr::map(vec_sample_days, \(d) {
+    sf_pred_cat |>
+      filter(date == d) |>
+      select(predicted, geometry) |>
+      stars::st_rasterize(
+        stars::st_as_stars(st_bbox(sf_germany), dx = 5000)
+      ) |>
+      st_crop(sf_germany)
+  })
+
+  star_combined_cat <- do.call(
+    c,
+    c(ls_star_cat, list(along = c(time = vec_sample_days)))
+  )  
+  ```
+
+  - This way is more condensed and the `c` method is a legit way to join [{stars}]{style="color: #990000"} objects (it's in the [{stars}]{style="color: #990000"} docs). Otherwise, it's a bit hacky to me, and unless I worked on this type of data all the time, future me would be confused about what exactly is happening. But ya never know, so I'm keeping it here in case I ever need it.
+
+  </Details>
 
   ## Visualize
 
