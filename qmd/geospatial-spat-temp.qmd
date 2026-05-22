@@ -44,7 +44,10 @@ lightbox:
         - This is the one used for matrices and arrays.
         - [Data Formats \>\> Time-wide](geospatial-spat-temp.qmd#sec-geo-sptemp-datform-timew){style="color: green"} \>\> Example 2 (matrix)
         - [Data Formats \>\> Long](geospatial-spat-temp.qmd#sec-geo-sptemp-datform-long){style="color: green"} \>\> Example 4 (array)
+        - [Kriging \>\> Examples](geospatial-spat-temp.qmd#sec-geo-sptemp-krig-ex){style="color: green"} \>\> Example 3 \>\> Catboost \>\> Process Predictions
       - [sf]{.arg-text}
+        - This seems to only allow you to convert the variables of a sf dataframe to attributes with the only dimension being the geometry column.\
+          After the stars object is created, I haven't found a way to add dimensions to it either. It's probably because the attributes are 1-D (i.e. not matrices or arrays)
       - [bbox]{.arg-text}
       - [xts]{.arg-text}
       - [cubble_df]{.arg-text}
@@ -1305,72 +1308,7 @@ lightbox:
   - For kriging, ideally we'd want at least around 100 pairwise distances in each of the first few bins (short pairwise distances) for a stable range estimate, but no pairwise distance bin has that many. (See [Geospatial, Kriging \>\> Bin Width](geospatial-kriging.html#sec-geo-krig-bw){style="color: green"})
     - This is due to there only being 53 locations and the selection of only rural locations
 
-- [Example 5]{.ribbon-highlight}: Which destination gets the most visitors per mode of transportation
-
-  ::: {layout-ncol="2"}
-  ![](_resources/Geospatial-Spatio-Temporal.resources/eda-gen-max-trips-dest-mode-1.png){.lightbox group="eda-gen-max-dest-mode" width="532"}
-
-  ![](_resources/Geospatial-Spatio-Temporal.resources/eda-gen-max-trips-dest-mode-2.png){.lightbox group="eda-gen-max-dest-mode" width="532"}
-  :::
-
-  <Details>
-
-  <Summary>Code</Summary>
-
-  ``` r
-  library(ggplot2); library(stars)
-
-  star_sum_dest <- st_apply(
-    star_bris_od,       # stars object
-    2,                  # index of dimension
-    sum                 # function to apply over dimension
-  )
-  which.max(star_sum_dest[[1]])
-  #> [1] 33
-
-  # verbose
-  # star_sum_dest <- st_apply(
-  #   star_bris_od, 
-  #   c("dest"), 
-  #   sum, 
-  #   .fname = "n_trips_per_dest" # changes attribute name
-  # )
-  # which.max(star_sum_dest$n_trips_per_dest)
-  #> [1] 33
-
-  plot(adrop(star_bris_od[,,33]) + 1, logz = TRUE)
-
-  ggplot() + 
-    geom_stars(data = adrop(star_bris_od[,,33]) + 1) +
-    coord_sf() +
-    facet_wrap(
-      ~ trans_mode,
-      labeller = as_labeller(c(
-        "bicycle" = "Bicycle",
-        "foot" = "Foot",
-        "car_driver" = "Car",
-        "train" = "Train"
-      ))
-    ) +
-    scico::scale_fill_scico(
-      palette = "navia",
-      transform = "log10"
-    ) +
-    labs(
-      title = paste0("Number of Trips to ", bristol_zones$name[[33]]),
-      subtitle = "The fill color is on the log10 + 1 scale",
-      fill = "Number of\nTrips"
-    ) +
-    theme_charcoal_map()
-  ```
-
-  - See [Data Formats \>\> Long](geospatial-spat-temp.qmd#sec-geo-sptemp-datform-long){style="color: green"} \>\> Example 4 for details on [star_bris_od]{.var-text}
-  - `star_bris_od[,,33]` says take all attributes (there is only one: [n_trips]{.var-text}) since the first argument is empty, we take all [origin]{.var-text} regions (second argument empty), we take destination ([dest]{.var-text}) zone 33 (third argument), and all transportation modes ([trans_modes]{.var-text}) (fourth argument empty, or missing).
-  - `adrop` drops all other dimensions except the ones specified to be kept. So all destinations get dropped except the 33^rd^
-
-  </Details>
-
-- [Example 6]{.ribbon-highlight}: [{gglinedensity}]{style="color: #990000"}\
+- [Example 5]{.ribbon-highlight}: [{gglinedensity}]{style="color: #990000"}\
   ![](_resources/Geospatial-Spatio-Temporal.resources/eda-gglinedens-1.png){.lightbox width="432"}
 
   <Details>
@@ -1435,7 +1373,7 @@ lightbox:
   - With a bunch of time series, it's difficult to distinguish a primary trend to the data (e.g. in a spaghetti line chart). This density gives a sense of the seasonality and the trend of most of the locations.
   - The summary says the median is around 14 and the max is around 270.
 
-- [Example 7]{.ribbon-highlight}: [{daiquiri}]{style="color: #990000"}\
+- [Example 6]{.ribbon-highlight}: [{daiquiri}]{style="color: #990000"}\
 
   ::: {layout-ncol="2"}
   ![](_resources/Geospatial-Spatio-Temporal.resources/eda-daiquiri-miss-1.png){.lightbox group="eda-daiq" width="332"}
@@ -2884,6 +2822,229 @@ lightbox:
   - The choice for kappa was overwhelming 0.4 which makes me wonder if an even lower value would be optimal.
   - I think Matern might've been chosen in the vignette, but it looks like you get pretty close to the same SSE with the Exponential.
   - Nugget distributions look fine. The Matern's has a few zeros in its distribution
+  :::
+
+## Analysis {#sec-geo-sptemp-anal .unnumbered}
+
+- Misc
+
+  - Some (all currently) of these examples don't have a time element, but they include [{stars}]{style="color: #990000"} objects. So, an anlaysis involving a [{stars}]{style="color: #990000"} object with a time dimension would follow a similar workflow.
+
+- [Example 1]{.ribbon-highlight}: Which destination gets the most visitors per mode of transportation
+
+  :::: panel-tabset
+  ## Total Trips by Destination
+
+  ###### Calculate Total Trips
+
+  ``` r
+  library(ggplot2); library(stars)
+
+  # total trips by destination
+  star_sum_dest <- st_apply(
+    star_bris_od,       # stars object
+    2,                  # index of dimension
+    sum                 # function to apply over dimension
+  )
+  which.max(star_sum_dest[[1]])
+  #> [1] 33
+
+  # verbose
+  # star_sum_dest <- st_apply(
+  #   star_bris_od, 
+  #   c("dest"), 
+  #   sum, 
+  #   .fname = "n_trips_per_dest" # changes attribute name
+  # )
+  # which.max(star_sum_dest$n_trips_per_dest)
+  #> [1] 33
+  ```
+
+  - See [Data Formats \>\> Long](geospatial-spat-temp.qmd#sec-geo-sptemp-datform-long){style="color: green"} \>\> Example 4 for details on [star_bris_od]{.var-text}
+
+  ###### Visualize
+
+  ::: {layout-ncol="2"}
+  ![](_resources/Geospatial-Spatio-Temporal.resources/eda-gen-max-trips-dest-mode-1.png){.lightbox group="eda-gen-max-dest-mode" width="532"}
+
+  ![](_resources/Geospatial-Spatio-Temporal.resources/eda-gen-max-trips-dest-mode-2.png){.lightbox group="eda-gen-max-dest-mode" width="532"}
+  :::
+
+  <Details>
+
+  <Summary>Code</Summary>
+
+  ``` r
+  plot(adrop(star_bris_od[,,33]) + 1, logz = TRUE)
+
+  ggplot() + 
+    geom_stars(data = adrop(star_bris_od[,,33]) + 1) +
+    coord_sf() +
+    facet_wrap(
+      ~ trans_mode,
+      labeller = as_labeller(c(
+        "bicycle" = "Bicycle",
+        "foot" = "Foot",
+        "car_driver" = "Car",
+        "train" = "Train"
+      ))
+    ) +
+    scico::scale_fill_scico(
+      palette = "navia",
+      transform = "log10"
+    ) +
+    labs(
+      title = paste0("Number of Trips to ", bristol_zones$name[[33]]),
+      subtitle = "The fill color is on the log10 + 1 scale",
+      fill = "Number of\nTrips"
+    ) +
+    theme_charcoal_map
+  ```
+
+  - `star_bris_od[,,33]` says take all attributes (there is only one: [n_trips]{.var-text}) since the first argument is empty, we take all [origin]{.var-text} regions (second argument empty), we take destination ([dest]{.var-text}) zone 33 (third argument), and all transportation modes ([trans_modes]{.var-text}) (fourth argument empty, or missing).
+  - `adrop` drops all other dimensions except the ones specified to be kept. So all destinations get dropped except the 33^rd^
+
+  </Details>
+
+  ## Other Aggregations
+
+  ``` r
+  # --- total trips by each origin to destination combination ---
+  st_apply(star_bris_od, 1:2, sum)
+  #> stars object with 2 dimensions and 1 attribute
+  #> attribute(s):
+  #>      Min. 1st Qu. Median     Mean 3rd Qu. Max.
+  #> sum     0       0      0 19.20636      19 1434
+  #> dimension(s):
+  #>        from  to refsys point                                                        values
+  #> origin    1 102 WGS 84 FALSE MULTIPOLYGON (((-2.510462...,...,MULTIPOLYGON (((-2.55007 ...
+  #> dest      1 102 WGS 84 FALSE MULTIPOLYGON (((-2.510462...,...,MULTIPOLYGON (((-2.55007 ...
+
+
+  # --- total trips by origin and mode of transporation ---
+  st_apply(star_bris_od, c(1,3), sum)
+  #> stars object with 2 dimensions and 1 attribute
+  #> attribute(s):
+  #>      Min. 1st Qu. Median     Mean 3rd Qu. Max.
+  #> sum     1    57.5  214.5 489.7623     771 2903
+  #> dimension(s):
+  #>            from  to refsys point                                                        values
+  #> origin        1 102 WGS 84 FALSE MULTIPOLYGON (((-2.510462...,...,MULTIPOLYGON (((-2.55007 ...
+  #> trans_mode    1   4     NA FALSE                                             bicycle,...,train
+
+  st_apply(star_bris_od, c(1,3), sum) |> 
+    as.data.frame() |> 
+    head()
+  #>                           origin trans_mode sum
+  #> 1 MULTIPOLYGON (((-2.510462 5...    bicycle  30
+  #> 2 MULTIPOLYGON (((-2.476122 5...    bicycle  34
+  #> 3 MULTIPOLYGON (((-2.55073 51...    bicycle  19
+  #> 4 MULTIPOLYGON (((-2.595763 5...    bicycle 161
+  #> 5 MULTIPOLYGON (((-2.593783 5...    bicycle 188
+  #> 6 MULTIPOLYGON (((-2.639581 5...    bicycle 126
+  ```
+
+  - Thoughts
+  ::::
+
+- [Example 2]{.ribbon-highlight}: Trip Density per Location
+
+  ::: panel-tabset
+  ## Calculate Trip Density for Origins and Destinations
+
+  ![](_resources/Geospatial-Spatio-Temporal.resources/eda-gen-ex6-trip-dens-1.png){.lightbox width="632"}
+
+  ``` r
+  library(dplyr); library(ggplot2); library(stars)
+
+  area_origins <- st_apply(
+    star_bris_od, 
+    1, 
+    sum
+  ) |> 
+    st_as_sf() |> 
+    st_area() |> 
+    units::set_units("km^2")
+
+  star_dens_orig <-  st_apply(
+    star_bris_od, 
+    c("origin"), 
+    sum,
+    .fname = "tot_orig_trips"
+  ) |> 
+    mutate(trip_dens = tot_orig_trips / area_origins) |> 
+    select(trip_dens)
+
+  star_dens_dest <-  st_apply(
+    star_bris_od, 
+    c("dest"), 
+    sum,
+    .fname = "tot_dest_trips"
+  ) |> 
+    mutate(trip_dens = tot_dest_trips / area_origins) |> 
+    select(trip_dens)
+
+  (star_dens <- c(
+    star_dens_orig, 
+    star_dens_dest,
+    along = list(location = c("Origin", "Destination"))
+  ))
+  #> stars object with 2 dimensions and 1 attribute
+  #> attribute(s):
+  #>                        Min.  1st Qu.   Median     Mean 3rd Qu.     Max.
+  #> trip_dens [1/km^2] 5.107549 165.0211 544.9758 896.4212 1153.76 11147.27
+  #> dimension(s):
+  #>          from  to refsys point                                                        values
+  #> origin      1 102 WGS 84 FALSE MULTIPOLYGON (((-2.510462...,...,MULTIPOLYGON (((-2.55007 ...
+  #> location    1   2     NA    NA                                      Origin     , Destination
+
+  star_dens |> 
+    as_tibble() |> 
+    glimpse()
+  #> Rows: 204
+  #> Columns: 3
+  #> $ origin    <MULTIPOLYGON [°]> MULTIPOLYGON (((-2.510462 5..., MULTIPOLYGON (((-2.476122 5..., MULTIPOLYGON (((-2.55073 51.…
+  #> $ location  <fct> Origin, Origin, Origin, Origin, Origin, Origin, Origin, Origin, Origin, Origin, Origin, Origin, Origin, O…
+  #> $ trip_dens [1/km^2] 126.33201 [1/km^2], 151.50352 [1/km^2], 9.28764 [1/km^2], 727.55372 [1/km^2], 1035.17163 [1/km^2], 146…
+  ```
+
+  - Thoughts
+
+  ## Visualize
+
+  ``` r
+  ggplot() + 
+    geom_stars(data = star_dens + 1) +
+    coord_sf() +
+    facet_wrap(~ location) +
+    scico::scale_fill_scico(
+      palette = "navia", 
+      transform = "log10",
+      labels = scales::label_comma()
+    ) +
+    labs(
+      title = "Total Trips per Area",
+      subtitle = "Trips start from a location in Bristol, England",
+      caption = "Fill color on log10 + 1 scale",
+      fill = "Trips per km^2^"
+    ) +
+    theme_charcoal_map(
+      plot.caption.position = "plot",
+      plot.caption = element_text(
+        family = "Anybody",
+        face = "bold",
+        size = 11)
+    ) + 
+    theme(
+      legend.title = ggtext::element_markdown(
+        family = "Anybody",
+        size = "12",
+        face = "bold"
+      )
+    )
+  ```
+
+  - Thoughts
   :::
 
 ## Kriging {#sec-geo-sptemp-krig .unnumbered}
@@ -4978,6 +5139,8 @@ lightbox:
 #### Prediction Grids {#sec-geo-sptemp-krig-inter-pgrid .unnumbered}
 
 - i.e. [newdata]{.arg-text} input
+
+- Also see [Examples](geospatial-spat-temp.qmd#sec-geo-sptemp-krig-ex){style="color: green"} \>\> Example 3 \>\> Data and Set-Up \>\> Create Prediction Grid (5K m^2^ cells across Germany)
 
 - [Example]{.ribbon-highlight}: [{sp}]{style="color: #990000"} `SpatialGrid` and `GridTopology` method ([github](https://github.com/r-spatial/gstat/blob/c1df8b864e96a25e2f3e24c4662884734e50d326/demo/stkrige-prediction.R#L15-L21), [vignette](https://cran.r-project.org/web/packages/gstat/vignettes/spatio-temporal-kriging.pdf))
 
@@ -7597,11 +7760,11 @@ lightbox:
 
   </Details>
 
+  - The location coloration (observed PM10 levels) can help indicate whether an area has probaby been over or under-predicted.
   - When you examine the maps closely, the spatial prediction surfaces of both models are quite different. The krigeST surface is zonal and Catboost is the kind of a nonlinear, contour-looking surface.
     - For krigeSt, the zonal pattern is due to the k-NN methodology of local kriging and the number of stations and their dispersal pattern. See [Interpolate](geospatial-spat-temp.qmd#sec-geo-sptemp-krig-inter){style="color: green"} for more details
     - For Catboost, the contour pattern is likely due to the thin plate spline I used for the spatial coordinate features. I didn't check performance differences, but I'd wager this transformation results in a better model. Without the transformation, you get a prediction surface that looks like a paint brush has ran across it horizontally and vertically\
       ![](_resources/Geospatial-Spatio-Temporal.resources/krig-interp-ex3-rf-no-x.png){.lightbox width="232"}
-  - The location coloration (observed PM10 levels) can help indicate whether an area has probaby been over and under-predicted.
 
   ###### Standardized Prediction Error
 
