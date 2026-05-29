@@ -1,0 +1,297 @@
+# Spatial {#sec-assoc-spat .unnumbered}
+
+## Misc {#sec-assoc-spat-misc .unnumbered}
+
+- Packages
+  - [{]{style="color: #990000"}[spdep](https://r-spatial.github.io/spdep/){style="color: #990000"}[}]{style="color: #990000"}
+- Notes from
+  - [Spatial Data Science, Ch.15](https://r-spatial.org/book/15-Measures.html)
+  - [Comparing Implementations of Global and Local Indicators of Spatial Association (Bivand, Wong 2018)](https://scispace.com/pdf/comparing-implementations-of-global-and-local-indicators-of-17w0ryxrr4.pdf) (Also in R \>\> Documents \>\> Geospatial)
+- [**Entitation**]{style="color: #009499"} - The process of dividing continuous space into discrete units of observation (counties, census tracts, grid cells, etc.).
+- Residual spatial autocorrelation has an effect of standard errors and on coefficient values.
+
+## Causes of Spurious Spatial Autocorrelation {#sec-assoc-spat-cossa}
+
+- [Omitted Variables]{.underline}
+  - A variable you haven't included in your model has its own spatial pattern injects apparent spatial structure into your results.
+  - By including mulitple (relevant) predictors, testing the residuals is testing whether the unexplained variation is spatially clustered, not just whether the raw (response) variable has any spatial structure at all.
+    - The fix for true spatial autocorrelation — where nearby observations *genuinely influence each other* (diffusion, spillovers, contagion), is a spatial lag or spatial error model.
+  - [Example]{.ribbon-highlight}: You're mapping crime rates and notice strong spatial clustering, but you haven't controlled for poverty, which is itself spatially clustered .
+    - The crime autocorrelation may largely disappear once poverty is accounted for.
+    - The spatial pattern was real, but its cause wasn't proximity per se — it was a third variable you left out.
+- [Model Misspecification]{.underline}
+  - Modeling a nonlinear relationship as linear (or vice versa) can produce spurious spatial residuals.
+- [Entitation]{.underline}
+  - Choosing the wrong geographic units can manufacture or mask spatial autocorrelation
+  - If your units are too large, you average out variation within them and neighboring units end up looking artificially similar
+  - Certain causal effects may be present only at particular scales and missing this scale can lead to spurious autocorrelation
+  - See
+    - [Regression, Spatial \>\> Econometrics \>\> Examples](regression-spatial.qmd#sec-reg-spat-econ-ex){style="color: green"} \>\> Example 1
+    - [Geospatial, General \>\> Terms](geospatial-general.qmd#sec-geo-gen-terms){style="color: green"} \>\> Copying Out
+  - [Examples]{.ribbon-highlight}:
+    - Counties were drawn for governance, not for studying disease spread or economic activity
+    - Census tracts were drawn to have roughly equal populations, not to reflect neighborhood identity
+    - Grid cells impose a rigid geometry that real phenomena don't respect
+    - Your units cut across a real spatial boundary (e.g., a river that divides two distinct communities), you mask genuine dissimilarity
+
+## Global Measures {#sec-assoc-spat-global .unnumbered}
+
+### Misc {#sec-assoc-spat-global-misc .unnumbered}
+
+- A single value of autocorrelation for the total study area. These measures consider the average autocorrelation level across all observations
+  - Can be biased by edge effects where important spatial process components fall outside the study area.
+
+### Join Count Test
+
+- Categorical, discrete, or group-wise test of spatial autorcorrelation
+- Answers the question: given the spatial arrangement, do same-type or cross-type neighbors occur more or less often than you'd expect by chance?
+- The observed counts are of neighbors with the same factor levels, known as same-color joins.
+- Process
+  1.  The observed same-color join-counts are tabulated with their expectations based on the counts of levels of the input factor
+      - Example: Few joins would be expected between Warsaw boroughs, because there are very few (18) of them.
+  2.  The variance calculation uses the underlying constants of the chosen [listw]{.arg-text} object and the counts of levels of the input factor.
+  3.  The z-value is obtained by dividing the difference between the observed and expected join-counts by the square root of the variance.
+- [sampling]{.arg-text} - The basis for the construction of the variance of the measure, where the default "nonfree" choice corresponds to analytical permutation
+- [Jtot]{.var-text} is the count of all different-color joins. It tests whether cross-type joins are more or less than expected
+- Interpretation
+  - Positive z-score → More joins and more clustering than expected (i.e. positive spatial autocorrelation)
+  - Negative z-score → Fewer joins and more dispersion than expected (i.e. negative spatial autocorrelation)
+- Adjust p-values
+  - Multiple tests on the same dataset and neighbor graph, so a p-value adjustment should be done.
+    - Do same color (category) joins represent a different testing family than cross-color joins (therefore different numbers of comparisions?) or are these all together considered part of the same research question?
+    - If you have a lot of categories and the adjustment flips some interpretations when you assume these should all be treated as the same family, then this becomes an important question.
+  - Use the Holm (FWER) or Benjamini-Yekutieli (FDR) correction since there's likely negative correlations among test statistics
+    - Structural Dependence: The join counts are computed from the same spatial weights matrix (i.e. same neighborhood graph) and the same set of polygons. Their z-values are correlated.
+    - Compositionally Constrained: If same type joins are high, then cross-joins are lower since there is fixed number of joins. This induces *negative correlations*.
+    - Cross-type pairs sharing a category could induce positive coorelations
+      - e.g. Urban:Rural and Urban/rural:Rural both involve Rural polygons. If Rural polygons are more clustered than expected, both join counts might track together — suggesting *positive correlation* between some cross-type pairs
+- Examples
+  - [Example]{.ribbon-highlight}: Polish City Types
+
+    ::: panel-tabset
+    ## Data
+
+    words
+
+    ``` r
+    library(dplyr); library(spdep)
+
+    data(pol_pres15, package = "spDataLarge")
+
+    pol_pres15 |> 
+      count(types)
+    #> Simple feature collection with 4 features and 2 fields
+    #> Geometry type: GEOMETRY
+    #> Dimension:     XY
+    #> Bounding box:  xmin: 171677.6 ymin: 133223.7 xmax: 861882.2 ymax: 774774
+    #> Projected CRS: ETRF2000-PL / CS92
+    #>            types    n                       geometry
+    #> 1          Rural 1563 MULTIPOLYGON (((282864 3248...
+    #> 2          Urban  303 MULTIPOLYGON (((315888.7 27...
+    #> 3    Urban/rural  611 MULTIPOLYGON (((244371.6 33...
+    #> 4 Warsaw Borough   18 POLYGON ((631202.9 480068, ...
+    ```
+
+    - Thoughts
+
+    ## Spatial Weights
+
+    ``` r
+    nb_poly_pol <- pol_pres15 |> poly2nb(queen = TRUE)
+    lw_b_poly_pol <- nb_poly_pol |> nb2listw(style = "B")
+
+
+    # polygon centroids
+    coords_pol <- pol_pres15 |> 
+      st_geometry() |> 
+      st_centroid(of_largest_polygon = TRUE)
+
+    # 18300 determined the distance for a connected graph
+    nb_d183_pol <- coords_pol |> 
+      dnearneigh(0, 18300) 
+    # Inverse distance weights may be constructed by taking the lengths of edges, changing units to avoid most weights being too large or small (here from metre to kilometre), taking the inverse
+    # https://r-spatial.org/book/14-Areal.html#weights-specification
+    wgts_idw_d183 <- nb_d183_pol|> 
+      nbdists(coords_pol) |> 
+      lapply(function(x) 1/(x/1000))  # in km
+
+    lw_d183_idw_b_pol <- nb_d183_pol |> 
+      nb2listw(glist = wgts_idw_d183, style = "B")
+    ```
+
+    - Thoughts
+
+    ## Join Count Tests
+
+    ``` r
+    joincount.multi(pol_pres15$types, listw = lw_b_poly_pol) |>
+      as.data.frame() |>
+      tibble::rownames_to_column("type") |>
+      mutate(
+        p_value = 2 * pnorm(abs(`z-value`), lower.tail = FALSE),
+        p_value_adj = p.adjust(p_value, method = "BY")
+      ) |>
+      arrange(desc(p_value_adj)) |> 
+      ebtools::fmt_hl(c(p_value, p_value_adj), emphatic = TRUE)
+    #>                               type Joincount     Expected     Variance     z-value   p_value p_value_adj
+    #> 1                      Urban:Urban       110  104.7185351   93.2993687   0.5467831    0.5845           1
+    #> 2             Warsaw Borough:Urban         9   12.4830042   11.7580036  -1.0157509    0.3097           1
+    #> 3       Warsaw Borough:Urban/rural         8   25.1719985   22.3538161  -3.6319930 0.0002812    0.001038
+    #> 4                Urban/rural:Rural      2359 2185.7685388 1267.1313345   4.8664913  1.14e-06    4.72e-06
+    #> 5             Warsaw Borough:Rural        12   64.3925265   46.4599085  -7.6865272  1.51e-14    7.17e-14
+    #> 6                      Rural:Rural      3087 2793.9201781 1126.5342033   8.7320000  2.50e-18    1.39e-17
+    #> 7          Urban/rural:Urban/rural       656  426.5255306  331.7590322  12.5986206  2.15e-36    1.43e-35
+    #> 8                Urban/rural:Urban       171  423.7286419  352.1895385 -13.4668567  2.45e-41    2.04e-40
+    #> 9                             Jtot      3227 3795.4855729 1496.3984180 -14.6958878  6.85e-49    7.58e-48
+    #> 10                     Urban:Rural       668 1083.9408630  708.2086432 -15.6297121  4.57e-55    7.59e-54
+    #> 11   Warsaw Borough:Warsaw Borough        41    0.3501833    0.3474277  68.9646203         0           0
+
+
+    # substantial z-value changes using an inverse distance based listw object does, because closer centroids are up-weighted relatively strongly
+    # Rural:Rural and Warsaw Borough:Rural go to insignificant w/adj
+    # Jtot goes from highly signif to very not signif
+    # Urban:Urban goes from very not signif to very signif
+    # Warsaw Borough:Urban goes from not signif to very signif
+    joincount.multi(pol_pres15$types, listw = lw_d183_idw_b_pol) |> 
+      as.data.frame() |>
+      tibble::rownames_to_column("type") |>
+      mutate(
+        p_value     = 2 * pnorm(abs(`z-value`), lower.tail = FALSE),
+        p_value_adj = p.adjust(p_value, method = "BY")
+      ) |>
+      arrange(desc(p_value_adj)) |> 
+      ebtools::fmt_hl(c(p_value, p_value_adj), emphatic = TRUE)
+    #>                               type  Joincount     Expected     Variance      z-value  p_value p_value_adj
+    #> 1       Warsaw Borough:Urban/rural   3.267639   3.25448276  0.551796957   0.01771153   0.9859           1
+    #> 2                             Jtot 481.832119 490.71758713 41.570110157  -1.37812859   0.1682      0.5586
+    #> 3             Warsaw Borough:Rural   5.650239   8.32529715  1.725992663  -2.03616849  0.04173       0.154
+    #> 4                      Rural:Rural 346.476174 361.22539320 49.314210235  -2.10030797   0.0357      0.1482
+    #> 5          Urban/rural:Urban/rural  46.497610  55.14540240  9.613381390  -2.78911983 0.005285     0.02508
+    #> 6                Urban/rural:Urban  36.498919  54.78379321  8.858649324  -6.14339187 8.08e-10    4.47e-09
+    #> 7                Urban/rural:Rural 225.173194 282.59758674 35.891709966  -9.58515926 9.23e-22    6.13e-21
+    #> 8                      Urban:Urban  29.044510  13.53903891  2.228091144  10.38767831 2.82e-25    2.34e-24
+    #> 9                      Urban:Rural 202.062080 140.14250210 23.644875577  12.73384239 3.83e-37    4.25e-36
+    #> 10            Warsaw Borough:Urban   9.180046   1.61392517  0.253919428  15.01499993 5.86e-51    9.73e-50
+    #> 11   Warsaw Borough:Warsaw Borough  16.822284   0.04527513  0.006608328 206.38053024        0           0
+    ```
+
+    - Thoughts
+    :::
+
+### Moran's I {#sec-assoc-spat-global-moran .unnumbered}
+
+- [Misc]{.underline}
+
+  - A measure of global spatial autocorrelation or overall clustering of the data
+    - If there is no global autocorrelation or no clustering, there can still be clusters at a local level (See Local Moran's I)
+  - Assumes homegeneity (i.e. only one statistic is needed to summarize the whole study area)
+
+- [Equations]{.underline}
+
+  $$\begin{align}
+  &I = \frac{N}{S_0} \frac{\sum_i \sum_j w_{ij}(x_i - \bar{x})(x_j - \bar{x})}{\sum_i (x_i - \bar{x})^2} \\
+  & \text{where} \;\; S_0 = \sum w_{ij}\\
+  &\mathbb{E} (I) = - \frac{1}{n-1}\\
+  &\text{Var}(I) = \mathbb{E}(I^2) - [\mathbb{E}(I)]^2 \\
+  &Z(I) = \frac{I - \mathbb{E}(I)}{\sqrt{\text{Var}(I)}}
+  \end{align}$$
+
+  - $N$ is the number of spatial units (e.g. counties)
+  - $w_{ij}$ is an element of the spatial weights matrix
+  - $Z(I)$ is the Standard Deviate
+  - The components of the analytical variance ($\text{Var}(I)$) equation (under normalization and randomization) isn't shown because it's long. It's computed from the weights and number of neighbors with observations.
+
+- [Interpretation]{.underline}
+
+  - Range: $w_{\text{min}}\frac{N}{W} \lt I \lt w_{\text{max}}\frac{N}{W}$
+    - For a row normalized weight matrix, $\frac{N}{W} = 1$ (Wiki)
+      - In [{spdep}]{style="color: #990000"}, this would be [style = "W"]{.arg-text}
+      - I don't get this. W = 1, but why would N also equal 1? Not sure if this right.
+  - Values significantly *below* the expected value are *negatively* correlated
+  - Values significantly *above* the exected value are *positively* correlated
+
+- `moran.test`
+
+  - [randomisation]{.arg-text} - boolean; [TRUE]{.arg-text} (default) says calculate the variance of I under the assumption of randomisation, if [FALSE]{.arg-text} assume normality
+    - The only difference between tests under normality and randomization is that an extra term is added if the kurtosis of the variable of interest indicates a flatter or more peaked distribution, where the measure used is the classical measure of kurtosis
+  - [drop.EI2]{.arg-text} - Used to reproduce results where the final component of the variance term is omitted as found in some legacy software implementations (CrimeStat \<= 4.02)
+  - Output
+    - statistic - the value of the standard deviate of Moran's I.
+    - p.value - the p-value of the test.
+    - estimate - the value of the observed Moran's I, its expectation and variance under the method assumption.
+    - alternative - a character string describing the alternative hypothesis.
+    - method - a character string giving the assumption used for calculating the standard deviate.
+    - data.name - a character string giving the name(s) of the data.
+
+- [Other Flavors]{.underline}
+
+  - `EBImoran.mc`
+    - [Docs](https://r-spatial.github.io/spdep/reference/EBImoran.mc.html), ([Vignette](https://r-spatial.github.io/spdep/articles/sids.html#probability-mapping))
+    - Uses empirical bayes to shrink counts/rates that have high variance or small populations towards a global average rate. Then tests (via permutation) for spatial autocorrelation.
+    - Useful for count data with outliers or overdispersion
+
+- [Moran Plot]{.underline}
+
+  - Finds observations that have strong influence on (global) Moran's I
+  - Plots the values of the variable of interest against their spatially lagged values, typically using row-standardized weights ([W]{.arg-text}) to make the axes more directly comparable
+  - Returns an influence measures object that's used to label observations exerting more than proportional influence on the slope of the line which represents Global Moran’s I.
+  - Uses the spatial weights list object to get spatial lag values of the variable. The regresses the variable against the spatial lag variable (e.g. `lm(lags ~ x)`). The `lm` object is then used to get the influential observations (via `influence.measures`).
+  - Quadrants are formed by lines located at the means of the variable and lagged variable
+
+- Examples
+
+  - Example 1:
+
+    ``` r
+    # code
+    ```
+
+  - Example 2: Moran Plot
+
+    - plot: relatively fewer influential observations in the high-low (lagged vs orig) and low-high quadrants.
+    - map: suggests that some edge entities exert more than proportional influence (perhaps because of row standardization), as do entities in or near larger urban areas.
+
+### Geary's C
+
+$$\begin{align}
+&C = \frac{(N-1) \sum_i \sum_j w_{ij}(x_i-x_j)^2}{2S_0 \sum_i (x_i - \bar x)^2} \\
+&\mathbb{E}(C) = 1 \\
+&Z(C) = \frac{\mathbb{E}(C) - C}{\sqrt{\text{Var}(C)}}
+\end{align}$$
+
+- A measure of global spatial autocorrelation or overall clustering of the data
+  - The analytical variance ($\text{Var}(C)$) equation and its components (under normalization and randomization) isn't shown because it's long. It's computed from the weights and number of neighbors with observations.
+  - More sensitive to local spatial autocorrelation than Moran's I so it can pick-up on spatial autocorrelation that Moran's I might have missed.
+- More computationally demanding than Moran's I, especially when the spatial weights are dense
+- $N$ is the number of analysis units on the map
+- $w_{ij}$ is an element of the spatial weights matrix
+- $S_0$ is the sum of all $w_{ij}$
+- $Z(C)$ is the standard deviate
+
+## Local Measures {#sec-assoc-spat-local .unnumbered}
+
+### Misc
+
+- Values of autocorrelation for each areal unit
+  - Local metrics can suffer from multiple testing issues when the number of group units is large.
+  - Local measures are likely to mislead users in the presence of global autocorrelation, and where the mean model is mis-specified in other ways.
+
+### Local Moran's I
+
+$$\begin{align}
+&I_i = \frac{x_i - \bar x}{m_2} \sum_{j=1}^N w_{ij} (x_j - \bar x) \\
+&\text{where} \;\; m_2 = \frac{\sum_{i=1}^N (x_i - \bar x)^2}{N}
+\end{align}$$
+
+- Moran's I is just the average of all $I_i s$, $I = \sum_{i=1}^N I_i /N$
+- Conditional permutation assumes that the local and (conditional, without $x_i$) global distributions of $x$ are equivalent, so a divergence between analytical and conditional permutations can perhaps be driven by local spatial heterogeneity
+  - `LOSH.cs` and `LOSH.mc` perform Chi-square and Bootstrapping-based tests respectively for local spatial heteroscedasticity. Values of the measure greater than 1 indicate heightened local spatial heterogenity
+
+### Local Geary's C
+
+$$\begin{align}
+&C_i = \frac{1}{m_2} \sum_j w_{ij}(x_i - xj)^2\\
+&\text{where} \;\; m_2 = \frac{\sum_i (x_i - \bar x)^2}{N-1}
+\end{align}$$
+
+- Geary's C is $C=\sum_i C_i/2W$
