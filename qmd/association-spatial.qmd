@@ -11,7 +11,10 @@
   - [Comparing Implementations of Global and Local Indicators of Spatial Association (Bivand, Wong 2018)](https://scispace.com/pdf/comparing-implementations-of-global-and-local-indicators-of-17w0ryxrr4.pdf) (Also in R \>\> Documents \>\> Geospatial)
     - The concern about conditional permutations in Local Moran's I was later shown to be because the comparison by Bivand and Wong was between statistics that used different types of nulls. Both types of nulls are now available in [{spdep}]{style="color: #990000"} ([source](https://r-spatial.org/book/15-Measures.html#local-morans-i_i))
 - [**Entitation**]{style="color: #009499"} - The process of dividing continuous space into discrete units of observation (counties, census tracts, grid cells, etc.).
-- Residual spatial autocorrelation has an effect of standard errors and on coefficient values.
+- A lot of these statistics have permutation versions. Examples in papers or books usually have some form of 999, 99999, etc for the number of permutations performed. This is so the pseudo p-value calculations produce "clean" numbers.
+  - The convention is actually to count the observed statistic as one of the reference values, so the total number of reference values is permutations + 1
+  - The pseudo p-value is calculated as the proportion of permuted statistics that are as extreme or more extreme than the observed statistic. With 999 permutations the smallest possible non-zero pseudo p-value is 1/(999 + 1j) = 0.001, with 9,999 it's 1/(9999 + 1) = 0.0001, and with 99,999 it's 1/(99999 + 1) = 0.00001.
+  - In determining a "explicable" cluster center pattern, you often test the sensitivity of various p-value thresholds and p-value correction methods on those patterns. Therefore, you want to make sure the lower limit of the pseudo p-value is below your threshold.
 
 ## Causes of Spurious Spatial Autocorrelation {#sec-assoc-spat-cossa .unnumbered}
 
@@ -243,6 +246,7 @@
   - Returns an influence measures object that's used to label observations exerting more than proportional influence on the slope of the line which represents Global Moran’s I.
   - Uses the spatial weights list object to get spatial lag values of the variable. The regresses the variable against the spatial lag variable (e.g. `lm(lags ~ x)`). The `lm` object is then used to get the influential observations (via `influence.measures`).
   - Quadrants are formed by lines located at the means of the variable and lagged variable
+  - Since the local Moran is a cross-product statistic, it naturally aligns with a linear fit (regression line) of points (unlike Geary's C) (i.e. linear association)
 
 - Examples
 
@@ -259,20 +263,22 @@
 
 ### Geary's C {#sec-assoc-spat-global-geary .unnumbered}
 
-$$\begin{align}
-&C = \frac{(N-1) \sum_i \sum_j w_{ij}(x_i-x_j)^2}{2S_0 \sum_i (x_i - \bar x)^2} \\
-&\mathbb{E}(C) = 1 \\
-&Z(C) = \frac{\mathbb{E}(C) - C}{\sqrt{\text{Var}(C)}}
-\end{align}$$
-
 - A measure of global spatial autocorrelation or overall clustering of the data
+
+- Equations
+
+  $$\begin{align}
+  &C = \frac{(N-1) \sum_i \sum_j w_{ij}(x_i-x_j)^2}{2S_0 \sum_i (x_i - \bar x)^2} \\
+  &\mathbb{E}(C) = 1 \\
+  &Z(C) = \frac{\mathbb{E}(C) - C}{\sqrt{\text{Var}(C)}}
+  \end{align}$$
+
+  - See Moran's I for variable descriptions
   - The analytical variance ($\text{Var}(C)$) equation and its components (under normalization and randomization) aren't shown because it's long. It's computed from the weights and number of neighbors with observations.
-  - More sensitive to local spatial autocorrelation than Moran's I so it can pick-up on spatial autocorrelation that Moran's I might have missed.
+
 - More computationally demanding than Moran's I, especially when the spatial weights are dense
-- $N$ is the number of analysis units on the map
-- $w_{ij}$ is an element of the spatial weights matrix
-- $S_0$ is the sum of all $w_{ij}$
-- $Z(C)$ is the standard deviate
+
+- Uses squared difference so it's more likely to pick up nonlinear relationships than the Moran's I or Getis-Ord G.
 
 ### Getis-Ord G {#sec-assoc-spat-global-getord .unnumbered}
 
@@ -300,6 +306,10 @@ $$\begin{align}
   - The statistic may be used to identify boundaries of clusters and to describe the nature of heteroscedasticity within clusters, i.e. trends of homogeneity or heterogeneity in the neighborhood of a given observation
     - i.e. If heteroskedacity (p-value \< 0.05) is detected around an observation near a cluster/in a cluster $\rightarrow$ the local neighborhood is heterogeneous $\rightarrow$ that location is on the boundary of the cluster.
   - Results demonstrate that thebootstrap method can provide a more accurate approximation than the chi-squaremethod
+- "While the rejection of the null suggests the *absence* of (local) spatial randomness, *it cannot suggest the presence of a particular form of association*. Hence, the main purpose of these statistics is in a data exploration sense (see also the argument in Sokal, Oden, and Thompson 1998b)." (Anselin 2018, local geary c paper)
+- These statistics only identify the *core or center* of a cluster. The cluster itself also includes
+  the neighboring locations (as defined by the spatial weights)
+- Both the Local Moran $I_i$ and the Local $G_i$ statistic are heavily influenced by the weighted average of the neighbors, whereas the Local Geary $C_i$ measures squared difference. So, Local Moran and Local G identify the same clusters.
 
 ### Local Moran's I~i~ {#sec-assoc-spat-local-moran .unnumbered}
 
@@ -328,9 +338,33 @@ $$\begin{align}
 
 ### Local Geary's C~i~ {#sec-assoc-spat-local-geary .unnumbered}
 
-$$\begin{align}
-&C_i = \frac{1}{m_2} \sum_j w_{ij}(x_i - xj)^2\\
-&\text{where} \;\; m_2 = \frac{\sum_i (x_i - \bar x)^2}{N-1}
-\end{align}$$
+- Notes from A Local Indicator of Multivariate Spatial Association: Extending Geary’s c (Anselin 2018) (R \>\> Documents \>\> Geospatial)
 
-- Geary's C is $C=\sum_i C_i/2W$
+  - Also shows how (no code) to use PCA with these statistics to handle multivariate data. Multivariate analysis can bring out patterns that are not obvious in its univariate counterparts.
+
+- Equation
+
+  $$\begin{align}
+  &C_i = \frac{1}{m_2} \sum_j w_{ij}(x_i - xj)^2\\
+  &\text{where} \;\; m_2 = \frac{\sum_i (x_i - \bar x)^2}{N-1}
+  \end{align}$$
+
+  - Geary's C is $C=\sum_i C_i/2W$
+
+- Guidelines
+
+  - $C \lt 1$ $\rightarrow$ A small difference between an observation and its neighbors $\rightarrow$ Positive spatial autocorrelation.
+  - $C \gt 1$ $\rightarrow$ A large differences between an observation and its neighbors $\rightarrow$ Negative spatial autocorrelation
+  - A significant $c_i$ statistic that is less than its expected value under the null hypothesis (either the analytical value, or the average of the empirical reference distribution in a permutation approach) suggests a clustering of similar values.
+
+- A small squared difference suggests similarity, but it cannot divulge the type of similarity
+
+  - Similar neighbors could thus have either similar high values (the counterpart of high–high in the Local Moran case), or similar low values (the counterpart of low–low in the Local Moran case). However, they could also result from two data points that span the mean (e.g., one above the mean and one below), but that are very close together in value
+
+- `localC` and `localC_perm`
+
+  - The conditional permutation approach consists of holding the tuple of values observed at $i$ fixed, and computing the statistic for $m$ permutations ([nsim]{.arg-text}) of the remaining tuples over the other locations.
+
+### Local Getis-Ord G
+
+- Typically, results for the Local Moran $I_i$ and the Local $G_i$ statistics will match quite closely, except for some outliers.
