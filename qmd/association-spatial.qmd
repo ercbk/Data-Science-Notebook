@@ -64,125 +64,16 @@
   - Negative z-score → Fewer joins and more dispersion than expected (i.e. negative spatial autocorrelation)
 - Adjust p-values
   - Multiple tests on the same dataset and neighbor graph, so a p-value adjustment should be done.
+
     - Do same color (category) joins represent a different testing family than cross-color joins (therefore different numbers of comparisions?) or are these all together considered part of the same research question?
     - If you have a lot of categories and the adjustment flips some interpretations when you assume these should all be treated as the same family, then this becomes an important question.
+
   - Use the Holm (FWER) or Benjamini-Yekutieli (FDR) correction since there's likely negative correlations among test statistics
+
     - Structural Dependence: The join counts are computed from the same spatial weights matrix (i.e. same neighborhood graph) and the same set of polygons. Their z-values are correlated.
     - Compositionally Constrained: If same type joins are high, then cross-joins are lower since there is fixed number of joins. This induces *negative correlations*.
     - Cross-type pairs sharing a category could induce positive coorelations
       - e.g. Urban:Rural and Urban/rural:Rural both involve Rural polygons. If Rural polygons are more clustered than expected, both join counts might track together — suggesting *positive correlation* between some cross-type pairs
-- Examples
-  - [Example]{.ribbon-highlight}: Polish City Types
-
-    ::: panel-tabset
-    ## Data
-
-    words
-
-    ``` r
-    library(dplyr); library(spdep)
-
-    data(pol_pres15, package = "spDataLarge")
-
-    pol_pres15 |> 
-      count(types)
-    #> Simple feature collection with 4 features and 2 fields
-    #> Geometry type: GEOMETRY
-    #> Dimension:     XY
-    #> Bounding box:  xmin: 171677.6 ymin: 133223.7 xmax: 861882.2 ymax: 774774
-    #> Projected CRS: ETRF2000-PL / CS92
-    #>            types    n                       geometry
-    #> 1          Rural 1563 MULTIPOLYGON (((282864 3248...
-    #> 2          Urban  303 MULTIPOLYGON (((315888.7 27...
-    #> 3    Urban/rural  611 MULTIPOLYGON (((244371.6 33...
-    #> 4 Warsaw Borough   18 POLYGON ((631202.9 480068, ...
-    ```
-
-    - Thoughts
-
-    ## Spatial Weights
-
-    ``` r
-    nb_poly_pol <- pol_pres15 |> poly2nb(queen = TRUE)
-    lw_b_poly_pol <- nb_poly_pol |> nb2listw(style = "B")
-
-
-    # polygon centroids
-    coords_pol <- pol_pres15 |> 
-      st_geometry() |> 
-      st_centroid(of_largest_polygon = TRUE)
-
-    # 18300 determined the distance for a connected graph
-    nb_d183_pol <- coords_pol |> 
-      dnearneigh(0, 18300) 
-    # Inverse distance weights may be constructed by taking the lengths of edges, changing units to avoid most weights being too large or small (here from metre to kilometre), taking the inverse
-    # https://r-spatial.org/book/14-Areal.html#weights-specification
-    wgts_idw_d183 <- nb_d183_pol|> 
-      nbdists(coords_pol) |> 
-      lapply(function(x) 1/(x/1000))  # in km
-
-    lw_d183_idw_b_pol <- nb_d183_pol |> 
-      nb2listw(glist = wgts_idw_d183, style = "B")
-    ```
-
-    - Thoughts
-
-    ## Join Count Tests
-
-    ``` r
-    joincount.multi(pol_pres15$types, listw = lw_b_poly_pol) |>
-      as.data.frame() |>
-      tibble::rownames_to_column("type") |>
-      mutate(
-        p_value = 2 * pnorm(abs(`z-value`), lower.tail = FALSE),
-        p_value_adj = p.adjust(p_value, method = "BY")
-      ) |>
-      arrange(desc(p_value_adj)) |> 
-      ebtools::fmt_hl(c(p_value, p_value_adj), emphatic = TRUE)
-    #>                               type Joincount     Expected     Variance     z-value   p_value p_value_adj
-    #> 1                      Urban:Urban       110  104.7185351   93.2993687   0.5467831    0.5845           1
-    #> 2             Warsaw Borough:Urban         9   12.4830042   11.7580036  -1.0157509    0.3097           1
-    #> 3       Warsaw Borough:Urban/rural         8   25.1719985   22.3538161  -3.6319930 0.0002812    0.001038
-    #> 4                Urban/rural:Rural      2359 2185.7685388 1267.1313345   4.8664913  1.14e-06    4.72e-06
-    #> 5             Warsaw Borough:Rural        12   64.3925265   46.4599085  -7.6865272  1.51e-14    7.17e-14
-    #> 6                      Rural:Rural      3087 2793.9201781 1126.5342033   8.7320000  2.50e-18    1.39e-17
-    #> 7          Urban/rural:Urban/rural       656  426.5255306  331.7590322  12.5986206  2.15e-36    1.43e-35
-    #> 8                Urban/rural:Urban       171  423.7286419  352.1895385 -13.4668567  2.45e-41    2.04e-40
-    #> 9                             Jtot      3227 3795.4855729 1496.3984180 -14.6958878  6.85e-49    7.58e-48
-    #> 10                     Urban:Rural       668 1083.9408630  708.2086432 -15.6297121  4.57e-55    7.59e-54
-    #> 11   Warsaw Borough:Warsaw Borough        41    0.3501833    0.3474277  68.9646203         0           0
-
-
-    # substantial z-value changes using an inverse distance based listw object does, because closer centroids are up-weighted relatively strongly
-    # Rural:Rural and Warsaw Borough:Rural go to insignificant w/adj
-    # Jtot goes from highly signif to very not signif
-    # Urban:Urban goes from very not signif to very signif
-    # Warsaw Borough:Urban goes from not signif to very signif
-    joincount.multi(pol_pres15$types, listw = lw_d183_idw_b_pol) |> 
-      as.data.frame() |>
-      tibble::rownames_to_column("type") |>
-      mutate(
-        p_value     = 2 * pnorm(abs(`z-value`), lower.tail = FALSE),
-        p_value_adj = p.adjust(p_value, method = "BY")
-      ) |>
-      arrange(desc(p_value_adj)) |> 
-      ebtools::fmt_hl(c(p_value, p_value_adj), emphatic = TRUE)
-    #>                               type  Joincount     Expected     Variance      z-value  p_value p_value_adj
-    #> 1       Warsaw Borough:Urban/rural   3.267639   3.25448276  0.551796957   0.01771153   0.9859           1
-    #> 2                             Jtot 481.832119 490.71758713 41.570110157  -1.37812859   0.1682      0.5586
-    #> 3             Warsaw Borough:Rural   5.650239   8.32529715  1.725992663  -2.03616849  0.04173       0.154
-    #> 4                      Rural:Rural 346.476174 361.22539320 49.314210235  -2.10030797   0.0357      0.1482
-    #> 5          Urban/rural:Urban/rural  46.497610  55.14540240  9.613381390  -2.78911983 0.005285     0.02508
-    #> 6                Urban/rural:Urban  36.498919  54.78379321  8.858649324  -6.14339187 8.08e-10    4.47e-09
-    #> 7                Urban/rural:Rural 225.173194 282.59758674 35.891709966  -9.58515926 9.23e-22    6.13e-21
-    #> 8                      Urban:Urban  29.044510  13.53903891  2.228091144  10.38767831 2.82e-25    2.34e-24
-    #> 9                      Urban:Rural 202.062080 140.14250210 23.644875577  12.73384239 3.83e-37    4.25e-36
-    #> 10            Warsaw Borough:Urban   9.180046   1.61392517  0.253919428  15.01499993 5.86e-51    9.73e-50
-    #> 11   Warsaw Borough:Warsaw Borough  16.822284   0.04527513  0.006608328 206.38053024        0           0
-    ```
-
-    - Thoughts
-    :::
 
 ### Moran's I {#sec-assoc-spat-global-moran .unnumbered}
 
@@ -248,19 +139,6 @@
   - Quadrants are formed by lines located at the means of the variable and lagged variable
   - Since the local Moran is a cross-product statistic, it naturally aligns with a linear fit (regression line) of points (unlike Geary's C) (i.e. linear association)
 
-- Examples
-
-  - Example 1:
-
-    ``` r
-    # code
-    ```
-
-  - Example 2: Moran Plot
-
-    - plot: relatively fewer influential observations in the high-low (lagged vs orig) and low-high quadrants.
-    - map: suggests that some edge entities exert more than proportional influence (perhaps because of row standardization), as do entities in or near larger urban areas.
-
 ### Geary's C {#sec-assoc-spat-global-geary .unnumbered}
 
 - A measure of global spatial autocorrelation or overall clustering of the data
@@ -294,6 +172,337 @@
   \end{align}$$
 
   - The analytical variance ($\text{Var}(G)$) equation and its components aren't shown because it's long. It's computed from the weights and number of neighbors with observations.
+
+### Examples {#sec-assoc-spat-global-ex .unnumbered}
+
+- [Example 1]{.ribbon-highlight}: Join Count Tests
+
+  ::: panel-tabset
+  ## Data
+
+  - Polish county (gminy) types from Polish Presidential election 2015 data
+
+  ``` r
+  library(dplyr); library(spdep)
+
+  data(pol_pres15, package = "spDataLarge")
+
+  pol_pres15 |> 
+    count(types)
+  #> Simple feature collection with 4 features and 2 fields
+  #> Geometry type: GEOMETRY
+  #> Dimension:     XY
+  #> Bounding box:  xmin: 171677.6 ymin: 133223.7 xmax: 861882.2 ymax: 774774
+  #> Projected CRS: ETRF2000-PL / CS92
+  #>            types    n                       geometry
+  #> 1          Rural 1563 MULTIPOLYGON (((282864 3248...
+  #> 2          Urban  303 MULTIPOLYGON (((315888.7 27...
+  #> 3    Urban/rural  611 MULTIPOLYGON (((244371.6 33...
+  #> 4 Warsaw Borough   18 POLYGON ((631202.9 480068, ...
+  ```
+
+  - Thoughts
+
+  ## Spatial Weights
+
+  ``` r
+  nb_poly_pol <- pol_pres15 |> poly2nb(queen = TRUE)
+  lw_b_poly_pol <- nb_poly_pol |> nb2listw(style = "B")
+
+
+  # polygon centroids
+  coords_pol <- pol_pres15 |> 
+    st_geometry() |> 
+    st_centroid(of_largest_polygon = TRUE)
+
+  # 18300 determined the distance for a connected graph
+  nb_d183_pol <- coords_pol |> 
+    dnearneigh(0, 18300) 
+  # Inverse distance weights may be constructed by taking the lengths of edges, changing units to avoid most weights being too large or small (here from metre to kilometre), taking the inverse
+  # https://r-spatial.org/book/14-Areal.html#weights-specification
+  wgts_idw_d183 <- nb_d183_pol|> 
+    nbdists(coords_pol) |> 
+    lapply(function(x) 1/(x/1000))  # in km
+
+  lw_d183_idw_b_pol <- nb_d183_pol |> 
+    nb2listw(glist = wgts_idw_d183, style = "B")
+  ```
+
+  - Thoughts
+
+  ## Join Count Tests
+
+  ``` r
+  joincount.multi(pol_pres15$types, listw = lw_b_poly_pol) |>
+    as.data.frame() |>
+    tibble::rownames_to_column("type") |>
+    mutate(
+      p_value = 2 * pnorm(abs(`z-value`), lower.tail = FALSE),
+      p_value_adj = p.adjust(p_value, method = "BY")
+    ) |>
+    arrange(desc(p_value_adj)) |> 
+    ebtools::fmt_hl(c(p_value, p_value_adj), emphatic = TRUE)
+  #>                               type Joincount     Expected     Variance     z-value   p_value p_value_adj
+  #> 1                      Urban:Urban       110  104.7185351   93.2993687   0.5467831    0.5845           1
+  #> 2             Warsaw Borough:Urban         9   12.4830042   11.7580036  -1.0157509    0.3097           1
+  #> 3       Warsaw Borough:Urban/rural         8   25.1719985   22.3538161  -3.6319930 0.0002812    0.001038
+  #> 4                Urban/rural:Rural      2359 2185.7685388 1267.1313345   4.8664913  1.14e-06    4.72e-06
+  #> 5             Warsaw Borough:Rural        12   64.3925265   46.4599085  -7.6865272  1.51e-14    7.17e-14
+  #> 6                      Rural:Rural      3087 2793.9201781 1126.5342033   8.7320000  2.50e-18    1.39e-17
+  #> 7          Urban/rural:Urban/rural       656  426.5255306  331.7590322  12.5986206  2.15e-36    1.43e-35
+  #> 8                Urban/rural:Urban       171  423.7286419  352.1895385 -13.4668567  2.45e-41    2.04e-40
+  #> 9                             Jtot      3227 3795.4855729 1496.3984180 -14.6958878  6.85e-49    7.58e-48
+  #> 10                     Urban:Rural       668 1083.9408630  708.2086432 -15.6297121  4.57e-55    7.59e-54
+  #> 11   Warsaw Borough:Warsaw Borough        41    0.3501833    0.3474277  68.9646203         0           0
+
+
+  # substantial z-value changes using an inverse distance based listw object does, because closer centroids are up-weighted relatively strongly
+  # Rural:Rural and Warsaw Borough:Rural go to insignificant w/adj
+  # Jtot goes from highly signif to very not signif
+  # Urban:Urban goes from very not signif to very signif
+  # Warsaw Borough:Urban goes from not signif to very signif
+  joincount.multi(pol_pres15$types, listw = lw_d183_idw_b_pol) |> 
+    as.data.frame() |>
+    tibble::rownames_to_column("type") |>
+    mutate(
+      p_value = 2 * pnorm(abs(`z-value`), lower.tail = FALSE),
+      p_value_adj = p.adjust(p_value, method = "BY")
+    ) |>
+    arrange(desc(p_value_adj)) |> 
+    ebtools::fmt_hl(c(p_value, p_value_adj), emphatic = TRUE)
+  #>                               type  Joincount     Expected     Variance      z-value  p_value p_value_adj
+  #> 1       Warsaw Borough:Urban/rural   3.267639   3.25448276  0.551796957   0.01771153   0.9859           1
+  #> 2                             Jtot 481.832119 490.71758713 41.570110157  -1.37812859   0.1682      0.5586
+  #> 3             Warsaw Borough:Rural   5.650239   8.32529715  1.725992663  -2.03616849  0.04173       0.154
+  #> 4                      Rural:Rural 346.476174 361.22539320 49.314210235  -2.10030797   0.0357      0.1482
+  #> 5          Urban/rural:Urban/rural  46.497610  55.14540240  9.613381390  -2.78911983 0.005285     0.02508
+  #> 6                Urban/rural:Urban  36.498919  54.78379321  8.858649324  -6.14339187 8.08e-10    4.47e-09
+  #> 7                Urban/rural:Rural 225.173194 282.59758674 35.891709966  -9.58515926 9.23e-22    6.13e-21
+  #> 8                      Urban:Urban  29.044510  13.53903891  2.228091144  10.38767831 2.82e-25    2.34e-24
+  #> 9                      Urban:Rural 202.062080 140.14250210 23.644875577  12.73384239 3.83e-37    4.25e-36
+  #> 10            Warsaw Borough:Urban   9.180046   1.61392517  0.253919428  15.01499993 5.86e-51    9.73e-50
+  #> 11   Warsaw Borough:Warsaw Borough  16.822284   0.04527513  0.006608328 206.38053024        0           0
+  ```
+
+  - Thoughts
+  :::
+
+- [Example 2]{.ribbon-highlight}: Moran's I
+
+  ::: panel-tabset
+  ## Data and Set-Up
+
+  Polish Presidential election 2015 data by gminy and Warsaw borough areal units
+
+  <Details>
+
+  <Summary>Code</Summary>
+
+  ``` r
+  library(dplyr); library(spdep); library(tmap)
+
+  data(pol_pres15, package = "spDataLarge")
+  pol_pres15 <- pol_pres15 |> 
+    janitor::clean_names()
+
+  glimpse(pol_pres15)
+  #> Rows: 2,495
+  #> Columns: 65
+  #> $ teryt                                                 <chr> "020101", "020102", "020103", "020104"…
+  #> $ teryt0                                                <chr> "020101", "020102", "020103", "020104"…
+  #> $ name0                                                 <chr> "Miasto Bolesławiec", "Bolesławiec - g…
+  #> $ name                                                  <chr> "BOLESŁAWIEC", "BOLESŁAWIEC", "GROMADK…
+  #> $ gm0                                                   <chr> "020101", "020102", "020103", "020104"…
+  #> $ types                                                 <fct> Urban, Rural, Rural, Urban/rural, Rura…
+  #> $ i_entitled_to_vote                                    <int> 31535, 10951, 4539, 11934, 5467, 6700,…
+  #> $ i_voting_papers_received                              <int> 27140, 9390, 3907, 10283, 4710, 5706, …
+  #> $ i_unused_voting_papers                                <int> 11991, 4614, 1943, 5779, 2473, 3080, 1…
+  #> $ i_voting_papers_issued_to_voters                      <int> 15149, 4776, 1964, 4504, 2237, 2626, 1…
+  #> $ i_voters_voting_by_proxy                              <int> 8, 0, 0, 0, 0, 2, 7, 5, 5, 8, 0, 0, 3,…
+  #> $ i_voters_voting_by_declaration                        <int> 79, 17, 8, 7, 26, 7, 35, 38, 19, 16, 1…
+  #> $ i_voters_sent_postal_voting_package                   <int> 7, 1, 1, 0, 0, 2, 5, 3, 0, 0, 2, 0, 0,…
+  #> $ i_postal_voting_envelopes_received                    <int> 7, 1, 1, 0, 0, 2, 5, 3, 0, 0, 2, 0, 0,…
+  #> $ i_pve_of_which_no_declaration                         <int> 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 2, 0, 0,…
+  #> $ i_pve_of_which_no_signature                           <int> 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,…
+  #> $ i_pve_of_which_no_voting_envelope                     <int> 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,…
+  #> $ i_pve_of_which_voting_envelope_open                   <int> 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,…
+  #> $ i_voting_envelopes_placed_in_ballot_box               <int> 7, 1, 1, 0, 0, 2, 5, 3, 0, 0, 0, 0, 0,…
+  #> $ i_voting_papers_taken_from_ballot_box                 <int> 15152, 4777, 1965, 4504, 2237, 2628, 1…
+  #> $ i_of_which_voting_papers_taken_from_voting_envelopes  <int> 7, 1, 1, 0, 0, 2, 5, 3, 0, 0, 0, 0, 0,…
+  #> $ i_invalid_voting_papers                               <int> 3, 0, 0, 0, 0, 0, 3, 0, 0, 0, 0, 0, 0,…
+  #> $ i_valid_voting_papers                                 <int> 15149, 4777, 1965, 4504, 2237, 2628, 1…
+  #> $ i_invalid_votes                                       <int> 110, 26, 22, 41, 14, 46, 79, 128, 27, …
+  #> $ i_valid_votes                                         <int> 15039, 4751, 1943, 4463, 2223, 2582, 1…
+  #> $ i_candidates_total                                    <int> 15039, 4751, 1943, 4463, 2223, 2582, 1…
+  #> $ i_grzegorz_michal_braun                               <int> 152, 53, 13, 41, 17, 19, 57, 69, 27, 6…
+  #> $ i_andrzej_sebastian_duda                              <int> 4018, 1489, 776, 1680, 570, 916, 3266,…
+  #> $ i_adam_sebastian_jarubas                              <int> 114, 59, 16, 50, 28, 29, 77, 97, 31, 2…
+  #> $ i_bronislaw_maria_komorowski                          <int> 6059, 1678, 669, 1289, 803, 881, 4264,…
+  #> $ i_janusz_ryszard_korwin_mikke                         <int> 576, 180, 50, 152, 85, 88, 341, 372, 1…
+  #> $ i_marian_janusz_kowalski                              <int> 68, 21, 4, 39, 14, 5, 48, 72, 15, 15, …
+  #> $ i_pawel_piotr_kukiz                                   <int> 3336, 1076, 338, 1074, 580, 538, 2530,…
+  #> $ i_magdalena_agnieszka_ogorek                          <int> 405, 121, 45, 80, 76, 59, 253, 390, 63…
+  #> $ i_janusz_marian_palikot                               <int> 224, 50, 19, 38, 38, 40, 173, 197, 49,…
+  #> $ i_pawel_jan_tanajno                                   <int> 19, 11, 1, 5, 2, 1, 10, 17, 7, 4, 11, …
+  #> $ i_jacek_wilk                                          <int> 68, 13, 12, 15, 10, 6, 38, 40, 11, 9, …
+  #> $ ii_entitled_to_vote                                   <int> 31458, 10950, 4514, 11930, 5445, 6691,…
+  #> $ ii_voting_papers_received                             <int> 27237, 9399, 3900, 10270, 4700, 5698, …
+  #> $ ii_unused_voting_papers                               <int> 10700, 3947, 1655, 5220, 2239, 2760, 9…
+  #> $ ii_voting_papers_issued_to_voters                     <int> 16537, 5452, 2245, 5050, 2461, 2938, 1…
+  #> $ ii_voters_voting_by_proxy                             <int> 9, 0, 2, 1, 1, 3, 9, 9, 5, 8, 0, 0, 5,…
+  #> $ ii_voters_voting_by_declaration                       <int> 172, 65, 18, 30, 28, 38, 101, 86, 39, …
+  #> $ ii_voters_sent_postal_voting_package                  <int> 12, 1, 1, 1, 0, 0, 6, 1, 0, 2, 3, 0, 0…
+  #> $ ii_postal_voting_envelopes_received                   <int> 10, 1, 1, 0, 0, 0, 5, 1, 0, 2, 3, 0, 0…
+  #> $ ii_pve_of_which_no_declaration                        <int> 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0,…
+  #> $ ii_pve_of_which_no_signature                          <int> 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,…
+  #> $ ii_pve_of_which_no_voting_envelope                    <int> 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,…
+  #> $ ii_pve_of_which_voting_envelope_open                  <int> 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,…
+  #> $ ii_voting_envelopes_placed_in_ballot_box              <int> 10, 1, 1, 0, 0, 0, 4, 1, 0, 2, 3, 0, 0…
+  #> $ ii_voting_papers_taken_from_ballot_box                <int> 16544, 5453, 2246, 5050, 2461, 2938, 1…
+  #> $ ii_of_which_voting_papers_taken_from_voting_envelopes <int> 10, 1, 1, 0, 0, 0, 4, 1, 0, 2, 3, 0, 0…
+  #> $ ii_invalid_voting_papers                              <int> 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0,…
+  #> $ ii_valid_voting_papers                                <int> 16544, 5453, 2246, 5050, 2461, 2938, 1…
+  #> $ ii_invalid_votes                                      <int> 264, 67, 25, 75, 35, 47, 160, 178, 48,…
+  #> $ ii_valid_votes                                        <int> 16280, 5386, 2221, 4975, 2426, 2891, 1…
+  #> $ ii_andrzej_sebastian_duda                             <int> 6780, 2669, 1285, 2775, 1063, 1478, 52…
+  #> $ ii_bronislaw_maria_komorowski                         <int> 9500, 2717, 936, 2200, 1363, 1413, 678…
+  #> $ geometry                                              <MULTIPOLYGON [m]> MULTIPOLYGON (((261089.5 …
+  #> $ i_turnout                                             <dbl> 0.4768987, 0.4338417, 0.4280679, 0.373…
+  #> $ ii_turnout                                            <dbl> 0.5175154, 0.4918721, 0.4920248, 0.417…
+  #> $ i_duda_share                                          <dbl> 0.2671720, 0.3134077, 0.3993824, 0.376…
+  #> $ ii_duda_share                                         <dbl> 0.4164619, 0.4955440, 0.5785682, 0.557…
+  #> $ i_komorowski_share                                    <dbl> 0.4028858, 0.3531888, 0.3443129, 0.288…
+  #> $ II_Komorowski_share                                   <dbl> 0.5835381, 0.5044560, 0.4214318, 0.442…
+
+  # first-round turnout proportions
+  iturnout <- pol_pres15 |> 
+    st_drop_geometry() |> 
+    pull(i_turnout)
+
+  # neighbor list and spatial weights
+  nb_poly_pol <- pol_pres15 |> poly2nb(queen = TRUE)
+  lw_b_poly_pol <- nb_poly_pol |> nb2listw(style = "B")
+  ```
+
+  </Details>
+
+  - [iturnout]{.var-text} is the proportions (voters/total eligible-to-vote) of first-round turnout
+
+  ## Moran's I
+
+  words
+
+  ``` r
+
+  moran_lookup <- c(
+    morans_i = "estimate1",
+    expectation = "estimate2",
+    variance = "estimate3",
+    std.deviate = "statistic"
+  )
+
+  iturnout |> 
+    moran.test(listw = lw_b_poly_pol) |>
+    broom::tidy() |> 
+    rename(any_of(moran_lookup)) |> 
+    relocate(method, alternative, everything())
+  #> # A tibble: 1 × 7
+  #>   method                           alternative morans_i expectation variance std.deviate p.value
+  #>   <chr>                            <chr>          <dbl>       <dbl>    <dbl>       <dbl>   <dbl>
+  #> 1 Moran I test under randomisation greater        0.691   -0.000401 0.000140        58.5       0
+
+
+  lm(i_turnout ~ 1, pol_pres15) |> 
+    broom::tidy()
+  #> # A tibble: 1 × 5
+  #>   term        estimate std.error statistic p.value
+  #>   <chr>          <dbl>     <dbl>     <dbl>   <dbl>
+  #> 1 (Intercept)    0.445   0.00128      349.       0
+
+  # equivalent to randomisation = FALSE
+  # resfun takes residuals, weighted.residuals, rstandard, or rstudent 
+  # lm.morantest.exact also available
+  lm(i_turnout ~ 1, pol_pres15) |> 
+    lm.morantest(listw = lw_b_poly_pol) |> 
+    broom::tidy() |> 
+    rename(any_of(moran_lookup)) |> 
+    relocate(method, alternative, everything())
+  #> # A tibble: 1 × 7
+  #>   method                                  alternative morans_i expectation variance std.deviate p.value
+  #>   <chr>                                   <chr>          <dbl>       <dbl>    <dbl>       <dbl>   <dbl>
+  #> 1 Global Moran I for regression residuals greater        0.691   -0.000401 0.000140        58.5       0
+
+
+  set.seed(2026)
+  iturnout |> 
+    moran.mc(listw = lw_b_poly_pol, nsim = 999) |> 
+    broom::tidy() |> 
+    rename(any_of(moran_lookup)) |> 
+    relocate(method, alternative, everything())  
+  #> # A tibble: 1 × 5
+  #>   method                            alternative std.deviate p.value parameter
+  #>   <chr>                             <chr>             <dbl>   <dbl>     <dbl>
+  #> 1 Monte-Carlo simulation of Moran I greater           0.691   0.001      1000
+  ```
+
+  - Thoughts
+
+  ## Moran Plot
+
+  ###### Moran Plot
+
+  ![](_resources/Association-Spatial.resources/global-moran-plot-ex2-infl-plot.png){.lightbox width="532"}
+
+  ``` r
+  infl_turnout_pol <- moran.plot(
+    iturnout,
+    listw = lw_w_pol, 
+    labels = pol_pres15$TERYT,
+    cex = 1, 
+    pch = ".", 
+    xlab = "I round turnout",
+    ylab = "lagged turnout"
+  )
+  ```
+
+  - Relatively fewer influential observations in the high-low (lagged vs orig) and low-high quadrants.
+
+  ###### Influential Locations
+
+  ![](_resources/Association-Spatial.resources/global-moran-plot-ex2-infl-map.png)
+
+  <Details>
+
+  <Summary>Code</Summary>
+
+  ``` r
+  pol_pres15$hat_value <- infl_turnout_pol$hat
+
+  tmap_options_reset()
+  tmap_theme_slate()
+
+  tm_shape(pol_pres15) +
+    tm_polygons(col = "grey40") +
+    tm_fill(
+      "hat_value",
+      fill.scale = tm_scale(values = "-scico.lipari"),
+      fill.legend = tm_legend(
+        title = "Influence Level",
+        position = tm_pos_in(0.05, 0.27),
+        reverse = TRUE
+      )
+    ) +
+    tm_title(
+      "How Locations Influence Moran's I",
+      size = 2, fontface = "bold"
+    ) +
+    tm_title("With regards to Poland's voter turnout (2015)", size = 1.25)
+  ```
+
+  </Details>
+
+  - Suggests that some edge entities exert more than proportional influence (perhaps because of row standardization), as do entities in or near larger urban areas.
+  :::
 
 ## Local Measures {#sec-assoc-spat-local .unnumbered}
 
@@ -378,6 +587,512 @@ $$\begin{align}
 
   - The conditional permutation approach consists of holding the tuple of values observed at $i$ fixed, and computing the statistic for $m$ permutations ([nsim]{.arg-text}) of the remaining tuples over the other locations.
 
-### Local Getis-Ord G
+### Local Getis-Ord G~i~ {#sec-assoc-spat-local-ordg .unnumbered}
 
 - Typically, results for the Local Moran $I_i$ and the Local $G_i$ statistics will match quite closely, except for some outliers.
+
+### Examples {#sec-assoc-spat-local-ex .unnumbered}
+
+- [Example 1]{.ribbon-highlight}: Local Moran's I~i~ (Analytical and Permutation-based)
+
+  ::: panel-tabset
+  ## Data and Set-Up
+
+  Polish Presidential election 2015 data by gminy and Warsaw borough areal units
+
+  <Details>
+
+  <Summary>Code</Summary>
+
+  ``` r
+  library(dplyr); library(spdep); library(tmap)
+
+  data(pol_pres15, package = "spDataLarge")
+  pol_pres15 <- pol_pres15 |> 
+    janitor::clean_names()
+
+  glimpse(pol_pres15)
+  #> Rows: 2,495
+  #> Columns: 65
+  #> $ teryt                                                 <chr> "020101", "020102", "020103", "020104"…
+  #> $ teryt0                                                <chr> "020101", "020102", "020103", "020104"…
+  #> $ name0                                                 <chr> "Miasto Bolesławiec", "Bolesławiec - g…
+  #> $ name                                                  <chr> "BOLESŁAWIEC", "BOLESŁAWIEC", "GROMADK…
+  #> $ gm0                                                   <chr> "020101", "020102", "020103", "020104"…
+  #> $ types                                                 <fct> Urban, Rural, Rural, Urban/rural, Rura…
+  #> $ i_entitled_to_vote                                    <int> 31535, 10951, 4539, 11934, 5467, 6700,…
+  #> $ i_voting_papers_received                              <int> 27140, 9390, 3907, 10283, 4710, 5706, …
+  #> $ i_unused_voting_papers                                <int> 11991, 4614, 1943, 5779, 2473, 3080, 1…
+  #> $ i_voting_papers_issued_to_voters                      <int> 15149, 4776, 1964, 4504, 2237, 2626, 1…
+  #> $ i_voters_voting_by_proxy                              <int> 8, 0, 0, 0, 0, 2, 7, 5, 5, 8, 0, 0, 3,…
+  #> $ i_voters_voting_by_declaration                        <int> 79, 17, 8, 7, 26, 7, 35, 38, 19, 16, 1…
+  #> $ i_voters_sent_postal_voting_package                   <int> 7, 1, 1, 0, 0, 2, 5, 3, 0, 0, 2, 0, 0,…
+  #> $ i_postal_voting_envelopes_received                    <int> 7, 1, 1, 0, 0, 2, 5, 3, 0, 0, 2, 0, 0,…
+  #> $ i_pve_of_which_no_declaration                         <int> 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 2, 0, 0,…
+  #> $ i_pve_of_which_no_signature                           <int> 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,…
+  #> $ i_pve_of_which_no_voting_envelope                     <int> 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,…
+  #> $ i_pve_of_which_voting_envelope_open                   <int> 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,…
+  #> $ i_voting_envelopes_placed_in_ballot_box               <int> 7, 1, 1, 0, 0, 2, 5, 3, 0, 0, 0, 0, 0,…
+  #> $ i_voting_papers_taken_from_ballot_box                 <int> 15152, 4777, 1965, 4504, 2237, 2628, 1…
+  #> $ i_of_which_voting_papers_taken_from_voting_envelopes  <int> 7, 1, 1, 0, 0, 2, 5, 3, 0, 0, 0, 0, 0,…
+  #> $ i_invalid_voting_papers                               <int> 3, 0, 0, 0, 0, 0, 3, 0, 0, 0, 0, 0, 0,…
+  #> $ i_valid_voting_papers                                 <int> 15149, 4777, 1965, 4504, 2237, 2628, 1…
+  #> $ i_invalid_votes                                       <int> 110, 26, 22, 41, 14, 46, 79, 128, 27, …
+  #> $ i_valid_votes                                         <int> 15039, 4751, 1943, 4463, 2223, 2582, 1…
+  #> $ i_candidates_total                                    <int> 15039, 4751, 1943, 4463, 2223, 2582, 1…
+  #> $ i_grzegorz_michal_braun                               <int> 152, 53, 13, 41, 17, 19, 57, 69, 27, 6…
+  #> $ i_andrzej_sebastian_duda                              <int> 4018, 1489, 776, 1680, 570, 916, 3266,…
+  #> $ i_adam_sebastian_jarubas                              <int> 114, 59, 16, 50, 28, 29, 77, 97, 31, 2…
+  #> $ i_bronislaw_maria_komorowski                          <int> 6059, 1678, 669, 1289, 803, 881, 4264,…
+  #> $ i_janusz_ryszard_korwin_mikke                         <int> 576, 180, 50, 152, 85, 88, 341, 372, 1…
+  #> $ i_marian_janusz_kowalski                              <int> 68, 21, 4, 39, 14, 5, 48, 72, 15, 15, …
+  #> $ i_pawel_piotr_kukiz                                   <int> 3336, 1076, 338, 1074, 580, 538, 2530,…
+  #> $ i_magdalena_agnieszka_ogorek                          <int> 405, 121, 45, 80, 76, 59, 253, 390, 63…
+  #> $ i_janusz_marian_palikot                               <int> 224, 50, 19, 38, 38, 40, 173, 197, 49,…
+  #> $ i_pawel_jan_tanajno                                   <int> 19, 11, 1, 5, 2, 1, 10, 17, 7, 4, 11, …
+  #> $ i_jacek_wilk                                          <int> 68, 13, 12, 15, 10, 6, 38, 40, 11, 9, …
+  #> $ ii_entitled_to_vote                                   <int> 31458, 10950, 4514, 11930, 5445, 6691,…
+  #> $ ii_voting_papers_received                             <int> 27237, 9399, 3900, 10270, 4700, 5698, …
+  #> $ ii_unused_voting_papers                               <int> 10700, 3947, 1655, 5220, 2239, 2760, 9…
+  #> $ ii_voting_papers_issued_to_voters                     <int> 16537, 5452, 2245, 5050, 2461, 2938, 1…
+  #> $ ii_voters_voting_by_proxy                             <int> 9, 0, 2, 1, 1, 3, 9, 9, 5, 8, 0, 0, 5,…
+  #> $ ii_voters_voting_by_declaration                       <int> 172, 65, 18, 30, 28, 38, 101, 86, 39, …
+  #> $ ii_voters_sent_postal_voting_package                  <int> 12, 1, 1, 1, 0, 0, 6, 1, 0, 2, 3, 0, 0…
+  #> $ ii_postal_voting_envelopes_received                   <int> 10, 1, 1, 0, 0, 0, 5, 1, 0, 2, 3, 0, 0…
+  #> $ ii_pve_of_which_no_declaration                        <int> 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0,…
+  #> $ ii_pve_of_which_no_signature                          <int> 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,…
+  #> $ ii_pve_of_which_no_voting_envelope                    <int> 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,…
+  #> $ ii_pve_of_which_voting_envelope_open                  <int> 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,…
+  #> $ ii_voting_envelopes_placed_in_ballot_box              <int> 10, 1, 1, 0, 0, 0, 4, 1, 0, 2, 3, 0, 0…
+  #> $ ii_voting_papers_taken_from_ballot_box                <int> 16544, 5453, 2246, 5050, 2461, 2938, 1…
+  #> $ ii_of_which_voting_papers_taken_from_voting_envelopes <int> 10, 1, 1, 0, 0, 0, 4, 1, 0, 2, 3, 0, 0…
+  #> $ ii_invalid_voting_papers                              <int> 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0,…
+  #> $ ii_valid_voting_papers                                <int> 16544, 5453, 2246, 5050, 2461, 2938, 1…
+  #> $ ii_invalid_votes                                      <int> 264, 67, 25, 75, 35, 47, 160, 178, 48,…
+  #> $ ii_valid_votes                                        <int> 16280, 5386, 2221, 4975, 2426, 2891, 1…
+  #> $ ii_andrzej_sebastian_duda                             <int> 6780, 2669, 1285, 2775, 1063, 1478, 52…
+  #> $ ii_bronislaw_maria_komorowski                         <int> 9500, 2717, 936, 2200, 1363, 1413, 678…
+  #> $ geometry                                              <MULTIPOLYGON [m]> MULTIPOLYGON (((261089.5 …
+  #> $ i_turnout                                             <dbl> 0.4768987, 0.4338417, 0.4280679, 0.373…
+  #> $ ii_turnout                                            <dbl> 0.5175154, 0.4918721, 0.4920248, 0.417…
+  #> $ i_duda_share                                          <dbl> 0.2671720, 0.3134077, 0.3993824, 0.376…
+  #> $ ii_duda_share                                         <dbl> 0.4164619, 0.4955440, 0.5785682, 0.557…
+  #> $ i_komorowski_share                                    <dbl> 0.4028858, 0.3531888, 0.3443129, 0.288…
+  #> $ II_Komorowski_share                                   <dbl> 0.5835381, 0.5044560, 0.4214318, 0.442…
+
+  iturnout <- pol_pres15 |> 
+    st_drop_geometry() |> 
+    pull(i_turnout)
+
+  nb_poly_pol <- pol_pres15 |> poly2nb(queen = TRUE)
+  lw_w_pol <- nb_poly_pol |>  
+    nb2listw(style = "W")
+  ```
+
+  </Details>
+
+  - [iturnout]{.var-text} is the proportions (voters/total eligible-to-vote) of first-round turnout
+
+  ## Analytical Local Moran's I~i~
+
+  words
+
+  ``` r
+  lmoran_lookup <- c(
+    lmorans_i = "Ii",
+    expectation = "E.Ii",
+    variance = "Var.Ii",
+    std.deviate = "Z.Ii",
+    p_value = "Pr(z != E(Ii))"
+  )
+
+  lmoran_iturn <- iturnout |> 
+    localmoran(listw = lw_w_pol) 
+
+  lmoran_iturn_adj <- lmoran_iturn |> 
+    as.data.frame() |> 
+    rename(any_of(lmoran_lookup)) |> 
+    mutate(
+      p_value = as.numeric(p_value),
+      p_value_bh = p.adjust(p_value, "BH"),
+      p_value_by = p.adjust(p_value, "BY"),
+      p_value_bon = p.adjust(p_value, "bonferroni")
+    ) |> 
+    bind_cols(attr(lmoran_iturn, "quadr")) |> 
+    rename_with(
+      .fn =  ~ paste0(.x, "_quadr"),
+      .cols = c("mean", "median", "pysal")
+    )
+
+  # bh detects twice as many cluster members as by
+  # bh is supposedly the common correction fos LISA (Local Indicators of Spatial Association)
+  # using 0.005 
+  lmoran_iturn_adj |> 
+    tidyr::pivot_longer(
+      cols = starts_with("p_value"),
+      names_to = "pval_type",
+      values_to = "p_value"
+    ) |> 
+    filter(p_value < 0.05) |> 
+    count(pval_type, sort = TRUE)
+  #> # A tibble: 4 × 2
+  #>   pval_type       n
+  #>   <chr>       <int>
+  #> 1 p_value       789
+  #> 2 p_value_bh    468
+  #> 3 p_value_by    156
+  #> 4 p_value_bon    69
+
+  # using 0.005 cuts bh by 3 times
+  # close to by when using 0.05 but does it pick the same clusters?
+  lmoran_iturn_adj |> 
+    tidyr::pivot_longer(
+      cols = starts_with("p_value"),
+      names_to = "pval_type",
+      values_to = "p_value"
+    ) |> 
+    filter(p_value < 0.005) |> 
+    count(pval_type, sort = TRUE)
+  #> # A tibble: 4 × 2
+  #>   pval_type       n
+  #>   <chr>       <int>
+  #> 1 p_value       385
+  #> 2 p_value_bh    149
+  #> 3 p_value_by     64
+  #> 4 p_value_bon    38
+  ```
+
+  - Thoughts
+
+  ## Permutation-based Moran's I~i~
+
+  words
+
+  ``` r
+  # library(parallel)
+  # invisible(spdep::set.coresOption(max(detectCores()-1L, 1L)))
+
+
+  lmoran_perm_lookup <- c(
+    lmorans_i = "Ii",
+    expectation = "E.Ii",
+    variance = "Var.Ii",
+    std.deviate = "Z.Ii",
+    p_value_anlyt = "Pr(z != E(Ii))",
+    p_value_sim = "Pr(z != E(Ii)) Sim",
+    p_value_2side = "Pr(folded) Sim",
+    skewness = "Skewness",
+    kurtosis = "Kurtosis"
+  )
+
+  # p_value calculated from the standard deviate using permutation sample means and standard deviations
+  # Since the variable under analysis may not be normally distributed, the p-values can also be calculated by finding the rank of the observed I_i. among the rank-based simulated values, and looking up the probability value from the uniform distribution taking the alternative choice into account
+  # another mention about the ranks during mapping, "the approach using the ranks of observed values among permutation samples all yield similar maps, as the distribution of the input variable is quite close to normal."
+  lmoran_perm_iturn <- iturnout |> 
+    localmoran_perm(
+      listw = lw_w_pol, 
+      nsim = 9999,
+      iseed = 1
+    )
+
+  lmoran_perm_iturn_adj <- lmoran_perm_iturn |> 
+    as.data.frame() |> 
+    rename(any_of(lmoran_perm_lookup)) |> 
+    mutate(across(
+      .cols = starts_with("p_value"),
+      .fns = as.numeric
+    )) |> 
+    mutate(across(
+      .cols = starts_with("p_value"),
+      .fns = list(
+        bh = ~ p.adjust(.x, "BH"),
+        by = ~ p.adjust(.x, "BY"),
+        bon = ~ p.adjust(.x, "bonferroni")
+      ),
+      .names = "{.col}_{.fn}"
+    )) |> 
+    bind_cols(attr(lmoran_perm_iturn, "quadr")) |> 
+    rename_with(
+      .fn =  ~ paste0(.x, "_quadr"),
+      .cols = c("mean", "median", "pysal")
+    )
+
+  lmoran_perm_iturn_adj |> 
+    tidyr::pivot_longer(
+      cols = starts_with("p_value"),
+      names_to = "pval_type",
+      values_to = "p_value"
+    ) |> 
+    mutate(pval_type = factor(pval_type)) |> 
+    filter(p_value < 0.005) |> 
+    count(pval_type, .drop = FALSE) |> 
+    arrange(pval_type, n)
+  #> # A tibble: 12 × 2
+  #>    pval_type             n
+  #>    <fct>             <int>
+  #>  1 p_value_2side       492
+  #>  2 p_value_2side_bh    210
+  #>  3 p_value_2side_bon     0
+  #>  4 p_value_2side_by      0
+  #>  5 p_value_anlyt       380
+  #>  6 p_value_anlyt_bh    149
+  #>  7 p_value_anlyt_bon    38
+  #>  8 p_value_anlyt_by     65
+  #>  9 p_value_sim         389
+  #> 10 p_value_sim_bh      133
+  #> 11 p_value_sim_bon       0
+  #> 12 p_value_sim_by        0
+  ```
+
+  - Thoughts
+
+  ## Visualize
+
+  ![](_resources/Association-Spatial.resources/local-moran-ex1-anal-perm-pvals-1.png){.lightbox}
+
+  <Details>
+
+  <Summary>Code</Summary>
+
+  ``` r
+  pv_iturn_pres15 <- pol_pres15 |> 
+    select(geometry) |> 
+    bind_cols(lmoran_iturn_adj |> select(p_value_bh)) |> 
+    bind_cols(lmoran_perm_iturn_adj |> select(p_value_anlyt_bh, p_value_sim_bh)) |> 
+    tidyr::pivot_longer(
+      cols = starts_with("p_value"),
+      names_to = "pval_type",
+      values_to = "p_value"
+    )
+
+  pv_brks <- c(0, 0.0005, 0.001, 0.005, 0.01, 0.05, 0.1, 0.5, 1)
+
+  tmap_options_reset()
+  tmap_theme_charcoal()
+
+  # tm_pos_on_top needed to get legend in correct cell. others wouldn't work.
+  # the approach using the ranks of observed values among permutation samples all yield similar maps, as the distribution of the input variable is quite close to normal. P-values for the rank-based map are noticably smaller though.
+  tm_shape(pv_iturn_pres15) + 
+    tm_polygons(col = "gray40") + 
+    tm_fill(
+      fill = "p_value",
+      fill.scale = tm_scale(breaks = pv_brks, values = "scico.davos"),    
+      fill.legend = tm_legend(
+        "Adjusted P-Values (BH)",
+        frame = FALSE,
+        position = tm_pos_on_top(
+          pos.v = 0.4,
+          pos.h = 0.66
+        )
+      )
+    ) +
+    tm_facets_wrap("pval_type", ncol = 2) +
+    tm_title(
+      "Local Moran's I P-Values", 
+      size = 2, 
+      fontface = "bold"
+    ) + 
+    tm_title("With regards to Poland's voter turnout (2015)", size = 1.25) +
+    tm_layout(
+      panel.labels = c(
+        "Analytical-Conditional",
+        "Permutation-Std.Deviate",
+        "Permutation-Rank"
+      )
+    )
+  ```
+
+  </Details>
+
+  - Thoughts
+  :::
+
+  - [Example 2]{.ribbon-highlight}: Hotspot Analysis
+
+    ::: panel-tabset
+    ## Cluster Counts
+
+    This is a continuation from Example 1, so it uses the analytical and permation-based Local Moran's I~i~. See Example 1 for details on data.
+
+    ``` r
+    lmoran_iturn_adj |> 
+      filter(p_value_bh < 0.005) |> 
+      count(
+        mean_quadr, 
+        .drop = FALSE, 
+        sort = TRUE
+      )
+    #>   mean_quadr  n
+    #> 1  High-High 96
+    #> 2    Low-Low 53
+    #> 3   High-Low  0
+    #> 4   Low-High  0
+
+    lmoran_perm_iturn_adj |> 
+      filter(p_value_anlyt_bh < 0.005) |> 
+      count(
+        mean_quadr, 
+        .drop = FALSE, 
+        sort = TRUE
+      )
+    #>   mean_quadr  n
+    #> 1  High-High 95
+    #> 2    Low-Low 54
+    #> 3   High-Low  0
+    #> 4   Low-High  0
+
+    lmoran_perm_iturn_adj |> 
+      filter(p_value_sim_bh < 0.005) |> 
+      count(
+        mean_quadr, 
+        .drop = FALSE, 
+        sort = TRUE
+      )
+    #>   mean_quadr  n
+    #> 1  High-High 74
+    #> 2    Low-Low 59
+    #> 3   High-Low  0
+    #> 4   Low-High  0
+    ```
+
+    - Thoughts
+
+    ## Visualize
+
+    ###### Preprocess
+
+    <Details>
+
+    <Summary>Code</Summary>
+
+    ``` r
+    quadr_anlyt <- lmoran_iturn_adj |> 
+      mutate(
+        mean_quadr = as.character(mean_quadr),
+        mean_quadr = case_when(
+          mean_quadr == "High-High" ~ "High Turnout",
+          mean_quadr == "Low-Low" ~ "Low Turnout",
+          .default = mean_quadr
+        ),
+        mean_quadr = ifelse(
+          p_value_bh >= 0.005,
+          NA_character_,
+          mean_quadr
+        )
+      ) |>   
+      rename(quadr_anlyt = mean_quadr) |> 
+      select(quadr_anlyt)
+
+    quadr_perm_stddev <- lmoran_perm_iturn_adj |> 
+      mutate(
+        mean_quadr = as.character(mean_quadr),
+        mean_quadr = case_when(
+          mean_quadr == "High-High" ~ "High Turnout",
+          mean_quadr == "Low-Low" ~ "Low Turnout",
+          .default = mean_quadr
+        ),
+        mean_quadr = ifelse(
+          p_value_anlyt_bh >= 0.005,
+          NA_character_,
+          mean_quadr
+        )
+      ) |>   
+      rename(quadr_perm_stddev = mean_quadr) |> 
+      select(quadr_perm_stddev)
+
+    quadr_perm_rank <- lmoran_perm_iturn_adj |> 
+      mutate(
+        mean_quadr = as.character(mean_quadr),
+        mean_quadr = case_when(
+          mean_quadr == "High-High" ~ "High Turnout",
+          mean_quadr == "Low-Low" ~ "Low Turnout",
+          .default = mean_quadr
+        ),
+        mean_quadr = ifelse(
+          p_value_sim_bh >= 0.005,
+          NA_character_,
+          mean_quadr
+        )
+      ) |>  
+      rename(quadr_perm_rank = mean_quadr) |> 
+      select(quadr_perm_rank)
+
+
+    clust_iturn_pres15 <- pol_pres15 |> 
+      select(geometry) |> 
+      bind_cols(quadr_anlyt, quadr_perm_stddev, quadr_perm_rank) |> 
+      tidyr::pivot_longer(
+        cols = starts_with("quadr"),
+        names_to = "moran_type",
+        values_to = "clust_type"
+      ) |> 
+      mutate(
+        clust_type = factor(clust_type),
+        moran_type = factor(moran_type)
+      )
+    ```
+
+    - Thoughts
+
+    </Details>
+
+    ###### Visualize
+
+    ![](_resources/Association-Spatial.resources/local-moran-ex2-clusters-1.png){.lightbox}
+
+    <Details>
+
+    <Summary>Code</Summary>
+
+    ``` r
+    tmap_options_reset()
+    tmap_theme_notebook()
+
+    notebook_colors <- unname(swatches::read_ase(here::here("palettes/Forest Floor.ase")))
+
+    tm_shape(clust_iturn_pres15) + 
+      tm_polygons(col = "#4A3728") + 
+      tm_fill(
+        fill = "clust_type",
+        fill.scale = tm_scale(
+          values = c(notebook_colors[[5]], notebook_colors[[6]]), 
+          value.na = notebook_colors[[2]],
+          label.na = "Not Determined"
+        ),    
+        fill.legend = tm_legend(
+          "Hotspot Type",
+          frame = FALSE,
+          position = tm_pos_on_top(
+            pos.v = 0.4,
+            pos.h = 0.66
+          )
+        )
+      ) +
+      tm_facets_wrap("moran_type", ncol = 2) +
+      tm_title(
+        "Voter Turnout Clusters in Poland (2015)", 
+        size = 2, 
+        fontface = "bold",
+        # get title flush with left side to line up with subtitle
+        # every number except 0.05 is default
+        padding = c(0.25, 0.05, 0.25, 0.25)
+      ) + 
+      tm_title(
+        "Using Local Moran's I to identify concentrations of high and low turnout", 
+        size = 1.25
+      ) +
+      tm_layout(
+        panel.labels = c(
+          "Analytical-Conditional",
+          "Permutation-Std.Deviate",
+          "Permutation-Rank"
+        )
+      )
+    ```
+
+    </Details>
+
+    - Thoughts
+    :::
+
+- [Example 3]{.ribbon-highlight}: Saddlepoint Local Moran's Ii and Hotspot Analysis
