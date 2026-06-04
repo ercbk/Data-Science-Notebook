@@ -5,12 +5,19 @@
 - Also see
   - [Geospatial, Point Patterns \>\> Spatial Dependence \>\> Spatial Correlation](geospatial-point-patterns.qmd#sec-geo-ptpat-depfun-spcor){style="color: green"}
 - Packages
+  - [{]{style="color: goldenrod"}[pysal](https://pysal.org/pysal/){style="color: goldenrod"}[}]{style="color: goldenrod"} - Geospatial data science with an emphasis on geospatial vector data
+    - Detection of spatial clusters, hot-spots, and outliers
+  - [{]{style="color: #990000"}[rgeoda](https://geodacenter.github.io/rgeoda/){style="color: #990000"}[}]{style="color: #990000"} - Spatial data analysis based on libgeoda and GeoDa. It provides spatial data analysis functionalities including Exploratory Spatial Data Analysis, Spatial Cluster Detection and Clustering Analysis
+    - Fast, but uses compiled code for all operations which makes it less flexible when modifications or enhancements are desired
+    - [SDS, Ch.15.3, rgeoda](https://r-spatial.org/book/15-Measures.html#the-rgeoda-package) also has an example
   - [{]{style="color: #990000"}[spdep](https://r-spatial.github.io/spdep/){style="color: #990000"}[}]{style="color: #990000"}
+- Resources
+  - [An Introduction to Spatial Data Science with GeoDa Vol1 Exploring Spatial Data (Anselin 2023)](https://lanselin.github.io/introbook_vol1/)
+  - [An Introduction to Spatial Data Science with GeoDa Vol2 Clustering Spatial Data (Anselin 2023)](https://lanselin.github.io/introbook_vol2/)
 - Notes from
   - [Spatial Data Science, Ch.15](https://r-spatial.org/book/15-Measures.html)
   - [Comparing Implementations of Global and Local Indicators of Spatial Association (Bivand, Wong 2018)](https://scispace.com/pdf/comparing-implementations-of-global-and-local-indicators-of-17w0ryxrr4.pdf) (Also in R \>\> Documents \>\> Geospatial)
     - The concern about conditional permutations in Local Moran's I was later shown to be because the comparison by Bivand and Wong was between statistics that used different types of nulls. Both types of nulls are now available in [{spdep}]{style="color: #990000"} ([source](https://r-spatial.org/book/15-Measures.html#local-morans-i_i))
-- [**Entitation**]{style="color: #009499"} - The process of dividing continuous space into discrete units of observation (counties, census tracts, grid cells, etc.).
 - A lot of these statistics have permutation versions. Examples in papers or books usually have some form of 999, 99999, etc for the number of permutations performed. This is so the pseudo p-value calculations produce "clean" numbers.
   - The convention is actually to count the observed statistic as one of the reference values, so the total number of reference values is permutations + 1
   - The pseudo p-value is calculated as the proportion of permuted statistics that are as extreme or more extreme than the observed statistic. With 999 permutations the smallest possible non-zero pseudo p-value is 1/(999 + 1j) = 0.001, with 9,999 it's 1/(9999 + 1) = 0.0001, and with 99,999 it's 1/(99999 + 1) = 0.00001.
@@ -519,6 +526,13 @@
 - These statistics only identify the *core or center* of a cluster. The cluster itself also includes the neighboring locations (as defined by the spatial weights)
 - Standard approaches (`localmoran`, `localmoran_perm`) to the calculation of the standard deviates of local Moran’s I should be supplemented by numerical estimates such as the saddlepoint approximation (Tiefelsdorf 2002)
 - Both the Local Moran $I_i$ and the Local $G_i$ statistic are heavily influenced by the weighted average of the neighbors, whereas the Local Geary $C_i$ measures squared difference. So, Local Moran and Local G identify the same clusters.
+- All local permutation methods should be parallelizable (look for the [iseed]{.arg-text} argument) via [{parallel}]{style="color: #990000"}
+  - Example:
+
+    ``` r
+    library(parallel)
+    invisible(spdep::set.coresOption(max(detectCores()-1L, 1L)))
+    ```
 
 ### Local Moran's I~i~ {#sec-assoc-spat-local-moran .unnumbered}
 
@@ -585,6 +599,11 @@ $$\begin{align}
 
   - Also shows how (no code) to use PCA with these statistics to handle multivariate data. Multivariate analysis can bring out patterns that are not obvious in its univariate counterparts.
 
+- For using for the multivariate case, see
+
+  - Anselin examines the multivariate case in his 2018 paper that's referenced above
+  - [SDS, Ch.15.3, Local Geary's C](https://r-spatial.org/book/15-Measures.html#local-gearys-c_i)
+
 - Equation
 
   $$\begin{align}
@@ -596,27 +615,58 @@ $$\begin{align}
 
 - Guidelines
 
-  - $C \lt 1$ $\rightarrow$ A small difference between an observation and its neighbors $\rightarrow$ Positive spatial autocorrelation.
-  - $C \gt 1$ $\rightarrow$ A large differences between an observation and its neighbors $\rightarrow$ Negative spatial autocorrelation
-  - A significant $c_i$ statistic that is less than its expected value under the null hypothesis (either the analytical value, or the average of the empirical reference distribution in a permutation approach) suggests a clustering of similar values.
-
-- A small squared difference suggests similarity, but it cannot divulge the type of similarity
-
-  - Similar neighbors could thus have either similar high values (the counterpart of high–high in the Local Moran case), or similar low values (the counterpart of low–low in the Local Moran case). However, they could also result from two data points that span the mean (e.g., one above the mean and one below), but that are very close together in value
+  - $C \lt \mathbb{E}(C)$ $\rightarrow$ A small difference between an observation and its neighbors $\rightarrow$ Positive spatial autocorrelation.
+    - Could be a cluster of low values or a cluster of high values
+    - Could also be the result from two data points that span the mean (e.g., one above the mean and one below), but that are very close together in value
+  - $C \gt \mathbb{E}(C)$ $\rightarrow$ A large differences between an observation and its neighbors $\rightarrow$ Negative spatial autocorrelation
 
 - `localC` and `localC_perm`
 
+  - [x]{.arg-text}: A numeric vector for the univariate case; list or matrix for the multivariate case
+    - For lists, each element must be a numeric vector of the same length and of the same length as the neighbors in [listw]{.arg-text}
+    - For matrices, the number of rows must be the same as the length of the neighbors in [listw]{.arg-text}
   - The conditional permutation approach consists of holding the tuple of values observed at $i$ fixed, and computing the statistic for $m$ permutations ([nsim]{.arg-text}) of the remaining tuples over the other locations.
 
 ### Local Getis-Ord G~i~ {#sec-assoc-spat-local-ordg .unnumbered}
 
 - Typically, results for the Local Moran $I_i$ and the Local $G_i$ statistics will match quite closely, except for some outliers.
 - `localG` and `localG.perm`
-  - [include.self]{.arg-text}: Says insert self-neighbours into the neighbour object
+  - [include.self]{.arg-text}: Says insert self-neighbors into the neighbor object (This statistic is symbolized as $G_i^*$ in the literature)
     - Guessing this is useful if you don't have a connected graph or maybe pair(s) of nodes with just each other as neighbors
     - Print the neighbor list to see if any “disjoint connected subgraphs” exist or use `n.comp.nb`
   - [return_internals = TRUE]{.arg-text}: Says return the observed and expected values of local G with their analytical variances
   - Both flavors shown to produce similar results ([source](https://r-spatial.org/book/15-Measures.html#local-getis-ord-g_i))
+
+### Hotspot Classifications {#sec-assoc-spat-local-hotspot .unnumbered}
+
+- Unfortunately all three methods have different sets of hotspot classifciations 😒.
+- For some, the classification category is determined by the value of an observation's statistic and where that observation falls in the Moran Plot quadrants. They're different, because sometimes the interpretations of the statistic values don't always map neatly onto the Moran
+- Along with these classification rules, the statistic must have an adjusted p-value lower than a specified cutoff (e.g. 0.005)
+- $G_i^*$ refers to the statistic allowing itself to used as it's neighbor.
+- [Local Moran's $I_i$]{.underline}
+
+| Classification | Definition | Moran Plot Quadrant | $I_i$ vs $\mathbb{E}[I_i]$ |
+|----|----|----|----|
+| High-High | Polygon and its neighbors have similarly high values; cluster of high values | High-High (above mean, spatial lag above mean) | $I_i > \mathbb{E}[I_i]$; positive spatial autocorrelation |
+| Low-Low | Polygon and its neighbors have similarly low values; cluster of low values | Low-Low (below mean, spatial lag below mean) | $I_i > \mathbb{E}[I_i]$; positive spatial autocorrelation |
+| High-Low | Polygon has a high value surrounded primarily by low-value neighbors; spatial outlier | High-Low (above mean, spatial lag below mean) | $I_i < \mathbb{E}[I_i]$; negative spatial autocorrelation |
+| Low-High | Polygon has a low value surrounded primarily by high-value neighbors; spatial outlier | Low-High (below mean, spatial lag above mean) | $I_i < \mathbb{E}[I_i]$; negative spatial autocorrelation |
+
+- [Local Geary's $c_i$]{.underline}
+
+| Classification | Definition | Moran Plot Quadrant | $c_i$ vs $\mathbb{E}[c_i]$ |
+|----|----|----|----|
+| High-High | Polygon and its neighbors have similarly high values; cluster of high values | High-High (above mean, spatial lag above mean) | $c_i < \mathbb{E}[c_i]$; positive spatial autocorrelation |
+| Low-Low | Polygon and its neighbors have similarly low values; cluster of low values | Low-Low (below mean, spatial lag below mean) | $c_i < \mathbb{E}[c_i]$; positive spatial autocorrelation |
+| Other Positive | Polygon is similar to its neighbors but its and its neighborhood values are indeterminate | Falls into High-Low or Low-High, but doesn't fit with being interpreted as such | $c_i < \mathbb{E}[c_i]$; positive spatial autocorrelation |
+| Negative | Polygon is dissimilar from its neighbors but its and its neighborhood values are indeterminate | Should be a High-Low or Low-High situation but this is not possible to determine with the Moran Plot | $c_i > \mathbb{E}[c_i]$; negative spatial autocorrelation |
+
+- [Local Getis-Ord $G_i^*$]{.underline}
+
+| Classification | Definition | Moran Plot Quadrant | $G_i^*$ vs $\mathbb{E}[G_i^*]$ |
+|----|----|----|----|
+| Hot Spot | Polygon and its neighbors have high values; cluster of high values | Doesn't use the Moran plot; Higher than mean of input variable | $G_i^* > \mathbb{E}[G_i^*]$; positive spatial autocorrelation |
+| Cold Spot | Polygon and its neighbors have low values; cluster of low values | Doesn't use the Moran plot; Lower than mean of input variable | $G_i^* < \mathbb{E}[G_i^*]$; negative spatial autocorrelation |
 
 ### Examples {#sec-assoc-spat-local-ex .unnumbered}
 
@@ -626,6 +676,8 @@ $$\begin{align}
   ## Data and Set-Up
 
   Polish Presidential election 2015 data by gminy and Warsaw borough areal units
+
+  The goal is to find likely spatial cluster centers of similar voter turnout.
 
   <Details>
 
@@ -796,10 +848,6 @@ $$\begin{align}
   words
 
   ``` r
-  # library(parallel)
-  # invisible(spdep::set.coresOption(max(detectCores()-1L, 1L)))
-
-
   lmoran_perm_lookup <- c(
     lmorans_i = "Ii",
     expectation = "E.Ii",
@@ -875,7 +923,7 @@ $$\begin{align}
 
   ## Visualize
 
-  ![](_resources/Association-Spatial.resources/local-moran-ex1-anal-perm-pvals-1.png){.lightbox}
+  ![](_resources/Association-Spatial.resources/local-moran-ex1-anal-perm-pvals-1.png){.lightbox width="632"}
 
   <Details>
 
@@ -934,12 +982,14 @@ $$\begin{align}
   - Thoughts
   :::
 
-- [Example 2]{.ribbon-highlight}: Hotspot Analysis
+- [Example 2]{.ribbon-highlight}: Hotspot Analysis with Local Moran's I~i~
 
   ::: panel-tabset
   ## Cluster Counts
 
   This is a continuation from Example 1, so it uses the analytical and permation-based Local Moran's I~i~. See Example 1 for details on data.
+
+  The goal is to classify likely cluster centers of voter turnout (e.g. high turnout, low turnout clusters)
 
   ``` r
   lmoran_iturn_adj |> 
@@ -1065,7 +1115,7 @@ $$\begin{align}
 
   ###### Visualize
 
-  ![](_resources/Association-Spatial.resources/local-moran-ex2-clusters-1.png){.lightbox}
+  ![](_resources/Association-Spatial.resources/local-moran-ex2-clusters-1.png){.lightbox width="632"}
 
   <Details>
 
@@ -1122,4 +1172,422 @@ $$\begin{align}
   - Thoughts
   :::
 
-- [Example 3]{.ribbon-highlight}: Saddlepoint Local Moran's Ii and Hotspot Analysis
+- [Example 3]{.ribbon-highlight}: Saddlepoint Local Moran's I~i~ and Hotspot Analysis
+
+  ::::: panel-tabset
+  ## Data and Set-Up
+
+  Polish Presidential election 2015 data by gminy and Warsaw borough areal units
+
+  The goal is to find likely spatial cluster centers of similar voter turnout using the saddlepoint approximation of Local Moran's I~i~. Then to classify likely cluster centers of voter turnout (e.g. high turnout, low turnout clusters).
+
+  ``` r
+  pacman::p_load(
+    dplyr,
+    ggplot2,
+    spdep,
+    tmap
+  )
+
+  notebook_colors <- unname(swatches::read_ase(here::here("palettes/Forest Floor.ase")))
+  ```
+
+  - Uses the same data ([pol_pres15]{.var-text} and neighbors list ([nb_poly_pol]{.vara-text})) as Example 1
+
+  ## lm: Intercept-only
+
+  ::: {layout-ncol="2"}
+  ![](_resources/Association-Spatial.resources/local-moran-ex3-resid-vs-wgt.png){.lightbox group="local-ex3" width="432"}
+
+  ![](_resources/Association-Spatial.resources/local-moran-ex3-case-wgts-1.png){.lightbox group="local-ex3" width="432"}
+  :::
+
+  ``` r
+  lm_null <- lm(i_turnout ~ 1, data = pol_pres15)
+
+  resid_lm_null <- resid(lm_null)
+
+  # 2. Residuals vs. eligible voters (size heteroskedasticity check)
+  pol_pres15 |> 
+    ggplot(aes(x = i_entitled_to_vote, y = resid_lm_null)) +
+    geom_point(alpha = 0.3, size = 0.8) +
+    geom_hline(yintercept = 0, linetype = "dashed") +
+    geom_smooth(color = "steelblue4") +
+    scale_x_log10(labels = scales::label_number()) +
+    labs(
+      title = "Residuals vs. Eligible Voters (log scale)",
+      x = "Eligible voters (log10)", 
+      y = "Residual"
+    ) +
+    theme_notebook()
+
+  # it's heavily right-skewed (many small gminy, a few very large ones), that reinforces the case for weighting because the unweighted mean is being disproportionately pulled by the numerically dominant small units that have the noisiest turnout proportions.
+  # the population of potential voters is no where near uniform across locations, so adding weights should help with the variance of the model.
+  pol_pres15 |> 
+    ggplot(aes(x = i_entitled_to_vote)) +
+    geom_histogram(fill = "steelblue4") +
+    scale_x_log10(labels = scales::label_number()) +
+    labs(title = "Eligible Voters (Weights)", subtitle = "Log10 scale") +
+    theme_notebook()
+
+  # use case weights because the numbers entitled to vote vary greatly between observations
+  # it down-weights small, high-variance units and up-weights large, low-variance ones, giving you a more efficient estimator
+  lm_null_wgt <- lm(
+    i_turnout ~ 1, 
+    weights = i_entitled_to_vote,
+    data = pol_pres15
+  )
+  ```
+
+  - Thoughts
+
+  ## lm: Multivariable
+
+  ::: {layout-ncol="2"}
+  ![](_resources/Association-Spatial.resources/local-moran-ex3-resid-spatial-1.png){.lightbox group="local-ex3" width="432"}
+
+  ![](_resources/Association-Spatial.resources/local-moran-ex3-resid-box-1.png){.lightbox group="local-ex3" width="432"}
+  :::
+
+  ``` r
+  # 4. Spatial distribution of residuals
+  ggplot(pol_pres15) +
+    geom_sf(aes(fill = resid_lm_null), color = NA) +
+    scico::scale_fill_scico(
+      palette = "vik",
+      limits = c(-0.2, 0.2),
+      name = "Residuals"
+    ) +
+    labs(title = "Spatial Distribution of Residuals") +
+    theme_notebook_map() + 
+    theme(plot.title = element_text(hjust = 0.5))
+
+  # 3. Residuals by unit type
+  ggplot(pol_pres15, 
+         aes(x = types, 
+             y = resid_lm_null, 
+             fill = types,
+             color = types)) +
+    geom_hline(
+      yintercept = 0, 
+      linetype = "dashed", 
+      color = "grey50", 
+      linewidth = 0.5) +
+    geom_jitter(
+      width = 0.25, 
+      alpha = 0.25, 
+      size = 1.2
+    ) +
+    geom_boxplot(show.legend = FALSE, median.color = "gray6") +
+    scale_fill_manual(values = notebook_colors[4:7]) +
+    scale_color_manual(values = notebook_colors[4:7]) +
+    guides(fill = "none", color = "none") +
+    labs(title = "Residuals by Gminy Type", x = NULL, y = "Residual") + 
+    theme_notebook()
+
+  # adding a spatial proxy variable should help account for autocorrelation not due to the turnout response.
+  lm_mult_wgt <- lm(
+    i_turnout ~ types, 
+    weights = i_entitled_to_vote,
+    data = pol_pres15
+  )
+  ```
+
+  - Thoughts
+
+  ## Moran's I
+
+  ``` r
+  lmoran_sad_null <-  localmoran.sad(
+    lm_null,
+    nb = nb_poly_pol, 
+    style = "W",
+    alternative = "two.sided"
+  ) |>
+    summary()
+
+  names(lmoran_sad_null)
+  #> [1] "Local Morans I"  "Stand. dev. (N)" "Pr. (N)"         "Saddlepoint"     "Pr. (Sad)"       "Expectation"    
+  #> [7] "Variance"        "Skewness"        "Kurtosis"        "Minimum"         "Maximum"         "omega"          
+  #> [13] "sad.r"           "sad.u" 
+
+  lmoran_sad_null_wgt <- localmoran.sad(
+    lm_null_wgt,
+    nb = nb_poly_pol, 
+    style = "W",
+    alternative = "two.sided"
+  ) |>
+    summary()
+
+  lmoran_sad_mult_wgt <- localmoran.sad(
+    lm_mult_wgt,
+    nb = nb_poly_pol, 
+    style = "W",
+    alternative = "two.sided"
+  ) |>
+    summary()
+  ```
+
+  - Thoughts
+
+  ## Visualize
+
+  ###### Process
+
+  <Details>
+
+  <Summary>Code</Summary>
+
+  ``` r
+  clust_sad_iturn_pres15 <- pol_pres15 |> 
+    select(geometry) |> 
+    mutate(
+      quadr_sad_null = hotspot(
+        lmoran_sad_null,
+        Prname = "Pr. (Sad)",
+        cutoff = 0.005
+      ),
+      quadr_sad_null_wgt = hotspot(
+        lmoran_sad_null_wgt,
+        Prname = "Pr. (Sad)",
+        cutoff = 0.005
+      ),
+      quadr_sad_mult_wgt = hotspot(
+        lmoran_sad_mult_wgt,
+        Prname = "Pr. (Sad)",
+        cutoff = 0.005
+      ),
+      quadr_perm_rank = quadr_perm_rank |>
+        st_drop_geometry() |> 
+        pull(quadr_perm_rank) |> 
+        factor()
+    ) |> 
+    tidyr::pivot_longer(
+      cols = starts_with("quadr"),
+      names_to = "moran_type",
+      values_to = "clust_type"
+    ) |> 
+    mutate(
+      clust_type = as.character(clust_type),
+      clust_type = case_when(
+        clust_type == "High-High" ~ "High Turnout",
+        clust_type == "Low-Low" ~ "Low Turnout",
+        .default = clust_type
+      ),
+      moran_type = factor(
+        moran_type, 
+        levels = c(
+          "quadr_perm_rank",
+          "quadr_sad_null",
+          "quadr_sad_null_wgt",
+          "quadr_sad_mult_wgt"
+        )
+      )
+    )
+  ```
+
+  </Details>
+
+  - Thoughts
+
+  ###### Map
+
+  ![](_resources/Association-Spatial.resources/local-moran-ex3-clusters-1.png){.lightbox group="local-ex3" width="632"}
+
+  <Details>
+
+  <Summary>Code</Summary>
+
+  ``` r
+  tmap_options_reset()
+  tmap_theme_notebook()
+
+  # The intercept-only (null) model is fairly similar to standard local Moran’s, but weighting by counts of eligible voters removes most of the "Low-Low" cluster cores. Adding the type categorical variable strengthens the urban "High-High" cluster cores but removes the Warsaw boroughs as interesting cluster cores. The central boroughs are surrounded by other boroughs, all with high turnout, not driven by autocorrelation but by being metropolitan boroughs.
+
+  tm_shape(clust_sad_iturn_pres15) + 
+    tm_polygons(col = "#4A3728") + 
+    tm_fill(
+      fill = "clust_type",
+      fill.scale = tm_scale(
+        values = c(notebook_colors[[5]], notebook_colors[[6]]), 
+        value.na = notebook_colors[[2]],
+        label.na = "Not Determined"
+      ),    
+      fill.legend = tm_legend(
+        "Hotspot Type",
+        frame = FALSE,
+        position = tm_pos_out(
+          pos.v = "center",
+          pos.h = "center"
+        )
+      )
+    ) +
+    tm_facets_wrap("moran_type", ncol = 2) +
+    tm_title(
+      "Voter Turnout Clusters in Poland (2015)", 
+      size = 2, 
+      fontface = "bold",
+      # get title flush with left side to line up with subtitle
+      # every number except 0.05 is default
+      padding = c(0.25, 0.05, 0.25, 0.25)
+    ) + 
+    tm_title(
+      "Using Local Moran's I to identify concentrations of high and low turnout", 
+      size = 1.25
+    ) +
+    tm_layout(
+      panel.labels = c(
+        "Permutation-Rank",
+        "Saddlepoint-Intercept",
+        "Saddlepoint-Intercept-Wgt",
+        "Saddlepoint-Multivar-Wgt"
+      )
+    )
+  ```
+
+  </Details>
+
+  - Thoughts
+  :::::
+
+- [Example 4]{.ribbon-highlight}: Comparing Local Moran's I~i~, Local Geary's C~i~, and Local Getis-Ord G~i~ in Hotspot Analysis
+
+  ::: panel-tabset
+  ## Compute C~i~ and G~i~
+
+  words
+
+  ``` r
+  lord_perm_iturn <- iturnout |> 
+    localG_perm(
+      lw_w_pol, 
+      nsim = 9999, 
+      iseed = 1
+    )
+
+  lgeary_perm_iturn <- iturnout |> 
+    localC_perm(
+      lw_w_pol, 
+      nsim = 9999, 
+      iseed= 1 
+    )
+  ```
+
+  - Thoughts
+
+  ## Visualize
+
+  ###### Process
+
+  <Details>
+
+  <Summary>Code</Summary>
+
+  ``` r
+  clust_mcg_iturn_pres15 <- pol_pres15 |> 
+    select(geometry) |> 
+    mutate(
+      quadr_geary_perm = hotspot(
+        lgeary_perm_iturn,
+        Prname = "Pr(z != E(Ci)) Sim",
+        cutoff = 0.005
+      ),
+      quadr_lord_perm = hotspot(
+        lord_perm_iturn,
+        Prname = "Pr(z != E(Gi)) Sim",
+        cutoff = 0.005
+      ),
+      quadr_perm_rank = quadr_perm_rank |>
+        st_drop_geometry() |> 
+        pull(quadr_perm_rank) |> 
+        factor()
+    ) |> 
+    tidyr::pivot_longer(
+      cols = starts_with("quadr"),
+      names_to = "method_type",
+      values_to = "clust_type"
+    ) |> 
+    mutate(
+      clust_type = as.character(clust_type),
+      clust_type = case_when(
+        clust_type == "High-High" | clust_type == "High" ~ "High Turnout",
+        clust_type == "Low-Low" | clust_type == "Low" ~ "Low Turnout",
+        clust_type == "Negative" ~ "Outlier-Neg Autocorr",
+        clust_type == "Other Positive" ~ "Outlier-Pos Autocorr",
+        .default = clust_type
+      ),
+      method_type = factor(
+        method_type, 
+        levels = c(
+          "quadr_perm_rank",
+          "quadr_lord_perm",
+          "quadr_geary_perm"
+        )
+      )
+    )
+  ```
+
+  - Thoughts
+
+  </Details>
+
+  ###### Map
+
+  ![](_resources/Association-Spatial.resources/local-ex4-clusters-1.png){.lightbox width="632"}
+
+  <Details>
+
+  <Summary>Code</Summary>
+
+  ``` r
+  # In most cases, the "High-High" cluster cores are urban areas, and "Low-Low" cores are sparsely populated rural areas in the North, in addition to the German national minority areas close to the southern border.
+  tmap_options_reset()
+  tmap_theme_notebook()
+
+
+  notebook_colors <- unname(swatches::read_ase(here::here("palettes/Forest Floor.ase")))
+
+  tm_shape(clust_mcg_iturn_pres15) + 
+    tm_polygons(col = "#4A3728") + 
+    tm_fill(
+      fill = "clust_type",
+      fill.scale = tm_scale(
+        values = c(notebook_colors[[5]], notebook_colors[[6]], notebook_colors[[7]]), 
+        value.na = notebook_colors[[2]],
+        label.na = "Not Determined"
+      ),    
+      fill.legend = tm_legend(
+        "Hotspot Type",
+        frame = FALSE,
+        position = tm_pos_on_top(
+          pos.v = 0.4,
+          pos.h = 0.66
+        )
+      )
+    ) +
+    tm_facets_wrap("method_type", ncol = 2) +
+    tm_title(
+      "High and Low Voter Turnout Clusters in Poland (2015)", 
+      size = 2, 
+      fontface = "bold",
+      # get title flush with left side to line up with subtitle
+      # every number except 0.05 is default
+      padding = c(0.25, 0.15, 0.25, 0.25)
+    ) + 
+    tm_title(
+      "Comparing Local Moran's I, Local Getis-Ord G, and Local Geary's C methods", 
+      size = 1.25
+    ) +
+    tm_layout(
+      panel.labels = c(
+        "MoranI-Permutation",
+        "Getis-OrdG-Permutation",
+        "GearyC-Permutation"
+      )
+    )
+  ```
+
+  </Details>
+
+  - Thoughts
+  :::
