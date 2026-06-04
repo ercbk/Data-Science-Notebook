@@ -551,9 +551,30 @@ $$\begin{align}
     - Often the approach for a two-sided p-value is to double the one-sided p-value, but that can produce p-values greater than 1 when the observed statistic is near the center of the distribution.
     - This method is equivalent to taking `min(upper tail, lower tail)` and computing the p-value from that, which is a standard way to construct a two-sided permutation p-value without doubling.
 - Other flavors
-  - `localmoran.sad`
-    - Also see [Diagnostics, Geospatial \>\> Spatial Autocorrelation](diagnostics-geospatial.qmd#sec-diag-geo-sauto){style="color: green"} \>\> Moran’s I for more details
-    - The chief advantage of the saddlepoint approximation is that it takes a fitted linear model rather than simply a numerical variable, so the residuals are analysed
+  - `localmoran.exact` - Exact method for Local Moran's I~i~
+    - [Example]{.ribbon-highlight}: ([source](https://r-spatial.org/book/15-Measures.html#local-morans-i_i) at the end)
+
+      ``` r
+      library(spdep)
+      data(pol_pres15, package = "spDataLarge")
+
+      nb_q <- pol_pres15 |> poly2nb(queen = TRUE)
+
+      lm_types |> localmoran.exact(
+        nb = nb_q, 
+        style = "W",
+        alternative = "two.sided", 
+        useTP = TRUE, 
+        truncErr = 1e-8
+      )
+      ```
+  - `localmoran.sad` - Saddlepoint Approximation ([Paper](https://onlinelibrary.wiley.com/doi/10.1111/j.1538-4632.2002.tb01084.x))
+    - It's an approximation of an exact method, but its roughly one hundred times faster than the numerical integration of the classic exact method.
+    - The conventional approach to estimating Moran's I is either to assume the statistic follows an approximate normal distribution (using its expectation and variance), or to rely on simulation experiments that randomize residual locations or assume a specific error structure.
+    - The saddlepoint approximation outperforms other approximation methods with respect to its accuracy and computational costs. In addition, only the saddlepoint approximation is capable of handling, in analytical terms, reference distributions of Moran's I that are subject to significant underlying spatial processes.
+    - Local Moran's $I_i$ is *not* asymptotically normally distributed but instead deviates more and more from the normal distribution as the number of spatial objects increases, because the kurtosis increases rather than shrinks.
+    - if the regression residuals are heteroskedastic, the numerator and denominator of Moran's I are no longer independent, causing the regular moment expressions to break down
+    - The chief advantage of the saddlepoint approximation is that it takes a fitted linear model rather than simply a numerical variable, so the residuals are analyzed. Using linear models allows for richer mean models.
     - Adding weights to the linear model can down-weight small units of observation
     - Can take either a [lm]{.arg-text} or [sarlm]{.arg-text} object as input
       - [sarlm]{.arg-text} is likely an econometric spatial regression model from [{spatialreg}]{style="color: #990000"} (see [Regression, Spatial \>\> Econometric](regression-spatial.qmd#sec-reg-spat-econ){style="color: green"})
@@ -590,6 +611,12 @@ $$\begin{align}
 ### Local Getis-Ord G~i~ {#sec-assoc-spat-local-ordg .unnumbered}
 
 - Typically, results for the Local Moran $I_i$ and the Local $G_i$ statistics will match quite closely, except for some outliers.
+- `localG` and `localG.perm`
+  - [include.self]{.arg-text}: Says insert self-neighbours into the neighbour object
+    - Guessing this is useful if you don't have a connected graph or maybe pair(s) of nodes with just each other as neighbors
+    - Print the neighbor list to see if any “disjoint connected subgraphs” exist or use `n.comp.nb`
+  - [return_internals = TRUE]{.arg-text}: Says return the observed and expected values of local G with their analytical variances
+  - Both flavors shown to produce similar results ([source](https://r-spatial.org/book/15-Measures.html#local-getis-ord-g_i))
 
 ### Examples {#sec-assoc-spat-local-ex .unnumbered}
 
@@ -907,192 +934,192 @@ $$\begin{align}
   - Thoughts
   :::
 
-  - [Example 2]{.ribbon-highlight}: Hotspot Analysis
+- [Example 2]{.ribbon-highlight}: Hotspot Analysis
 
-    ::: panel-tabset
-    ## Cluster Counts
+  ::: panel-tabset
+  ## Cluster Counts
 
-    This is a continuation from Example 1, so it uses the analytical and permation-based Local Moran's I~i~. See Example 1 for details on data.
+  This is a continuation from Example 1, so it uses the analytical and permation-based Local Moran's I~i~. See Example 1 for details on data.
 
-    ``` r
-    lmoran_iturn_adj |> 
-      filter(p_value_bh < 0.005) |> 
-      count(
-        mean_quadr, 
-        .drop = FALSE, 
-        sort = TRUE
+  ``` r
+  lmoran_iturn_adj |> 
+    filter(p_value_bh < 0.005) |> 
+    count(
+      mean_quadr, 
+      .drop = FALSE, 
+      sort = TRUE
+    )
+  #>   mean_quadr  n
+  #> 1  High-High 96
+  #> 2    Low-Low 53
+  #> 3   High-Low  0
+  #> 4   Low-High  0
+
+  lmoran_perm_iturn_adj |> 
+    filter(p_value_anlyt_bh < 0.005) |> 
+    count(
+      mean_quadr, 
+      .drop = FALSE, 
+      sort = TRUE
+    )
+  #>   mean_quadr  n
+  #> 1  High-High 95
+  #> 2    Low-Low 54
+  #> 3   High-Low  0
+  #> 4   Low-High  0
+
+  lmoran_perm_iturn_adj |> 
+    filter(p_value_sim_bh < 0.005) |> 
+    count(
+      mean_quadr, 
+      .drop = FALSE, 
+      sort = TRUE
+    )
+  #>   mean_quadr  n
+  #> 1  High-High 74
+  #> 2    Low-Low 59
+  #> 3   High-Low  0
+  #> 4   Low-High  0
+  ```
+
+  - Thoughts
+
+  ## Visualize
+
+  ###### Preprocess
+
+  <Details>
+
+  <Summary>Code</Summary>
+
+  ``` r
+  quadr_anlyt <- lmoran_iturn_adj |> 
+    mutate(
+      mean_quadr = as.character(mean_quadr),
+      mean_quadr = case_when(
+        mean_quadr == "High-High" ~ "High Turnout",
+        mean_quadr == "Low-Low" ~ "Low Turnout",
+        .default = mean_quadr
+      ),
+      mean_quadr = ifelse(
+        p_value_bh >= 0.005,
+        NA_character_,
+        mean_quadr
       )
-    #>   mean_quadr  n
-    #> 1  High-High 96
-    #> 2    Low-Low 53
-    #> 3   High-Low  0
-    #> 4   Low-High  0
+    ) |>   
+    rename(quadr_anlyt = mean_quadr) |> 
+    select(quadr_anlyt)
 
-    lmoran_perm_iturn_adj |> 
-      filter(p_value_anlyt_bh < 0.005) |> 
-      count(
-        mean_quadr, 
-        .drop = FALSE, 
-        sort = TRUE
+  quadr_perm_stddev <- lmoran_perm_iturn_adj |> 
+    mutate(
+      mean_quadr = as.character(mean_quadr),
+      mean_quadr = case_when(
+        mean_quadr == "High-High" ~ "High Turnout",
+        mean_quadr == "Low-Low" ~ "Low Turnout",
+        .default = mean_quadr
+      ),
+      mean_quadr = ifelse(
+        p_value_anlyt_bh >= 0.005,
+        NA_character_,
+        mean_quadr
       )
-    #>   mean_quadr  n
-    #> 1  High-High 95
-    #> 2    Low-Low 54
-    #> 3   High-Low  0
-    #> 4   Low-High  0
+    ) |>   
+    rename(quadr_perm_stddev = mean_quadr) |> 
+    select(quadr_perm_stddev)
 
-    lmoran_perm_iturn_adj |> 
-      filter(p_value_sim_bh < 0.005) |> 
-      count(
-        mean_quadr, 
-        .drop = FALSE, 
-        sort = TRUE
+  quadr_perm_rank <- lmoran_perm_iturn_adj |> 
+    mutate(
+      mean_quadr = as.character(mean_quadr),
+      mean_quadr = case_when(
+        mean_quadr == "High-High" ~ "High Turnout",
+        mean_quadr == "Low-Low" ~ "Low Turnout",
+        .default = mean_quadr
+      ),
+      mean_quadr = ifelse(
+        p_value_sim_bh >= 0.005,
+        NA_character_,
+        mean_quadr
       )
-    #>   mean_quadr  n
-    #> 1  High-High 74
-    #> 2    Low-Low 59
-    #> 3   High-Low  0
-    #> 4   Low-High  0
-    ```
-
-    - Thoughts
-
-    ## Visualize
-
-    ###### Preprocess
-
-    <Details>
-
-    <Summary>Code</Summary>
-
-    ``` r
-    quadr_anlyt <- lmoran_iturn_adj |> 
-      mutate(
-        mean_quadr = as.character(mean_quadr),
-        mean_quadr = case_when(
-          mean_quadr == "High-High" ~ "High Turnout",
-          mean_quadr == "Low-Low" ~ "Low Turnout",
-          .default = mean_quadr
-        ),
-        mean_quadr = ifelse(
-          p_value_bh >= 0.005,
-          NA_character_,
-          mean_quadr
-        )
-      ) |>   
-      rename(quadr_anlyt = mean_quadr) |> 
-      select(quadr_anlyt)
-
-    quadr_perm_stddev <- lmoran_perm_iturn_adj |> 
-      mutate(
-        mean_quadr = as.character(mean_quadr),
-        mean_quadr = case_when(
-          mean_quadr == "High-High" ~ "High Turnout",
-          mean_quadr == "Low-Low" ~ "Low Turnout",
-          .default = mean_quadr
-        ),
-        mean_quadr = ifelse(
-          p_value_anlyt_bh >= 0.005,
-          NA_character_,
-          mean_quadr
-        )
-      ) |>   
-      rename(quadr_perm_stddev = mean_quadr) |> 
-      select(quadr_perm_stddev)
-
-    quadr_perm_rank <- lmoran_perm_iturn_adj |> 
-      mutate(
-        mean_quadr = as.character(mean_quadr),
-        mean_quadr = case_when(
-          mean_quadr == "High-High" ~ "High Turnout",
-          mean_quadr == "Low-Low" ~ "Low Turnout",
-          .default = mean_quadr
-        ),
-        mean_quadr = ifelse(
-          p_value_sim_bh >= 0.005,
-          NA_character_,
-          mean_quadr
-        )
-      ) |>  
-      rename(quadr_perm_rank = mean_quadr) |> 
-      select(quadr_perm_rank)
+    ) |>  
+    rename(quadr_perm_rank = mean_quadr) |> 
+    select(quadr_perm_rank)
 
 
-    clust_iturn_pres15 <- pol_pres15 |> 
-      select(geometry) |> 
-      bind_cols(quadr_anlyt, quadr_perm_stddev, quadr_perm_rank) |> 
-      tidyr::pivot_longer(
-        cols = starts_with("quadr"),
-        names_to = "moran_type",
-        values_to = "clust_type"
-      ) |> 
-      mutate(
-        clust_type = factor(clust_type),
-        moran_type = factor(moran_type)
-      )
-    ```
+  clust_iturn_pres15 <- pol_pres15 |> 
+    select(geometry) |> 
+    bind_cols(quadr_anlyt, quadr_perm_stddev, quadr_perm_rank) |> 
+    tidyr::pivot_longer(
+      cols = starts_with("quadr"),
+      names_to = "moran_type",
+      values_to = "clust_type"
+    ) |> 
+    mutate(
+      clust_type = factor(clust_type),
+      moran_type = factor(moran_type)
+    )
+  ```
 
-    - Thoughts
+  - Thoughts
 
-    </Details>
+  </Details>
 
-    ###### Visualize
+  ###### Visualize
 
-    ![](_resources/Association-Spatial.resources/local-moran-ex2-clusters-1.png){.lightbox}
+  ![](_resources/Association-Spatial.resources/local-moran-ex2-clusters-1.png){.lightbox}
 
-    <Details>
+  <Details>
 
-    <Summary>Code</Summary>
+  <Summary>Code</Summary>
 
-    ``` r
-    tmap_options_reset()
-    tmap_theme_notebook()
+  ``` r
+  tmap_options_reset()
+  tmap_theme_notebook()
 
-    notebook_colors <- unname(swatches::read_ase(here::here("palettes/Forest Floor.ase")))
+  notebook_colors <- unname(swatches::read_ase(here::here("palettes/Forest Floor.ase")))
 
-    tm_shape(clust_iturn_pres15) + 
-      tm_polygons(col = "#4A3728") + 
-      tm_fill(
-        fill = "clust_type",
-        fill.scale = tm_scale(
-          values = c(notebook_colors[[5]], notebook_colors[[6]]), 
-          value.na = notebook_colors[[2]],
-          label.na = "Not Determined"
-        ),    
-        fill.legend = tm_legend(
-          "Hotspot Type",
-          frame = FALSE,
-          position = tm_pos_on_top(
-            pos.v = 0.4,
-            pos.h = 0.66
-          )
-        )
-      ) +
-      tm_facets_wrap("moran_type", ncol = 2) +
-      tm_title(
-        "Voter Turnout Clusters in Poland (2015)", 
-        size = 2, 
-        fontface = "bold",
-        # get title flush with left side to line up with subtitle
-        # every number except 0.05 is default
-        padding = c(0.25, 0.05, 0.25, 0.25)
-      ) + 
-      tm_title(
-        "Using Local Moran's I to identify concentrations of high and low turnout", 
-        size = 1.25
-      ) +
-      tm_layout(
-        panel.labels = c(
-          "Analytical-Conditional",
-          "Permutation-Std.Deviate",
-          "Permutation-Rank"
+  tm_shape(clust_iturn_pres15) + 
+    tm_polygons(col = "#4A3728") + 
+    tm_fill(
+      fill = "clust_type",
+      fill.scale = tm_scale(
+        values = c(notebook_colors[[5]], notebook_colors[[6]]), 
+        value.na = notebook_colors[[2]],
+        label.na = "Not Determined"
+      ),    
+      fill.legend = tm_legend(
+        "Hotspot Type",
+        frame = FALSE,
+        position = tm_pos_on_top(
+          pos.v = 0.4,
+          pos.h = 0.66
         )
       )
-    ```
+    ) +
+    tm_facets_wrap("moran_type", ncol = 2) +
+    tm_title(
+      "Voter Turnout Clusters in Poland (2015)", 
+      size = 2, 
+      fontface = "bold",
+      # get title flush with left side to line up with subtitle
+      # every number except 0.05 is default
+      padding = c(0.25, 0.05, 0.25, 0.25)
+    ) + 
+    tm_title(
+      "Using Local Moran's I to identify concentrations of high and low turnout", 
+      size = 1.25
+    ) +
+    tm_layout(
+      panel.labels = c(
+        "Analytical-Conditional",
+        "Permutation-Std.Deviate",
+        "Permutation-Rank"
+      )
+    )
+  ```
 
-    </Details>
+  </Details>
 
-    - Thoughts
-    :::
+  - Thoughts
+  :::
 
 - [Example 3]{.ribbon-highlight}: Saddlepoint Local Moran's Ii and Hotspot Analysis
