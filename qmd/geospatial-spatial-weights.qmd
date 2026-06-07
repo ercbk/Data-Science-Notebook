@@ -34,6 +34,11 @@ lightbox:
 
 - Just about everything gets converted to a neighbor list of some sort at the end (e.g. adding spatial weights, moran's test, plotting)
 
+- These are lists of length equal to the number of observations with integer vector elements.
+
+  - Observations with *no-neighbors* are encoded as an integer vector with a single element [0L]{.arg-text}
+  - Observations with neighbors as sorted integer vectors containing values in [1L:n]{.arg-text} pointing to the neighboring observations.
+
 - `edit` can be used to interactively add links (e.g. not detected erroneously) or remove links (e.g. mountain range separates boundaries).
 
 - Types of Neighbor Lists
@@ -53,7 +58,7 @@ lightbox:
       - In the overwhelming majority of cases, k-NN leads to asymmetric neighbours
     - `is.symmetric.nb` can be used to check for symmetry
   - `poly2nb` - Takes a [sf object with (multi-)polygons]{.underline} or a list of polygon objects with class SpatialPolygon
-    - Builds a neighbours list based on regions with contiguous boundaries, that is sharing one or more boundary point.
+    - Builds a neighbors list based on regions with contiguous boundaries, that is sharing one or more boundary point.
     - [snap]{.arg-text} allows the shared boundary points to be a short distance from one another.
       - e.g. A narrow body of water separates the boundaries where there's a ferry or a bridge that could in essence make the boundaries contiguous.
       - Sometimes there are geographical artefacts present which screw up the algorithm detecting continguous boundaries. By increasing the snap value, you can absorb the artefacts and detect the contiguous boundary between the shapes.
@@ -63,6 +68,7 @@ lightbox:
         - For sf objecst with coordinate reference systems, it's 1e-7 (approx 10mm) that's converted to units of the coordinate system.
     - If queen = TRUE, then when three or more polygons meet at a single point, they all meet the contiguity condition, giving rise to crossed links.
     - If queen = FALSE, (aka rook), at least two boundary points must be within the snap distance of each other
+    - The SDS book explains it this way, "For each observation, the function checks whether at least one ([queen = TRUE]{.arg-text}, default), or at least two (*rook*, [queen = FALSE]{.arg-text}) points are within snap distance units of each other."
   - `tri2nb` - Takes a coordinates matrix (e.g. centroids) and is the input for `soi.graph`
 
 - Convert neighbors list to a tibble in order to use [{ggplot2}]{style="color: #990000"}
@@ -118,6 +124,7 @@ lightbox:
 
 - [Misc]{.underline}
   - A spatial weights matrix defines how closely related each pair of nodes are
+  - A [listw]{.arg-text} object is a list with three components: a nb object (neighbor list), a matching list of numerical weights, and a single element character vector containing the single letter name of the way in which the weights were calculated (normalization style).
   - Functions require that your sf object has the same coordinate system that you used to create your neighbors list.
   - Normalizing your weights matrix is always a good idea. Otherwise, the spatial parameters might blow up – if you can estimate the model at all. It also ensures easy interpretation of spillover effects. ([source](https://ruettenauer.github.io/Geodata_Spatial_Regression/03_weights.html#normalization-of-boldsymbolmathbfw))
 - `nb2listw` will add spatial weights to your neighbors list
@@ -190,7 +197,7 @@ lightbox:
       - Proportions between units such as distances get lost
       - Can induce asymmetries, $w_{ij}\ne w_{ji}$
 
-    - Issue: Has some **undesirable properties when some non-contigutiy based neighbour methods** are used, such as distance based neighbours. ([source](https://ruettenauer.github.io/Geodata_Spatial_Regression/03_weights.html#row-normalization))
+    - Issue: Has some **undesirable properties when some non-contiguity based neighbor methods** are used, such as distance based neighbours. ([source](https://ruettenauer.github.io/Geodata_Spatial_Regression/03_weights.html#row-normalization))
 
       - It obscures the proportion due to dividing by a row-specific value.
       - e.g. The strength of the relation for distant locations can be similar to more proximate units
@@ -232,160 +239,164 @@ lightbox:
 
 ## Neighbor Algorithms {#sec-geo-swgt-nbalg .unnumbered}
 
-- [Graph-based]{.underline}
-  - [Misc]{.underline}
+### Graph-based {#sec-geo-swgt-nbalg-graph .unnumbered}
 
-    - No option to use Great Circle distances for geographical coordinates, only Euclidean distance (planar)
-    - All the graph-based neighbour schemes always ensure that all the points will have at least one neighbour.
-    - Modify a neighbor list: `subset.nb(nb_q_96, !is.na(boston_96$median))` ([source](https://r-spatial.org/book/16-SpatialRegression.html#boston-house-value-dataset))
-      - Both objects have 96 observations. It removes elements of the list where [median]{.var-text} is [NA]{.arg-text} (i.e. all [FALSEs]{.arg-text})
+- [Misc]{.underline}
 
-  - **Relative Neighbor Graph (RNG)**
+  - No option to use Great Circle distances for geographical coordinates, only Euclidean distance (planar)
+  - All the graph-based neighbour schemes always ensure that all the points will have at least one neighbour.
+  - Modify a neighbor list: `subset.nb(nb_q_96, !is.na(boston_96$median))` ([source](https://r-spatial.org/book/16-SpatialRegression.html#boston-house-value-dataset))
+    - Both objects have 96 observations. It removes elements of the list where [median]{.var-text} is [NA]{.arg-text} (i.e. all [FALSEs]{.arg-text})
 
-    $$d(x,y) \le \min\{\;\max\{d(x,z),d(y,z)\}\;|\; z \in S\;\}$$
+- **Relative Neighbor Graph (RNG)**
 
-    - Neighbors are defined such that two points $x$ and $y$ are connected if the direct distance $d(x,y)$ is less than or equal to the minimum of the maximum distances from $x$ and $y$ to any third point $z \in S$
-    - Does Not guarantee symmetry
+  $$d(x,y) \le \min\{\;\max\{d(x,z),d(y,z)\}\;|\; z \in S\;\}$$
 
-  - **Gabriel Graph (GG)**
+  - Neighbors are defined such that two points $x$ and $y$ are connected if the direct distance $d(x,y)$ is less than or equal to the minimum of the maximum distances from $x$ and $y$ to any third point $z \in S$
+  - Does Not guarantee symmetry
 
-    $$d(x,y) \le \min\{(d(x,z)^2 + d(y,z)^2)^{1/2} \;|\;z \in S\}$$
+- **Gabriel Graph (GG)**
 
-    - Neighbors $x$ and $y$ are connected if the distance $d(x, y)$ is less than or equal to the square root of the summ of squared distances from $x$ and $y$ to any third point $z \in S$
-    - Does NOT guarantee symmetry
+  $$d(x,y) \le \min\{(d(x,z)^2 + d(y,z)^2)^{1/2} \;|\;z \in S\}$$
 
-  - **Sphere of Influence Graph (SOI)**
+  - Neighbors $x$ and $y$ are connected if the distance $d(x, y)$ is less than or equal to the square root of the summ of squared distances from $x$ and $y$ to any third point $z \in S$
+  - Does NOT guarantee symmetry
 
-    - For a point set $S$, $x$ and $y$ are connected if their respective "spheres of influence" (circles centered at $x$ and $y$ with radii equal to the distance to their nearest neighbors) intersect in at least two places
-    - Guarantees symmetry
+- **Sphere of Influence Graph (SOI)**
 
-  - Hierarchical Relationship: RNG $\subseteq$ GG $\subseteq$ SOI\
-    ![](_resources/Geospatial-Analysis.resources/graph_based_neighbors-1.png){.lightbox width="632"}
+  - For a point set $S$, $x$ and $y$ are connected if their respective "spheres of influence" (circles centered at $x$ and $y$ with radii equal to the distance to their nearest neighbors) intersect in at least two places
+  - Guarantees symmetry
 
-    - All the links made by RNG will be made by GG, and all the links made by GG will be made by SOI
-    - RNG is the most restrictive while SOI is the least.
+- Hierarchical Relationship: RNG $\subseteq$ GG $\subseteq$ SOI\
+  ![](_resources/Geospatial-Analysis.resources/graph_based_neighbors-1.png){.lightbox width="632"}
 
-  - [Example]{.ribbon-highlight}: SOI and GG ([source](https://r-spatial.github.io/spdep/articles/nb_sf.html#graph-based-neighbours))\
+  - All the links made by RNG will be made by GG, and all the links made by GG will be made by SOI
+  - RNG is the most restrictive while SOI is the least.
 
-    ::: panel-tabset
-    ## Data and Points
+- [Example]{.ribbon-highlight}: SOI and GG ([source](https://r-spatial.github.io/spdep/articles/nb_sf.html#graph-based-neighbours))\
 
-    ``` r
-    library(spdep)
+  ::: panel-tabset
+  ## Data and Points
 
-    NY8_sf <- 
-      st_read(system.file(
-                "shapes/NY8_bna_utm18.gpkg", 
-                package = "spData"), 
-              quiet = TRUE)
-    # validate geometries
-    table(st_is_valid(NY8_sf))
-    #> TRUE 
-    #>  281 
+  ``` r
+  library(spdep)
 
-    dplyr::glimpse(NY8_sf)
-    #> Rows: 281
-    #> Columns: 13
-    #> $ AREAKEY    <chr> "36007000100", "36007000200", "36007000300", "36007000400", "3600700…
-    #> $ AREANAME   <chr> "Binghamton city", "Binghamton city", "Binghamton city", "Binghamton…
-    #> $ X          <dbl> 4.069397, 4.639371, 5.709063, 7.613831, 7.315968, 8.558753, 9.206733…
-    #> $ Y          <dbl> -67.3533, -66.8619, -66.9775, -65.9958, -67.3183, -66.9344, -67.1789…
-    #> $ POP8       <dbl> 3540, 3560, 3739, 2784, 2571, 2729, 3952, 993, 1908, 948, 1172, 1047…
-    #> $ TRACTCAS   <dbl> 3.08, 4.08, 1.09, 1.07, 3.06, 1.06, 2.09, 0.02, 2.04, 0.02, 1.03, 3.…
-    #> $ PROPCAS    <dbl> 0.000870, 0.001146, 0.000292, 0.000384, 0.001190, 0.000388, 0.000529…
-    #> $ PCTOWNHOME <dbl> 0.32773109, 0.42682927, 0.33773959, 0.46160483, 0.19243697, 0.365178…
-    #> $ PCTAGE65P  <dbl> 0.14661017, 0.23511236, 0.13800481, 0.11889368, 0.14157915, 0.141077…
-    #> $ Z          <dbl> 0.14197, 0.35555, -0.58165, -0.29634, 0.45689, -0.28123, -0.24605, 0…
-    #> $ AVGIDIST   <dbl> 0.2373852, 0.2087413, 0.1708548, 0.1406045, 0.1577753, 0.1726033, 0.…
-    #> $ PEXPOSURE  <dbl> 3.167099, 3.038511, 2.838229, 2.643366, 2.758587, 2.848411, 2.951257…
-    #> $ geom       <MULTIPOLYGON [m]> MULTIPOLYGON (((421808.5 46..., MULTIPOLYGON (((421794.…
+  NY8_sf <- 
+    st_read(system.file(
+              "shapes/NY8_bna_utm18.gpkg", 
+              package = "spData"), 
+            quiet = TRUE)
+  # validate geometries
+  table(st_is_valid(NY8_sf))
+  #> TRUE 
+  #>  281 
 
-    # calculate centroids in counties that will be nodes
-    NY8_ct_sf <- 
-      st_centroid(st_geometry(NY8_sf), 
-                  of_largest_polygon = TRUE)
-    class(NY8_ct_sf)
-    #> [1] "sfc_POINT" "sfc" 
-    coords_ct <- st_coordinates(NY8_ct_sf)
-    class(coords_ct)
-    #> [1] "matrix" "array" 
-    ```
+  dplyr::glimpse(NY8_sf)
+  #> Rows: 281
+  #> Columns: 13
+  #> $ AREAKEY    <chr> "36007000100", "36007000200", "36007000300", "36007000400", "3600700…
+  #> $ AREANAME   <chr> "Binghamton city", "Binghamton city", "Binghamton city", "Binghamton…
+  #> $ X          <dbl> 4.069397, 4.639371, 5.709063, 7.613831, 7.315968, 8.558753, 9.206733…
+  #> $ Y          <dbl> -67.3533, -66.8619, -66.9775, -65.9958, -67.3183, -66.9344, -67.1789…
+  #> $ POP8       <dbl> 3540, 3560, 3739, 2784, 2571, 2729, 3952, 993, 1908, 948, 1172, 1047…
+  #> $ TRACTCAS   <dbl> 3.08, 4.08, 1.09, 1.07, 3.06, 1.06, 2.09, 0.02, 2.04, 0.02, 1.03, 3.…
+  #> $ PROPCAS    <dbl> 0.000870, 0.001146, 0.000292, 0.000384, 0.001190, 0.000388, 0.000529…
+  #> $ PCTOWNHOME <dbl> 0.32773109, 0.42682927, 0.33773959, 0.46160483, 0.19243697, 0.365178…
+  #> $ PCTAGE65P  <dbl> 0.14661017, 0.23511236, 0.13800481, 0.11889368, 0.14157915, 0.141077…
+  #> $ Z          <dbl> 0.14197, 0.35555, -0.58165, -0.29634, 0.45689, -0.28123, -0.24605, 0…
+  #> $ AVGIDIST   <dbl> 0.2373852, 0.2087413, 0.1708548, 0.1406045, 0.1577753, 0.1726033, 0.…
+  #> $ PEXPOSURE  <dbl> 3.167099, 3.038511, 2.838229, 2.643366, 2.758587, 2.848411, 2.951257…
+  #> $ geom       <MULTIPOLYGON [m]> MULTIPOLYGON (((421808.5 46..., MULTIPOLYGON (((421794.…
 
-    ## Model Neighbors
+  # calculate centroids in counties that will be nodes
+  NY8_ct_sf <- 
+    st_centroid(st_geometry(NY8_sf), 
+                of_largest_polygon = TRUE)
+  class(NY8_ct_sf)
+  #> [1] "sfc_POINT" "sfc" 
+  coords_ct <- st_coordinates(NY8_ct_sf)
+  class(coords_ct)
+  #> [1] "matrix" "array" 
+  ```
 
-    ``` r
-    # convert point list to neighbor list
-    NY84_nb <- tri2nb(coords = NY8_ct_sf)
-    # fit the soi graph and convert graph obj to a neighbor list
-    NY85_nb_soi <- 
-      graph2nb(soi.graph(tri.nb = NY84_nb, 
-                         coords = NY8_ct_sf))
-    summary(NY85_nb_soi)
-    #> Neighbour list object:
-    #> Number of regions: 281 
-    #> Number of nonzero links: 1238 
-    #> Percentage nonzero weights: 1.567863 
-    #> Average number of links: 4.405694 
-    #> 2 disjoint connected subgraphs
-    #> Link number distribution:
-    #> 
-    #>  1  2  3  4  5  6  7  8 
-    #>  4 29 45 64 70 49 19  1 
-    #> 4 least connected regions:
-    #> 228 231 246 247 with 1 link
-    #> 1 most connected region:
-    #> 133 with 8 links    
+  ## Model Neighbors
 
-    NY85_nb_gg <- 
-      graph2nb(gabrielneigh(coords = NY8_ct_sf))
-    summary(NY85_nb_gg)
-    #> Neighbour list object:
-    #> Number of regions: 281 
-    #> Number of nonzero links: 592 
-    #> Percentage nonzero weights: 0.7497372 
-    #> Average number of links: 2.106762 
-    #> 20 regions with no links:
-    #> 35, 51, 55, 67, 78, 82, 109, 190, 210, 212, 219, 234, 235, 241, 243, 251, 277, 278, 279, 281
-    #> Non-symmetric neighbours list
-    #> Link number distribution:
-    #> 
-    #>   0   1   2   3   4   5 
-    #>  20  68 105  48  30  10 
-    #> 68 least connected regions:
-    #> 10 16 18 27 30 31 32 33 34 45 46 48 49 50 56 64 66 73 77 81 89 90 91 94 100 104 107 108 123 146 149 153 160 161 164 167 168 179 189 194 202 209 214 215 220 222 223 231 232 240 242 246 247 248 249 250 255 256 257 258 260 262 263 271 272 275 276 280 with 1 link
-    #> 10 most connected regions:
-    #> 37 41 58 63 70 102 112 114 184 239 with 5 links      
-    ```
+  ``` r
+  # convert point list to neighbor list
+  NY84_nb <- tri2nb(coords = NY8_ct_sf)
+  # fit the soi graph and convert graph obj to a neighbor list
+  NY85_nb_soi <- 
+    graph2nb(soi.graph(tri.nb = NY84_nb, 
+                       coords = NY8_ct_sf))
+  summary(NY85_nb_soi)
+  #> Neighbour list object:
+  #> Number of regions: 281 
+  #> Number of nonzero links: 1238 
+  #> Percentage nonzero weights: 1.567863 
+  #> Average number of links: 4.405694 
+  #> 2 disjoint connected subgraphs
+  #> Link number distribution:
+  #> 
+  #>  1  2  3  4  5  6  7  8 
+  #>  4 29 45 64 70 49 19  1 
+  #> 4 least connected regions:
+  #> 228 231 246 247 with 1 link
+  #> 1 most connected region:
+  #> 133 with 8 links    
 
-    - There are two neighbor list conversions:
-      - `tri2nb` returns a special list required as input for `soi.graph`. Also, I think [{dbscan}]{style="color: #990000"} is required to be installed for `soi.graph` but maybe not the others.
-      - `graph2nb` converts a graph object to a neighbor list that's used for graphing the network
-    - The RNG method (`relativeneigh`) is fit the same way as the GG method.
+  NY85_nb_gg <- 
+    graph2nb(gabrielneigh(coords = NY8_ct_sf))
+  summary(NY85_nb_gg)
+  #> Neighbour list object:
+  #> Number of regions: 281 
+  #> Number of nonzero links: 592 
+  #> Percentage nonzero weights: 0.7497372 
+  #> Average number of links: 2.106762 
+  #> 20 regions with no links:
+  #> 35, 51, 55, 67, 78, 82, 109, 190, 210, 212, 219, 234, 235, 241, 243, 251, 277, 278, 279, 281
+  #> Non-symmetric neighbours list
+  #> Link number distribution:
+  #> 
+  #>   0   1   2   3   4   5 
+  #>  20  68 105  48  30  10 
+  #> 68 least connected regions:
+  #> 10 16 18 27 30 31 32 33 34 45 46 48 49 50 56 64 66 73 77 81 89 90 91 94 100 104 107 108 123 146 149 153 160 161 164 167 168 179 189 194 202 209 214 215 220 222 223 231 232 240 242 246 247 248 249 250 255 256 257 258 260 262 263 271 272 275 276 280 with 1 link
+  #> 10 most connected regions:
+  #> 37 41 58 63 70 102 112 114 184 239 with 5 links      
+  ```
 
-    ## Visualize
+  - There are two neighbor list conversions:
+    - `tri2nb` returns a special list required as input for `soi.graph`. Also, I think [{dbscan}]{style="color: #990000"} is required to be installed for `soi.graph` but maybe not the others.
+    - `graph2nb` converts a graph object to a neighbor list that's used for graphing the network
+  - The RNG method (`relativeneigh`) is fit the same way as the GG method.
 
-    ![](_resources/Geospatial-Analysis.resources/nn-graph-ex-soi-gg-1.png){.lightbox group="nn-ex1-1"}
+  ## Visualize
 
-    ``` r
-    par(mfrow = c(1, 2))
-    plot(st_geometry(NY8_sf), border = "gray")
-    plot(NY85_nb_soi,
-         coords = coords_ct,
-         add = TRUE)
-    title(main = "Sphere of Influence")
+  ![](_resources/Geospatial-Analysis.resources/nn-graph-ex-soi-gg-1.png){.lightbox group="nn-ex1-1"}
 
-    # plot boundaries
-    plot(st_geometry(NY8_sf), border = "gray")
-    # plot edges and nodes
-    plot(NY85_nb_gg, 
-         coords = coords_ct, 
-         add = TRUE)
-    title(main = "Gabriel Graph")       
-    ```
+  ``` r
+  par(mfrow = c(1, 2))
+  plot(st_geometry(NY8_sf), border = "gray")
+  plot(NY85_nb_soi,
+       coords = coords_ct,
+       add = TRUE)
+  title(main = "Sphere of Influence")
 
-    - I thought the difference would be more apparent between the two methods, but they're pretty similar.
-    - I feel the GG graph is more connected overall, but the SOI is more connected in areas where the nodes are denser.
-    :::
+  # plot boundaries
+  plot(st_geometry(NY8_sf), border = "gray")
+  # plot edges and nodes
+  plot(NY85_nb_gg, 
+       coords = coords_ct, 
+       add = TRUE)
+  title(main = "Gabriel Graph")       
+  ```
+
+  - I thought the difference would be more apparent between the two methods, but they're pretty similar.
+  - I feel the GG graph is more connected overall, but the SOI is more connected in areas where the nodes are denser.
+  :::
+
+### Distance-based {#sec-geo-swgt-nbalg-distb .unnumbered}
+
 - [k-NN]{.underline}
   - Does NOT guarantee symmetry (almost always asymmetric)
 
@@ -501,7 +512,7 @@ lightbox:
 
     </Details>
     :::
-- [Distance Neighbors]{.underline}
+- [Distance-band]{.underline}
   - Identifies neighbors within a euclidean (default) distance range using a k-NN graph
 
     - So, larger the upper threshold, then more links will be made.
