@@ -71,12 +71,9 @@
   - Negative z-score → Fewer joins and more dispersion than expected (i.e. negative spatial autocorrelation)
 - Adjust p-values
   - Multiple tests on the same dataset and neighbor graph, so a p-value adjustment should be done.
-
     - Do same color (category) joins represent a different testing family than cross-color joins (therefore different numbers of comparisions?) or are these all together considered part of the same research question?
     - If you have a lot of categories and the adjustment flips some interpretations when you assume these should all be treated as the same family, then this becomes an important question.
-
   - Use the Holm (FWER) or Benjamini-Yekutieli (FDR) correction since there's likely negative correlations among test statistics
-
     - Structural Dependence: The join counts are computed from the same spatial weights matrix (i.e. same neighborhood graph) and the same set of polygons. Their z-values are correlated.
     - Compositionally Constrained: If same type joins are high, then cross-joins are lower since there is fixed number of joins. This induces *negative correlations*.
     - Cross-type pairs sharing a category could induce positive coorelations
@@ -88,6 +85,7 @@
 
   - A measure of global spatial autocorrelation or overall clustering of the data
     - If there is no global autocorrelation or no clustering, there can still be clusters at a local level (See Local Moran's I)
+    - A significant global test is often better read as a motivation for local analysis or spatial modeling rather than a finding in itself.
   - Assumes homegeneity (i.e. only one statistic is needed to summarize the whole study area)
 
 - [Equations]{.underline}
@@ -111,12 +109,13 @@
 
 - [Interpretation]{.underline}
 
+  - H~0~: Spatial Randomness
   - Range: $w_{\text{min}}\frac{N}{W} \lt I \lt w_{\text{max}}\frac{N}{W}$
     - For a row normalized weight matrix, $\frac{N}{W} = 1$ (Wiki)
       - In [{spdep}]{style="color: #990000"}, this would be [style = "W"]{.arg-text}
       - I don't get this. W = 1, but why would N also equal 1? Not sure if this right.
-  - Values significantly *below* the expected value are *negatively* correlated
-  - Values significantly *above* the exected value are *positively* correlated
+  - I statistics significantly *below* the expected value are *negatively* correlated
+  - I statistics significantly *above* the exected value are *positively* correlated
 
 - `moran.test`
 
@@ -161,13 +160,48 @@
   - See Moran's I for variable descriptions
   - The analytical variance ($\text{Var}(C)$) equation and its components (under normalization and randomization) aren't shown because it's long. It's computed from the weights and number of neighbors with observations.
 
+- Interpretation
+
+  - H~0~: Spatial Randomness
+  - Range: 0 to 2
+  - $C \lt 1$ (and significant): Positive spatial autocorrelation
+  - $C \gt 1$ (and significant): Negative spatial autocorrelation
+
 - More computationally demanding than Moran's I, especially when the spatial weights are dense
 
-- Uses squared difference so it's more likely to pick up nonlinear relationships than the Moran's I or Getis-Ord G.
+- Uses squared difference so it's more likely to pick up nonlinear relationships and is more sensitive to the presence of local clustering than the Moran's I or Getis-Ord
+
+- [Example]{.ribbon-highlight}:
+
+  ``` r
+  iturnout |> 
+    geary.test(listw = lw_b_poly_pol)
+  #>    Geary C test under randomisation
+  #> 
+  #> data:  iturnout 
+  #> weights: lw_b_poly_pol   
+  #> 
+  #> Geary C statistic standard deviate = 47.59, p-value < 2.2e-16
+  #> alternative hypothesis: Expectation greater than statistic
+  #> sample estimates:
+  #> Geary C statistic       Expectation          Variance 
+  #>      0.3039130391      1.0000000000      0.0002139454 
+  ```
+
+  - See [Local Measures \>\> Examples](association-spatial.qmd#sec-assoc-spat-local-ex){style="color: green"} \>\> Example 1 for details on data and spatial weights list
 
 ### Getis-Ord G {#sec-assoc-spat-global-getord .unnumbered}
 
-- Intended as a supplement to Moran's I
+- Notes from [How High/Low Clustering (Getis-Ord General G) works](https://doc.esri.com/en/arcgis-pro/latest/tool-reference/spatial-statistics/h-how-high-low-clustering-getis-ord-general-g-spat.html)
+
+- Intended as a supplement to Moran's I. Tests for concentration of high or low values.
+
+  - Blind to negative spatial autocorrelation and cannot detect checkerboard patterns.
+  - Competing clusters of highs and lows could cancel each other out
+
+- Requires that all values be non-negative. Most appropriate when you have a fairly even distribution of values and are looking for unexpected spatial spikes of high values.
+
+- A binary weighting scheme is recommended for this statistic.
 
 - Equations\
 
@@ -180,6 +214,13 @@
 
   - The analytical variance ($\text{Var}(G)$) equation and its components aren't shown because it's long. It's computed from the weights and number of neighbors with observations.
 
+- Interpretation
+
+  - H~0~: Spatial Randomness
+  - If your weights are binary (0/1) or are always less than 1, the range for G will be between 0 and 1.
+  - $G \gt \mathbb{E}(G)$ (and significant): High values are spatially concentrated
+  - $G \gt \mathbb{E}(G)$ (and significant): Low values are spatially concentrated
+
 ### Examples {#sec-assoc-spat-global-ex .unnumbered}
 
 - [Example 1]{.ribbon-highlight}: Join Count Tests
@@ -187,10 +228,13 @@
   ::: panel-tabset
   ## Data
 
-  - Polish county (gminy) types from Polish Presidential election 2015 data
+  ![](_resources/Association-Spatial.resources/global-ex1-gminy-type.png){.lightbox width="532"}
+
+  Polish county (gminy) types from Polish Presidential election 2015 data\
+  The goal is to test whether gminy type neighbor combinations happen more often than one would expect by chance alone.
 
   ``` r
-  library(dplyr); library(spdep)
+  library(dplyr); library(spdep); library(tmap)
 
   data(pol_pres15, package = "spDataLarge")
 
@@ -206,9 +250,32 @@
   #> 2          Urban  303 MULTIPOLYGON (((315888.7 27...
   #> 3    Urban/rural  611 MULTIPOLYGON (((244371.6 33...
   #> 4 Warsaw Borough   18 POLYGON ((631202.9 480068, ...
+
+  tmap_options_reset()
+  tmap_theme_notebook()
+
+  notebook_colors <- unname(swatches::read_ase(here::here("palettes/Forest Floor.ase")))
+
+  tm_shape(pol_pres15 |> select(types)) +
+    tm_polygons(col = "#4A3728") +
+    tm_fill(
+      "types",
+      fill.scale = tm_scale(values = notebook_colors[4:7]),
+      fill.legend = tm_legend(
+        title = "Gminy Type",
+        orientation = "landscape",
+        position = tm_pos_out("center", "bottom")
+      )
+    ) +
+    tm_title(
+      "Poland's Gminy by Type",
+      size = 2, fontface = "bold"
+    )
   ```
 
-  - Thoughts
+  - There are 4 types of gminy and they are imbalanced.
+  - Warsaw is in the central east and most of rural areas seem to be in the northeast.
+  - I think the large urban area in the south is Katowice which is between Wroclaw and Krakow. Interestingly, according to Wiki, Katowice has about 400K fewer people than Krakow or Wroclaw which are second and third in population respectively. Evidently the Katowice area is more urbanized though. ¯\\\_(ツ)\_/¯
 
   ## Spatial Weights
 
@@ -225,8 +292,7 @@
   # 18300 determined the distance for a connected graph
   nb_d183_pol <- coords_pol |> 
     dnearneigh(0, 18300) 
-  # Inverse distance weights may be constructed by taking the lengths of edges, changing units to avoid most weights being too large or small (here from metre to kilometre), taking the inverse
-  # https://r-spatial.org/book/14-Areal.html#weights-specification
+
   wgts_idw_d183 <- nb_d183_pol|> 
     nbdists(coords_pol) |> 
     lapply(function(x) 1/(x/1000))  # in km
@@ -235,7 +301,12 @@
     nb2listw(glist = wgts_idw_d183, style = "B")
   ```
 
-  - Thoughts
+  - [nb_poly_pol]{.var-text} is the contiguity neighbors list with the queen specification. All pretty standard for polygon units. That neighbor list is used to create a binary (neighbor / not neighbor) spatial weights object ([lw_b_poly_pol]{.var-text}) which says that all neighbors of a gminy have equal weight.
+  - [nb_d183_pol]{.var-text} is a distance-band neighbor list with a radius of 18,300 meters. So all gminy within that distance can be a potential neighbor.
+    - See [Geospatial, Spatial Weights \>\> Neighbor Algorithms](geospatial-spatial-weights.qmd#sec-geo-swgt-nbalg){style="color: green"} \>\> Distance Neighbors for details on the method and how 18300 was chosen (or in the SDS book)
+    - Inverse distance weights are constructed by taking the lengths of edges, changing units to avoid most weights being too large or small (here from meter to kilometer), and taking the inverse. ([source](https://r-spatial.org/book/14-Areal.html#weights-specification))
+      - I think this can also be done with `nb2listwdist` which has the option to specify IDW style weights (See [Geospatial, Spatial Weights \>\> Spatial Weights](geospatial-spatial-weights.qmd#sec-geo-swgt-swts){style="color: green"})
+    - Binary weights are created, but then I guess for the neighbors (1s), their weights are tranformed to IDW weights.
 
   ## Join Count Tests
 
@@ -263,11 +334,6 @@
   #> 11   Warsaw Borough:Warsaw Borough        41    0.3501833    0.3474277  68.9646203         0           0
 
 
-  # substantial z-value changes using an inverse distance based listw object does, because closer centroids are up-weighted relatively strongly
-  # Rural:Rural and Warsaw Borough:Rural go to insignificant w/adj
-  # Jtot goes from highly signif to very not signif
-  # Urban:Urban goes from very not signif to very signif
-  # Warsaw Borough:Urban goes from not signif to very signif
   joincount.multi(pol_pres15$types, listw = lw_d183_idw_b_pol) |> 
     as.data.frame() |>
     tibble::rownames_to_column("type") |>
@@ -291,7 +357,11 @@
   #> 11   Warsaw Borough:Warsaw Borough  16.822284   0.04527513  0.006608328 206.38053024        0           0
   ```
 
-  - Thoughts
+  - Not going to go through each significant z-value and interpret (see [Join Count Test](association-spatial.qmd#sec-assoc-spat-global-jct){style="color: green"} section), but I'll note that there are substantial z-value changes when using an inverse distance weights, (closer centroids are up-weighted relatively strongly)
+  - [Rural:Rural]{.var-text} and [Warsaw Borough:Rural]{.var-text} go to insignificant w/the p-value adjustment
+  - [Jtot]{.var-text} goes from highly significant to very not significant
+  - [Urban:Urban]{.var-text} goes from very not significant to very significant
+  - [Warsaw Borough:Urban]{.var-text} goes from not significant to very significant
   :::
 
 - [Example 2]{.ribbon-highlight}: Moran's I
@@ -299,7 +369,7 @@
   ::: panel-tabset
   ## Data and Set-Up
 
-  Polish Presidential election 2015 data by gminy and Warsaw borough areal units
+  Polish Presidential election 2015 data by gminy and Warsaw borough areal units The goal is to test whether spatial autocorrelation across the whole study area due to voter turnout proportion can be detected or not.
 
   <Details>
 
@@ -394,10 +464,9 @@
   </Details>
 
   - [iturnout]{.var-text} is the proportions (voters/total eligible-to-vote) of first-round turnout
+  - Binary spatial weights are used which means the test will treat each neighbor of a gminy equally.
 
   ## Moran's I
-
-  words
 
   ``` r
 
@@ -418,41 +487,25 @@
   #>   <chr>                            <chr>          <dbl>       <dbl>    <dbl>       <dbl>   <dbl>
   #> 1 Moran I test under randomisation greater        0.691   -0.000401 0.000140        58.5       0
 
-
-  lm(i_turnout ~ 1, pol_pres15) |> 
-    broom::tidy()
-  #> # A tibble: 1 × 5
-  #>   term        estimate std.error statistic p.value
-  #>   <chr>          <dbl>     <dbl>     <dbl>   <dbl>
-  #> 1 (Intercept)    0.445   0.00128      349.       0
-
-  # equivalent to randomisation = FALSE
-  # resfun takes residuals, weighted.residuals, rstandard, or rstudent 
-  # lm.morantest.exact also available
-  lm(i_turnout ~ 1, pol_pres15) |> 
-    lm.morantest(listw = lw_b_poly_pol) |> 
-    broom::tidy() |> 
-    rename(any_of(moran_lookup)) |> 
-    relocate(method, alternative, everything())
-  #> # A tibble: 1 × 7
-  #>   method                                  alternative morans_i expectation variance std.deviate p.value
-  #>   <chr>                                   <chr>          <dbl>       <dbl>    <dbl>       <dbl>   <dbl>
-  #> 1 Global Moran I for regression residuals greater        0.691   -0.000401 0.000140        58.5       0
-
+  moran_mc_lookup <- c(
+    morans_i = "statistic",
+    observed_rank = "parameter"
+  )
 
   set.seed(2026)
   iturnout |> 
     moran.mc(listw = lw_b_poly_pol, nsim = 999) |> 
     broom::tidy() |> 
-    rename(any_of(moran_lookup)) |> 
+    rename(any_of(moran_mc_lookup)) |> 
     relocate(method, alternative, everything())  
   #> # A tibble: 1 × 5
-  #>   method                            alternative std.deviate p.value parameter
-  #>   <chr>                             <chr>             <dbl>   <dbl>     <dbl>
-  #> 1 Monte-Carlo simulation of Moran I greater           0.691   0.001      1000
+  #>   method                            alternative morans_i p.value observed_rank
+  #>   <chr>                             <chr>          <dbl>   <dbl>         <dbl>
+  #> 1 Monte-Carlo simulation of Moran I greater        0.691   0.001          1000
   ```
 
-  - Thoughts
+  - The p-value for the analytical test is 0 and for the bootstrap, it's 0.001. So global spatial autocorrelation is detected.
+  - The I is about the expected value, so it's positive spatial autocorrelation
 
   ## Moran Plot
 
@@ -596,7 +649,9 @@ $$\begin{align}
     - The chief advantage of the saddlepoint approximation is that it takes a fitted linear model rather than simply a numerical variable, so the residuals are analyzed. Using linear models allows for richer mean models.
     - Adding weights to the linear model can down-weight small units of observation
     - Can take either a [lm]{.arg-text} or [sarlm]{.arg-text} object as input
-      - [sarlm]{.arg-text} is likely an econometric spatial regression model from [{spatialreg}]{style="color: #990000"} (see [Regression, Spatial \>\> Econometric](regression-spatial.qmd#sec-reg-spat-econ){style="color: green"})
+      - If the model object is of class [lm]{.arg-text}, global independence is assumed
+      - If the model object is of class [sarlm]{.arg-text}, global dependence is assumed to be represented by the spatial parameter of that model.
+        - [sarlm]{.arg-text} is likely an econometric spatial regression model from [{spatialreg}]{style="color: #990000"} (see [Regression, Spatial \>\> Econometric](regression-spatial.qmd#sec-reg-spat-econ){style="color: green"})
 
 ### Local Geary's C~i~ {#sec-assoc-spat-local-geary .unnumbered}
 
@@ -651,7 +706,7 @@ $$\begin{align}
 - [Local Moran's $I_i$]{.underline}
 
 | Classification | Definition | Moran Plot Quadrant | $I_i$ vs $\mathbb{E}[I_i]$ |
-|------------------|------------------|------------------|------------------|
+|----|----|----|----|
 | High-High | Polygon and its neighbors have similarly high values; cluster of high values | High-High (above mean, spatial lag above mean) | $I_i > \mathbb{E}[I_i]$; positive spatial autocorrelation |
 | Low-Low | Polygon and its neighbors have similarly low values; cluster of low values | Low-Low (below mean, spatial lag below mean) | $I_i > \mathbb{E}[I_i]$; positive spatial autocorrelation |
 | High-Low | Polygon has a high value surrounded primarily by low-value neighbors; spatial outlier | High-Low (above mean, spatial lag below mean) | $I_i < \mathbb{E}[I_i]$; negative spatial autocorrelation |
@@ -660,7 +715,7 @@ $$\begin{align}
 - [Local Geary's $c_i$]{.underline}
 
 | Classification | Definition | Moran Plot Quadrant | $c_i$ vs $\mathbb{E}[c_i]$ |
-|------------------|------------------|------------------|------------------|
+|----|----|----|----|
 | High-High | Polygon and its neighbors have similarly high values; cluster of high values | High-High (above mean, spatial lag above mean) | $c_i < \mathbb{E}[c_i]$; positive spatial autocorrelation |
 | Low-Low | Polygon and its neighbors have similarly low values; cluster of low values | Low-Low (below mean, spatial lag below mean) | $c_i < \mathbb{E}[c_i]$; positive spatial autocorrelation |
 | Other Positive | Polygon is similar to its neighbors but its and its neighborhood values are indeterminate | Falls into High-Low or Low-High, but doesn't fit with being interpreted as such | $c_i < \mathbb{E}[c_i]$; positive spatial autocorrelation |
@@ -669,9 +724,9 @@ $$\begin{align}
 - [Local Getis-Ord $G_i^*$]{.underline}
 
 | Classification | Definition | Moran Plot Quadrant | $G_i^*$ vs $\mathbb{E}[G_i^*]$ |
-|------------------|------------------|------------------|------------------|
-| Hot Spot | Polygon and its neighbors have high values; cluster of high values | Doesn't use the Moran plot; Higher than mean of input variable | $G_i^* > \mathbb{E}[G_i^*]$; positive spatial autocorrelation |
-| Cold Spot | Polygon and its neighbors have low values; cluster of low values | Doesn't use the Moran plot; Lower than mean of input variable | $G_i^* < \mathbb{E}[G_i^*]$; negative spatial autocorrelation |
+|----|----|----|----|
+| High | Polygon and its neighbors have high values; cluster of high values | Doesn't use the Moran plot; Higher than mean of input variable | $G_i^* > \mathbb{E}[G_i^*]$; positive spatial autocorrelation |
+| Low | Polygon and its neighbors have low values; cluster of low values | Doesn't use the Moran plot; Lower than mean of input variable | $G_i^* < \mathbb{E}[G_i^*]$; negative spatial autocorrelation |
 
 ### Examples {#sec-assoc-spat-local-ex .unnumbered}
 
@@ -1198,7 +1253,7 @@ $$\begin{align}
   notebook_colors <- unname(swatches::read_ase(here::here("palettes/Forest Floor.ase")))
   ```
 
-  - Uses the same data ([pol_pres15]{.var-text} and neighbors list ([nb_poly_pol]{.vara-text})) as Example 1
+  - Uses the same data ([pol_pres15]{.var-text} and neighbors list ([nb_poly_pol]{.var-text}) as Example 1 \>\> Data and Set-Up
 
   ## lm: Intercept-only
 
@@ -1211,7 +1266,8 @@ $$\begin{align}
   ``` r
   lm_null <- lm(i_turnout ~ 1, data = pol_pres15)
 
-  resid_lm_null <- resid(lm_null)
+  pol_pres15 <- pol_pres15 |> 
+    mutate(resid_lm_null = resid(lm_null))
 
   # residuals vs. weights variable (heteroskedasticity check)
   pol_pres15 |> 
@@ -1472,8 +1528,8 @@ $$\begin{align}
   </Details>
 
   - The intercept-only (null) model is fairly similar to standard local Moran’s, but weighting by counts of eligible voters removes most of the "Low Turnout" cluster cores.
-  - Adding the type categorical variable strengthens the urban "High Turnout" cluster cores but removes the Warsaw boroughs as detected cluster cores.
-  - The central boroughs are surrounded by other boroughs, all classified as "High Turnout," not driven by (turnout response variable) autocorrelation but by being metropolitan boroughs.
+  - Adding the type categorical variable strengthens the urban "High Turnout" cluster cores but removes some of the central Warsaw boroughs as detected cluster cores.
+    - The central boroughs are surrounded by other boroughs, all classified as "High Turnout," not driven by (turnout response variable) autocorrelation but by being metropolitan boroughs.
   :::::
 
 - [Example 4]{.ribbon-highlight}: Comparing Local Moran's I~i~, Local Geary's C~i~, and Local Getis-Ord G~i~ in Hotspot Analysis
@@ -1481,9 +1537,13 @@ $$\begin{align}
   ::: panel-tabset
   ## Compute C~i~ and G~i~
 
-  words
+  Polish Presidential election 2015 data by gminy and Warsaw borough areal units
+
+  The goal is to find likely spatial cluster centers of similar voter turnout using the permutation method of Local Moran's Ii, Getis-Ord G, and Geary's C. Then to classify likely cluster centers by level of voter turnout (e.g. high turnout, low turnout cluster centers), and compare the patterns between the statistics.
 
   ``` r
+  library(dplyr); library(spdep); library(tmap)
+
   lord_perm_iturn <- iturnout |> 
     localG_perm(
       lw_w_pol, 
@@ -1499,7 +1559,8 @@ $$\begin{align}
     )
   ```
 
-  - Thoughts
+  - [iturnout]{.var-text} (first round voter turnout proportion) and [lw_w_pol]{.var-text} (row-standardized spatial weights) from Example 1 \>\> Data and Set-Up
+  - Also including (next tab) the permutation flavor of local moran's I~i~ ([quadr_perm_rank]{.var-text}) from Example 2 \>\> Visualize \>\> Process
 
   ## Visualize
 
@@ -1553,7 +1614,8 @@ $$\begin{align}
     )
   ```
 
-  - Thoughts
+  - Adds hotspot categories and transforms them into more informative names.
+    - Unlike the repeated code in Example 2, this way uses `hotspot` and is cleaner.
 
   </Details>
 
@@ -1568,7 +1630,6 @@ $$\begin{align}
   ``` r
   tmap_options_reset()
   tmap_theme_notebook()
-
 
   notebook_colors <- unname(swatches::read_ase(here::here("palettes/Forest Floor.ase")))
 
@@ -1614,5 +1675,8 @@ $$\begin{align}
 
   </Details>
 
-  - Thoughts
+  - The Local Moran's Ii and Getis-Ord G maps look identical which is expected. The Geary's C is substantially different but the regions and classifications of flagged gminy are similar.
+  - It's hard to see but there's one group of outlier cluster centers and it's in the Local Geary's C map They're 1 to 3 small gminies in western Poland. They have significant negative spatial autocorrelation, so their neighbors are dissimilar from themselves.
+    - The centers could be high turnout or low turnout. Neither do we know about whether their neighbors are high or low turnout.
+    - I mean I guess we could just look at the data and suss this out.
   :::
