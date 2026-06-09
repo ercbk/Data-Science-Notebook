@@ -78,16 +78,25 @@
 
 - [[{spatialreg}]{.underline}]{style="color: #990000"} [Model Functions]{.underline}\
 
-  | model | model name | maximum likelihood estimation function |
-  |----|----|----|
-  | SEM | spatial error | `errorsarlm(..., Durbin=FALSE)` |
-  | SEM | spatial error | `spautolm(..., family="SAR")` |
-  | SDEM | spatial Durbin error | `errorsarlm(..., Durbin=TRUE)` |
-  | SLM (aka SAR) | spatial lag | `lagsarlm(..., Durbin=FALSE)` |
-  | SDM | spatial Durbin | `lagsarlm(..., Durbin=TRUE)` |
-  | SLX | spatially lagged | `lmSLX(..., Durbin = TRUE)` |
-  | SAC | spatial autoregressive combined | `sacsarlm(..., Durbin=FALSE)` |
-  | GNM | general nested | `sacsarlm(..., Durbin=TRUE)` |
+  +----------------+---------------------------------+----------------------------------------+
+  | model          | model name                      | maximum likelihood estimation function |
+  +================+=================================+========================================+
+  | SEM            | spatial error                   | `errorsarlm(..., Durbin=FALSE)`        |
+  +----------------+---------------------------------+----------------------------------------+
+  | SEM            | spatial error                   | `spautolm(..., family="SAR")`          |
+  +----------------+---------------------------------+----------------------------------------+
+  | SDEM           | spatial Durbin error            | `errorsarlm(..., Durbin=TRUE)`         |
+  +----------------+---------------------------------+----------------------------------------+
+  | SLM (aka SAR)  | spatial lag                     | `lagsarlm(..., Durbin=FALSE)`          |
+  +----------------+---------------------------------+----------------------------------------+
+  | SDM            | spatial Durbin                  | `lagsarlm(..., Durbin=TRUE)`           |
+  +----------------+---------------------------------+----------------------------------------+
+  | SLX            | spatially lagged                | `lmSLX(..., Durbin = TRUE)`            |
+  +----------------+---------------------------------+----------------------------------------+
+  | SAC            | spatial autoregressive combined | `sacsarlm(..., Durbin=FALSE)`          |
+  +----------------+---------------------------------+----------------------------------------+
+  | GNM            | general nested                  | `sacsarlm(..., Durbin=TRUE)`           |
+  +----------------+---------------------------------+----------------------------------------+
 
   - `errorsarlm` has a [weights]{.arg-text} argument may be used to provide weights indicating the known degree of per-observation variability in the variance term (not spatial weights)
   - [method]{.arg-text} gives the method for calculating the log determinant term in the log likelihood function, and defaults to `"eigen"`, suitable for moderately sized datasets
@@ -284,7 +293,29 @@
 
 - Misc
 
+  - Notes from About predictions in spatial autoregressive models: optimal and almost optimal strategies, Goulard et all 2017 (See R \>\> Documents \>\> Geospatial)
+    - Breaks down TS, TC, BP, BPN, BPW and compares out-of-sample performance
+  - **TL;DR** Goulard et all 2017
+    - Sparse $W$ Matrix:
+      - BPN is best in performance but maybe a little more computationally expensive than TC and TS
+      - TC is the only method that performs notably worse than the others. The rest are very close to each other with the rank being BP, BPN, BPW, and TS.
+    - Dense $W$ matrix:
+      - All methods have almost identical performance
+  - Check sparsity: `mean(card(nb_list))`
+    - That gives the average number of neighbors each unit has.
+    - [Example]{.ribbon-highlight}: if on average each unit has around 8 neighbors out of roughly 2500 total units, then that would be extremely sparse.
   - SLX (`lmSLX`) has it's own prediction method and doesn't have a [pred.type]{.arg-text} argument. So I'm not sure what kind of predictions it's able to do.
+  - "BP" uses a weighted sum of all in-sample residuals for its correction factor. The weights are included in the form of a precision matrix (function of $W$) and reflects how strongly each in-sample unit is spatially connected to the out-of-sample unit being predicted.\
+    $$\hat Y_O^{BP} = \hat Y_O^{TC} - Q_{OO}^{-1}Q_{OO} \times (Y_S- \hat Y_S^{TC})$$
+    - $\hat Y_{TC}$: The trend corrected prediction
+    - $Q_{OO}^{-1}Q_{OO}$: Is the covariance matrix which is calculated using the precision matrix, $Q$, which is calculated using a quadratic expression that has $W$ (also a 2x2 matrix, so easily calculated).
+    - $Y_S - \hat Y_S^{TC}$ is a sort of residual of the observed values and the trend corrected prediction.
+    - So multiplying an easily calculated covariance matrix times a vector of residuals is the gist of the *extra* prediction correction here.
+  - "BPN" does the same as "BP" but drops in-sample non-neighbors to the out-of-sample unit since their weights are very close to zero. Near identical performance when $W$ is sparse, but also still is close to "BP" even when $W$ is dense.
+  - "BPW" has a more complex calculation of residual factor and the residual vector used is calculated as a difference of weighted averages (for a row-normalized $W$).
+    - Replaces $Q_{OO}^{-1}Q_{OO}$ with a more complex expression that requires an extra matrix inversion.
+    - Replaces $Y_S - \hat Y_S^{TC}$ with $W_{OS}Y_S - W_{OS}\hat Y^{TC}$. The authors claim this results in a loss of information, since you're calculating the difference of averages. Except you can just factor out $W_{OS}$ and include it with correction coefficient part of the expression. Then, you're left with $Y_S - Y^{TC}$ which means their loss-of-information argument is gone.
+    - Anyways I do completely agree with computational efficiency aspect and in the paper
 
 - Output
 
@@ -302,43 +333,57 @@
 
 - [Universal]{.underline}
 
-| pred.type | Strategy | Output | Models |
-|----|----|----|----|
-| "trend" | No spatial adjustment. Returns $X\beta$ only — ignores all spatial dependence. | fit | All models |
++-----------+--------------------------------------------------------------------------------+----------+------------+
+| pred.type | Strategy                                                                       | Output   | Models     |
++===========+================================================================================+==========+============+
+| "trend"   | No spatial adjustment. Returns $X\beta$ only — ignores all spatial dependence. | fit      | All models |
++-----------+--------------------------------------------------------------------------------+----------+------------+
 
 - [In-sample and Forecast]{.underline}
 
-|  |  |  |  |
-|----|----|----|----|
-| ["TS"]{.arg-text} (default) | Uses the observed response directly: signal = $\rho Wy$ (SLM, SDM) or $\lambda Wy − \lambda WX \beta$ (SEM, SDEM)). | fit, trend, signal | SEM, SDEM, SLM, SDM |
-| ["TC"]{.arg-text}; also requires [listw]{.arg-text} | Trend-corrected: adds a correction to the trend using fitted residuals and the spatial structure. The in-sample version has full access to residuals; out-of-sample is an approximation. | fit, trend | SLM, SDM, SAC, GNM (caution\*) |
-| ["BP"]{.arg-text}; also requires [listw]{.arg-text} | Best predictor (Goulard et al. 2017): optimal BLUP-type prediction that minimises mean squared prediction error by exploiting the full covariance structure. | fit, trend | SLM, SDM, SAC, GNM (caution\*) |
++-----------------------------------------------------+----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------+--------------------+--------------------------------+
+|                                                     |                                                                                                                                                                                                          |                    |                                |
++=====================================================+==========================================================================================================================================================================================================+====================+================================+
+| ["TS"]{.arg-text} (default)                         | Uses the observed response directly: signal = $\rho Wy$ (SLM, SDM) or $\lambda Wy − \lambda WX \beta$ (SEM, SDEM)).                                                                                      | fit, trend, signal | SEM, SDEM, SLM, SDM            |
++-----------------------------------------------------+----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------+--------------------+--------------------------------+
+| ["TC"]{.arg-text}; also requires [listw]{.arg-text} | Trend-corrected: the conditional mean, $(I-\hat\rho W)^{-1}X\hat\beta$ under the fitted model. Uses only covariates and the spatial weights matrix, never the observed response. No optimality property. | fit, trend         | SLM, SDM, SAC, GNM (caution\*) |
++-----------------------------------------------------+----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------+--------------------+--------------------------------+
+| ["BP"]{.arg-text}; also requires [listw]{.arg-text} | Starts from TC, adds a correction that's meant to adjust the prediction based on the observed $y$ values of the *in-sample neighbors* of the out-of-sample units                                         | fit, trend         | SLM, SDM, SAC, GNM (caution\*) |
++-----------------------------------------------------+----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------+--------------------+--------------------------------+
 
 - [Out-of-sample]{.underline} (Goulard et al. 2017 notation)
 
-+------------------------------------------+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------+---------------+--------------------------------+
-|                                          |                                                                                                                                                                                                     |               |                                |
-+==========================================+=====================================================================================================================================================================================================+===============+================================+
-| ["TS1"]{.arg-text} or ["KP4"]{.arg-text} | Leave-one-out version of ["TS"]{.arg-text}. Each out-of-sample unit is predicted in turn, treating its neighbous' $y$ values as known. Computed separately per unit when newdata has multiple rows. | Out-of-sample | SLM, SDM, SAC, GNM             |
-+------------------------------------------+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------+---------------+--------------------------------+
-| ["TC1"]{.arg-text} or ["KP1"]{.arg-text} | Leave-one-out version of ["TC"]{.arg-text}. Most broadly applicable out-of-sample predictor — works for all model types                                                                             | Out-of-sample | All models                     |
-+------------------------------------------+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------+---------------+--------------------------------+
-| ["BP1"]{.arg-text}                       | Leave-one-out version of ["BP"]{.arg-text}                                                                                                                                                          | Out-of-sample | SLM, SDM, SAC, GNM (caution\*) |
-+------------------------------------------+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------+---------------+--------------------------------+
-| ["BPW"]{.arg-text}\                      | Best predictor with $W$-based spatial correction. ["BPW1"]{.arg-text} is the leave-one-out version.                                                                                                 | Out-of-sample | SLM, SDM, SAC, GNM (caution\*) |
-| ["BPW1"]{.arg-text}                      |                                                                                                                                                                                                     |               |                                |
-+------------------------------------------+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------+---------------+--------------------------------+
-| ["BPN"]{.arg-text}\                      | Best predictor with neighbour-based correction. ["BPN1"]{.arg-text} is the leave-one-out version.                                                                                                   | Out-of-sample | SLM, SDM, SAC, GNM (caution\*) |
-| ["BPN1"]{.arg-text}                      |                                                                                                                                                                                                     |               |                                |
-+------------------------------------------+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------+---------------+--------------------------------+
++---------------------------------------------------------------------------+---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------+---------------+--------------------------------+
+|                                                                           |                                                                                                                                                                                                               |               |                                |
++===========================================================================+===============================================================================================================================================================================================================+===============+================================+
+| "TS"                                                                      | See In-sample and Forecast                                                                                                                                                                                    |               | SEM, SDEM, SLM, SDM            |
++---------------------------------------------------------------------------+---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------+---------------+--------------------------------+
+| ["TS1"]{.arg-text} or ["KP4"]{.arg-text}                                  | Leave-one-out version of ["TS"]{.arg-text}. Each out-of-sample unit is predicted in turn, treating its neighbous' $y$ values as known. Computed separately per unit when newdata has multiple rows.           | Out-of-sample | SLM, SDM, SAC, GNM             |
++---------------------------------------------------------------------------+---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------+---------------+--------------------------------+
+| "TC"                                                                      | See In-sample and Forecast                                                                                                                                                                                    |               | SLM, SDM, SAC, GNM             |
++---------------------------------------------------------------------------+---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------+---------------+--------------------------------+
+| ["TC1"]{.arg-text} or ["KP1"]{.arg-text}                                  | Leave-one-out version of ["TC"]{.arg-text}. Most broadly applicable out-of-sample predictor — works for all model types                                                                                       | Out-of-sample | All models                     |
++---------------------------------------------------------------------------+---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------+---------------+--------------------------------+
+| ["BP"]{.arg-text} or ["BP1"]{.arg-text}; also requires [listw]{.arg-text} | Leave-one-out version of ["BP"]{.arg-text}                                                                                                                                                                    | Out-of-sample | SLM, SDM, SAC, GNM (caution\*) |
++---------------------------------------------------------------------------+---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------+---------------+--------------------------------+
+| ["BPW"]{.arg-text}\                                                       | Same as "BP" except it uses a weighted ($W$) average of neighbor y values for the correction. "BPW1" is the leave-one-out version.                                                                            | Out-of-sample | SLM, SDM, SAC, GNM (caution\*) |
+| ["BPW1]{.arg-text} ["]{.arg-text}                                         |                                                                                                                                                                                                               |               |                                |
++---------------------------------------------------------------------------+---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------+---------------+--------------------------------+
+| ["BPN"]{.arg-text}\                                                       | Same as "BP" but drops non-neighbors. For a sparse W matrix, this means "BPN" has near identical performance as "BP" but is more computationally efficient. ["BPN1"]{.arg-text} is the leave-one-out version. | Out-of-sample | SLM, SDM, SAC, GNM (caution\*) |
+| ["BPN1"]{.arg-text}                                                       |                                                                                                                                                                                                               |               |                                |
++---------------------------------------------------------------------------+---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------+---------------+--------------------------------+
 
 - [Out-of-Sample]{.underline} (Kelejian & Prucha 2007 notation)
 
-|  |  |  |  |
-|----|----|----|----|
-| ["KP2"]{.arg-text} | Uses $WX\beta$ (spatial lag of the trend) as a proxy for the unobservable signal. Avoids matrix inversion; lighter computationally. | Out-of-sample | All models |
-| ["KP3"]{.arg-text} | Extends KP2 with higher-order spatial lags $W^2X\beta,\;W^3X\beta,\; \ldots$ for a richer approximation of the spatial signal. | Out-of-sample | All models |
++--------------------+------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------+---------------+---------------------+
+|                    |                                                                                                                                                                                    |               |                     |
++====================+====================================================================================================================================================================================+===============+=====================+
+| ["KP2"]{.arg-text} | Uses $WX\beta$ (spatial lag of the trend) as a proxy for the unobservable signal. Avoids matrix inversion; lighter computationally.                                                | Out-of-sample | All models          |
++--------------------+------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------+---------------+---------------------+
+| ["KP3"]{.arg-text} | Extends KP2 with higher-order spatial lags $W^2X\beta,\;W^3X\beta,\; \ldots$ for a richer approximation of the spatial signal.                                                     | Out-of-sample | All models          |
++--------------------+------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------+---------------+---------------------+
 | ["KP5"]{.arg-text} | Residual-based correction designed specifically for the error model: exploits the spatial autocorrelation in the error term to improve on the trend. Not applicable to lag models. | Out-of-sample | SEM, SDEM, SAC, GNM |
++--------------------+------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------+---------------+---------------------+
 
 - *\* caution* - The docs mark these *yes\** for SAC/GNM models: the function will not error, but the predictor is not designed for the SAC/GNM structure. Prefer ["trend"]{.arg-text}, ["TS1"]{.arg-text}/["KP4"]{.arg-text}, ["TC1"]{.arg-text}/["KP1"]{.arg-text}, ["KP2"]{.arg-text}, or ["KP3"]{.arg-text}.
 
