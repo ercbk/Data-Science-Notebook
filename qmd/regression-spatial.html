@@ -2702,6 +2702,23 @@ window.Quarto = {
 <ul>
 <li><p>Misc</p>
 <ul>
+<li><code>predict</code>
+<ul>
+<li><span class="arg-text">listw</span>: Should be a spatial weights object for whole dataset
+<ul>
+<li>i.e.&nbsp;it needs to have all possible ‘row.names’.</li>
+<li>e.g.&nbsp;for out-of-sample, this should be a <span class="arg-text">listw</span> created from the data before it’s split into training and test.</li>
+<li>This seems like this procedure wasn’t considered for a production use case where there are future new unexpected units.
+<ul>
+<li>Maybe you can get around this manually just adding the new unit to the original dataset and recreating <span class="arg-text">listw</span> object for it.</li>
+<li>Maybe setting <code>row.names</code> manually to an id variable, because it looks like it uses row numbers by default. If you add the new unit it the end of the data.frame and keep the same order, maybe using row numbers doesn’t matter either.</li>
+</ul></li>
+</ul></li>
+<li>SLX (<code>lmSLX</code>) has it’s own prediction method and doesn’t have a <span class="arg-text">pred.type</span> argument. So I’m not sure what kind of predictions it’s able to do.
+<ul>
+<li>Doesn’t seem to handle out-of-sample but does handle in-sample and forecast</li>
+</ul></li>
+</ul></li>
 <li>Notes from
 <ul>
 <li>About predictions in spatial autoregressive models: optimal and almost optimal strategies, Goulard et all 2017 (See R &gt;&gt; Documents &gt;&gt; Geospatial)
@@ -2740,7 +2757,6 @@ window.Quarto = {
 <li>That gives the average number of neighbors each unit has.</li>
 <li><span class="ribbon-highlight">Example</span>: if on average each unit has around 8 neighbors out of roughly 2500 total units, then that would be extremely sparse.</li>
 </ul></li>
-<li>SLX (<code>lmSLX</code>) has it’s own prediction method and doesn’t have a <span class="arg-text">pred.type</span> argument. So I’m not sure what kind of predictions it’s able to do.</li>
 <li><span class="arg-text">“BP”</span> uses a weighted sum of all in-sample residuals for its correction factor. The weights are included in the form of a precision matrix (function of <span class="math inline">\(W\)</span>) and reflects how strongly each in-sample unit is spatially connected to the out-of-sample unit being predicted.<br>
 <span class="math display">\[\hat Y_O^{BP} = \hat Y_O^{TC} - Q_{OO}^{-1}Q_{OO} \times (Y_S- \hat Y_S^{TC})\]</span>
 <ul>
@@ -2769,10 +2785,17 @@ window.Quarto = {
 </ul></li>
 <li><p>Types</p>
 <ul>
-<li><span style="color: #009499"><strong>In-Sample</strong></span> (<span class="arg-text">newdata = NULL</span>): Predicting for the units the model was fitted on. The response <span class="math inline">\(y\)</span> is known, so its spatial lags can be used directly to compute the <strong>signal</strong>.</li>
-<li><span style="color: #009499"><strong>Forecast</strong></span> (<span class="arg-text">newdata</span> has the <em>same</em> row names as <span class="arg-text">listw</span>): The <span class="arg-text">newdata</span> has the same spatial units, different values of the covariates. This is a <em>temporal-style</em> forecast — you’re projecting forward with new <span class="math inline">\(X\)</span> but the same neighborhood structure and known unit identities.</li>
-<li><span style="color: #009499"><strong>Out-of-Sample</strong></span> (<span class="arg-text">newdata</span> has <em>different</em> row names from <span class="arg-text">listw</span>): The <span class="arg-text">newdata</span> has new spatial units. Now <span class="math inline">\(y\)</span> is unknown, so the <strong>signal</strong> cannot use observed <span class="math inline">\(Wy\)</span> and must be approximated somehow. This is where most of the <span class="arg-text">pred.type</span> proliferation comes from.
+<li><span style="color: #009499"><strong>In-Sample</strong></span>: Predicting for the units the model was fitted on. The response <span class="math inline">\(y\)</span> is known, so its spatial lags can be used directly to compute the <strong>signal</strong>.
 <ul>
+<li><span class="arg-text">newdata = NULL</span></li>
+</ul></li>
+<li><span style="color: #009499"><strong>Forecast</strong></span> aka <strong>Prevision</strong>: The <span class="arg-text">newdata</span> has the same spatial units, different values of the covariates. This is a <em>temporal-style</em> forecast — you’re projecting forward with new <span class="math inline">\(X\)</span> but the same neighborhood structure and known unit identities.
+<ul>
+<li><span class="arg-text">newdata</span> has the <em>same</em> row names as model’s <span class="arg-text">listw</span>’s <span class="arg-text">region.id</span> attribute</li>
+</ul></li>
+<li><strong>Out-of-Sample</strong>: The <span class="arg-text">newdata</span> has new spatial units. Now <span class="math inline">\(y\)</span> is unknown, so the <strong>signal</strong> cannot use observed <span class="math inline">\(Wy\)</span> and must be approximated somehow. This is where most of the <span class="arg-text">pred.type</span> proliferation comes from.
+<ul>
+<li><span class="arg-text">newdata</span> has the <em>different</em> row names as model’s <span class="arg-text">listw</span>’s <span class="arg-text">region.id</span> attribute</li>
 <li><span style="color: #009499"><strong>Single-Prediction</strong></span> (aka <span style="color: #009499"><strong>leave-one-out</strong></span>): Applies the ‘single out-of-sample’ formula to each of the out-of-sample unit separately, ignoring at each stage the remaining <span class="math inline">\(p − 1\)</span> units.
 <ul>
 <li>Computed separately per unit when newdata has multiple rows.</li>
@@ -2831,22 +2854,22 @@ fit = trend + signal</td>
 </ul>
 <table class="caption-top table">
 <colgroup>
-<col style="width: 15%">
-<col style="width: 70%">
-<col style="width: 4%">
-<col style="width: 9%">
+<col style="width: 14%">
+<col style="width: 69%">
+<col style="width: 5%">
+<col style="width: 8%">
 </colgroup>
 <tbody>
 <tr class="odd">
 <td><span class="arg-text">“trend”</span></td>
-<td>No spatial adjustment. Returns <span class="math inline">\(X\beta\)</span> only — ignores all spatial dependence.</td>
-<td></td>
-<td></td>
+<td>See In-sample and Forecast</td>
+<td>fit</td>
+<td>All models</td>
 </tr>
 <tr class="even">
 <td><span class="arg-text">“TS”</span></td>
 <td>See In-sample and Forecast</td>
-<td></td>
+<td>fit, trend, signal</td>
 <td>SEM, SDEM, SLM, SDM</td>
 </tr>
 <tr class="odd">
@@ -2897,14 +2920,14 @@ fit = trend + signal</td>
 <td><span class="arg-text">“KP2”</span></td>
 <td><span class="math inline">\(y_i = \hat \rho_{\text{lag}} w_iy + x_i\beta + \frac{\text{cov}(u_i, w_iy)}{\text{var}(w_iy)}[w_iy-\mathbb{E}(w_iy)]\)</span><br>
 Starts at <span class="arg-text">TS1</span>. Uses the correlation between error and spatial lagged responses as the correction coefficient. That coefficient is multiplied times the centered weighted average to produce the full correction term. Similar to <span class="arg-text">BPW</span>.</td>
-<td></td>
+<td>fit</td>
 <td>All models</td>
 </tr>
 <tr class="odd">
 <td><span class="arg-text">“KP3”</span></td>
 <td><span class="math inline">\(y_i = \hat \rho_{\text{lag}} w_i y + x_i \beta +\\ \text{cov}(u_i,y_-i)[\text{VC}(y_{-1})]^{-1}[y_{-i}-\mathbb{E}(y_{-i})]\)</span><br>
 Both <span class="arg-text">BP1</span> and <span class="arg-text">KP3</span> are BLUPs, so they should give the similar predictions. Note that BP1 can’t handle error models though.</td>
-<td></td>
+<td>fit</td>
 <td>All models</td>
 </tr>
 <tr class="even">
@@ -2912,7 +2935,7 @@ Both <span class="arg-text">BP1</span> and <span class="arg-text">KP3</span> are
 <td><span class="math inline">\(y_i = x_i \beta + \rho_{\text{err}} w_i [y-X\beta]\)</span><br>
 The trend plus a correction using the spatially weighted residuals of all other units.<br>
 Biased but still performs well.</td>
-<td></td>
+<td>fit</td>
 <td>SEM, SDEM, SAC, GNM</td>
 </tr>
 </tbody>
