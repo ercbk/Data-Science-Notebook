@@ -892,6 +892,8 @@ format: html
 
     - Goto your desired project directory, and open up VSCode/Positron, `code .` / `positron .` .
 
+      - Currently Positron won't automatically connect to WSL when it opens.
+
   - Inside VSCode/Positron:
 
     - The WSL extension will have automatically connected to WSL2. Hit `ctrl + shift + p`, select "Create New Jupyter Notebook".
@@ -910,5 +912,58 @@ format: html
       #> [[1]]
       #> PhysicalDevice(name='/physical_device:GPU:0', device_type='GPU')
       ```
+
+    - Goto File \>\> Close Remote Connection to go back to non-WSL VSCode.
+- Multiple venvs
+  - Currently, for some reason the second venv I created that had tensorflow wasn't able to use the GPU even though I used the exact set-up process.
+
+  - Applying this bash code, which specifies the location of the installed nvidia libraries, allows python to use the GPUs inside the venv
+
+    - Unfortunately, this doesn't work when R uses it.
+
+  - Append this lines to activate (See [CLI, Linux \>\> Commands \>\> Files/Directories](https://ercbk.github.io/Data-Science-Notebook/qmd/cli-linux.html#sec-cli-lin-com-file){style="color: green"} for details on heredocs)
+
+    ``` bash
+    cat >> .venv/bin/activate << 'EOF'
+    _SITE=$(python3 -c "import site; print(site.getsitepackages()[0])")
+    export LD_LIBRARY_PATH=$(find "$_SITE/nvidia" -name "lib" -type d | tr '\n' ':')$LD_LIBRARY_PATH
+    unset _SITE
+    EOF
+    ```
+
+    - The heredoc line that allows you to write mulitple lines to the activate file
+    - Line 1: Uses the site module to find where pip installs packages for this venv and stores it in the \_SITE variable (underscore indicating that's it's temporary)
+    - Line 2:
+      - Using `find`, it finds every directory named [lib]{.var-text} under the [nvidia]{.var-text} packages (e.g. `nvidia/cudnn/lib`, `nvidia/cuda_runtime/lib`, etc.)
+      - `| tr '\n' ':'` — `find` returns one path per line, but [LD_LIBRARY_PATH]{.var-text} expects colon-separated paths, so `tr` converts the newlines to colons
+      - `$LD_LIBRARY_PATH` at the very end preserves whatever was already in [LD_LIBRARY_PATH]{.var-text} instead of replacing it
+      - `export` makes the variable visible to child processes — without it, tensorFlow wouldn't see it
+    - Line 3: Removes [\_SITE]{.var-text} (clean-up, good practice)
+    - Line 4: Dilimiter label indicating an end to heredoc
+
+## Workflows
+
+- Positron
+  - Example: Continue work in jupyter notebook
+    - `Ctrl + Alt + o` \>\> Connect to WSL
+
+      - Alt: Ctrl + Shift + p \>\> Search "remote menu" or "wsl" \>\> Connect to WSL
+
+    - `Ctrl s, Ctrl o` \>\> Enter the path to the project into the dialog box, e.g. `/mnt/c/Users/user/Documents/R/Projects/deeplearning-with-r`
+
+    - Inside a cell, check that GPU is available ([Docs](https://tensorflow.rstudio.com/install/custom))
+
+      ``` r
+      library(tensorflow)
+      use_virtualenv("/mnt/c/Users/user/tf_env")
+
+      tf$config$list_physical_devices("GPU")
+      #> [[1]]
+      #> PhysicalDevice(name='/physical_device:GPU:0', device_type='GPU')
+      ```
+
+    - Do work
+
+    - `Ctrl s` to save notebook
 
     - Goto File \>\> Close Remote Connection to go back to non-WSL VSCode.
