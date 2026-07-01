@@ -7,7 +7,7 @@ format: html
 
 ## Misc
 
-- Current Page: pg 99 3.8.6
+- Current Page: pg 99 (118) 3.8.6
 - Also see [Deep Learning, General \>\> Basic Feed Forward](https://ercbk.github.io/Data-Science-Notebook/qmd/dl-general.html#sec-dl-gen-bff){style="color: green"}
   - Shows the basic structure and has an explainer on gradient descent and backpropagation.
 - Components
@@ -50,6 +50,11 @@ format: html
 
 - **Learning** - Finding the optimal values for the weights ($w_i$) and biases ($b_i$) in a neural network.
 
+- **Batch** (or **Mini-Batch**) - A small set of samples (typically between 8 and 128) that are processed simultaneously by the model.
+
+  - The number of samples is often a power of 2, to facilitate memory allocation on GPU.
+  - When training, a mini-batch is used to compute a single gradient descent update applied to the weights of the model.
+
 - **Broadcasting** - An operation on two different-sized tensors where we want the smaller tensor to match the shape of the larger tensor.
 
   - Steps:
@@ -90,6 +95,10 @@ format: html
     - Only a mental model. Broadcasting "happens at the algorithmic level rather than at the memory level."
     - In the automatic example, z is the same shape as x
 
+- **Multilabel Classification** - A classification task where each input sample can be assigned multiple labels.
+
+  - For instance, a given image may contain both a cat and a dog and should be annotated with both the “cat” label and the “dog” label. The number of labels per image is usually variable.
+
 - **Tensor Product** (aka dot product)
 
 - **Tensor Reshaping** means rearranging its rows and columns to match a target shape
@@ -109,6 +118,8 @@ format: html
   - The gradient (multiplied by a step size) is subtracted from a point to move it down hill.
     - You can reduce loss value by moving $W$ in the opposite direction from the gradient. This will put you lower on the loss curve.
 
+- **Sample** (aka **Input**) - One data point that goes into your model.
+
 - **Stochastic Gradient Descent (SGD)**
 
   - Solving `grad(f(W), W) = 0` for W (i.e. points where derivative is 0) is intractable for real neural networks, where the number of parameters is never less than a few thousand and can often be several tens of millions
@@ -119,6 +130,8 @@ format: html
     3.  Compute the loss of the model on the batch, a measure of the mismatch between $y_{\text{pred}}$ and $y_{\text{true}}$ .
     4.  Compute the gradient of the loss with regard to the model’s parameters (this is called the **backward pass**).
     5.  Move the parameters a little in the opposite direction from the gradient — for example, $W = W – (\text{learning_rate} \times \text{gradient})$ — thus reducing the loss on the batch a bit. The learning rate would be a scalar factor modulating the “speed” of the gradient descent process.
+
+- **Target** - The truth. What your model should ideally have predicted, according to an external source of data
 
 - **Optimizers** (aka optimization methods) are variants of SGD which differ in how they execute the weights update (last step)
 
@@ -598,6 +611,8 @@ Basics
       - Input Types: R arrays, tensors, or a TensorFlow Dataset object.
     - [epochs]{.arg-text}: How many times the training loop should iterate over the data passed.
     - [batch_size]{.arg-text}: The batch size to use within each epoch of mini-batch gradient descent: the number of training examples considered to compute the gradients for one weight update step.
+    - [validation_data = list(val_inputs, val_targets)]{.arg-text}: Used only to monitor the validation loss and metrics
+      - Can also use `evaluate(model, val_inputs, val_targets, batch_size = 128)`
 
   - The return object contains a metrics property, which is a named list of their per-epoch values for "loss" and specific metric names
 
@@ -607,6 +622,12 @@ Basics
     #> $ loss : num [1:5] 14.2 13.6 13.1 12.6 12.1
     #> $ binary_accuracy: num [1:5] 0.55 0.552 0.554 0.557 0.559
     ```
+
+- `predict`
+
+  - [batch_size]{.arg-text} - Allows you to iterate over the new data in small batches
+
+  - You can also just use the model object, e.g. `model(newdata)`, but this can lead to problems if new data is large.
 
 ## Examples
 
@@ -674,6 +695,8 @@ Basics
   #> ➥ acc: 0.9692
   ```
 
+  - Notice that the only assignment is for the model specification. Usually a S4 (or S7 now) is used for OOP, but not here.
+    - If you assign the fitted model to an object, it will print the metrics.
   - Layers
     - 2 dense layers in total
     - Final Layer - 10-way softmax classification layer, which returns an array of 10 probability scores (summing to 1)
@@ -722,10 +745,12 @@ Basics
   test_labels[1]
   #> [1] 7
 
-  metrics <- 
-    evaluate(model, 
-             test_images, 
-             test_labels)
+  metrics <- evaluate(
+    model, 
+    test_images, 
+    test_labels
+  )
+
   metrics["accuracy"]
   #> accuracy
   #> 0.9795
@@ -804,6 +829,38 @@ Basics
   #> test_acc: 0.9785
   ```
   :::
+
+- Example 3: Binary Classification
+
+  ``` r
+  library(keras)
+
+  imdb <- dataset_imdb(num_words = 10000)
+  c(c(train_data, train_labels), c(test_data, test_labels)) %<-% imdb
+
+  str(train_data)
+  #> List of 25000
+  #> $ : int [1:218] 1 14 22 16 43 530 973 1622 1385 65 ...
+  #> $ : int [1:189] 1 194 1153 194 8255 78 228 5 6 1463 ...
+  #> $ : int [1:141] 1 14 47 8 30 31 7 4 249 108 ...
+  #> $ : int [1:550] 1 4 2 2 33 2804 4 2040 432 111 ...
+  #> $ : int [1:147] 1 249 1323 7 61 113 10 10 13 1637 ...
+  #> $ : int [1:43] 1 778 128 74 12 630 163 15 4 1766 ...
+  #> $ : int [1:123] 1 6740 365 1234 5 1156 354 11 14 5327 ...
+  #> $ : int [1:562] 1 4 2 716 4 65 7 4 689 4367 ...
+  #> [list output truncated]
+
+  str(train_labels)
+  #> int [1:25000] 1 0 0 1 0 0 1 0 1 0 ...
+  ```
+
+  - [num_words = 10000]{.arg-text} means you’ll keep only the top 10,000 most frequently occurring words in the training data. There are 88,585 unique words in the training data
+
+  - [train_data]{.var-text} and [test_data]{.var-text} are lists of reviews; each review is a list of word indices (encoding a sequence of words).
+
+    - Firest review decoded: "this film was just brilliant casting location scenery story direction everyone's really suited the part they played and you could just imagine being there robert ? is an amazing actor and now the same being director"
+
+  - [train_labels]{.var-text} and [test_labels]{.var-text} are lists of 0s and 1s, where 0 stands for negative and 1 stands for positive
 
 ## TensorFlow Install
 
