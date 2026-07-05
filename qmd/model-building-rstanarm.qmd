@@ -2,22 +2,72 @@
 
 ## Misc {#sec-modbld-rstanarm-misc .unnumbered}
 
--   [Docs](https://mc-stan.org/rstanarm/)
+- [Docs](https://mc-stan.org/rstanarm/)
 
 ## Linear Regression {#sec-modbld-rstanarm-lm .unnumbered}
 
--   Interaction: continuous x categorical
+- Interaction: continuous x categorical
+
+  ``` r
+  stan_mod <- stan_glm(log_gdp_std ~ rugged_std_c * cid, 
+                      data = dd, 
+                      family = gaussian(link = "identity"), 
+                      seed = 12345)
+  ```
+
+  - Linear models still use `stan_glm` but with a gaussian distribution family
+
+## Logistic Regression {#sec-modbld-rstanarm-log .unnumbered}
+
+- Interaction: categorical x categorical
+
+  ``` r
+  rstan_mod1 <- stan_glm(
+    admitted ~ gender*dept,
+    data = ucb_01,
+    family = binomial
+  )
+  ```
+
+## Discrete Distribution Models {#sec-modbld-rstanarm-discrete .unnumbered}
+
+- Binomial (SR, Ch. 11)
+
+  ``` r
+  tot_mod <- stan_glm( 
+    cbind(admit, reject) ~ 0 + applicant.gender, 
+    prior = normal(0,1), 
+    data = ucb, 
+    family = binomial 
+  )
+  ```
+
+  - Can also use a logistic model, but need case-level data (e.g. 0/1)
+
+    - Deaggregate count data into 0/1 case-level data
 
     ``` r
-    stan_mod <- stan_glm(log_gdp_std ~ rugged_std_c * cid, 
-                        data = dd, 
-                        family = gaussian(link = "identity"), 
-                        seed = 12345)
+    data(UCBadmit, package = "rethinking")
+    ucb <- UCBadmit %>%
+      mutate(applicant.gender = relevel(applicant.gender, ref = "male"))
+
+    # deaggregate to 1/0
+    deagg_ucb <- function(x, y) {
+      UCBadmit %>%
+        select(-applications) %>%
+        group_by(dept, applicant.gender) %>%
+        tidyr::uncount(weights = !!sym(x)) %>%
+        mutate(admitted = y) %>%
+        select(dept, gender = applicant.gender, admitted)
+    }
+
+    ucb_01 <- purrr::map2_dfr(c("admit", "reject"),
+                              c(1, 0),
+                              ~ disagg_ucb(.x, .y)
+    )
     ```
 
-    -   Linear models still use `stan_glm` but with a gaussian distribution family
-
--   Interaction: categorical x categorical
+  - Logistic
 
     ``` r
     rstan_mod1 <- stan_glm(
@@ -26,51 +76,3 @@
       family = binomial
     )
     ```
-
-## Discrete Distribution Models {#sec-modbld-rstanarm-discrete .unnumbered}
-
--   Binomial (SR, Ch. 11)
-
-    ``` r
-    tot_mod <- stan_glm( 
-      cbind(admit, reject) ~ 0 + applicant.gender, 
-      prior = normal(0,1), 
-      data = ucb, 
-      family = binomial 
-    )
-    ```
-
-    -   Can also use a logistic model, but need case-level data (e.g. 0/1)
-
-        -   Deaggregate count data into 0/1 case-level data
-
-        ``` r
-        data(UCBadmit, package = "rethinking")
-        ucb <- UCBadmit %>%
-          mutate(applicant.gender = relevel(applicant.gender, ref = "male"))
-
-        # deaggregate to 1/0
-        deagg_ucb <- function(x, y) {
-          UCBadmit %>%
-            select(-applications) %>%
-            group_by(dept, applicant.gender) %>%
-            tidyr::uncount(weights = !!sym(x)) %>%
-            mutate(admitted = y) %>%
-            select(dept, gender = applicant.gender, admitted)
-        }
-
-        ucb_01 <- purrr::map2_dfr(c("admit", "reject"),
-                                  c(1, 0),
-                                  ~ disagg_ucb(.x, .y)
-        )
-        ```
-
-    -   Logistic
-
-        ``` r
-        rstan_mod1 <- stan_glm(
-          admitted ~ gender*dept,
-          data = ucb_01,
-          family = binomial
-        )
-        ```
