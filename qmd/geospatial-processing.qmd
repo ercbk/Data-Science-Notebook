@@ -766,6 +766,7 @@
 - [Distances]{.underline}
 
   - `st_crs(sf_obj)$units` tells what unit of measurement is that coordinate system
+    - You are not required to designate units in functions such as `st_buffer`, because sf will assume the units based on the Coordinate Reference System (CRS).
   - [Planar Distances]{.underline} (Euclidean, feet or meters, projected coordinates)
     - If your study area is small (e.g., a city block, a small park), the difference between planar and Great Circle distances will be minimal, and planar distances are usually sufficient
     - "For a city-sized area like Chicago, which spans roughly 15 km east-west and 25 km north-south, the distortion from using planar distance with raw lat/lon coordinates would be relatively small. At Chicago's latitude (approximately 41.8°N), and over such short distances, the error compared to Great Circle distance would typically be less than 1%. errors of several kilometers for distances measured across the state."
@@ -888,7 +889,7 @@
 
   - Also see [Geospatial, Analysis \>\> Proximity Analysis](geospatial-analysis.qmd#sec-geo-anal-proxanal){style="color: green"}
 
-  - [Example]{.ribbon-highlight}: ([source](https://bookdown.org/michael_bcalles/gis-crash-course-in-r/toolkit.html#buffers))\
+  - [Example 1]{.ribbon-highlight}: Point Buffers ([source](https://bookdown.org/michael_bcalles/gis-crash-course-in-r/toolkit.html#buffers))\
     ![](_resources/Geospatial,_Processing.resources/sf-buffer-ex1-1.png){.lightbox width="432"}
 
     ``` r
@@ -910,6 +911,145 @@
 
     - For projected coordinates, [dist]{.arg-text} is in the units of those coordinates
 
+  - [Example 2]{.ribbon-highlight}: Negative Polygon Buffer ([source](https://spencerschien.info/post/spatial_buffer/))\
+    ![](_resources/Geospatial,_Processing.resources/sf-buffer-ex2-inverse.png){.lightbox width="224"}
+
+    ``` r
+    # download polling places for Milwaukee from data.milwaukee.gov
+    url <- "https://data.milwaukee.gov/dataset/3c87875e-cf75-4736-a01b-fbf3e889d0b0/resource/a039829e-b578-4ce1-92cc-5ded8bc38c71/download/pollingplace.zip"
+
+    destdir <- tempdir()
+    utils::download.file(file.path(url), zip_file <- tempfile())
+    utils::unzip(zip_file, exdir = destdir)
+
+    # list files in `destdir` to see file name
+    # list.files()
+
+    # read in file
+    polls <- st_read(glue("{destdir}/pollingplace.shp")) 
+
+    # Milwaukee city limits
+    wi_places <- tigris::places(state = "wisconsin")
+    mke <- wi_places |> 
+      filter(NAME == "Milwaukee") |> 
+      # make same CRS as `polls`
+      st_transform(crs = st_crs(polls))
+
+    neg_buff_poly <- st_buffer(mke, dist = -1000)
+
+    # need to reverse order of layers so bigger one is on top
+    mke |> 
+      ggplot() +
+      geom_sf(fill = "blue") +
+      geom_sf(data = neg_buff_poly, fill = "yellow")
+    ```
+
+    - The plot looks like the border is blue and the polygon is yellow, but the blue actually shows the original polygon (i.e., Milwaukee city limits), and **the yellow shows a negative buffer**, or a buffer inside the polygon.
+
+  - [Example 3]{.ribbon-highlight}: Using a Single Side Buffer for Partitioning ([source](https://spencerschien.info/post/spatial_buffer/))
+
+    ::: panel-tabset
+    ## Data
+
+    The locations are polling stations in Milwaukee along with interstate I43.
+
+    The goal is to partition the Milwaukee polygon into roughly the east and west sides of I43
+
+    ![](_resources/Geospatial,_Processing.resources/sf-trans-buf-ex3-data.png){.lightbox width="204"}
+
+    ``` r
+    # download polling places for Milwaukee from data.milwaukee.gov
+    url <- "https://data.milwaukee.gov/dataset/3c87875e-cf75-4736-a01b-fbf3e889d0b0/resource/a039829e-b578-4ce1-92cc-5ded8bc38c71/download/pollingplace.zip"
+
+    destdir <- tempdir()
+    utils::download.file(file.path(url), zip_file <- tempfile())
+    utils::unzip(zip_file, exdir = destdir)
+
+    # list files in `destdir` to see file name
+    # list.files()
+
+    # read in file
+    polls <- st_read(glue("{destdir}/pollingplace.shp")) 
+
+    # Milwaukee city limits
+    wi_places <- tigris::places(state = "wisconsin")
+    mke <- wi_places |> 
+      filter(NAME == "Milwaukee") |> 
+      # make same CRS as `polls`
+      st_transform(crs = st_crs(polls))
+
+    # Download roads in Milwaukee using the `tigris` package
+    mke_roads <- roads("wisconsin", county = "Milwaukee")
+
+    # make same CRS as `polls
+    mke_roads <- st_transform(mke_roads, crs = st_crs(polls))
+
+    # Filter for interstates
+    mke_interstates <- mke_roads |> 
+      filter(str_detect(FULLNAME, "^I- ")) 
+
+    # Plot the data to get a visual of our data
+    mke |> 
+      ggplot() +
+      geom_sf() +
+      geom_sf(data = mke_interstates) +
+      geom_sf(data = polls, size = .75, color = "red") +
+      theme_void()
+    ```
+
+    - The black lines are the interstates that run through Milwaukee and the red dots are polling stations.
+
+    ## Partition using single side buffer
+
+    ![](_resources/Geospatial,_Processing.resources/sf-trans-buf-ex3-intersected.png){.lightbox width="332"}
+
+    ``` r
+    # filter for I43
+    i43 <- mke_interstates |> 
+      filter(FULLNAME == "I- 43") |> 
+      # to simplify, let's take the main line
+      mutate(ind = row_number()) |> 
+      filter(ind == 1)
+
+    # single-sided buffer
+    single_sided <- st_buffer(i43, -20000, singleSide = TRUE)
+
+    # create intersection with city limits
+    se_mke <- st_intersection(mke, single_sided)
+
+    # plot for review
+    se_mke |> 
+      ggplot() +
+      geom_sf() +
+      geom_sf(data = i43) +
+      theme_void()
+    ```
+
+    - [singleSide = TRUE]{.arg-text} will be limit the buffer to one side of the line. Negative distance values will buffer on one side, positive on the other.
+    - Here the -20K meters produces a buffer on the right side of I43. When that's intersected with the Milwaukee polygon, we get the space of Milwaukee that east of I43.
+
+    ## Visualize partitioned locations
+
+    ![](_resources/Geospatial,_Processing.resources/sf-trans-buf-ex3-partitioned.png){.lightbox width="341"}
+
+    ``` r
+    # join the polls data with se_mke to ID those polls
+    se_polls <- st_join(polls, se_mke) 
+
+    # plot for review
+    se_polls |> 
+      # create an indicator variable
+      mutate(our_polls = ifelse(!is.na(ind), "East/South of I-43", "West/North of I-43")) |> 
+      ggplot() +
+      geom_sf(data = mke) +
+      geom_sf(aes(color = our_polls)) +
+      theme_void() +
+      labs(color = "")
+    ```
+
+    - After joining southeast milwaukee partition to the polling data, an indicator variable can be created.
+    :::
+
 - [Union]{.underline}
 
   ![](_resources/Geospatial,_Processing.resources/sf-union-1.jpg){.lightbox width="480"}
@@ -925,7 +1065,9 @@
     - The overlapping polygons become one polygon
     - For big data, order points in both sets by latitude and longitude before using `st_union`. This can cut down processing time substantially. ([source](https://bsky.app/profile/fbabovic.bsky.social/post/3lsyraqgwik2z))
 
-- \[Intersection\]{.underline} ![st_intersection](_resources/Geospatial,_Processing.resources/sf-intersect-1.png){.lightbox width="482"}
+- [Intersection]{.underline}
+
+  ![st_intersection](_resources/Geospatial,_Processing.resources/sf-intersect-1.png){.lightbox width="482"}
 
   - `st_intersect` - A binary predicate (i.e. logical) that tests whether a geometry/cell in a grid/etc. intersects another geometry/cell in a grid/etc. Outputs 1/0.
 

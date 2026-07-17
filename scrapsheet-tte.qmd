@@ -1,0 +1,220 @@
+---
+title: "Target Trial Emulation"
+subtitle: "A procedure for designing and conducting one"
+date: today
+format:
+  html:
+    toc: true
+    toc-depth: 3
+    number-sections: false
+    embed-resources: true
+---
+
+## **Misc**
+
+- Notes from
+  - [Target Trial Emulation—A Unifying Approach for Causal Inference From Observational Data (Simon-Tellaux et al 2026)](https://jamanetwork.com/journals/jamanetworkopen/fullarticle/2845271)
+  - [Target trial emulation: applying principles of randomised trials to observational studies (Matthews et al 2022)](https://www.bmj.com/content/378/bmj-2022-071108?__cf_chl_f_tk=hKf9d4QmptEQ1hGMVNyI4ImDRhh8ZBAg5I4lX6khrSo-1782996136-1.0.1.1-ekwKkFikdejBZ7dnAXO4odUE4_ElxshNvkx4Txcw4fU)
+  - [Practical elements to consider when emulating a target trial (Tran et al 2026)](https://www.sciencedirect.com/science/article/pii/S0895435626000806)
+  - [Using Big Data to Emulate a Target Trial When a Randomized Trial Is Not Available (Hernán and Robins 2016)](https://dfcm.utoronto.ca/sites/default/files/inline-files/emulating_randomized_trials.pdf)
+    - Originated the seven-component protocol structure and works through the mechanics in more procedural depth
+    - Source of the running example
+
+## Description
+
+Target trial emulation designs an observational study so it answers a causal question the way a randomized trial would: specify the trial you'd ideally run, then reproduce each of its design decisions as closely as the available data allow. It exists because randomized trials are sometimes too slow, too expensive, too narrow in who they enroll, or outright infeasible, but simply comparing "treated" to "untreated" patients in a database, without that explicit design discipline, reliably produces biased answers.
+
+Every emulation actually involves three trials, not one: the *ideal* trial (what you'd run with no constraints), the *feasible target trial* (what you'd design given the data you actually have), and the *emulation* of that feasible trial in the data. Moving from the first to the second is Step 2 below; everything after that is the emulation itself.
+
+The procedure is illustrated throughout with one running example, adapted from the paper that established this framework: estimating the effect of combined estrogen-progestin hormone therapy on 5-year breast cancer risk in postmenopausal women, using a large health-insurance claims database. It's a deliberately simple case, a single static treatment decision, but every mechanical piece of the procedure shows up in it.
+
+## Terms
+
+- **Grace Period** - A short window during which someone can still start treatment while being counted as “assigned” at time zero.
+  - It exists because real treatment initiation isn’t instantaneous (tests, referrals, and administrative steps take time), and a strategy that required instant initiation with no grace period couldn’t be implemented in actual practice.
+
+## Procedure
+
+Ten steps, in the order you'd actually work through them. Steps 5 and 6 are where most observational analyses go wrong, because they're the steps a real randomized trial gets for free just by randomizing everyone at the same moment. Pay closest attention there.
+
+```{mermaid}
+flowchart TD
+    A["1. Draft the ideal protocol"] --> B["2. Specify the feasible target trial"]
+    B --> C["3. Apply eligibility criteria"]
+    C --> D["4. Assign treatment strategies"]
+    D --> E["5. Pin down time zero"]
+    E --> F{"Grace period needed?"}
+    F -- yes --> G["6. Clone, censor, weight"]
+    F -- no --> H["7. Adjust for confounding"]
+    G --> H
+    H --> I["8. Define the outcome"]
+    I --> J["9. Estimate the effect"]
+    J --> K["10. Check your work"]
+```
+
+### Step 1 - State the question and draft the ideal trial protocol
+
+Before touching any data, write down the protocol of the randomized trial you'd run if nothing constrained you. Start by stating the question in PICO terms (population, intervention, comparator, outcome), then specify all seven components of a trial protocol:
+
+1.  **Eligibility criteria** - who's in, based only on characteristics knowable at enrollment.
+2.  **Treatment strategies** - the exact strategies being compared, how long someone stays on a strategy, and what counts as a legitimate reason to stop or switch.
+3.  **Assignment procedures** - in a real trial, this is random assignment.
+4.  **Follow-up period** - when it starts, and the conditions under which it ends.
+5.  **Outcome** - an explicit, measurable definition.
+6.  **Causal contrast(s) of interest** - typically intention-to-treat, per-protocol, or both.
+7.  **Analysis plan** - how each contrast will actually be estimated.
+
+One structural constraint worth knowing now: because nobody in routine clinical care receives a placebo, an emulation can only ever be *pragmatic*, comparing realistic treatment strategies as they're actually delivered, never a tightly protocolized, blinded, placebo-controlled design.
+
+**Applied to the example.** The question: does initiating combined estrogen-progestin hormone therapy affect 5-year breast cancer risk in postmenopausal women, relative to not initiating it?
+
+| Component | Our ideal trial |
+|------------------------------------|------------------------------------|
+| Eligibility | Postmenopausal women, within 5 years of menopause, enrolled 2005–2010, no prior cancer diagnosis, no hormone therapy use in the preceding 2 years |
+| Treatment strategies | \(1\) No hormone therapy during follow-up, vs. (2) initiate combined estrogen-progestin therapy at baseline and remain on it unless a contraindicating event occurs (blood clot, pulmonary embolism, heart attack, or a new cancer diagnosis) |
+| Assignment | Random assignment at baseline; open-label |
+| Follow-up | Starts at randomization; ends at breast cancer diagnosis, death, loss to follow-up, or 5 years, whichever comes first |
+| Outcome | Breast cancer, diagnosed by an oncologist, within 5 years of baseline |
+| Causal contrast | Intention-to-treat effect and per-protocol effect |
+| Analysis plan | ITT: compare 5-year risk by assigned strategy. Per-protocol: censor at deviation from the assigned strategy; adjust for baseline and time-varying prognostic factors related to adherence and to loss to follow-up |
+
+This table is the fixed reference point for every step that follows.
+
+### Step 2 - Check data fitness and specify the feasible target trial
+
+Take the ideal protocol and check it against what your actual data can support. This is usually where the ideal trial and the feasible target trial diverge, and it's worth writing down every place they do rather than silently substituting a more convenient variable.
+
+Work through: Can eligibility be assessed with baseline information alone, or does it depend on something not recorded? Is treatment identifiable well enough to define "start" unambiguously? A prescription claim, a dispensing record, and an administration record aren't the same thing and don't fail in the same ways. Is the outcome measurable at the fidelity the ideal trial calls for, or only as a coarser proxy? Is there enough follow-up time, enough sample size, and are the right confounders even collected?
+
+**Applied to the example.** Suppose the ideal protocol wants to exclude women with pre-existing breast calcifications found on mammography. If the claims database only records *whether* a mammogram was billed, not the findings, that specific exclusion can't be implemented. The feasible target trial has to either drop the criterion or substitute something the data can support, and either choice gets written down as a known departure from the ideal trial, not silently absorbed.
+
+### Step 3 - Apply eligibility criteria using baseline information only
+
+Apply the eligibility criteria exactly as specified, using only information available at or before time zero. This sounds obvious but is easy to violate by accident. Defining a cohort as "people who used the drug at some point during follow-up" silently uses post-baseline information, and reintroduces exactly the selection problems a real trial's enrollment process would never allow.
+
+A subtler version of the same issue: some eligibility criteria that a real trial checks easily, like whether a participant is expected to stay engaged with the health system so they don't just disappear from view, have no obvious observational proxy. A common fix is to require some baseline evidence of consistent contact with the system (e.g., at least one visit or filled prescription in the prior year or two) as a stand-in for "will remain observable." This doesn't guarantee it, but it's a defensible approximation. People who later do drop out of the database are then treated as censored, lost to follow-up, not excluded outright.
+
+**Applied to the example.** Eligibility is fixed at baseline: postmenopausal, within 5 years of menopause, no history of cancer, no hormone therapy use in the past 2 years. To approximate "will remain observable," the study additionally requires at least one health-system contact in the prior 2 years.
+
+### Step 4 - Assign treatment strategies (new-user design)
+
+Once eligibility is set, assign each eligible person to whichever strategy their baseline data are compatible with. People who don't match any strategy of interest, they used a related but different drug, say, are excluded from this particular emulation, the same way a real trial only enrolls people willing to accept one of the strategies being compared.
+
+The critical design choice: compare people at the moment they *start* a strategy (a new-user or initiator design), not people already established on a treatment against people who've never used it (a prevalent-user design). This matters for a concrete historical reason. Early observational comparisons of hormone therapy and heart disease risk compared current, already-established users against never-users, and missed an early increase in risk that later randomized trials found. The likely mechanism: therapy caused a short-term risk spike in susceptible women, so susceptible women either had their event or stopped the drug early. By the time you're looking at a group of long-term, currently-persisting users, the susceptible women have effectively been filtered out by the treatment itself, leaving a survivorship-biased comparison group that looks artificially healthy. Restricting to new initiators avoids this by comparing everyone from the same relative starting point, the way randomization does.
+
+**Applied to the example.** Eligible women not on hormone therapy as of baseline are assigned to the "no therapy" strategy; eligible women starting combined estrogen-progestin therapy at baseline are assigned to "initiate therapy." Women already on some other hormone regimen, or who started therapy months earlier, don't belong to either strategy as defined, and are excluded from this comparison.
+
+### Step 5 - Pin down time zero
+
+Time zero, the start of follow-up, has to coincide with three things happening simultaneously: eligibility is met, the treatment strategy is assigned, and outcome-counting begins. A real trial gets this for free, because randomization forces all three to happen at once. Observational data doesn't, and letting them drift apart is the direct cause of immortal time bias: a stretch of follow-up during which the outcome couldn't, by construction, have counted against a given arm, because that arm's assignment depended on something that hadn't happened yet.
+
+If eligibility can only be met once, three months after starting dialysis, say, or the first time a lab value crosses a threshold, time zero is unambiguous: it's whenever that happens for each person. Our example is harder: a woman meets the eligibility criteria (postmenopausal within 5 years, no disease history, no recent hormone use) potentially every year she remains eligible, from around age 51 to 65. Which of those times is time zero?
+
+Two defensible choices:
+
+- **Pick a Single Eligible Time per Person:** The first time they become eligible, or a randomly chosen eligible time.
+- **Use all of their eligible times** by running a separate emulated trial starting at each one, a nested or sequential set of trials, and pooling the results across the sequence. This uses more of the data (each person can contribute to several of the nested trials), but requires adjusting the usual variance estimator, since the same person now contributes correlated observations across multiple emulations. In practice, the number of nested trials is set by how often the data let you check eligibility: if data arrive on a fixed schedule (e.g., a cohort re-surveyed every two years), start one trial at each scheduled time; if data arrive continuously (e.g., electronic health records), pick a short fixed unit like a month and start one trial per unit.
+
+**Applied to the example.** Using the nested-sequence approach: emulate one trial starting each year a woman is eligible. In the trial starting at her age-53 eligibility, she's classified as an initiator or non-initiator based on her data at age 53; in the trial starting at age-55 eligibility (if she's still eligible then), she's classified again, independently. Estimates are pooled across all these nested trials at the end.
+
+### Step 6 - Handle grace periods with clone, censor, and weight
+
+Suppose the grace period is three months: the strategies become "initiate treatment within 3 months of eligibility" versus "never initiate treatment." During those first three months, a woman who eventually starts treatment in month 3 has data compatible with *both* treatment strategies, you don't yet know which one she belongs to. The fix:
+
+1.  Make two exact copies (**clones**) of her at baseline, and assign one clone to each treatment strategy.
+2.  Let each clone accrue follow-up under its assigned treatment strategy until her real data become incompatible with it. The clone assigned to "never initiate" is *censored* the moment she actually starts treatment.
+3.  Because that censoring is informative, people who look sicker may be more likely to start treatment early, pulling their "never initiate" clone out of the risk set disproportionately, correct for it with *inverse probability of censoring weights*, modeled on the time-varying factors that predict starting therapy.
+
+```{mermaid}
+flowchart LR
+    A["Baseline: eligible,<br/>hasn't started treatment"] --> B["Clone 1:<br/>'initiate within 3 months'"]
+    A --> C["Clone 2:<br/>'never initiate'"]
+    B --> D["Starts treatment month 3:<br/>stays uncensored"]
+    C --> E["Starts treatment month 3:<br/>censored here"]
+    D --> F["Follow-up continues,<br/>IPCW-weighted"]
+```
+
+::: callout-note
+## The subtle part
+
+If the woman had instead died in month 2, before either clone's data diverged, **both clones die**, and the death counts against both treatment strategies. This double-allocation is intentional: it's what stops the analysis from silently attributing an early event to whichever strategy you happened to guess she belonged to. Getting this wrong (assigning the event to only one treatment strategy) is a common, hard-to-notice source of bias in home-grown implementations.
+:::
+
+A consequence of cloning is that a true intention-to-treat estimate is no longer available, every person may be represented in more than one strategy at baseline, so a baseline-assignment comparison would compare groups with nearly identical outcomes by construction. Grace periods with cloning are for estimating a **per-protocol** effect.
+
+**Applied to the example.** With a 3-month grace period, the "initiate" and "never initiate" strategies both admit some ambiguity for the first 3 months. Clone every eligible woman into both treatment strategies at baseline; censor the "never initiate" clone whenever she starts hormone therapy; weight the remaining clone's follow-up by the inverse probability of not yet being censored, given her evolving symptoms and clinical findings up to that point.
+
+### Step 7 - Adjust for confounding
+
+Before comparing groups, you need a plan for the fact that, unlike a real trial, nothing forced comparable people into each arm.
+
+- Draw a causal DAG for the question and use it to identify the minimum set of baseline variables that block confounding paths between treatment and outcome. Richness matters, but so does using the DAG to avoid conditioning on colliders or mediators rather than confounders.
+- Pick an adjustment method: matching (often on a propensity score), stratification or regression, standardization or inverse probability of treatment weighting, g-estimation, or a doubly robust combination.
+- If you're estimating a per-protocol effect and adherence is affected by post-baseline factors that are themselves affected by earlier treatment, common with sustained strategies, standard regression adjustment for those factors can *introduce* bias rather than remove it. This is exactly what **g-methods** (the g-formula, IPTW-based marginal structural models, g-estimation) exist to handle correctly.
+
+::: callout-important
+## The one assumption everything rests on
+
+Every method above leans on the same untestable claim: that treatment is effectively random once you condition on the measured covariates. No diagnostic proves this directly. It's why Step 10's checks matter as much as the adjustment method itself.
+:::
+
+**Applied to the example.** A DAG for hormone therapy and breast cancer would likely include age, BMI, family history, reproductive history, and prior mammography findings as baseline confounders. Because this is a sustained strategy, a per-protocol analysis also needs to adjust for time-varying factors (new symptoms or diagnoses that predict both stopping therapy and breast cancer risk) using inverse probability weighting, since standard regression on these post-baseline factors would bias the estimate.
+
+### Step 8 - Define and measure the outcome
+
+Define the outcome exactly as the ideal trial specifies, a diagnosis code, lab threshold, or event, plus some account of how it's measured and validated. Two extra concerns are common in observational data: the outcome needs *independent* validation, since claims and EHR codes are recorded for billing or clinical workflow rather than research and can be wrong or ambiguous; and, since nobody is blinded, you need to consider whether knowing someone's treatment could have influenced whether or how the outcome was detected in the first place.
+
+**Applied to the example.** Breast cancer diagnosed by an oncologist within 5 years of baseline. Because hormone therapy can prompt closer clinical monitoring, diagnosis itself might be detected earlier or more often in treated women for reasons unrelated to any biological effect, a detection-bias risk worth naming even if it's hard to fully rule out with claims data. An outcome like death, ascertained from an independent registry, wouldn't carry this problem.
+
+### Step 9 - Choose the causal contrast and estimate the effect
+
+With the analytic dataset built, eligibility applied, strategies assigned, time zero fixed, clones censored and weighted if used, confounders adjusted for, estimate the effect itself. Two things to decide:
+
+- **Which contrast?** An ITT-style analysis compares outcomes by initial assignment, regardless of what happened afterward. A per-protocol analysis asks what would have happened under full adherence. This is where the machinery from Step 6 actually gets used.
+- **Which model?** A simple ITT-style comparison can be as basic as comparing adjusted risks between the two initial groups. A per-protocol effect with time-varying confounding generally means fitting a marginal structural model, using the weights from Steps 6 and 7 to stand in for the missing randomization.
+
+**Applied to the example.** The ITT-style analog compares 5-year breast cancer risk between all baseline initiators and all baseline non-initiators, adjusted for the Step 7 confounders. The per-protocol effect additionally uses the Step 6 clone weights, relating weighted therapy status over time to breast cancer risk via a marginal structural model.
+
+### Step 10 - Check your work
+
+A successful-looking emulation can still be wrong in ways invisible from the data alone, because it always rests on the Step 7 assumption that treatment is effectively random after adjustment. A few concrete checks help catch violations:
+
+- **Negative Control Outcomes:** Pick an outcome that shares the exposure's confounding structure but that treatment couldn't plausibly cause (an unrelated cancer with similar risk factors, say). A nonnull effect on the negative control signals residual confounding.
+- **Negative (or Positive) Control Treatments:** Compare against a treatment with a similar indication but no expected effect, or one with a roughly known effect size, and check whether the method recovers the expected null (or known magnitude).
+- **Reversed-Strategy Checks:** Re-run the emulation with the strategies flipped. Among women already on hormone therapy, for instance, compare "continue" versus "stop," instead of "initiate" versus "don't." If both the original and the reversed emulation point the same direction, both suggesting lower risk, say, at least one has failed to produce a fair comparison, since a real causal effect can't lower risk both by starting a treatment and by stopping it.
+- **Quantitative Bias Analysis:** Rather than a single point estimate, quantify how strong an unmeasured confounder would have to be (in its association with treatment and with the outcome) to explain away the observed effect, and judge whether a confounder of that size is plausible given the clinical context.
+
+::: callout-note
+None of these techniques *prove* the emulation succeeded. They can only fail to raise a red flag. Treat a clean set of checks as "no evidence of a problem," not as proof of a correct causal estimate.
+:::
+
+## Biases and Pitfalls
+
+| Bias | What causes it | Where it's handled |
+|------------------------|------------------------|------------------------|
+| Prevalent-user bias | Comparing established/current users to never-users, instead of new initiators | Step 4 - new-user (initiator) design |
+| Immortal time bias | Follow-up during which the outcome couldn't, by construction, count against a given arm, because arm assignment depended on something not yet known | Step 5 - align eligibility, assignment, and start of outcome-counting at the same time zero |
+| Selection bias from post-baseline eligibility | Restricting the population using information only available after baseline | Step 3 - eligibility uses baseline information only |
+| Informative censoring | People who deviate from their assigned strategy differ systematically from those who don't | Step 6 - inverse probability of censoring weights |
+| Confounding (measured) | Baseline, or time-varying, prognostic factors differ between treatment groups | Step 7 - DAG-guided adjustment; g-methods when time-varying confounders are themselves affected by prior treatment |
+| Confounding (unmeasured) | Can't be adjusted for directly, because it isn't in the data | Step 10 - negative controls, reversed-strategy checks, and quantitative bias analysis flag (but don't eliminate) this risk |
+| Ascertainment/detection bias | Outcome assessment differs by treatment arm because nobody is blinded | Step 8 - prefer outcomes with objective or independent ascertainment |
+| Indication drift | Prescribing criteria for the treatment change over the calendar period the data span | Step 2 - restrict the emulation to a clinically stable time window |
+| Positivity violations | Some period, place, or covariate stratum has almost everyone in one arm only | Step 2/7 - concurrent, geographically comparable controls; check covariate overlap before and after weighting |
+
+## Reporting
+
+- **Prespecify the Protocol and Analysis Plan:** Do this before looking at outcome data. It should include the Step 1 components, the Step 2 departures from the ideal trial, the Step 7 confounder set and adjustment method, and the Step 10 sensitivity analyses, specified in advance.
+- **Register the Analysis with a Timestamp:** For example, in a public repository like the Open Science Framework. Unlike a trial registry entry, this needs to establish *when the data became available* and *when the final analysis was run*, since that's what stands in for a trial's pre-randomization registration.
+- **Document Deviations as They Happen:** Target trial protocols legitimately evolve as data constraints get discovered (Step 2 is the expected source of these). The honest move is a change log, not a protocol quietly rewritten to match whatever ended up being analyzed.
+- **Report Enough Detail for Someone Else to Redo It:** Ideally in a different dataset. This means the exact eligibility logic, exact treatment and outcome code lists, the DAG and adjustment set, the weighting and censoring models, and reusable analysis code.
+
+## Software
+
+A few R packages implement pieces of this procedure directly rather than requiring it to be built from scratch:
+
+- **`TrialEmulation`** (CRAN): Implements sequential/nested trial emulation (Step 5's multiple-eligible-times case) using marginal structural models, estimating both intention-to-treat and per-protocol effects from longitudinal EHR-style data.
+- **`survivalCCW`** (CRAN; maintained by Roche's statistical engineering group): A lightweight package for structuring clone-censor-weight analyses (Step 6) for time-to-event outcomes.
+- **`gfoRmula`**: Implements the parametric g-formula for longitudinal treatment strategies, useful for the g-methods side of Step 7 when standard regression adjustment isn't valid.
+
+None of these remove the design work in Steps 1–4 and 8–10. They mainly handle the mechanical parts of Steps 5–7 once the protocol is fully specified.
