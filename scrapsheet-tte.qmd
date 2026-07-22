@@ -19,6 +19,7 @@ format:
   - [Using Big Data to Emulate a Target Trial When a Randomized Trial Is Not Available (Hernán and Robins 2016)](https://dfcm.utoronto.ca/sites/default/files/inline-files/emulating_randomized_trials.pdf)
     - Originated the seven-component protocol structure and works through the mechanics in more procedural depth
     - Source of the running example
+- An analysis can consist of multiple TTEs because a patient can have multiple elibility instances (Step 5) and in each of those TTEs, each patient could have clones because of a grace period (Step 6).
 
 ## Description
 
@@ -141,9 +142,10 @@ format:
 ### Step 5 - Pin down time zero
 
 - Time zero, the start of follow-up, has to coincide with three things happening simultaneously: eligibility is met, the treatment strategy is assigned, and outcome-counting begins.
-  - A real trial gets this for free, because randomization forces all three to happen at once. Observational data doesn't, and letting them drift apart is the direct cause of immortal time bias.
-- If eligibility can only be met once, e.g. three months after starting dialysis or the first time a lab value crosses a threshold, then time zero is unambiguous — it's whenever that happens for each person.
-- If eligibility can only be met *more than once*, e.g. postmenopausal within 5 years, no disease history, no recent hormone use, then potentially every year she remains eligible, from around age 51 to 65. Which of those times is time zero?
+  - An RCT gets this for free, because randomization forces all three to happen at once. Observational data doesn't, and letting them drift apart is the direct cause of immortal time bias.
+- Multiple Eligibility Instances?
+  - If eligibility can only be met once, e.g. three months after starting dialysis or the first time a lab value crosses a threshold, then time zero is unambiguous — it's whenever that happens for each person.
+  - If eligibility can only be met *more than once*, e.g. postmenopausal within 5 years, no disease history, no recent hormone use, then potentially every year she remains eligible, from around age 51 to 65. Which of those times is time zero?
 - For more than once, there are two defensible choices for time zero:
   - *Pick a Single Eligible Time per Person*: The first time they become eligible, or a randomly chosen eligible time.
   - *Use All of Their Eligible Times*: Run a separate emulated trial starting at each one (a nested or sequential set of trials) and pooling the results across the sequence.
@@ -156,13 +158,13 @@ format:
   - In the trial starting at age-55 eligibility (if she's still eligible then), she's classified again, independently
   - Estimates are pooled across all these nested trials at the end
 
-### Step 6 - Handle grace periods with clone, censor, and weight
+### Step 6 - Handle grace periods with cloning, censoring, and weights
 
-Suppose the grace period is three months: the strategies become "initiate treatment within 3 months of eligibility" versus "never initiate treatment." During those first three months, a woman who eventually starts treatment in month 3 has data compatible with *both* treatment strategies, you don't yet know which one she belongs to. The fix:
-
-1.  Make two exact copies (**clones**) of her at baseline, and assign one clone to each treatment strategy.
-2.  Let each clone accrue follow-up under its assigned treatment strategy until her real data become incompatible with it. The clone assigned to "never initiate" is *censored* the moment she actually starts treatment.
-3.  Because that censoring is informative, people who look sicker may be more likely to start treatment early, pulling their "never initiate" clone out of the risk set disproportionately, correct for it with *inverse probability of censoring weights*, modeled on the time-varying factors that predict starting therapy.
+- Suppose the grace period is three months: the strategies become "initiate treatment within 3 months of eligibility" versus "never initiate treatment." During those first three months, a woman who eventually starts treatment in month 3 has data compatible with *both* treatment strategies, you don't yet know which one she belongs to.
+- Cloning is the fix:
+  1.  Make two exact copies (**clones**) of her at baseline, and assign one clone to each treatment strategy.
+  2.  Let each clone accrue follow-up under its assigned treatment strategy until her real data become incompatible with it. The clone assigned to "never initiate" is *censored* the moment she actually starts treatment.
+  3.  Because that censoring is informative, people who look sicker may be more likely to start treatment early, pulling their "never initiate" clone out of the risk set disproportionately, correct for it with *inverse probability of censoring weights*, modeled on the time-varying factors that predict starting therapy.
 
 ```{mermaid}
 flowchart LR
@@ -173,19 +175,29 @@ flowchart LR
     D --> F["Follow-up continues,<br/>IPCW-weighted"]
 ```
 
-::: callout-note
-## The subtle part
+- Cloning Issues
+  - Death before Treatment
+    - If a woman died in month 2 of a 3 month grace period, before either clone's data diverged, then both clones die and the death *counts against both treatment strategies*.
+    - This stops the analysis from silently attributing an early event to whichever strategy you happened to guess she belonged to (not doing so would produce a bias).
+  - ITT estimate is no longer possible
+    - Every person may be represented in more than one strategy at baseline, so a baseline-assignment comparison would compare groups with nearly identical outcomes by construction.
+    - Grace periods with cloning are for estimating a **per-protocol** effect.
+- Computing Inverse Probability Censoring Weights (IPCW)
+  - At each interval of follow-up, say, each month of the grace period, among clones who haven't yet been censored, fit a model (typically a pooled logistic regression) for the probability of initiating therapy that month, given each clone's accumulated time-varying covariates up to that point: new symptoms, recent test results, recent visits.
+  - One minus that predicted probability is the chance of remaining uncensored for one more month.
+  - Multiplying these monthly probabilities together across all elapsed months gives each clone's cumulative probability of having remained uncensored up to any given time, and her weight at that time is the inverse of that cumulative probability.
+  - In practice the weight is usually "stabilized" by multiplying by the corresponding covariate-free (marginal) probability of remaining uncensored, which keeps the weights from becoming extreme without changing what they correct for.
+  - Packages
+    - [{]{style="color: #990000"}[trtswitch](https://kaifenglu.github.io/trtswitch/index.html){style="color: #990000"}[}]{style="color: #990000"} - Provides methods for treatment switching adjustment in randomized clinical trials
+      - Has an `ipcw` function that computes the weights (See [vignette](https://kaifenglu.github.io/trtswitch/articles/ipcw.html) for details on the weights and usage of the function)
+- [Applied to the Example]{.underline}: With a 3-month grace period, the "initiate" and "never initiate" strategies both admit some ambiguity for the first 3 months.
+  - Clone every eligible woman into both treatment strategies at baseline
+  - Censor the "never initiate" clone whenever she starts hormone therapy
+  - Weight the remaining clone's follow-up by the inverse probability of not yet being censored, given her evolving symptoms and clinical findings up to that point
 
-If the woman had instead died in month 2, before either clone's data diverged, **both clones die**, and the death counts against both treatment strategies. This double-allocation is intentional: it's what stops the analysis from silently attributing an early event to whichever strategy you happened to guess she belonged to. Getting this wrong (assigning the event to only one treatment strategy) is a common, hard-to-notice source of bias in home-grown implementations.
-:::
+### Step 7 - Identify Confounders
 
-A consequence of cloning is that a true intention-to-treat estimate is no longer available, every person may be represented in more than one strategy at baseline, so a baseline-assignment comparison would compare groups with nearly identical outcomes by construction. Grace periods with cloning are for estimating a **per-protocol** effect.
-
-**Applied to the example.** With a 3-month grace period, the "initiate" and "never initiate" strategies both admit some ambiguity for the first 3 months. Clone every eligible woman into both treatment strategies at baseline; censor the "never initiate" clone whenever she starts hormone therapy; weight the remaining clone's follow-up by the inverse probability of not yet being censored, given her evolving symptoms and clinical findings up to that point.
-
-### Step 7 - Adjust for confounding
-
-Before comparing groups, you need a plan for the fact that, unlike a real trial, nothing forced comparable people into each arm.
+In a RCT, randomization helps with confounders, but these need to be explicitly adjusted for in a TTE.
 
 - Draw a causal DAG for the question and use it to identify the minimum set of baseline variables that block confounding paths between treatment and outcome. Richness matters, but so does using the DAG to avoid conditioning on colliders or mediators rather than confounders.
 - Pick an adjustment method: matching (often on a propensity score), stratification or regression, standardization or inverse probability of treatment weighting, g-estimation, or a doubly robust combination.
