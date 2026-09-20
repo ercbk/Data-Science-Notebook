@@ -450,20 +450,21 @@
 - [{slider}]{style="color: #990000"} - more sophisticated way without data leakage
 
   ``` r
-  SCORE_recent <- 
-    slider::slide_index_dbl(SCORE,
-                            date,
-                            mean,
-                            na.rm = TRUE,
-                            .before = lubridate::days(365*3),
-                            .after = -lubridate::days(1),
-                            .complete = FALSE)
+  SCORE_recent <- slider::slide_index_dbl(
+    SCORE,
+    date,
+    mean,
+    na.rm = TRUE,
+    .before = lubridate::days(365*3),
+    .after = -lubridate::days(1),
+    .complete = FALSE
+  )
   ```
 
   - [after]{.arg-text} is -lubridate::days(1) says don't include current day
 
     - "Prevents data leakage by ensuring that this feature does not include information from the current day in its calculation"
-      - Not sure exactly why including the current day would cause data leakage
+    - Not sure exactly why including the current day would cause data leakage
 
 - {dplyr} + {purrr}
 
@@ -475,6 +476,39 @@
   tsla %>%
     calculate_lags(close, 1:3)
   ```
+
+- Lag Matrix ([source](https://ecogambler.netlify.app/blog/distributed-lags-mgcv/#setting-up-lag-matrices))
+
+  ``` r
+  create_lag_mat <- function(x, n_lag = 6) {
+    n <- length(x)
+    X <- matrix(NA, n, n_lag)
+    for (i in 1:n_lag){
+      X[i:n, i] <- x[i:n - i + 1]
+    } 
+    X
+  }
+
+  mintemp <- do.call(
+    rbind, 
+    lapply(
+      seq_along(levels(portal_ts$series)), 
+      function(x) {
+        tempdat <- portal_ts %>%
+          filter(series == levels(portal_ts$series)[x]) %>%
+          arrange(time) %>%
+          select(mintemp, time) %>%
+          pull(mintemp)
+    
+        lag_mat <- create_lag_mat(tempdat, 6)
+        tail(lag_mat, NROW(lag_mat) - 5)
+      }
+    )
+  )
+  ```
+
+  - Some packages like {mgcv} can take lists of variables as input, so that lag matrices can be used.
+  - The first five observations are removed from each series (feel like there's a more orthodox way to this than using `tail`)
 
 ### Rolling, Window, Cumulative {#sec-feat-eng-ts-eng-roll .unnumbered}
 
@@ -499,22 +533,26 @@
       - sales, 1 day ago = 3; 2 days ago = 4.5; and alpha = 0.95
       - smoothed sales = \[3.0\*(0.95\^1) + 4.5\*(0.95\^2)\] / \[(0.95\^1) + (0.95\^2)\] = 3.73
 
+- If there isn't much variation in the variable (e.g. NDVI vegetation index), it would probably be more informative to decompose it into long-run mean, a seasonal component, an anomaly indicator, etc. variables per grouping variable (e.g. yearly mean for site 12)
+
 - Moving Averages
 
   - data.table and RcppRoll
 
     ``` r
-    dt_ma <- 
-      data.table::frollmean(data[, 2], 
-                            n = window, 
-                            align = "right", 
-                            fill = NA, 
-                            algo = "fast")
-    rcpp_ma <- 
-      RcppRoll::roll_mean(data[, 2], 
-                          n = window, 
-                          align = "right", 
-                          fill = NA)
+    dt_ma <- data.table::frollmean(
+      data[, 2], 
+      n = window, 
+      align = "right", 
+      fill = NA, 
+      algo = "fast"
+    )
+    rcpp_ma <- RcppRoll::roll_mean(
+      data[, 2], 
+      n = window, 
+      align = "right", 
+      fill = NA
+    )
     ```
 
     - {data.table} looks to be slightly faster than [{RcppRoll}]{style="color: #990000"} in a [benchmark](https://www.r-bloggers.com/2022/10/exploring-moving-average-and-other-smoothers-in-r/)
@@ -526,9 +564,11 @@
 
     ``` r
     ts_df |> 
-      mutate(3day_moving_avg = slide_mean(val, 
+      mutate(
+        three_day_moving_avg = slide_mean(val, 
                                           before = 2L, 
-                                          complete = TRUE))
+                                          complete = TRUE)
+      )
     ```
 
     - [complete = TRUE]{.arg-text} says only calculate the mean for complete 3 day windows
