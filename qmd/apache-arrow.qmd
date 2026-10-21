@@ -810,7 +810,7 @@
   - GEOMETRY type represents planar spatial objects. This includes points, linestrings, polygons, and multi geometries. The logical type indicates that the column contains spatial objects, while the physical storage uses a standard binary encoding.
   - The GEOGRAPHY type is similar to GEOMETRY but represents objects on a spherical or ellipsoidal Earth model. Geography values are encoded using longitude and latitude coordinates expressed in degrees.
 
-- [Example]{.ribbon-highlight}: ([source](https://parquet.apache.org/blog/2026/02/13/native-geospatial-types-in-apache-parquet/))
+- [Example]{.ribbon-highlight}: Data to geopandas df to parquet ([source](https://parquet.apache.org/blog/2026/02/13/native-geospatial-types-in-apache-parquet/))
 
   ``` python
   import geoarrow.pyarrow as ga # For GeoArrow extension type registration
@@ -848,3 +848,30 @@
   #> 0  MULTIPOLYGON (((180 -16.06713, 180 -16.55522, ... 
   #> 1  MULTIPOLYGON (((33.90371 -0.95, 34.07262 -1.05...
   ```
+
+- [Example]{.ribbon-highlight}: CSVs to Parquet ([source](https://bsky.app/profile/josiah.rs/post/3myd54vxgfc2u), [full code](https://gist.github.com/JosiahParry/d792e9521947a0023b0b2c4266615af1))
+
+  ``` r
+  library(geoarrow)
+
+  dataset <- arrow::open_csv_dataset(out_dir)
+
+  # iterate over all of the batches and convert into geoarrow
+  mapped <- dataset |>
+    map_batches(\(batch) {
+      mutate(
+        batch,
+        start = as_geoarrow_vctr(wk::xy(start_lng, start_lat, crs = 4326)),
+        end = as_geoarrow_vctr(wk::xy(end_lng, end_lat, crs = 4326))
+      )
+    }) |>
+    # do a basic sort to keep things near eachother
+    arrange(start_lat, start_lng) |>
+    select(-ends_with("_lng"), -ends_with("_lat"))
+
+  write_parquet(mapped, "dataset.parquet")
+  ```
+
+  - 2gb of CSV files (11.2m rows) into geoarrow in 0.3s
+  - Mapped over \~30k records per batch in R memory rather than 11.2m all at once
+  - Example using [SedonaDB](https://gist.github.com/paleolimbot/99703bda8cf2740e1bda46f01aaaadaa)
