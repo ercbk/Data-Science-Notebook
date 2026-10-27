@@ -1305,6 +1305,54 @@
   - Lets one DuckDB instance act as a server, and other DuckDB instances connect to it like it's a regular local database. Essentially, you have one DuckDB file somewhere, and everyone else gets to talk to it. This solves the concurrency (reading and writing at the same time) issue.
   - Each parallel worker writes, the scheduled job writes, your notebook reads, and they all see the same data at the same time.
   - Benchmarks show over 5,000 transactions (i.e. writes) per second with concurrent clients.
+  - Examples
+    - [Example]{.ribbon-highlight}: hrbmstr remotely connecting to home database
+
+      <Details>
+
+      <Summary>Code</Summary>
+
+      ``` r
+      library(tidyverse)
+      library(duckdb)
+
+      con <- dbConnect(duckdb())
+
+      dbExecute(
+        con, 
+        sprintf(
+          r"(ATTACH 'quack:%s:%s' AS medina (TOKEN '%s', DISABLE_SSL true))",
+          Sys.getenv("QUACK_HOST"),
+          Sys.getenv("QUACK_PORT"),
+          hrbr::kc_get("QUACK_TOKEN") # use whatev way you get secrets from a vault
+        )
+      )
+
+      on.exit(dbDisconnect(con, shutdown = TRUE), add = TRUE)
+
+      dbExecute(
+        con, 
+        r"(
+        CREATE OR REPLACE VIEW medina.main.bsky AS
+          FROM read_parquet('/data/bsky-urls.parquet')
+          SELECT *
+        )"
+      )
+
+      xdf <- tbl(con, "medina.main.bsky")
+
+      xdf |> 
+        mutate(
+          d = as.Date(timestamp)
+        ) |> 
+        count(d)
+
+      dbExecute(con, "DROP VIEW medina.main.bsky")
+
+      dbDisconnect(con)
+      ```
+
+      </Details>
 - [quackstore]{.underline}
   - [Repo](https://github.com/coginiti-dev/QuackStore)
   - For **caching frequently queried files locally**
@@ -1552,36 +1600,53 @@
 
 ## Security {#sec-db-duckdb-sec .unnumbered}
 
-- [Intro](https://duckdb.org/2025/11/19/encryption-in-duckdb)
+- [hrbrmstr's summary](https://dailydrop.hrbrmstr.dev/2026/10/26/drop-789-2026-10-26-mile-high-drop/) of [Starlake’s post](https://blog.starlake.ai/securing-duckdb-server-in-production) about their SQL gateway (i.e., “firewall”) for using DuckDB in production
 
-- Open an encrypted database file ([source](https://katharinabrunner.de/2026/01/how-to-use-an-encrypted-duckdb-in-r/))
+  - Issues: Credentials, Persistent Secrets, File System, Global Settings, Introspection, Dynamic SQL, Raw Passthrough, CLI as a Daemon
+  - Because DuckDB 2.0 supports backticks, string folding, and complex CTEs, a simple regex or basic parser in a security gateway can be bypassed. To solve this, you’d need to use a gateway that uses DuckDB’s own tokenizer to avoid "obfuscation" attacks.
+  - Checklist
+    - Credentials: No secrets in env vars or command lines; use temporary secrets.
+    - Storage: `secret_directory` is locked and read-only.
+    - Isolation: Each process has a private working and spill directory.
+    - Access Control: File path access is disabled for general users.
+    - Settings: Node-wide settings are frozen after startup.
+    - Privacy: Metadata/Log tables are restricted to admins.
+    - Validation: Dynamic SQL and macros are blocked or strictly audited.
+    - Remote Security: Remote DBs are connected via read-only roles.
+    - Process Mgmt: stdin closed; `-init` used for setup.
 
-  ``` r
+- Encryption
 
-  # connect to an encrypted database
-  # first remote an in-memory database
-  con <- DBI::dbConnect(duckdb::duckdb())
+  - [Intro](https://duckdb.org/2025/11/19/encryption-in-duckdb)
 
-  # attach the encrypted db
-  query_read_encrypted_db <- glue(
-    "ATTACH 'encrypted.duckdb' AS enc (ENCRYPTION_KEY 'YOUR_KEY_POSSIBLY_A_STRING_GENERATED_BY_YOUR_PASSWORD_MANAGER_THAT_YOU_OF_COURSE_USE');
-  USE enc;"
-  )
-  DBI::dbExecute(con, query_read_encrypted_db)
+  - Open an encrypted database file ([source](https://katharinabrunner.de/2026/01/how-to-use-an-encrypted-duckdb-in-r/))
 
-  # read tables
-  dplyr::tbl(con, "my_table")
+    ``` r
 
-  DBI::disconnect(con)
-  ```
+    # connect to an encrypted database
+    # first remote an in-memory database
+    con <- DBI::dbConnect(duckdb::duckdb())
 
-  - Main difference is that youopen an in-memory database first and then ATTACH the encrypted file
+    # attach the encrypted db
+    query_read_encrypted_db <- glue(
+      "ATTACH 'encrypted.duckdb' AS enc (ENCRYPTION_KEY 'YOUR_KEY_POSSIBLY_A_STRING_GENERATED_BY_YOUR_PASSWORD_MANAGER_THAT_YOU_OF_COURSE_USE');
+    USE enc;"
+    )
+    DBI::dbExecute(con, query_read_encrypted_db)
 
-- Create an encrypted file ([source](https://katharinabrunner.de/2026/01/how-to-use-an-encrypted-duckdb-in-r/))
+    # read tables
+    dplyr::tbl(con, "my_table")
 
-  ``` sql
-  ATTACH 'unencrypted.duckdb' AS unenc;
-  ATTACH 'encrypted.duckdb' AS enc (ENCRYPTION_KEY 'YOUR_KEY_POSSIBLY_A_STRING_GENERATED_BY_YOUR_PASSWORD_MANAGER_THAT_YOU_OF_COURSE_USE');
-  USE unenc;
-  COPY FROM DATABASE unenc TO enc;
-  ```
+    DBI::disconnect(con)
+    ```
+
+    - Main difference is that youopen an in-memory database first and then ATTACH the encrypted file
+
+  - Create an encrypted file ([source](https://katharinabrunner.de/2026/01/how-to-use-an-encrypted-duckdb-in-r/))
+
+    ``` sql
+    ATTACH 'unencrypted.duckdb' AS unenc;
+    ATTACH 'encrypted.duckdb' AS enc (ENCRYPTION_KEY 'YOUR_KEY_POSSIBLY_A_STRING_GENERATED_BY_YOUR_PASSWORD_MANAGER_THAT_YOU_OF_COURSE_USE');
+    USE unenc;
+    COPY FROM DATABASE unenc TO enc;
+    ```
