@@ -3520,6 +3520,52 @@ gtag('config', 'G-5J13QCM7YC', { 'anonymize_ip': true});
 <li>Lets one DuckDB instance act as a server, and other DuckDB instances connect to it like it’s a regular local database. Essentially, you have one DuckDB file somewhere, and everyone else gets to talk to it. This solves the concurrency (reading and writing at the same time) issue.</li>
 <li>Each parallel worker writes, the scheduled job writes, your notebook reads, and they all see the same data at the same time.</li>
 <li>Benchmarks show over 5,000 transactions (i.e.&nbsp;writes) per second with concurrent clients.</li>
+<li>Examples
+<ul>
+<li><p><span class="ribbon-highlight">Example</span>: hrbmstr remotely connecting to home database</p>
+<details>
+<summary>
+<p>Code</p>
+</summary>
+<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb57"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb57-1"><a href="#cb57-1" aria-hidden="true" tabindex="-1"></a><span class="fu">library</span>(tidyverse)</span>
+<span id="cb57-2"><a href="#cb57-2" aria-hidden="true" tabindex="-1"></a><span class="fu">library</span>(duckdb)</span>
+<span id="cb57-3"><a href="#cb57-3" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb57-4"><a href="#cb57-4" aria-hidden="true" tabindex="-1"></a>con <span class="ot">&lt;-</span> <span class="fu">dbConnect</span>(<span class="fu">duckdb</span>())</span>
+<span id="cb57-5"><a href="#cb57-5" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb57-6"><a href="#cb57-6" aria-hidden="true" tabindex="-1"></a><span class="fu">dbExecute</span>(</span>
+<span id="cb57-7"><a href="#cb57-7" aria-hidden="true" tabindex="-1"></a>  con, </span>
+<span id="cb57-8"><a href="#cb57-8" aria-hidden="true" tabindex="-1"></a>  <span class="fu">sprintf</span>(</span>
+<span id="cb57-9"><a href="#cb57-9" aria-hidden="true" tabindex="-1"></a>    r<span class="st">"(ATTACH 'quack:%s:%s' AS medina (TOKEN '%s', DISABLE_SSL true))"</span>,</span>
+<span id="cb57-10"><a href="#cb57-10" aria-hidden="true" tabindex="-1"></a>    <span class="fu">Sys.getenv</span>(<span class="st">"QUACK_HOST"</span>),</span>
+<span id="cb57-11"><a href="#cb57-11" aria-hidden="true" tabindex="-1"></a>    <span class="fu">Sys.getenv</span>(<span class="st">"QUACK_PORT"</span>),</span>
+<span id="cb57-12"><a href="#cb57-12" aria-hidden="true" tabindex="-1"></a>    hrbr<span class="sc">::</span><span class="fu">kc_get</span>(<span class="st">"QUACK_TOKEN"</span>) <span class="co"># use whatev way you get secrets from a vault</span></span>
+<span id="cb57-13"><a href="#cb57-13" aria-hidden="true" tabindex="-1"></a>  )</span>
+<span id="cb57-14"><a href="#cb57-14" aria-hidden="true" tabindex="-1"></a>)</span>
+<span id="cb57-15"><a href="#cb57-15" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb57-16"><a href="#cb57-16" aria-hidden="true" tabindex="-1"></a><span class="fu">on.exit</span>(<span class="fu">dbDisconnect</span>(con, <span class="at">shutdown =</span> <span class="cn">TRUE</span>), <span class="at">add =</span> <span class="cn">TRUE</span>)</span>
+<span id="cb57-17"><a href="#cb57-17" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb57-18"><a href="#cb57-18" aria-hidden="true" tabindex="-1"></a><span class="fu">dbExecute</span>(</span>
+<span id="cb57-19"><a href="#cb57-19" aria-hidden="true" tabindex="-1"></a>  con, </span>
+<span id="cb57-20"><a href="#cb57-20" aria-hidden="true" tabindex="-1"></a>  r<span class="st">"(</span></span>
+<span id="cb57-21"><a href="#cb57-21" aria-hidden="true" tabindex="-1"></a><span class="st">  CREATE OR REPLACE VIEW medina.main.bsky AS</span></span>
+<span id="cb57-22"><a href="#cb57-22" aria-hidden="true" tabindex="-1"></a><span class="st">    FROM read_parquet('/data/bsky-urls.parquet')</span></span>
+<span id="cb57-23"><a href="#cb57-23" aria-hidden="true" tabindex="-1"></a><span class="st">    SELECT *</span></span>
+<span id="cb57-24"><a href="#cb57-24" aria-hidden="true" tabindex="-1"></a><span class="st">  )"</span></span>
+<span id="cb57-25"><a href="#cb57-25" aria-hidden="true" tabindex="-1"></a>)</span>
+<span id="cb57-26"><a href="#cb57-26" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb57-27"><a href="#cb57-27" aria-hidden="true" tabindex="-1"></a>xdf <span class="ot">&lt;-</span> <span class="fu">tbl</span>(con, <span class="st">"medina.main.bsky"</span>)</span>
+<span id="cb57-28"><a href="#cb57-28" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb57-29"><a href="#cb57-29" aria-hidden="true" tabindex="-1"></a>xdf <span class="sc">|&gt;</span> </span>
+<span id="cb57-30"><a href="#cb57-30" aria-hidden="true" tabindex="-1"></a>  <span class="fu">mutate</span>(</span>
+<span id="cb57-31"><a href="#cb57-31" aria-hidden="true" tabindex="-1"></a>    <span class="at">d =</span> <span class="fu">as.Date</span>(timestamp)</span>
+<span id="cb57-32"><a href="#cb57-32" aria-hidden="true" tabindex="-1"></a>  ) <span class="sc">|&gt;</span> </span>
+<span id="cb57-33"><a href="#cb57-33" aria-hidden="true" tabindex="-1"></a>  <span class="fu">count</span>(d)</span>
+<span id="cb57-34"><a href="#cb57-34" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb57-35"><a href="#cb57-35" aria-hidden="true" tabindex="-1"></a><span class="fu">dbExecute</span>(con, <span class="st">"DROP VIEW medina.main.bsky"</span>)</span>
+<span id="cb57-36"><a href="#cb57-36" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb57-37"><a href="#cb57-37" aria-hidden="true" tabindex="-1"></a><span class="fu">dbDisconnect</span>(con)</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
+</details></li>
+</ul></li>
 </ul></li>
 <li><u>quackstore</u>
 <ul>
@@ -3630,32 +3676,32 @@ gtag('config', 'G-5J13QCM7YC', { 'anonymize_ip': true});
 <ul>
 <li><p>More optimization features will soon be implemented: optimized predicates, parallelization, larger-than-memory R-Trees</p></li>
 <li><p>Syntax</p>
-<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb57"><pre class="sourceCode sql code-with-copy"><code class="sourceCode sql"><span id="cb57-1"><a href="#cb57-1" aria-hidden="true" tabindex="-1"></a><span class="kw">SELECT</span> <span class="op">*</span></span>
-<span id="cb57-2"><a href="#cb57-2" aria-hidden="true" tabindex="-1"></a><span class="kw">FROM</span> some_table</span>
-<span id="cb57-3"><a href="#cb57-3" aria-hidden="true" tabindex="-1"></a><span class="kw">JOIN</span> another_table</span>
-<span id="cb57-4"><a href="#cb57-4" aria-hidden="true" tabindex="-1"></a>  <span class="kw">ON</span> ST_Intersects(some_table.geom, another_table.geom);</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
+<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb58"><pre class="sourceCode sql code-with-copy"><code class="sourceCode sql"><span id="cb58-1"><a href="#cb58-1" aria-hidden="true" tabindex="-1"></a><span class="kw">SELECT</span> <span class="op">*</span></span>
+<span id="cb58-2"><a href="#cb58-2" aria-hidden="true" tabindex="-1"></a><span class="kw">FROM</span> some_table</span>
+<span id="cb58-3"><a href="#cb58-3" aria-hidden="true" tabindex="-1"></a><span class="kw">JOIN</span> another_table</span>
+<span id="cb58-4"><a href="#cb58-4" aria-hidden="true" tabindex="-1"></a>  <span class="kw">ON</span> ST_Intersects(some_table.geom, another_table.geom);</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
 <ul>
 <li><code>ST_Contains</code>&nbsp;or&nbsp;<code>ST_ContainsProperly</code> might be more appropriate for point-in-polygon joins, but <code>ST_Intersects</code> also works.</li>
 </ul></li>
 <li><p><span class="ribbon-highlight">Example</span>: Find neighborhoods in NYC that have the most bike trips starting in them</p>
-<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb58"><pre class="sourceCode sql code-with-copy"><code class="sourceCode sql"><span id="cb58-1"><a href="#cb58-1" aria-hidden="true" tabindex="-1"></a>INSTALL spatial; <span class="co">-- Install the spatial extension</span></span>
-<span id="cb58-2"><a href="#cb58-2" aria-hidden="true" tabindex="-1"></a>LOAD spatial;    <span class="co">-- Load the spatial extension</span></span>
-<span id="cb58-3"><a href="#cb58-3" aria-hidden="true" tabindex="-1"></a></span>
-<span id="cb58-4"><a href="#cb58-4" aria-hidden="true" tabindex="-1"></a><span class="kw">SELECT</span> neighborhood, <span class="fu">count</span>(<span class="op">*</span>) <span class="kw">AS</span> num_rides</span>
-<span id="cb58-5"><a href="#cb58-5" aria-hidden="true" tabindex="-1"></a><span class="kw">FROM</span> rides</span>
-<span id="cb58-6"><a href="#cb58-6" aria-hidden="true" tabindex="-1"></a><span class="kw">JOIN</span> hoods <span class="kw">ON</span> ST_Intersects(rides.start_geom, hoods.geom)</span>
-<span id="cb58-7"><a href="#cb58-7" aria-hidden="true" tabindex="-1"></a><span class="kw">GROUP</span> <span class="kw">BY</span> neighborhood</span>
-<span id="cb58-8"><a href="#cb58-8" aria-hidden="true" tabindex="-1"></a><span class="kw">ORDER</span> <span class="kw">BY</span> num_rides <span class="kw">DESC</span></span>
-<span id="cb58-9"><a href="#cb58-9" aria-hidden="true" tabindex="-1"></a><span class="kw">LIMIT</span> <span class="dv">3</span>;</span>
-<span id="cb58-10"><a href="#cb58-10" aria-hidden="true" tabindex="-1"></a></span>
-<span id="cb58-11"><a href="#cb58-11" aria-hidden="true" tabindex="-1"></a>#<span class="op">&gt;</span> ┌──────────────┬───────────┐</span>
-<span id="cb58-12"><a href="#cb58-12" aria-hidden="true" tabindex="-1"></a>#<span class="op">&gt;</span> │ neighborhood │ num_rides │</span>
-<span id="cb58-13"><a href="#cb58-13" aria-hidden="true" tabindex="-1"></a>#<span class="op">&gt;</span> │   <span class="dt">varchar</span>    │   int64   │</span>
-<span id="cb58-14"><a href="#cb58-14" aria-hidden="true" tabindex="-1"></a>#<span class="op">&gt;</span> ├──────────────┼───────────┤</span>
-<span id="cb58-15"><a href="#cb58-15" aria-hidden="true" tabindex="-1"></a>#<span class="op">&gt;</span> │ Midtown      │   <span class="dv">6253835</span> │</span>
-<span id="cb58-16"><a href="#cb58-16" aria-hidden="true" tabindex="-1"></a>#<span class="op">&gt;</span> │ Chelsea      │   <span class="dv">6238693</span> │</span>
-<span id="cb58-17"><a href="#cb58-17" aria-hidden="true" tabindex="-1"></a>#<span class="op">&gt;</span> │ East Village │   <span class="dv">4047396</span> │</span>
-<span id="cb58-18"><a href="#cb58-18" aria-hidden="true" tabindex="-1"></a>#<span class="op">&gt;</span> └──────────────┴───────────┘</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
+<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb59"><pre class="sourceCode sql code-with-copy"><code class="sourceCode sql"><span id="cb59-1"><a href="#cb59-1" aria-hidden="true" tabindex="-1"></a>INSTALL spatial; <span class="co">-- Install the spatial extension</span></span>
+<span id="cb59-2"><a href="#cb59-2" aria-hidden="true" tabindex="-1"></a>LOAD spatial;    <span class="co">-- Load the spatial extension</span></span>
+<span id="cb59-3"><a href="#cb59-3" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb59-4"><a href="#cb59-4" aria-hidden="true" tabindex="-1"></a><span class="kw">SELECT</span> neighborhood, <span class="fu">count</span>(<span class="op">*</span>) <span class="kw">AS</span> num_rides</span>
+<span id="cb59-5"><a href="#cb59-5" aria-hidden="true" tabindex="-1"></a><span class="kw">FROM</span> rides</span>
+<span id="cb59-6"><a href="#cb59-6" aria-hidden="true" tabindex="-1"></a><span class="kw">JOIN</span> hoods <span class="kw">ON</span> ST_Intersects(rides.start_geom, hoods.geom)</span>
+<span id="cb59-7"><a href="#cb59-7" aria-hidden="true" tabindex="-1"></a><span class="kw">GROUP</span> <span class="kw">BY</span> neighborhood</span>
+<span id="cb59-8"><a href="#cb59-8" aria-hidden="true" tabindex="-1"></a><span class="kw">ORDER</span> <span class="kw">BY</span> num_rides <span class="kw">DESC</span></span>
+<span id="cb59-9"><a href="#cb59-9" aria-hidden="true" tabindex="-1"></a><span class="kw">LIMIT</span> <span class="dv">3</span>;</span>
+<span id="cb59-10"><a href="#cb59-10" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb59-11"><a href="#cb59-11" aria-hidden="true" tabindex="-1"></a>#<span class="op">&gt;</span> ┌──────────────┬───────────┐</span>
+<span id="cb59-12"><a href="#cb59-12" aria-hidden="true" tabindex="-1"></a>#<span class="op">&gt;</span> │ neighborhood │ num_rides │</span>
+<span id="cb59-13"><a href="#cb59-13" aria-hidden="true" tabindex="-1"></a>#<span class="op">&gt;</span> │   <span class="dt">varchar</span>    │   int64   │</span>
+<span id="cb59-14"><a href="#cb59-14" aria-hidden="true" tabindex="-1"></a>#<span class="op">&gt;</span> ├──────────────┼───────────┤</span>
+<span id="cb59-15"><a href="#cb59-15" aria-hidden="true" tabindex="-1"></a>#<span class="op">&gt;</span> │ Midtown      │   <span class="dv">6253835</span> │</span>
+<span id="cb59-16"><a href="#cb59-16" aria-hidden="true" tabindex="-1"></a>#<span class="op">&gt;</span> │ Chelsea      │   <span class="dv">6238693</span> │</span>
+<span id="cb59-17"><a href="#cb59-17" aria-hidden="true" tabindex="-1"></a>#<span class="op">&gt;</span> │ East Village │   <span class="dv">4047396</span> │</span>
+<span id="cb59-18"><a href="#cb59-18" aria-hidden="true" tabindex="-1"></a>#<span class="op">&gt;</span> └──────────────┴───────────┘</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
 <ul>
 <li>Join the bike trip data with a dataset of NYC neighborhood polygons</li>
 <li>Count and group the number of trips starting in each neighborhood</li>
@@ -3665,46 +3711,46 @@ gtag('config', 'G-5J13QCM7YC', { 'anonymize_ip': true});
 </ul></li>
 </ul></li>
 <li><p>Create a table with spatial data filtered by a bounding box (<a href="https://pmassicotte.github.io/r-spatial-cookbook/chapters/filtering/01_filtering.html#filtering-spatial-data-with-duckdb">source</a>)</p>
-<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb59"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb59-1"><a href="#cb59-1" aria-hidden="true" tabindex="-1"></a>pacman<span class="sc">::</span><span class="fu">p_load</span>(</span>
-<span id="cb59-2"><a href="#cb59-2" aria-hidden="true" tabindex="-1"></a>  dplyr,</span>
-<span id="cb59-3"><a href="#cb59-3" aria-hidden="true" tabindex="-1"></a>  DBI,</span>
-<span id="cb59-4"><a href="#cb59-4" aria-hidden="true" tabindex="-1"></a>  sf,</span>
-<span id="cb59-5"><a href="#cb59-5" aria-hidden="true" tabindex="-1"></a>  duckdb</span>
-<span id="cb59-6"><a href="#cb59-6" aria-hidden="true" tabindex="-1"></a>)</span>
-<span id="cb59-7"><a href="#cb59-7" aria-hidden="true" tabindex="-1"></a></span>
-<span id="cb59-8"><a href="#cb59-8" aria-hidden="true" tabindex="-1"></a><span class="co"># Connect to DuckDB</span></span>
-<span id="cb59-9"><a href="#cb59-9" aria-hidden="true" tabindex="-1"></a>conn <span class="ot">&lt;-</span> <span class="fu">dbConnect</span>(<span class="fu">duckdb</span>())</span>
-<span id="cb59-10"><a href="#cb59-10" aria-hidden="true" tabindex="-1"></a></span>
-<span id="cb59-11"><a href="#cb59-11" aria-hidden="true" tabindex="-1"></a><span class="co"># Install and load the spatial extension</span></span>
-<span id="cb59-12"><a href="#cb59-12" aria-hidden="true" tabindex="-1"></a><span class="fu">dbSendQuery</span>(conn, <span class="st">"INSTALL spatial;"</span>)</span>
-<span id="cb59-13"><a href="#cb59-13" aria-hidden="true" tabindex="-1"></a><span class="fu">dbSendQuery</span>(conn, <span class="st">"LOAD spatial;"</span>)</span>
-<span id="cb59-14"><a href="#cb59-14" aria-hidden="true" tabindex="-1"></a></span>
-<span id="cb59-15"><a href="#cb59-15" aria-hidden="true" tabindex="-1"></a><span class="co"># Create a table with spatial data filtered by a bounding box</span></span>
-<span id="cb59-16"><a href="#cb59-16" aria-hidden="true" tabindex="-1"></a><span class="fu">dbSendQuery</span>(</span>
-<span id="cb59-17"><a href="#cb59-17" aria-hidden="true" tabindex="-1"></a>  conn,</span>
-<span id="cb59-18"><a href="#cb59-18" aria-hidden="true" tabindex="-1"></a>  <span class="st">"</span></span>
-<span id="cb59-19"><a href="#cb59-19" aria-hidden="true" tabindex="-1"></a><span class="st">  CREATE</span></span>
-<span id="cb59-20"><a href="#cb59-20" aria-hidden="true" tabindex="-1"></a><span class="st">  OR REPLACE TABLE t AS</span></span>
-<span id="cb59-21"><a href="#cb59-21" aria-hidden="true" tabindex="-1"></a><span class="st">  SELECT</span></span>
-<span id="cb59-22"><a href="#cb59-22" aria-hidden="true" tabindex="-1"></a><span class="st">   *,</span></span>
-<span id="cb59-23"><a href="#cb59-23" aria-hidden="true" tabindex="-1"></a><span class="st">   ST_asWKB(geom) AS geometry</span></span>
-<span id="cb59-24"><a href="#cb59-24" aria-hidden="true" tabindex="-1"></a><span class="st">  FROM</span></span>
-<span id="cb59-25"><a href="#cb59-25" aria-hidden="true" tabindex="-1"></a><span class="st">   ST_Read('/vsis3/spatial-playground/gmw_v3.fgb', spatial_filter_box = {'min_x' : - 30, 'min_y' : 0, 'max_x' : - 50, 'max_y' : 45});</span></span>
-<span id="cb59-26"><a href="#cb59-26" aria-hidden="true" tabindex="-1"></a><span class="st">  "</span></span>
-<span id="cb59-27"><a href="#cb59-27" aria-hidden="true" tabindex="-1"></a>)</span>
-<span id="cb59-28"><a href="#cb59-28" aria-hidden="true" tabindex="-1"></a></span>
-<span id="cb59-29"><a href="#cb59-29" aria-hidden="true" tabindex="-1"></a><span class="co"># Read the filtered data from DuckDB</span></span>
-<span id="cb59-30"><a href="#cb59-30" aria-hidden="true" tabindex="-1"></a><span class="fu">read_sf</span>(conn, </span>
-<span id="cb59-31"><a href="#cb59-31" aria-hidden="true" tabindex="-1"></a>        <span class="at">query =</span> <span class="st">"SELECT * FROM t"</span>, </span>
-<span id="cb59-32"><a href="#cb59-32" aria-hidden="true" tabindex="-1"></a>        <span class="at">geometry_column =</span> <span class="st">"geometry"</span>)</span>
-<span id="cb59-33"><a href="#cb59-33" aria-hidden="true" tabindex="-1"></a></span>
-<span id="cb59-34"><a href="#cb59-34" aria-hidden="true" tabindex="-1"></a><span class="co"># Read the filtered data with an additional computed area column</span></span>
-<span id="cb59-35"><a href="#cb59-35" aria-hidden="true" tabindex="-1"></a><span class="fu">read_sf</span>(</span>
-<span id="cb59-36"><a href="#cb59-36" aria-hidden="true" tabindex="-1"></a>  conn,</span>
-<span id="cb59-37"><a href="#cb59-37" aria-hidden="true" tabindex="-1"></a>  <span class="at">query =</span> <span class="st">"SELECT *, ST_Area(geom) as area1 FROM t"</span>,</span>
-<span id="cb59-38"><a href="#cb59-38" aria-hidden="true" tabindex="-1"></a>  <span class="at">geometry_column =</span> <span class="st">"geometry"</span></span>
-<span id="cb59-39"><a href="#cb59-39" aria-hidden="true" tabindex="-1"></a>) <span class="sc">|&gt;</span></span>
-<span id="cb59-40"><a href="#cb59-40" aria-hidden="true" tabindex="-1"></a>  <span class="fu">mutate</span>(<span class="at">area2 =</span> <span class="fu">st_area</span>(geometry), <span class="at">.after =</span> area1)</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div></li>
+<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb60"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb60-1"><a href="#cb60-1" aria-hidden="true" tabindex="-1"></a>pacman<span class="sc">::</span><span class="fu">p_load</span>(</span>
+<span id="cb60-2"><a href="#cb60-2" aria-hidden="true" tabindex="-1"></a>  dplyr,</span>
+<span id="cb60-3"><a href="#cb60-3" aria-hidden="true" tabindex="-1"></a>  DBI,</span>
+<span id="cb60-4"><a href="#cb60-4" aria-hidden="true" tabindex="-1"></a>  sf,</span>
+<span id="cb60-5"><a href="#cb60-5" aria-hidden="true" tabindex="-1"></a>  duckdb</span>
+<span id="cb60-6"><a href="#cb60-6" aria-hidden="true" tabindex="-1"></a>)</span>
+<span id="cb60-7"><a href="#cb60-7" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb60-8"><a href="#cb60-8" aria-hidden="true" tabindex="-1"></a><span class="co"># Connect to DuckDB</span></span>
+<span id="cb60-9"><a href="#cb60-9" aria-hidden="true" tabindex="-1"></a>conn <span class="ot">&lt;-</span> <span class="fu">dbConnect</span>(<span class="fu">duckdb</span>())</span>
+<span id="cb60-10"><a href="#cb60-10" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb60-11"><a href="#cb60-11" aria-hidden="true" tabindex="-1"></a><span class="co"># Install and load the spatial extension</span></span>
+<span id="cb60-12"><a href="#cb60-12" aria-hidden="true" tabindex="-1"></a><span class="fu">dbSendQuery</span>(conn, <span class="st">"INSTALL spatial;"</span>)</span>
+<span id="cb60-13"><a href="#cb60-13" aria-hidden="true" tabindex="-1"></a><span class="fu">dbSendQuery</span>(conn, <span class="st">"LOAD spatial;"</span>)</span>
+<span id="cb60-14"><a href="#cb60-14" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb60-15"><a href="#cb60-15" aria-hidden="true" tabindex="-1"></a><span class="co"># Create a table with spatial data filtered by a bounding box</span></span>
+<span id="cb60-16"><a href="#cb60-16" aria-hidden="true" tabindex="-1"></a><span class="fu">dbSendQuery</span>(</span>
+<span id="cb60-17"><a href="#cb60-17" aria-hidden="true" tabindex="-1"></a>  conn,</span>
+<span id="cb60-18"><a href="#cb60-18" aria-hidden="true" tabindex="-1"></a>  <span class="st">"</span></span>
+<span id="cb60-19"><a href="#cb60-19" aria-hidden="true" tabindex="-1"></a><span class="st">  CREATE</span></span>
+<span id="cb60-20"><a href="#cb60-20" aria-hidden="true" tabindex="-1"></a><span class="st">  OR REPLACE TABLE t AS</span></span>
+<span id="cb60-21"><a href="#cb60-21" aria-hidden="true" tabindex="-1"></a><span class="st">  SELECT</span></span>
+<span id="cb60-22"><a href="#cb60-22" aria-hidden="true" tabindex="-1"></a><span class="st">   *,</span></span>
+<span id="cb60-23"><a href="#cb60-23" aria-hidden="true" tabindex="-1"></a><span class="st">   ST_asWKB(geom) AS geometry</span></span>
+<span id="cb60-24"><a href="#cb60-24" aria-hidden="true" tabindex="-1"></a><span class="st">  FROM</span></span>
+<span id="cb60-25"><a href="#cb60-25" aria-hidden="true" tabindex="-1"></a><span class="st">   ST_Read('/vsis3/spatial-playground/gmw_v3.fgb', spatial_filter_box = {'min_x' : - 30, 'min_y' : 0, 'max_x' : - 50, 'max_y' : 45});</span></span>
+<span id="cb60-26"><a href="#cb60-26" aria-hidden="true" tabindex="-1"></a><span class="st">  "</span></span>
+<span id="cb60-27"><a href="#cb60-27" aria-hidden="true" tabindex="-1"></a>)</span>
+<span id="cb60-28"><a href="#cb60-28" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb60-29"><a href="#cb60-29" aria-hidden="true" tabindex="-1"></a><span class="co"># Read the filtered data from DuckDB</span></span>
+<span id="cb60-30"><a href="#cb60-30" aria-hidden="true" tabindex="-1"></a><span class="fu">read_sf</span>(conn, </span>
+<span id="cb60-31"><a href="#cb60-31" aria-hidden="true" tabindex="-1"></a>        <span class="at">query =</span> <span class="st">"SELECT * FROM t"</span>, </span>
+<span id="cb60-32"><a href="#cb60-32" aria-hidden="true" tabindex="-1"></a>        <span class="at">geometry_column =</span> <span class="st">"geometry"</span>)</span>
+<span id="cb60-33"><a href="#cb60-33" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb60-34"><a href="#cb60-34" aria-hidden="true" tabindex="-1"></a><span class="co"># Read the filtered data with an additional computed area column</span></span>
+<span id="cb60-35"><a href="#cb60-35" aria-hidden="true" tabindex="-1"></a><span class="fu">read_sf</span>(</span>
+<span id="cb60-36"><a href="#cb60-36" aria-hidden="true" tabindex="-1"></a>  conn,</span>
+<span id="cb60-37"><a href="#cb60-37" aria-hidden="true" tabindex="-1"></a>  <span class="at">query =</span> <span class="st">"SELECT *, ST_Area(geom) as area1 FROM t"</span>,</span>
+<span id="cb60-38"><a href="#cb60-38" aria-hidden="true" tabindex="-1"></a>  <span class="at">geometry_column =</span> <span class="st">"geometry"</span></span>
+<span id="cb60-39"><a href="#cb60-39" aria-hidden="true" tabindex="-1"></a>) <span class="sc">|&gt;</span></span>
+<span id="cb60-40"><a href="#cb60-40" aria-hidden="true" tabindex="-1"></a>  <span class="fu">mutate</span>(<span class="at">area2 =</span> <span class="fu">st_area</span>(geometry), <span class="at">.after =</span> area1)</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div></li>
 <li><p>Using the geoarrow extension</p>
 <ul>
 <li><p>Notes from</p>
@@ -3712,117 +3758,137 @@ gtag('config', 'G-5J13QCM7YC', { 'anonymize_ip': true});
 <li>Scaling the r-spatial ecosystem (<a href="https://dewey.dunnington.ca/slides/rspatial2025/#/driving-spatial-databases-duckdb">Slides</a>, <a href="https://www.youtube.com/watch?v=tjNEoIYr_ag">Video</a>)</li>
 </ul></li>
 <li><p>Set-Up</p>
-<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb60"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb60-1"><a href="#cb60-1" aria-hidden="true" tabindex="-1"></a><span class="fu">library</span>(duckdb)</span>
-<span id="cb60-2"><a href="#cb60-2" aria-hidden="true" tabindex="-1"></a><span class="fu">library</span>(geoarrow)</span>
-<span id="cb60-3"><a href="#cb60-3" aria-hidden="true" tabindex="-1"></a></span>
-<span id="cb60-4"><a href="#cb60-4" aria-hidden="true" tabindex="-1"></a>con <span class="ot">&lt;-</span> <span class="fu">dbConnect</span>(duckdb<span class="sc">::</span><span class="fu">duckdb</span>())</span>
-<span id="cb60-5"><a href="#cb60-5" aria-hidden="true" tabindex="-1"></a><span class="fu">dbExecute</span>(con, <span class="st">"LOAD spatial"</span>)</span>
-<span id="cb60-6"><a href="#cb60-6" aria-hidden="true" tabindex="-1"></a><span class="fu">dbExecute</span>(con, <span class="st">"CALL register_geoarrow_extensions()"</span>)</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
+<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb61"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb61-1"><a href="#cb61-1" aria-hidden="true" tabindex="-1"></a><span class="fu">library</span>(duckdb)</span>
+<span id="cb61-2"><a href="#cb61-2" aria-hidden="true" tabindex="-1"></a><span class="fu">library</span>(geoarrow)</span>
+<span id="cb61-3"><a href="#cb61-3" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb61-4"><a href="#cb61-4" aria-hidden="true" tabindex="-1"></a>con <span class="ot">&lt;-</span> <span class="fu">dbConnect</span>(duckdb<span class="sc">::</span><span class="fu">duckdb</span>())</span>
+<span id="cb61-5"><a href="#cb61-5" aria-hidden="true" tabindex="-1"></a><span class="fu">dbExecute</span>(con, <span class="st">"LOAD spatial"</span>)</span>
+<span id="cb61-6"><a href="#cb61-6" aria-hidden="true" tabindex="-1"></a><span class="fu">dbExecute</span>(con, <span class="st">"CALL register_geoarrow_extensions()"</span>)</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
 <ul>
 <li>The geoarrow extension makes sure the metadata is transferred back and forth between arrrow and duckdb</li>
 </ul></li>
 <li><p>Create a table</p>
-<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb61"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb61-1"><a href="#cb61-1" aria-hidden="true" tabindex="-1"></a>bounds_lonlat <span class="ot">&lt;-</span> <span class="fu">st_bbox</span>(</span>
-<span id="cb61-2"><a href="#cb61-2" aria-hidden="true" tabindex="-1"></a>  <span class="fu">c</span>(<span class="at">xmin =</span> <span class="sc">-</span><span class="fl">64.6418</span>, </span>
-<span id="cb61-3"><a href="#cb61-3" aria-hidden="true" tabindex="-1"></a>    <span class="at">xmax =</span> <span class="sc">-</span><span class="fl">64.2868</span>, </span>
-<span id="cb61-4"><a href="#cb61-4" aria-hidden="true" tabindex="-1"></a>    <span class="at">ymin =</span> <span class="fl">44.8473</span>, </span>
-<span id="cb61-5"><a href="#cb61-5" aria-hidden="true" tabindex="-1"></a>    <span class="at">ymax =</span> <span class="fl">45.0151</span>),</span>
-<span id="cb61-6"><a href="#cb61-6" aria-hidden="true" tabindex="-1"></a>  <span class="at">crs =</span> <span class="fu">st_crs</span>(<span class="st">"OGC:CRS84"</span>)</span>
-<span id="cb61-7"><a href="#cb61-7" aria-hidden="true" tabindex="-1"></a>)</span>
-<span id="cb61-8"><a href="#cb61-8" aria-hidden="true" tabindex="-1"></a></span>
-<span id="cb61-9"><a href="#cb61-9" aria-hidden="true" tabindex="-1"></a><span class="co"># Read the CRS of the source</span></span>
-<span id="cb61-10"><a href="#cb61-10" aria-hidden="true" tabindex="-1"></a>elevation_crs <span class="ot">&lt;-</span> <span class="fu">st_layers</span>(<span class="st">"data/ns-water_elevation.fgb"</span>)<span class="sc">$</span>crs[[<span class="dv">1</span>]]</span>
-<span id="cb61-11"><a href="#cb61-11" aria-hidden="true" tabindex="-1"></a></span>
-<span id="cb61-12"><a href="#cb61-12" aria-hidden="true" tabindex="-1"></a><span class="co"># Transform the bounds to the CRS of the source</span></span>
-<span id="cb61-13"><a href="#cb61-13" aria-hidden="true" tabindex="-1"></a>bounds_poly <span class="ot">&lt;-</span> bounds_lonlat <span class="sc">|&gt;</span></span>
-<span id="cb61-14"><a href="#cb61-14" aria-hidden="true" tabindex="-1"></a>  <span class="fu">st_transform</span>(elevation_crs) <span class="sc">|&gt;</span></span>
-<span id="cb61-15"><a href="#cb61-15" aria-hidden="true" tabindex="-1"></a>  <span class="fu">st_as_sfc</span>()</span>
-<span id="cb61-16"><a href="#cb61-16" aria-hidden="true" tabindex="-1"></a></span>
-<span id="cb61-17"><a href="#cb61-17" aria-hidden="true" tabindex="-1"></a><span class="co"># create lake table</span></span>
-<span id="cb61-18"><a href="#cb61-18" aria-hidden="true" tabindex="-1"></a><span class="co"># filter lake region geometry using the bounding box</span></span>
-<span id="cb61-19"><a href="#cb61-19" aria-hidden="true" tabindex="-1"></a><span class="fu">dbExecute</span>(</span>
-<span id="cb61-20"><a href="#cb61-20" aria-hidden="true" tabindex="-1"></a>  con,</span>
-<span id="cb61-21"><a href="#cb61-21" aria-hidden="true" tabindex="-1"></a>  glue<span class="sc">::</span><span class="fu">glue</span>(<span class="st">"</span></span>
-<span id="cb61-22"><a href="#cb61-22" aria-hidden="true" tabindex="-1"></a><span class="st">   CREATE TABLE lakes AS</span></span>
-<span id="cb61-23"><a href="#cb61-23" aria-hidden="true" tabindex="-1"></a><span class="st">   SELECT * FROM 'data/ns-water_water-poly.fgb'</span></span>
-<span id="cb61-24"><a href="#cb61-24" aria-hidden="true" tabindex="-1"></a><span class="st">   WHERE ST_Intersects(geom, ST_GeomFromText('{bounds_poly |&gt; st_as_text()}'))</span></span>
-<span id="cb61-25"><a href="#cb61-25" aria-hidden="true" tabindex="-1"></a><span class="st">  "</span>)</span>
-<span id="cb61-26"><a href="#cb61-26" aria-hidden="true" tabindex="-1"></a>)</span>
-<span id="cb61-27"><a href="#cb61-27" aria-hidden="true" tabindex="-1"></a></span>
-<span id="cb61-28"><a href="#cb61-28" aria-hidden="true" tabindex="-1"></a><span class="co"># create elevation table</span></span>
-<span id="cb61-29"><a href="#cb61-29" aria-hidden="true" tabindex="-1"></a><span class="fu">dbExecute</span>(con, </span>
-<span id="cb61-30"><a href="#cb61-30" aria-hidden="true" tabindex="-1"></a>          <span class="st">"CREATE TABLE elevation AS SELECT * FROM 'data/ns-water_elevation.fgb'"</span>)</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div></li>
+<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb62"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb62-1"><a href="#cb62-1" aria-hidden="true" tabindex="-1"></a>bounds_lonlat <span class="ot">&lt;-</span> <span class="fu">st_bbox</span>(</span>
+<span id="cb62-2"><a href="#cb62-2" aria-hidden="true" tabindex="-1"></a>  <span class="fu">c</span>(<span class="at">xmin =</span> <span class="sc">-</span><span class="fl">64.6418</span>, </span>
+<span id="cb62-3"><a href="#cb62-3" aria-hidden="true" tabindex="-1"></a>    <span class="at">xmax =</span> <span class="sc">-</span><span class="fl">64.2868</span>, </span>
+<span id="cb62-4"><a href="#cb62-4" aria-hidden="true" tabindex="-1"></a>    <span class="at">ymin =</span> <span class="fl">44.8473</span>, </span>
+<span id="cb62-5"><a href="#cb62-5" aria-hidden="true" tabindex="-1"></a>    <span class="at">ymax =</span> <span class="fl">45.0151</span>),</span>
+<span id="cb62-6"><a href="#cb62-6" aria-hidden="true" tabindex="-1"></a>  <span class="at">crs =</span> <span class="fu">st_crs</span>(<span class="st">"OGC:CRS84"</span>)</span>
+<span id="cb62-7"><a href="#cb62-7" aria-hidden="true" tabindex="-1"></a>)</span>
+<span id="cb62-8"><a href="#cb62-8" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb62-9"><a href="#cb62-9" aria-hidden="true" tabindex="-1"></a><span class="co"># Read the CRS of the source</span></span>
+<span id="cb62-10"><a href="#cb62-10" aria-hidden="true" tabindex="-1"></a>elevation_crs <span class="ot">&lt;-</span> <span class="fu">st_layers</span>(<span class="st">"data/ns-water_elevation.fgb"</span>)<span class="sc">$</span>crs[[<span class="dv">1</span>]]</span>
+<span id="cb62-11"><a href="#cb62-11" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb62-12"><a href="#cb62-12" aria-hidden="true" tabindex="-1"></a><span class="co"># Transform the bounds to the CRS of the source</span></span>
+<span id="cb62-13"><a href="#cb62-13" aria-hidden="true" tabindex="-1"></a>bounds_poly <span class="ot">&lt;-</span> bounds_lonlat <span class="sc">|&gt;</span></span>
+<span id="cb62-14"><a href="#cb62-14" aria-hidden="true" tabindex="-1"></a>  <span class="fu">st_transform</span>(elevation_crs) <span class="sc">|&gt;</span></span>
+<span id="cb62-15"><a href="#cb62-15" aria-hidden="true" tabindex="-1"></a>  <span class="fu">st_as_sfc</span>()</span>
+<span id="cb62-16"><a href="#cb62-16" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb62-17"><a href="#cb62-17" aria-hidden="true" tabindex="-1"></a><span class="co"># create lake table</span></span>
+<span id="cb62-18"><a href="#cb62-18" aria-hidden="true" tabindex="-1"></a><span class="co"># filter lake region geometry using the bounding box</span></span>
+<span id="cb62-19"><a href="#cb62-19" aria-hidden="true" tabindex="-1"></a><span class="fu">dbExecute</span>(</span>
+<span id="cb62-20"><a href="#cb62-20" aria-hidden="true" tabindex="-1"></a>  con,</span>
+<span id="cb62-21"><a href="#cb62-21" aria-hidden="true" tabindex="-1"></a>  glue<span class="sc">::</span><span class="fu">glue</span>(<span class="st">"</span></span>
+<span id="cb62-22"><a href="#cb62-22" aria-hidden="true" tabindex="-1"></a><span class="st">   CREATE TABLE lakes AS</span></span>
+<span id="cb62-23"><a href="#cb62-23" aria-hidden="true" tabindex="-1"></a><span class="st">   SELECT * FROM 'data/ns-water_water-poly.fgb'</span></span>
+<span id="cb62-24"><a href="#cb62-24" aria-hidden="true" tabindex="-1"></a><span class="st">   WHERE ST_Intersects(geom, ST_GeomFromText('{bounds_poly |&gt; st_as_text()}'))</span></span>
+<span id="cb62-25"><a href="#cb62-25" aria-hidden="true" tabindex="-1"></a><span class="st">  "</span>)</span>
+<span id="cb62-26"><a href="#cb62-26" aria-hidden="true" tabindex="-1"></a>)</span>
+<span id="cb62-27"><a href="#cb62-27" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb62-28"><a href="#cb62-28" aria-hidden="true" tabindex="-1"></a><span class="co"># create elevation table</span></span>
+<span id="cb62-29"><a href="#cb62-29" aria-hidden="true" tabindex="-1"></a><span class="fu">dbExecute</span>(con, </span>
+<span id="cb62-30"><a href="#cb62-30" aria-hidden="true" tabindex="-1"></a>          <span class="st">"CREATE TABLE elevation AS SELECT * FROM 'data/ns-water_elevation.fgb'"</span>)</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div></li>
 <li><p>Find average elevations of lakes using a spatial join</p>
-<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb62"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb62-1"><a href="#cb62-1" aria-hidden="true" tabindex="-1"></a><span class="fu">dbGetQuery</span>(con, <span class="st">"</span></span>
-<span id="cb62-2"><a href="#cb62-2" aria-hidden="true" tabindex="-1"></a><span class="st">  SELECT objectid, AVG(ST_Z(elevation.geom)) FROM lakes</span></span>
-<span id="cb62-3"><a href="#cb62-3" aria-hidden="true" tabindex="-1"></a><span class="st">  LEFT JOIN elevation ON ST_Intersects(lakes.geom, elevation.geom)</span></span>
-<span id="cb62-4"><a href="#cb62-4" aria-hidden="true" tabindex="-1"></a><span class="st">  GROUP BY objectid</span></span>
-<span id="cb62-5"><a href="#cb62-5" aria-hidden="true" tabindex="-1"></a><span class="st">"</span>)</span>
-<span id="cb62-6"><a href="#cb62-6" aria-hidden="true" tabindex="-1"></a><span class="co">#&gt;      OBJECTID avg(st_z(elevation.geom))</span></span>
-<span id="cb62-7"><a href="#cb62-7" aria-hidden="true" tabindex="-1"></a><span class="co">#&gt; 1       22630                 208.36000</span></span>
-<span id="cb62-8"><a href="#cb62-8" aria-hidden="true" tabindex="-1"></a><span class="co">#&gt; 2       10909                 197.13625</span></span>
-<span id="cb62-9"><a href="#cb62-9" aria-hidden="true" tabindex="-1"></a><span class="co">#&gt; 3        8803                 195.68459</span></span>
-<span id="cb62-10"><a href="#cb62-10" aria-hidden="true" tabindex="-1"></a><span class="co">#&gt; 4       23875                 187.48333</span></span>
-<span id="cb62-11"><a href="#cb62-11" aria-hidden="true" tabindex="-1"></a><span class="co">#&gt; 5       20268                 207.87059</span></span>
-<span id="cb62-12"><a href="#cb62-12" aria-hidden="true" tabindex="-1"></a><span class="co">#&gt; 6       83574                 181.70000</span></span>
-<span id="cb62-13"><a href="#cb62-13" aria-hidden="true" tabindex="-1"></a><span class="co">#&gt; 7         790                 186.53571</span></span>
-<span id="cb62-14"><a href="#cb62-14" aria-hidden="true" tabindex="-1"></a><span class="co">#&gt; 8       18139                 144.80909</span></span>
-<span id="cb62-15"><a href="#cb62-15" aria-hidden="true" tabindex="-1"></a><span class="co">#&gt; 9       44854                 177.73333</span></span>
-<span id="cb62-16"><a href="#cb62-16" aria-hidden="true" tabindex="-1"></a><span class="co">#&gt; 10      13524                 195.97667</span></span>
-<span id="cb62-17"><a href="#cb62-17" aria-hidden="true" tabindex="-1"></a><span class="co">#&gt; 11      50440                 195.82500</span></span>
-<span id="cb62-18"><a href="#cb62-18" aria-hidden="true" tabindex="-1"></a><span class="co">#&gt; 12      57320                 198.13333</span></span>
-<span id="cb62-19"><a href="#cb62-19" aria-hidden="true" tabindex="-1"></a><span class="co">#&gt; 13      51145                 184.31429</span></span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div></li>
+<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb63"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb63-1"><a href="#cb63-1" aria-hidden="true" tabindex="-1"></a><span class="fu">dbGetQuery</span>(con, <span class="st">"</span></span>
+<span id="cb63-2"><a href="#cb63-2" aria-hidden="true" tabindex="-1"></a><span class="st">  SELECT objectid, AVG(ST_Z(elevation.geom)) FROM lakes</span></span>
+<span id="cb63-3"><a href="#cb63-3" aria-hidden="true" tabindex="-1"></a><span class="st">  LEFT JOIN elevation ON ST_Intersects(lakes.geom, elevation.geom)</span></span>
+<span id="cb63-4"><a href="#cb63-4" aria-hidden="true" tabindex="-1"></a><span class="st">  GROUP BY objectid</span></span>
+<span id="cb63-5"><a href="#cb63-5" aria-hidden="true" tabindex="-1"></a><span class="st">"</span>)</span>
+<span id="cb63-6"><a href="#cb63-6" aria-hidden="true" tabindex="-1"></a><span class="co">#&gt;      OBJECTID avg(st_z(elevation.geom))</span></span>
+<span id="cb63-7"><a href="#cb63-7" aria-hidden="true" tabindex="-1"></a><span class="co">#&gt; 1       22630                 208.36000</span></span>
+<span id="cb63-8"><a href="#cb63-8" aria-hidden="true" tabindex="-1"></a><span class="co">#&gt; 2       10909                 197.13625</span></span>
+<span id="cb63-9"><a href="#cb63-9" aria-hidden="true" tabindex="-1"></a><span class="co">#&gt; 3        8803                 195.68459</span></span>
+<span id="cb63-10"><a href="#cb63-10" aria-hidden="true" tabindex="-1"></a><span class="co">#&gt; 4       23875                 187.48333</span></span>
+<span id="cb63-11"><a href="#cb63-11" aria-hidden="true" tabindex="-1"></a><span class="co">#&gt; 5       20268                 207.87059</span></span>
+<span id="cb63-12"><a href="#cb63-12" aria-hidden="true" tabindex="-1"></a><span class="co">#&gt; 6       83574                 181.70000</span></span>
+<span id="cb63-13"><a href="#cb63-13" aria-hidden="true" tabindex="-1"></a><span class="co">#&gt; 7         790                 186.53571</span></span>
+<span id="cb63-14"><a href="#cb63-14" aria-hidden="true" tabindex="-1"></a><span class="co">#&gt; 8       18139                 144.80909</span></span>
+<span id="cb63-15"><a href="#cb63-15" aria-hidden="true" tabindex="-1"></a><span class="co">#&gt; 9       44854                 177.73333</span></span>
+<span id="cb63-16"><a href="#cb63-16" aria-hidden="true" tabindex="-1"></a><span class="co">#&gt; 10      13524                 195.97667</span></span>
+<span id="cb63-17"><a href="#cb63-17" aria-hidden="true" tabindex="-1"></a><span class="co">#&gt; 11      50440                 195.82500</span></span>
+<span id="cb63-18"><a href="#cb63-18" aria-hidden="true" tabindex="-1"></a><span class="co">#&gt; 12      57320                 198.13333</span></span>
+<span id="cb63-19"><a href="#cb63-19" aria-hidden="true" tabindex="-1"></a><span class="co">#&gt; 13      51145                 184.31429</span></span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div></li>
 <li><p>Reading data into R</p>
-<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb63"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb63-1"><a href="#cb63-1" aria-hidden="true" tabindex="-1"></a><span class="fu">library</span>(dbplyr)</span>
-<span id="cb63-2"><a href="#cb63-2" aria-hidden="true" tabindex="-1"></a><span class="fu">library</span>(geoarrow)</span>
-<span id="cb63-3"><a href="#cb63-3" aria-hidden="true" tabindex="-1"></a></span>
-<span id="cb63-4"><a href="#cb63-4" aria-hidden="true" tabindex="-1"></a><span class="fu">tbl</span>(con, <span class="fu">sql</span>(<span class="st">"SELECT geom FROM lakes LIMIT 5"</span>)) <span class="sc">|&gt;</span></span>
-<span id="cb63-5"><a href="#cb63-5" aria-hidden="true" tabindex="-1"></a>  arrow<span class="sc">::</span><span class="fu">to_arrow</span>() <span class="sc">|&gt;</span></span>
-<span id="cb63-6"><a href="#cb63-6" aria-hidden="true" tabindex="-1"></a>  <span class="fu">st_as_sf</span>()</span>
-<span id="cb63-7"><a href="#cb63-7" aria-hidden="true" tabindex="-1"></a><span class="co">#&gt; Simple feature collection with 5 features and 0 fields</span></span>
-<span id="cb63-8"><a href="#cb63-8" aria-hidden="true" tabindex="-1"></a><span class="co">#&gt; Geometry type: MULTIPOLYGON</span></span>
-<span id="cb63-9"><a href="#cb63-9" aria-hidden="true" tabindex="-1"></a><span class="co">#&gt; Dimension:     XYZ</span></span>
-<span id="cb63-10"><a href="#cb63-10" aria-hidden="true" tabindex="-1"></a><span class="co">#&gt; Bounding box:  xmin: 369038.9 ymin: 4965937 xmax: 371900.8 ymax: 4968380</span></span>
-<span id="cb63-11"><a href="#cb63-11" aria-hidden="true" tabindex="-1"></a><span class="co">#&gt; z_range:       zmin: 204.4 zmax: 221.4</span></span>
-<span id="cb63-12"><a href="#cb63-12" aria-hidden="true" tabindex="-1"></a><span class="co">#&gt; CRS:           NA</span></span>
-<span id="cb63-13"><a href="#cb63-13" aria-hidden="true" tabindex="-1"></a><span class="co">#&gt;                             geom</span></span>
-<span id="cb63-14"><a href="#cb63-14" aria-hidden="true" tabindex="-1"></a><span class="co">#&gt; 1 MULTIPOLYGON Z (((370253.3 ...</span></span>
-<span id="cb63-15"><a href="#cb63-15" aria-hidden="true" tabindex="-1"></a><span class="co">#&gt; 2 MULTIPOLYGON Z (((370253.3 ...</span></span>
-<span id="cb63-16"><a href="#cb63-16" aria-hidden="true" tabindex="-1"></a><span class="co">#&gt; 3 MULTIPOLYGON Z (((371068.9 ...</span></span>
-<span id="cb63-17"><a href="#cb63-17" aria-hidden="true" tabindex="-1"></a><span class="co">#&gt; 4 MULTIPOLYGON Z (((371136.9 ...</span></span>
-<span id="cb63-18"><a href="#cb63-18" aria-hidden="true" tabindex="-1"></a><span class="co">#&gt; 5 MULTIPOLYGON Z (((371900.7 ...</span></span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div></li>
+<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb64"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb64-1"><a href="#cb64-1" aria-hidden="true" tabindex="-1"></a><span class="fu">library</span>(dbplyr)</span>
+<span id="cb64-2"><a href="#cb64-2" aria-hidden="true" tabindex="-1"></a><span class="fu">library</span>(geoarrow)</span>
+<span id="cb64-3"><a href="#cb64-3" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb64-4"><a href="#cb64-4" aria-hidden="true" tabindex="-1"></a><span class="fu">tbl</span>(con, <span class="fu">sql</span>(<span class="st">"SELECT geom FROM lakes LIMIT 5"</span>)) <span class="sc">|&gt;</span></span>
+<span id="cb64-5"><a href="#cb64-5" aria-hidden="true" tabindex="-1"></a>  arrow<span class="sc">::</span><span class="fu">to_arrow</span>() <span class="sc">|&gt;</span></span>
+<span id="cb64-6"><a href="#cb64-6" aria-hidden="true" tabindex="-1"></a>  <span class="fu">st_as_sf</span>()</span>
+<span id="cb64-7"><a href="#cb64-7" aria-hidden="true" tabindex="-1"></a><span class="co">#&gt; Simple feature collection with 5 features and 0 fields</span></span>
+<span id="cb64-8"><a href="#cb64-8" aria-hidden="true" tabindex="-1"></a><span class="co">#&gt; Geometry type: MULTIPOLYGON</span></span>
+<span id="cb64-9"><a href="#cb64-9" aria-hidden="true" tabindex="-1"></a><span class="co">#&gt; Dimension:     XYZ</span></span>
+<span id="cb64-10"><a href="#cb64-10" aria-hidden="true" tabindex="-1"></a><span class="co">#&gt; Bounding box:  xmin: 369038.9 ymin: 4965937 xmax: 371900.8 ymax: 4968380</span></span>
+<span id="cb64-11"><a href="#cb64-11" aria-hidden="true" tabindex="-1"></a><span class="co">#&gt; z_range:       zmin: 204.4 zmax: 221.4</span></span>
+<span id="cb64-12"><a href="#cb64-12" aria-hidden="true" tabindex="-1"></a><span class="co">#&gt; CRS:           NA</span></span>
+<span id="cb64-13"><a href="#cb64-13" aria-hidden="true" tabindex="-1"></a><span class="co">#&gt;                             geom</span></span>
+<span id="cb64-14"><a href="#cb64-14" aria-hidden="true" tabindex="-1"></a><span class="co">#&gt; 1 MULTIPOLYGON Z (((370253.3 ...</span></span>
+<span id="cb64-15"><a href="#cb64-15" aria-hidden="true" tabindex="-1"></a><span class="co">#&gt; 2 MULTIPOLYGON Z (((370253.3 ...</span></span>
+<span id="cb64-16"><a href="#cb64-16" aria-hidden="true" tabindex="-1"></a><span class="co">#&gt; 3 MULTIPOLYGON Z (((371068.9 ...</span></span>
+<span id="cb64-17"><a href="#cb64-17" aria-hidden="true" tabindex="-1"></a><span class="co">#&gt; 4 MULTIPOLYGON Z (((371136.9 ...</span></span>
+<span id="cb64-18"><a href="#cb64-18" aria-hidden="true" tabindex="-1"></a><span class="co">#&gt; 5 MULTIPOLYGON Z (((371900.7 ...</span></span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div></li>
 </ul></li>
 </ul>
 </section>
 <section id="sec-db-duckdb-sec" class="level2 unnumbered">
 <h2 class="unnumbered anchored" data-anchor-id="sec-db-duckdb-sec">Security</h2>
 <ul>
+<li><p><a href="https://dailydrop.hrbrmstr.dev/2026/10/26/drop-789-2026-10-26-mile-high-drop/">hrbrmstr’s summary</a> of <a href="https://blog.starlake.ai/securing-duckdb-server-in-production">Starlake’s post</a> about their SQL gateway (i.e., “firewall”) for using DuckDB in production</p>
+<ul>
+<li>Issues: Credentials, Persistent Secrets, File System, Global Settings, Introspection, Dynamic SQL, Raw Passthrough, CLI as a Daemon</li>
+<li>Because DuckDB 2.0 supports backticks, string folding, and complex CTEs, a simple regex or basic parser in a security gateway can be bypassed. To solve this, you’d need to use a gateway that uses DuckDB’s own tokenizer to avoid “obfuscation” attacks.</li>
+<li>Checklist
+<ul>
+<li>Credentials: No secrets in env vars or command lines; use temporary secrets.</li>
+<li>Storage: <code>secret_directory</code> is locked and read-only.</li>
+<li>Isolation: Each process has a private working and spill directory.</li>
+<li>Access Control: File path access is disabled for general users.</li>
+<li>Settings: Node-wide settings are frozen after startup.</li>
+<li>Privacy: Metadata/Log tables are restricted to admins.</li>
+<li>Validation: Dynamic SQL and macros are blocked or strictly audited.</li>
+<li>Remote Security: Remote DBs are connected via read-only roles.</li>
+<li>Process Mgmt: stdin closed; <code>-init</code> used for setup.</li>
+</ul></li>
+</ul></li>
+<li><p>Encryption</p>
+<ul>
 <li><p><a href="https://duckdb.org/2025/11/19/encryption-in-duckdb">Intro</a></p></li>
 <li><p>Open an encrypted database file (<a href="https://katharinabrunner.de/2026/01/how-to-use-an-encrypted-duckdb-in-r/">source</a>)</p>
-<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb64"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb64-1"><a href="#cb64-1" aria-hidden="true" tabindex="-1"></a></span>
-<span id="cb64-2"><a href="#cb64-2" aria-hidden="true" tabindex="-1"></a><span class="co"># connect to an encrypted database</span></span>
-<span id="cb64-3"><a href="#cb64-3" aria-hidden="true" tabindex="-1"></a><span class="co"># first remote an in-memory database</span></span>
-<span id="cb64-4"><a href="#cb64-4" aria-hidden="true" tabindex="-1"></a>con <span class="ot">&lt;-</span> DBI<span class="sc">::</span><span class="fu">dbConnect</span>(duckdb<span class="sc">::</span><span class="fu">duckdb</span>())</span>
-<span id="cb64-5"><a href="#cb64-5" aria-hidden="true" tabindex="-1"></a></span>
-<span id="cb64-6"><a href="#cb64-6" aria-hidden="true" tabindex="-1"></a><span class="co"># attach the encrypted db</span></span>
-<span id="cb64-7"><a href="#cb64-7" aria-hidden="true" tabindex="-1"></a>query_read_encrypted_db <span class="ot">&lt;-</span> <span class="fu">glue</span>(</span>
-<span id="cb64-8"><a href="#cb64-8" aria-hidden="true" tabindex="-1"></a>  <span class="st">"ATTACH 'encrypted.duckdb' AS enc (ENCRYPTION_KEY 'YOUR_KEY_POSSIBLY_A_STRING_GENERATED_BY_YOUR_PASSWORD_MANAGER_THAT_YOU_OF_COURSE_USE');</span></span>
-<span id="cb64-9"><a href="#cb64-9" aria-hidden="true" tabindex="-1"></a><span class="st">USE enc;"</span></span>
-<span id="cb64-10"><a href="#cb64-10" aria-hidden="true" tabindex="-1"></a>)</span>
-<span id="cb64-11"><a href="#cb64-11" aria-hidden="true" tabindex="-1"></a>DBI<span class="sc">::</span><span class="fu">dbExecute</span>(con, query_read_encrypted_db)</span>
-<span id="cb64-12"><a href="#cb64-12" aria-hidden="true" tabindex="-1"></a></span>
-<span id="cb64-13"><a href="#cb64-13" aria-hidden="true" tabindex="-1"></a><span class="co"># read tables</span></span>
-<span id="cb64-14"><a href="#cb64-14" aria-hidden="true" tabindex="-1"></a>dplyr<span class="sc">::</span><span class="fu">tbl</span>(con, <span class="st">"my_table"</span>)</span>
-<span id="cb64-15"><a href="#cb64-15" aria-hidden="true" tabindex="-1"></a></span>
-<span id="cb64-16"><a href="#cb64-16" aria-hidden="true" tabindex="-1"></a>DBI<span class="sc">::</span><span class="fu">disconnect</span>(con)</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
+<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb65"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb65-1"><a href="#cb65-1" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb65-2"><a href="#cb65-2" aria-hidden="true" tabindex="-1"></a><span class="co"># connect to an encrypted database</span></span>
+<span id="cb65-3"><a href="#cb65-3" aria-hidden="true" tabindex="-1"></a><span class="co"># first remote an in-memory database</span></span>
+<span id="cb65-4"><a href="#cb65-4" aria-hidden="true" tabindex="-1"></a>con <span class="ot">&lt;-</span> DBI<span class="sc">::</span><span class="fu">dbConnect</span>(duckdb<span class="sc">::</span><span class="fu">duckdb</span>())</span>
+<span id="cb65-5"><a href="#cb65-5" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb65-6"><a href="#cb65-6" aria-hidden="true" tabindex="-1"></a><span class="co"># attach the encrypted db</span></span>
+<span id="cb65-7"><a href="#cb65-7" aria-hidden="true" tabindex="-1"></a>query_read_encrypted_db <span class="ot">&lt;-</span> <span class="fu">glue</span>(</span>
+<span id="cb65-8"><a href="#cb65-8" aria-hidden="true" tabindex="-1"></a>  <span class="st">"ATTACH 'encrypted.duckdb' AS enc (ENCRYPTION_KEY 'YOUR_KEY_POSSIBLY_A_STRING_GENERATED_BY_YOUR_PASSWORD_MANAGER_THAT_YOU_OF_COURSE_USE');</span></span>
+<span id="cb65-9"><a href="#cb65-9" aria-hidden="true" tabindex="-1"></a><span class="st">USE enc;"</span></span>
+<span id="cb65-10"><a href="#cb65-10" aria-hidden="true" tabindex="-1"></a>)</span>
+<span id="cb65-11"><a href="#cb65-11" aria-hidden="true" tabindex="-1"></a>DBI<span class="sc">::</span><span class="fu">dbExecute</span>(con, query_read_encrypted_db)</span>
+<span id="cb65-12"><a href="#cb65-12" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb65-13"><a href="#cb65-13" aria-hidden="true" tabindex="-1"></a><span class="co"># read tables</span></span>
+<span id="cb65-14"><a href="#cb65-14" aria-hidden="true" tabindex="-1"></a>dplyr<span class="sc">::</span><span class="fu">tbl</span>(con, <span class="st">"my_table"</span>)</span>
+<span id="cb65-15"><a href="#cb65-15" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb65-16"><a href="#cb65-16" aria-hidden="true" tabindex="-1"></a>DBI<span class="sc">::</span><span class="fu">disconnect</span>(con)</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
 <ul>
 <li>Main difference is that youopen an in-memory database first and then ATTACH the encrypted file</li>
 </ul></li>
 <li><p>Create an encrypted file (<a href="https://katharinabrunner.de/2026/01/how-to-use-an-encrypted-duckdb-in-r/">source</a>)</p>
-<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb65"><pre class="sourceCode sql code-with-copy"><code class="sourceCode sql"><span id="cb65-1"><a href="#cb65-1" aria-hidden="true" tabindex="-1"></a>ATTACH <span class="st">'unencrypted.duckdb'</span> <span class="kw">AS</span> unenc;</span>
-<span id="cb65-2"><a href="#cb65-2" aria-hidden="true" tabindex="-1"></a>ATTACH <span class="st">'encrypted.duckdb'</span> <span class="kw">AS</span> enc (ENCRYPTION_KEY <span class="st">'YOUR_KEY_POSSIBLY_A_STRING_GENERATED_BY_YOUR_PASSWORD_MANAGER_THAT_YOU_OF_COURSE_USE'</span>);</span>
-<span id="cb65-3"><a href="#cb65-3" aria-hidden="true" tabindex="-1"></a><span class="kw">USE</span> unenc;</span>
-<span id="cb65-4"><a href="#cb65-4" aria-hidden="true" tabindex="-1"></a><span class="kw">COPY</span> <span class="kw">FROM</span> <span class="kw">DATABASE</span> unenc <span class="kw">TO</span> enc;</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div></li>
+<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb66"><pre class="sourceCode sql code-with-copy"><code class="sourceCode sql"><span id="cb66-1"><a href="#cb66-1" aria-hidden="true" tabindex="-1"></a>ATTACH <span class="st">'unencrypted.duckdb'</span> <span class="kw">AS</span> unenc;</span>
+<span id="cb66-2"><a href="#cb66-2" aria-hidden="true" tabindex="-1"></a>ATTACH <span class="st">'encrypted.duckdb'</span> <span class="kw">AS</span> enc (ENCRYPTION_KEY <span class="st">'YOUR_KEY_POSSIBLY_A_STRING_GENERATED_BY_YOUR_PASSWORD_MANAGER_THAT_YOU_OF_COURSE_USE'</span>);</span>
+<span id="cb66-3"><a href="#cb66-3" aria-hidden="true" tabindex="-1"></a><span class="kw">USE</span> unenc;</span>
+<span id="cb66-4"><a href="#cb66-4" aria-hidden="true" tabindex="-1"></a><span class="kw">COPY</span> <span class="kw">FROM</span> <span class="kw">DATABASE</span> unenc <span class="kw">TO</span> enc;</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div></li>
+</ul></li>
 </ul>
 
 

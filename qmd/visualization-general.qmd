@@ -942,6 +942,7 @@
 ## Interactivity {#sec-vis-gen-inter .unnumbered}
 
 - Packages
+
   - [CRAN Task View: Dynamic Visualizations and Interactive Graphics](https://cran.r-project.org/view=DynamicVisualizations)
   - [{]{style="color: #990000"}[apexcharter](https://dreamrs.github.io/apexcharter/){style="color: #990000"}[}]{style="color: #990000"}
     - Good for mobile
@@ -965,12 +966,135 @@
     - i.e. All plots are synced. Any interaction in one, happens in all the other ones.
   - [{]{style="color: #990000"}[SveltePlots](https://pascal-schmidt.github.io/SveltePlots/){style="color: #990000"}[}]{style="color: #990000"} - Designed to enhance Shiny applications by utilizing the power of Svelte and Javascript. This library is a wrapper for a custom Svelte web component that leverages SVG to create interactive and dynamic charts.
     - Eliminates the need for `proxy` functions, `renderUI`, `insertUI`, and `removeUI` in Shiny, simplifying your code and enhancing maintainability
+
 - [{plotly::ggplotly}]{style="color: #990000"} vs [{ggiraph}]{style="color: #990000"} ([source](https://charliejhadley.com/posts/2026-01-05/#plotly-might-not-be-the-best-tool-for-you-anyway))
+
   - It’s very common to see [{plotly}]{style="color: #990000"} charts in Shiny apps that work fine on desktop but are squashed, difficult to read and not great to jab at with your finger. The Plotly touch points are very small.
   - The `ggplotly()` function does complicated magic to convert ggplot2 charts to plotly charts. It can often go very wrong and you spend more time trying to fix that than making the chart.
   - [{ggiraph}]{style="color: #990000"} honours your ggplot2 theme choices whereas you’ll need to fight against Plotly’s styles with `ggplotly()`
   - [{ggiraph}]{style="color: #990000"} generates SVG which gives you lots of flexbility, including opening up accessibility options
-  - [{plotly}]{style="color: #990000"} has extremely limited tooltip options. You can fully customise them, even including other {htmlwidgets} within the tooltip
+  - [{plotly}]{style="color: #990000"} has extremely limited tooltip options. You can fully customize them, even including other htmlwidgets within the tooltip
+
+- [Example]{.ribbon-highlight}: Adding a filter dropdown to [{ggiraph}]{style="color: #990000"} ([source](https://nrennie.rbind.io/blog/interactive-charts-ggiraph/), [document](https://nrennie.rbind.io/blog/interactive-charts-ggiraph/_example.qmd))
+
+  ::: panel-tabset
+  ## Set-Up
+
+  ```` markdown
+  ---
+  format: 
+    html: 
+      embed-resources: true
+  execute: 
+    eval: true
+    echo: false
+    warning: false
+  ---
+
+  ```{{r}}
+  library(ggplot2)
+  library(dplyr)
+  library(ggiraph)
+  library(htmltools)
+  ```
+
+  ```{{r}}
+  set.seed(20261027)
+  plot_data <- diamonds |>
+    group_by(cut) |>
+    slice_sample(n = 100) |>
+    ungroup()
+  ```
+  ````
+
+  - [embed-resources: true]{.arg-text} is key. This is also needed when you use any package that uses htmlwidgets which is probably every interactive visualization R package.
+
+  ## Dropdown and Chart
+
+  ```` markdown
+  ```{{r}}
+  options_vec <- levels(diamonds$cut)
+  names(options_vec) <- options_vec
+  ```
+
+  ```{{r}}
+  dropdown_html <- tags$div(
+    tags$select(
+      id = "dropdown",
+      lapply(
+        names(options_vec),
+        function(name) {
+          tags$option(
+            value =
+              options_vec[[name]],
+            name
+          )
+        }
+      )
+    )
+  )
+  ```
+
+  ```{{r}}
+  g <- ggplot(
+    data = plot_data,
+    mapping = aes(x = carat, y = price)
+  ) +
+    geom_point_interactive(
+      mapping = aes(tooltip = cut, data_id = cut)
+    )
+  ```
+
+
+  ```{{r}}
+  g_int <- girafe(ggobj = g)
+  ```
+  ````
+
+  - The names are what is presented to a user in the dropdown, and the values are what is used to match rows. If the names aren't human friendly, then this something that can be easily changed here.
+  - If you want to add some styling to your dropdown to, for example, set a minimum width or use different colors, you can add some CSS that either targets all `select` elements or specifically looks for your `#dropdown` menu.
+  - The column in our data that matches up to the dropdown values (not names) is mapped to the [data_id]{.arg-text} aesthetic
+
+  ## JS
+
+  ```` markdown
+  ```{{r}}
+  browsable(
+    tagList(
+      dropdown_html,
+      g_int,
+      tags$script(HTML("
+        function filterByDropdown(selected) {
+          document.querySelectorAll('[data-id]').forEach(el => {
+            if (el.getAttribute('data-id') === selected) {
+              el.setAttribute('style', 'display:block;');
+            } else {
+              el.setAttribute('style', 'display:none;');
+            }
+          });
+        }
+
+        document.getElementById('dropdown').addEventListener('change', function() {
+          filterByDropdown(this.value);
+        });
+
+        document.addEventListener('DOMContentLoaded', function() {
+          const initialSelected = document.getElementById('dropdown').value;
+          filterByDropdown(initialSelected);
+        });
+      "))
+    )
+  )
+  ```
+  ````
+
+  - The dropdown and chart object are passed into `tagList` from [{htmltools}]{style="color: #990000"} to keep them together when rendering
+    - I assume you could add multiple chart objects here and have them filtered by the dropdown
+    - You could perhaps include a layout of chart objects. The ggiraph book shows how to use a patchwork-like syntax to do this.
+  - The first JS chunk is a conditional that says if the [cut]{.var-text} value (mapped in [data_id]{.arg-text}) of a specific point is equal to the selected value in the dropdown, then it should be displayed. Otherwise, it should not be displayed.
+  - The second JS chunk tells the chart to update and run the `if` statement function every time the dropdown menu is updated to select a different value.
+  - The last JS chunk forces the `if` statement to run with the initial default value when the page loads.
+  :::
 
 ## Chart Types {#sec-vis-gen-types .unnumbered}
 
