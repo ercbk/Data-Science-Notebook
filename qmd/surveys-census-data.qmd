@@ -239,9 +239,9 @@ lightbox:
 
 ### Misc {#sec-surv-cens-acs-misc .unnumbered}
 
+- [ACS website](https://www.census.gov/programs-surveys/acs/)
 - Heiss's [notebook](https://stats.andrewheiss.com/zany-zebra/notebook/acs-data.html) on accessing ACS
 - Default MOE is a 90%CI
-- [Popular variable calculations from variables in ACS](https://stats.andrewheiss.com/zany-zebra/notebook/acs-data.html)
 - Also see [tidycensus \>\> Variables](surveys-census-data.qmd#sec-surv-cens-tidyc-vars){style="color: green"}
 - The 2020 1-year ACS was not released (and is not in tidycensus), so your time-series can break if you are using a loop to pull data
 - Also see [Post-Hoc, General \>\> Dichotomous Data \>\> Mean (Probability of Event + CI](post-hoc-analysis-general.qmd#sec-phoc-gen-dd-poe){style="color: green"} \>\> Small/FInite Population \>\> Comparative Study of Confidence Intervals for Proportions in Complex Sample Surveys for CI estimation of small population
@@ -255,6 +255,7 @@ lightbox:
   - Available as 1-year estimates (for geographies of population 65,000 and greater) and 5-year estimates (for geographies down to the block group)
     - **1-Year**: Useful for getting the most up-to-date estimates
       - Not all variables will be available even if your geography has over 65K people for confidentiality or accuracy concerns)
+        - Some counties are combined to reach that 65K threshold
       - Some MOEs might be larger than the estimate
       - If the geography you choose has a lot of NAs, try moving up to a larger geography
         - Also see [Geographies](surveys-census-data.qmd#sec-surv-cens-geo){style="color: green"} \>\> Misc
@@ -275,7 +276,61 @@ lightbox:
     - **5-Year**: Useful for smaller geographies and when lower MOEs are necessary.
   - Detailed social, economic, housing, and demographic characteristics. Variables covering e.g. income, education, language, housing characteristics
   - Smallest geography is the Block Group
-  - [census.gov/acs](http://census.gov/acs)
+
+- [Variables]{.underline}
+
+  - Also see [tidycensus \>\> Variables](#sec-surv-cens-tidyc-vars){.color: .green}
+  - [Popular variable calculations from variables in ACS](https://stats.andrewheiss.com/zany-zebra/notebook/acs-data.html)
+  - When you download a variable from ACS, you'll get a "E" value for the Estimate and a "M" value for the Margin of Error.
+  - When calculating new variables (e.g. proportions, sums, etc.), [{tidycensus}]{style="color: #990000"} has helper functions to properly calculate the MOE for the new variable: [`moe_product`](https://walker-data.com/tidycensus/reference/moe_product.html), [`moe_prop`](https://walker-data.com/tidycensus/reference/moe_prop.html), [`moe_ratio`](https://walker-data.com/tidycensus/reference/moe_ratio.html), and [`moe_sum`](https://walker-data.com/tidycensus/reference/moe_sum.html)
+  - Get the unit of measurement (aka universe) for a variable (e.g. occupied housing unit, aka household)
+    - `tidycensus::load_variables` should have a universe (geography) column, but it may not.
+    - Get it from the API yourself
+      - [Example]{.ribbon-highlight}: 2025 ACS 1-Year
+
+        ``` r
+        library(dplyr)
+
+        url <- "https://api.census.gov/data/2025/acs/acs1/groups.json"
+
+        groups <- jsonlite::fromJSON(url)$groups |>
+          as_tibble() |>
+          select(name, description, universe = `universe `)
+        ```
+
+        - Then use the data viewer in RStudio and filter your variable or do it programmatically
+    - Download the Table List spreadsheet from the website
+      1.  Go to the [ACS website](https://www.census.gov/programs-surveys/acs/)
+      2.  Go to "Technical Documentation" on the left panel
+      3.  Go to "Table Shells and Table List" on the left panel
+      4.  Select year and under the header "Table List," download the file., e.g. "2025 ACS 1-Year Table List"
+      5.  Open in R, e.g. `acs_meta <- readxl::read_xlsx("../Downloads/2025_1Year_DataProductList.xlsx")`
+      6.  Filter your variable in the viewer or programmatically and check the universe
+  - Examples
+    - [Example]{.ribbon-highlight}: Calculating a Proportion and its MOE
+
+      ``` r
+      ev <- get_acs(
+        geography = "public use microdata area",
+        variables = c(total = "B25147_001", ev = "B25147_004"),
+        year = 2025,
+        survey = "acs1",
+        output = "wide",
+        geometry = TRUE
+      ) |>
+        mutate(
+          pct_ev = 100 * evE / totalE,
+          pct_ev_moe = 100 * moe_prop(
+            num = evE, 
+            denom = totalE, 
+            moe_num = evM, 
+            moe_denom = totalM),
+          puma = str_replace(NAME, " PUMA; ", ", ")
+        )
+      ```
+
+      - See [Geospatial, Mapping \>\> Choropleths](geospatial-mapping.qmd#sec-geo-map-choro) \>\> Example 7 for the map
+      - The proportion is the percent of households (aka "occupied housing units") with electric vehicles
 
 - [ACS Release Schedule]{.underline} ([releases](https://census.gov/programs-surveys/acs/news/data-releases.html))
 
