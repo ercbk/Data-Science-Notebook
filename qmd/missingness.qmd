@@ -499,3 +499,47 @@
       - The proximity matrix procedure is done for each copy
       - Then a prediction for each copy with it's new value is made in each tree of the forest. (of course the label for each copy has now been stripped)
       - Whichever copy had it's (stripped) outcome label predicted correctly by the most trees wins and that label is prediction for that observation
+
+## Examples
+
+- [Example]{.ribbon-highlight}: Pooled Prediction Intervals ([source](https://bsky.app/profile/thomvolker.bsky.social/post/3n2nnoqhkbk2z))\
+  ![](_resources/Missingness.resources/ex1-pooled-pis.png){.lightbox width="432"}
+
+  ``` r
+  library(ggplot2)
+  library(mice, warn.conflicts = FALSE)
+
+  imp <- mice(nhanes, m = 5, maxit = 5, seed = 1, 
+              ignore = rep(c(FALSE, TRUE), c(20, 5)), 
+              print = FALSE)
+
+  impdats <- complete(imp, "all")
+
+  train <- lapply(impdats, function(dat) subset(dat, !imp$ignore))
+  test <- lapply(impdats, function(dat) subset(dat, imp$ignore))
+
+  fits <- lapply(train, function(dat) lm(age ~ bmi + hyp + chl, data = dat))
+  preds <- predict_mi(object = fits, newdata = test, pool = TRUE, interval = "prediction")
+
+  preds
+  #>          fit           lwr      upr
+  #> 21 1.2856532 -0.4231284776 2.994435
+  #> 22 1.1543050 -0.0001750499 2.308785
+  #> 23 0.7975732 -0.3635221537 1.958669
+  #> 24 2.1409843  0.4652017949 3.816767
+  #> 25 1.3625221  0.2931693732 2.431875
+
+  preds |>  
+    as.data.frame() |> 
+    dplyr::mutate(case = 1:nrow(preds),
+                  y = test[[1]]$age) |> 
+    ggplot(aes(x = fit, y = case, col = rowSums(is.na(nhanes[imp$ignore,]))>0)) +
+    geom_point() +
+    geom_errorbar(aes(xmin = lwr, xmax = upr)) +
+    theme_notebook() +
+    scale_color_manual(values = mice::mdc(1:2), labels = c("observed", "missing")) +
+    theme(legend.title = element_blank(),
+          legend.position = "bottom") +
+    labs(x = "prediction",
+         title = "Pooled prediction intervals")
+  ```
