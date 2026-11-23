@@ -412,6 +412,59 @@
 - If treatment involves more than a single dose, and people can withdraw midway through the program.
   - Report the Intention To Treat (ITT) metric, which is the impact of being *assigned* to treatment ($Y_{z=1} − Y_{z=0}$) rather than the impact of being treated.
 
+## Controlled Direct Effect (CDE) {#sec-exp-anal-cde .unnumbered}
+
+- The effect of the drug versus placebo in a hypothetical world where nobody receives co-intervention (e.g. rescue medication).
+  - This is the "hypothetical" estimand in the ICH E9(R1) addendum.
+  - Regulators and trialists often want it because real-world rescue use muddies the comparison.
+  - If more placebo patients need rescue medication, the observed difference understates the drug's own pharmacological effect.
+- DAG\
+  ![](_resources/Experiments,_Analysis.resources/cde-dag-1.jpg){.lightbox}
+  - The drug ([A]{.var-text}) affects how the patient does ([L]{.var-text}), which prompts rescue medication ([M]{.var-text}), and both [A]{.var-text} and [M]{.var-text} can affect the final outcome ([Y]{.var-text})
+  - No unobserved confounding of [A]{.var-text} and [Y]{.var-text} (randomization)
+  - No unobserved confounding of [M]{.var-text} and [Y]{.var-text}
+    - Rescue medication ([M]{.var-text}) is not randomized, so you need to have measured everything that drives both [M]{.var-text} and [Y]{.var-text}. Here that means [C]{.var-text} and [L]{.var-text}, with [L]{.var-text} being the time-varying confounder affected by [A]{.var-text}.
+    - Because [L]{.var-text} is both a confounder of `M→Y` and a descendant of [A]{.var-text}, ordinary regression adjustment fails. Adjusting for [L]{.var-text} blocks part of [A]{.var-text}'s effect, and not adjusting leaves `M→Y` confounded. G-formula, IPW, etc. methods handle that situation (See Examples).
+  - The **natural/pure effects** are not identified because of [L]{.var-text}.
+    - If you omit [L]{.var-text}, use packages like [{causalweight, mediation, CMAverse, medflex, etc.}]{style="color: #990000"} to estimate the natural direct/indirect effect.
+  - [A]{.var-text}: Rrandomized assigned treatment, drug vs. placebo
+  - [C]{.var-text}: Baseline covariates (age, sex, disease severity, comorbidities)
+  - [L]{.var-text}: Intermediate clinical variable affected by treatment, e.g. an early symptom flare or a mid-trial lab value
+  - [M]{.var-text}: Co-intervention, e.g. rescue medication use or switching to another therapy, which is influenced by [A]{.var-text}, [C]{.var-text}, and [L]{.var-text} (clinicians prescribe it when the patient does badly)
+  - [Y]{.var-text}: Clinical outcome at the end of follow-up
+- Formula\
+  $$
+  \text{CDE} = \mathbb{E}(Y(A = a, M = 0) - Y(A=a', M = 0))
+  $$
+- Usage Examples
+  - Oncology trials where patients switch to another therapy after progression (treatment switching), with the hypothetical estimand "had no one switched"
+  - Vaccine trials where participants might receive other prophylaxis
+  - Trials of an exercise or diet intervention where participants might start medication
+  - Observational studies of a drug where you want the effect holding concurrent therapy fixed
+- Examples
+  - [Example 1]{.ribbon-highlight}: See DAG ([source](https://bsky.app/profile/csthiago.bsky.social/post/3n2oqfax5kk2i))
+
+    ``` r
+    library(WeightIt)
+
+    Wmsm <- weightitMSM(
+      list(A ~ C, M ~ A + C + L), 
+      data = data
+    )
+
+    fit <- glm_weightit(
+      Y ~ A * M, 
+      data = data, 
+      weightit = Wmsm
+    )
+
+    marginaleffects::avg_predictions(
+      fit, 
+      variables = list(A = c(0, 1), M = 0), 
+      hypothesis = ~pairwise
+    )
+    ```
+
 ## Change Score Models {#sec-exp-anal-csm .unnumbered}
 
 - **Change Scores** - Subtract the baseline value of the outcome from the value measured at the end of the study and use that difference for your statistical tests or models.
